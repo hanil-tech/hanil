@@ -88,6 +88,56 @@ public class RemoteAccessPolicyTests : IClassFixture<ServerFixture>
     }
 
     [Fact]
+    public async Task 원격_제어_프로그램_차단_설정이_전달된다()
+    {
+        var device = await DeviceClient.EnrollAsync(_server, "원격도구-PC");
+        var before = await device.HeartbeatAsync();
+
+        await _server.WithDbAsync(async db =>
+        {
+            var policy = await db.DefaultPolicies.FirstAsync();
+            policy.BlockRemoteTools = true;
+            policy.ExtraRemoteToolNamesJson = "[\"사내원격\",\"mytool\"]";
+            policy.Version++;
+            await db.SaveChangesAsync();
+        });
+
+        var after = await device.HeartbeatAsync(policyStamp: before.PolicyStamp);
+
+        Assert.NotNull(after.Policy);
+        Assert.True(after.Policy!.BlockRemoteTools);
+        Assert.Contains("사내원격", after.Policy.ExtraRemoteToolNames);
+        Assert.Contains("mytool", after.Policy.ExtraRemoteToolNames);
+    }
+
+    [Fact]
+    public async Task 보안_기록이_서버에_쌓인다()
+    {
+        var device = await DeviceClient.EnrollAsync(_server, "보안기록-PC");
+
+        // 클라이언트가 원격 제어 프로그램을 발견해 보고한 상황을 흉내낸다.
+        await device.PostAsync(ServerRoutes.Events, new EventReport
+        {
+            Entries = new List<EventEntry>
+            {
+                new()
+                {
+                    At = DateTimeOffset.Now,
+                    Category = "보안",
+                    Message = "TeamViewer 프로그램이 돌고 있어 종료했습니다."
+                }
+            }
+        });
+
+        var security = await _server.WithDbAsync(db => db.DeviceEvents
+            .Where(e => e.DeviceId == device.DeviceId && e.Category == "보안")
+            .ToListAsync());
+
+        Assert.Single(security);
+        Assert.Contains("TeamViewer", security[0].Message);
+    }
+
+    [Fact]
     public async Task 제외_계정은_계정_잠금에서도_빠진다()
     {
         var device = await DeviceClient.EnrollAsync(_server, "제외계정-PC");

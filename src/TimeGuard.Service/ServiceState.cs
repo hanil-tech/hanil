@@ -101,6 +101,8 @@ public sealed class ServiceState
             _config.HolidayPolicy = policy.HolidayPolicy;
             _config.ExemptUsers = policy.ExemptUsers ?? _config.ExemptUsers;
             _config.BlockRemoteAccess = policy.BlockRemoteAccess;
+            _config.BlockRemoteTools = policy.BlockRemoteTools;
+            _config.ExtraRemoteToolNames = policy.ExtraRemoteToolNames ?? _config.ExtraRemoteToolNames;
             _config.ExtensionUntil = policy.ExtensionUntil;
             _config.SuspendedUntil = policy.SuspendedUntil;
 

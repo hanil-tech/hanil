@@ -27,6 +27,9 @@ public sealed class EventsModel : PageModel
     public List<string> CategoryOptions { get; private set; } = new();
     public int PendingRequestCount { get; private set; }
 
+    /// <summary>최근 보안 관련 기록 수. 관리자가 놓치지 않도록 눈에 띄게 알린다.</summary>
+    public int SecurityCount { get; private set; }
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         DeviceOptions = await _db.Devices
@@ -63,5 +66,10 @@ public sealed class EventsModel : PageModel
 
         PendingRequestCount = await _db.ExtensionRequests
             .CountAsync(r => r.Status == RequestStatus.Pending, cancellationToken);
+
+        // 최근 일주일 안의 보안 기록만 센다. 오래된 것까지 세면 늘 빨갛게 남는다.
+        var since = DateTimeOffset.Now.AddDays(-7);
+        SecurityCount = await _db.DeviceEvents
+            .CountAsync(e => e.Category == "보안" && e.At > since, cancellationToken);
     }
 }

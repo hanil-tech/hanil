@@ -24,6 +24,9 @@ public sealed class PolicyModel : PageModel
     public GuardAction Action { get; private set; } = GuardAction.Shutdown;
     public HolidayPolicy HolidayPolicy { get; private set; } = HolidayPolicy.Blocked;
     public bool BlockRemoteAccess { get; private set; }
+    public bool BlockRemoteTools { get; private set; }
+    public string ExtraRemoteToolsText { get; private set; } = string.Empty;
+    public IReadOnlyList<string> KnownRemoteTools { get; } = RemoteTools.DefaultDisplayNames.ToList();
     public string HolidaysText { get; private set; } = string.Empty;
     public string ExemptUsersText { get; private set; } = string.Empty;
     public string NoticeMinutesText { get; private set; } = string.Empty;
@@ -36,6 +39,8 @@ public sealed class PolicyModel : PageModel
         string action,
         string holidayPolicy,
         bool blockRemoteAccess,
+        bool blockRemoteTools,
+        string? extraRemoteTools,
         string? noticeMinutes,
         int countdownSeconds,
         int graceSeconds,
@@ -111,6 +116,10 @@ public sealed class PolicyModel : PageModel
         policy.HolidaysJson = JsonSerializer.Serialize(normalizedHolidays, IpcJson.Options);
         policy.ExemptUsersJson = JsonSerializer.Serialize(SplitList(exemptUsers), IpcJson.Options);
         policy.BlockRemoteAccess = blockRemoteAccess;
+        policy.BlockRemoteTools = blockRemoteTools;
+        policy.ExtraRemoteToolNamesJson = JsonSerializer.Serialize(
+            SplitList(extraRemoteTools).Select(RemoteTools.Normalize).Where(n => n.Length > 0).ToList(),
+            IpcJson.Options);
 
         await _policies.BumpDefaultVersionAsync(User.Identity?.Name ?? "관리자", cancellationToken);
 
@@ -130,6 +139,9 @@ public sealed class PolicyModel : PageModel
             : Core.Config.HolidayPolicy.Blocked;
 
         BlockRemoteAccess = policy.BlockRemoteAccess;
+        BlockRemoteTools = policy.BlockRemoteTools;
+        ExtraRemoteToolsText = string.Join(", ",
+            Deserialize<List<string>>(policy.ExtraRemoteToolNamesJson) ?? new List<string>());
         HolidaysText = string.Join(", ", Deserialize<List<string>>(policy.HolidaysJson) ?? new List<string>());
         ExemptUsersText = string.Join(", ", Deserialize<List<string>>(policy.ExemptUsersJson) ?? new List<string>());
         NoticeMinutesText = string.Join(", ", Warnings.OrderedNoticeMinutes);

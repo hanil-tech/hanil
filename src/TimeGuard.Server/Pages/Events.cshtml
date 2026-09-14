@@ -6,7 +6,15 @@
 }
 
 <h1>기록</h1>
-<p class="subtitle">모든 PC 에서 올라온 기록입니다. 언제 어느 PC 가 꺼졌는지 여기서 확인할 수 있습니다.</p>
+<p class="subtitle">모든 PC 에서 올라온 기록입니다. 언제 어느 PC 가 꺼졌는지, 원격으로 들어오려 한 시도가 있었는지 확인할 수 있습니다.</p>
+
+@if (Model.SecurityCount > 0 && Model.Category != "보안")
+{
+    <div class="alert error">
+        원격 접속 시도 등 <strong>보안 관련 기록이 @Model.SecurityCount 건</strong> 있습니다.
+        <a asp-page="/Events" asp-route-category="보안">보안 기록만 보기</a>
+    </div>
+}
 
 <div class="panel">
     <form method="get" class="row" style="align-items:flex-end">
@@ -57,7 +65,16 @@ else
             <tr>
                 <td class="muted">@entry.At.Local("yyyy-MM-dd HH:mm:ss")</td>
                 <td>@entry.DeviceName</td>
-                <td>@entry.Category</td>
+                <td>
+                    @if (entry.Category == "보안")
+                    {
+                        <span class="state blocked">보안</span>
+                    }
+                    else
+                    {
+                        @entry.Category
+                    }
+                </td>
                 <td>@entry.Message</td>
             </tr>
         }

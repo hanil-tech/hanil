@@ -62,6 +62,8 @@ public sealed class PolicyService
                 : Core.Config.HolidayPolicy.Blocked,
             ExemptUsers = Deserialize<List<string>>(defaults.ExemptUsersJson) ?? new List<string>(),
             BlockRemoteAccess = defaults.BlockRemoteAccess,
+            BlockRemoteTools = defaults.BlockRemoteTools,
+            ExtraRemoteToolNames = Deserialize<List<string>>(defaults.ExtraRemoteToolNamesJson) ?? new List<string>(),
             // 저장은 UTC 로 하지만 클라이언트 화면에는 지역 시각으로 보여야 하므로 변환해 보낸다.
             ExtensionUntil = device.ExtensionUntil?.ToLocalTime(),
             SuspendedUntil = device.SuspendedUntil?.ToLocalTime(),

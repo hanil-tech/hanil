@@ -77,6 +77,20 @@ public sealed class GuardConfig
     /// </summary>
     public bool BlockRemoteAccess { get; set; }
 
+    /// <summary>
+    /// 허용 시간이 아닐 때 원격 제어 프로그램(팀뷰어, AnyDesk 등)을 막을지.
+    ///
+    /// Windows 원격 데스크톱만 막으면 이런 프로그램으로 들어올 수 있다.
+    /// 특히 서비스로 상주하는 것들은 로그아웃 상태에서도 접속을 받아 준다.
+    /// </summary>
+    public bool BlockRemoteTools { get; set; }
+
+    /// <summary>
+    /// 기본 목록에 더해 막을 프로그램 이름.
+    /// 사내에서 따로 쓰는 원격 도구가 있으면 여기에 적는다.
+    /// </summary>
+    public List<string> ExtraRemoteToolNames { get; set; } = new();
+
     /// <summary>마지막 수정 시각과 수정자.</summary>
     public DateTimeOffset LastModified { get; set; } = DateTimeOffset.Now;
     public string LastModifiedBy { get; set; } = string.Empty;

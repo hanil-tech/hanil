@@ -48,6 +48,14 @@ public sealed class GuardWorker : BackgroundService
 
     private readonly BootAttemptTracker _bootAttempts = new();
 
+    /// <summary>원격 제어 프로그램을 확인하는 간격. 매 초 훑을 필요는 없다.</summary>
+    private static readonly TimeSpan RemoteToolScanInterval = TimeSpan.FromSeconds(5);
+
+    private DateTimeOffset _lastRemoteToolScan = DateTimeOffset.MinValue;
+
+    /// <summary>이번 차단 구간에서 이미 기록한 프로그램. 같은 내용을 반복해 남기지 않는다.</summary>
+    private readonly HashSet<string> _reportedRemoteTools = new(StringComparer.OrdinalIgnoreCase);
+
     public GuardWorker(ServiceState state, ILogger<GuardWorker> logger)
     {
         _state = state;
@@ -144,6 +152,7 @@ public sealed class GuardWorker : BackgroundService
                 ReleaseLockedAccounts("허용 시간이 되었습니다.");
                 ReleaseRemoteAccessBlock();
                 _bootAttempts.Reset();
+                _reportedRemoteTools.Clear();
                 HandleAllowed(config, decision, now, snapshot);
                 break;
 
@@ -228,6 +237,10 @@ public sealed class GuardWorker : BackgroundService
             // 원격으로 들어와 쓰는 것도 함께 막는다.
             ApplyRemoteAccessBlock(config);
 
+            // 새 차단 구간이 시작됐으므로 기록 이력을 비운다.
+            _reportedRemoteTools.Clear();
+            _lastRemoteToolScan = DateTimeOffset.MinValue;
+
             _state.Log.Write("차단",
                 $"허용 시간대를 벗어났습니다. {grace.TotalSeconds:0}초 뒤 {Describe(config.Action)}을(를) 실행합니다.");
 
@@ -241,6 +254,9 @@ public sealed class GuardWorker : BackgroundService
         }
 
         ApplyStickyNotice(now, snapshot);
+
+        // 차단 중에는 계속 확인한다. 조치 이후에도 원격으로 들어오는 것을 막아야 하기 때문이다.
+        BlockRemoteToolsIfNeeded(config, now);
 
         var untilAction = _blockedDeadline.Value - now;
         snapshot.RemainingSeconds = Math.Max(0, untilAction.TotalSeconds);
@@ -347,6 +363,49 @@ public sealed class GuardWorker : BackgroundService
                 _logger.LogError("계정 잠금을 풀지 못했습니다: {Detail}", detail);
                 _state.Log.Write("오류", $"계정 잠금을 풀지 못했습니다: {detail}");
             }
+        }
+    }
+
+    /// <summary>
+    /// 원격 제어 프로그램이 돌고 있으면 멈춘다.
+    ///
+    /// 막는 것만큼이나 "누가 이 시간에 원격으로 들어오려 했다" 는 기록이 중요하다.
+    /// 막지 못한 경우에도 발견 사실은 반드시 남긴다.
+    /// </summary>
+    private void BlockRemoteToolsIfNeeded(GuardConfig config, DateTimeOffset now)
+    {
+        if (!config.BlockRemoteTools) return;
+        if (now - _lastRemoteToolScan < RemoteToolScanInterval) return;
+
+        _lastRemoteToolScan = now;
+
+        List<RemoteToolFinding> findings;
+
+        try
+        {
+            findings = RemoteToolGuard.Enforce(config.ExtraRemoteToolNames);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "원격 제어 프로그램을 확인하지 못했습니다.");
+            return;
+        }
+
+        foreach (var finding in findings)
+        {
+            // 같은 프로그램을 매번 기록하면 기록이 쓸모없어진다.
+            // 다만 처음 발견한 것은 반드시 남긴다.
+            if (!_reportedRemoteTools.Add(finding.ToolName)) continue;
+
+            var category = finding.Blocked ? "보안" : "오류";
+
+            _state.Log.Write(category, finding.Detail);
+            _state.QueueEvent(category, finding.Detail);
+
+            if (finding.Blocked)
+                _logger.LogWarning("원격 제어 프로그램을 막았습니다: {Detail}", finding.Detail);
+            else
+                _logger.LogError("원격 제어 프로그램을 막지 못했습니다: {Detail}", finding.Detail);
         }
     }
 

@@ -172,6 +172,7 @@ internal sealed class MenuUi
         if (config is not null)
         {
             Console.WriteLine($"  원격 접속 차단   : {(config.BlockRemoteAccess ? "사용" : "사용 안 함")}");
+            Console.WriteLine($"  원격 제어 차단   : {(config.BlockRemoteTools ? "사용" : "사용 안 함")}");
             Console.WriteLine();
             PrintSchedule(config);
         }
@@ -419,8 +420,30 @@ internal sealed class MenuUi
         ConsoleUi.Dim("  계정을 잠가도 PC 에 다른 계정이 있으면 그 계정으로 원격 접속해 쓸 수 있습니다.");
 
         config.BlockRemoteAccess = ConsoleUi.Confirm(
-            "허용 시간이 아닐 때 원격 데스크톱 접속도 막을까요?",
+            "허용 시간이 아닐 때 Windows 원격 데스크톱 접속도 막을까요?",
             defaultYes: config.BlockRemoteAccess);
+
+        Console.WriteLine();
+        ConsoleUi.Dim("  팀뷰어·AnyDesk 같은 프로그램은 서비스로 상주해");
+        ConsoleUi.Dim("  로그아웃 상태에서도 접속을 받아 줍니다.");
+        ConsoleUi.Dim($"  기본으로 막는 프로그램: {string.Join(", ", RemoteTools.DefaultDisplayNames.Take(6))} 등");
+
+        config.BlockRemoteTools = ConsoleUi.Confirm(
+            "원격 제어 프로그램도 막을까요?",
+            defaultYes: config.BlockRemoteTools);
+
+        if (config.BlockRemoteTools)
+        {
+            var extra = ConsoleUi.Prompt("추가로 막을 프로그램 이름(쉼표로 구분, 없으면 Enter)",
+                string.Join(", ", config.ExtraRemoteToolNames));
+
+            config.ExtraRemoteToolNames = extra
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(RemoteTools.Normalize)
+                .Where(n => n.Length > 0)
+                .Distinct()
+                .ToList();
+        }
 
         _session.SaveConfig(config);
         ConsoleUi.Pause();

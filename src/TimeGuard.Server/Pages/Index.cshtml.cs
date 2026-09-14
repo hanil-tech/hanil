@@ -19,6 +19,9 @@ public sealed class IndexModel : PageModel
     public int PendingRequestCount { get; private set; }
     public int OfflineAfterMinutes { get; private set; } = 5;
 
+    /// <summary>최근 하루 동안의 보안 기록 수.</summary>
+    public int RecentSecurityCount { get; private set; }
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         OfflineAfterMinutes = await _settings.GetOfflineAfterMinutesAsync(cancellationToken);
@@ -41,5 +44,9 @@ public sealed class IndexModel : PageModel
             .ToList();
 
         PendingRequestCount = pendingByDevice.Values.Sum();
+
+        var since = DateTimeOffset.Now.AddDays(-1);
+        RecentSecurityCount = await _db.DeviceEvents
+            .CountAsync(e => e.Category == "보안" && e.At > since, cancellationToken);
     }
 }

@@ -75,6 +75,12 @@ public sealed class DefaultPolicy
     /// <summary>차단 중에 원격 데스크톱 접속을 막을지.</summary>
     public bool BlockRemoteAccess { get; set; }
 
+    /// <summary>차단 중에 원격 제어 프로그램(팀뷰어 등)을 막을지.</summary>
+    public bool BlockRemoteTools { get; set; }
+
+    /// <summary>기본 목록에 더해 막을 프로그램 이름(JSON 배열).</summary>
+    public string ExtraRemoteToolNamesJson { get; set; } = "[]";
+
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public string UpdatedBy { get; set; } = string.Empty;
 
