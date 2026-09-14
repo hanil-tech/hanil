@@ -3,6 +3,8 @@ namespace Hanil.TimeGuard.Admin;
 internal sealed class CommandLineOptions
 {
     internal string? Command { get; set; }
+    internal string? ServerUrl { get; set; }
+    internal string? EnrollmentKey { get; set; }
     internal string? Password { get; set; }
     internal string? NewPassword { get; set; }
     internal int? Minutes { get; set; }
@@ -43,6 +45,14 @@ internal static class CommandLine
 
                 case "--new-password" when i + 1 < args.Length:
                     options.NewPassword = args[++i];
+                    break;
+
+                case "--server" or "-s" when i + 1 < args.Length:
+                    options.ServerUrl = args[++i];
+                    break;
+
+                case "--key" or "-k" when i + 1 < args.Length:
+                    options.EnrollmentKey = args[++i];
                     break;
 
                 default:
@@ -98,8 +108,13 @@ internal static class CommandLine
               TimeGuard.Admin.exe set-window <요일> <시간대>  허용 시간대를 지정합니다
               TimeGuard.Admin.exe log [줄수]               기록을 출력합니다
               TimeGuard.Admin.exe set-password             관리자 비밀번호를 변경합니다
+              TimeGuard.Admin.exe enroll --server <주소> --key <등록키>
+                                                           이 PC 를 관리 서버에 등록합니다
+              TimeGuard.Admin.exe unenroll                 관리 서버 연결을 끊고 단독 모드로 돌립니다
 
             공통 옵션:
+              -s, --server <주소>            관리 서버 주소 (예: http://192.168.0.10:8080)
+              -k, --key <등록키>             서버의 [설정] 화면에 있는 클라이언트 등록 키
               -p, --password <비밀번호>      비밀번호를 미리 넘깁니다(자동화용)
                   --new-password <비밀번호>  set-password 에서 쓸 새 비밀번호
               -h, --help                     이 도움말
@@ -115,6 +130,7 @@ internal static class CommandLine
               종일                     24시간 허용
 
             예시:
+              TimeGuard.Admin.exe enroll -s http://192.168.0.10:8080 -k ABCDE-FGHIJ-KLMNO-PQRST
               TimeGuard.Admin.exe set-window 평일 08:30-18:00 -p 관리자비번
               TimeGuard.Admin.exe set-window 주말 없음 -p 관리자비번
               TimeGuard.Admin.exe extend 30 -p 관리자비번

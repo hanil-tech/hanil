@@ -35,6 +35,23 @@ public sealed class StatusPoller : IDisposable
 
     public void Start() => _thread.Start();
 
+    /// <summary>
+    /// 연장 요청을 서비스로 보낸다. 서비스가 서버로 전달한다.
+    /// 사용자가 창 앞에서 기다리므로 조금 더 오래 기다린다.
+    /// </summary>
+    public (bool Ok, string Message) RequestExtension(int minutes, string reason)
+    {
+        var payload = IpcJson.Serialize(new UserExtensionRequest { Minutes = minutes, Reason = reason });
+
+        // 상태 확인용 연결과 섞이지 않도록 이 요청만 쓰는 연결을 따로 연다.
+        using var client = new ControlClient();
+        var response = client.Send(IpcCommands.RequestExtension, payload: payload, connectTimeoutMs: 5000);
+
+        return response.Ok
+            ? (true, response.Payload ?? "연장 요청을 보냈습니다.")
+            : (false, response.Error ?? "요청을 처리하지 못했습니다.");
+    }
+
     private void Run()
     {
         var token = _cancellation.Token;

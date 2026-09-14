@@ -54,12 +54,14 @@ public sealed class GuardWorker : BackgroundService
     public override Task StartAsync(CancellationToken cancellationToken)
     {
         _state.Log.Write("서비스", $"서비스를 시작했습니다. 설정 파일: {_state.Store.Path}");
+        _state.QueueEvent("서비스", "서비스를 시작했습니다.");
         return base.StartAsync(cancellationToken);
     }
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {
         _state.Log.Write("서비스", "서비스를 중지했습니다.");
+        _state.QueueEvent("서비스", "서비스를 중지했습니다.");
         return base.StopAsync(cancellationToken);
     }
 
@@ -224,11 +226,15 @@ public sealed class GuardWorker : BackgroundService
         _lastActionAt = now;
 
         var user = SessionLauncher.GetActiveSessionUser() ?? "(알 수 없음)";
-        _state.Log.Write("조치", $"{Describe(config.Action)} 실행을 시작합니다. 사용자: {user}");
+        var start = $"{Describe(config.Action)} 실행을 시작합니다. 사용자: {user}";
+
+        _state.Log.Write("조치", start);
+        _state.QueueEvent("조치", start);   // 서버에도 남겨 관리자가 확인할 수 있게 한다
 
         var (ok, detail) = PowerController.Execute(config.Action);
 
         _state.Log.Write(ok ? "조치" : "오류", detail);
+        _state.QueueEvent(ok ? "조치" : "오류", detail);
         if (!ok)
         {
             _logger.LogError("조치 실행 실패: {Detail}", detail);

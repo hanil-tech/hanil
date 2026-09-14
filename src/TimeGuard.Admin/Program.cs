@@ -26,6 +26,10 @@ if (options.ShowHelp)
     return 0;
 }
 
+// 서버 등록은 서비스와 무관하게 설정 파일만 다루므로 먼저 처리한다.
+if (options.Command is "enroll" or "unenroll")
+    return Enrollment.Run(options);
+
 using var session = new AdminSession();
 
 if (!session.ServiceAvailable(out var connectionError))
@@ -63,6 +67,16 @@ static int RunCommand(AdminSession session, CommandLineOptions options)
             Console.WriteLine($"감시      : {(status.Enabled ? "켜짐" : "꺼짐")}");
             Console.WriteLine($"근거      : {status.Reason}");
             Console.WriteLine($"조치      : {MenuUi.DescribeAction(status.Action)}");
+
+            if (status.ServerMode)
+            {
+                Console.WriteLine($"관리 서버 : {status.ServerUrl}");
+                Console.WriteLine($"서버 연결 : {(status.ServerReachable ? "정상" : "끊김 (마지막 시간표 적용 중)")}");
+            }
+            else
+            {
+                Console.WriteLine("관리 서버 : 사용 안 함 (단독 모드)");
+            }
 
             if (status.RemainingSeconds is { } seconds)
                 Console.WriteLine($"남은 시간 : {MenuUi.FormatDuration(TimeSpan.FromSeconds(seconds))}");

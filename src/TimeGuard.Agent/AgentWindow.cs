@@ -22,6 +22,7 @@ public sealed class AgentWindow : IDisposable
 
     private const uint MenuShowStatus = 101;
     private const uint MenuShowRemaining = 102;
+    private const uint MenuRequestExtension = 103;
 
     private readonly StatusPoller _poller;
     private readonly WndProc _wndProcDelegate; // GC 가 수거하지 못하도록 필드로 붙잡아 둔다
@@ -35,6 +36,7 @@ public sealed class AgentWindow : IDisposable
 
     private long _lastNoticeId;
     private string _lastTip = string.Empty;
+    private bool _requestDialogOpen;
 
     // 화면에 그릴 내용. WM_PAINT 는 이 값만 읽는다.
     private string _titleText = string.Empty;
@@ -172,6 +174,7 @@ public sealed class AgentWindow : IDisposable
 
         UpdateTrayTip(BuildTrayTip(status));
         ShowNoticeIfNeeded(status);
+        ShowDecisionIfAny(status);
 
         if (status.CountdownActive && status.CountdownSecondsLeft > 0)
             ShowCountdown(status);
@@ -448,6 +451,17 @@ public sealed class AgentWindow : IDisposable
         try
         {
             AppendMenuW(menu, MF_STRING, new UIntPtr(MenuShowStatus), "사용 시간 상태 보기(&S)");
+
+            // 관리 서버를 쓰는 경우에만 연장 요청을 할 수 있다.
+            var status = _poller.Latest;
+            if (status?.ServerMode == true)
+            {
+                var flags = MF_STRING;
+                if (!_poller.ServiceReachable) flags |= MF_GRAYED;
+
+                AppendMenuW(menu, flags, new UIntPtr(MenuRequestExtension), "사용 시간 연장 요청(&E)...");
+            }
+
             AppendMenuW(menu, MF_SEPARATOR, UIntPtr.Zero, null);
             AppendMenuW(menu, MF_STRING | MF_GRAYED, new UIntPtr(MenuShowRemaining), _lastTip);
 
@@ -466,6 +480,64 @@ public sealed class AgentWindow : IDisposable
     private void OnCommand(uint commandId)
     {
         if (commandId == MenuShowStatus) ShowStatusDialog();
+        else if (commandId == MenuRequestExtension) RequestExtension();
+    }
+
+    /// <summary>연장 요청 창을 띄우고, 입력한 내용을 서비스를 통해 서버로 보낸다.</summary>
+    private void RequestExtension()
+    {
+        if (_requestDialogOpen) return;
+
+        _requestDialogOpen = true;
+        try
+        {
+            ExtensionRequestInputResult? input;
+
+            using (var dialog = new ExtensionRequestDialog())
+            {
+                input = dialog.Show();
+            }
+
+            if (input is null) return; // 사용자가 취소했다
+
+            var (ok, message) = _poller.RequestExtension(input.Minutes, input.Reason);
+
+            MessageBoxW(IntPtr.Zero,
+                ok
+                    ? $"{message}\n\n관리자가 승인하면 이 화면에 다시 알려 드립니다."
+                    : $"요청을 보내지 못했습니다.\n\n{message}",
+                "사용 시간 연장 요청",
+                MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+        }
+        finally
+        {
+            _requestDialogOpen = false;
+        }
+    }
+
+    /// <summary>관리자가 요청을 처리했으면 사용자에게 알린다.</summary>
+    private void ShowDecisionIfAny(StatusSnapshot status)
+    {
+        if (status.Decision is not { } decision) return;
+
+        if (decision.Status == "Approved")
+        {
+            var until = decision.GrantedUntil is { } end ? $" {end:HH:mm} 까지 사용할 수 있습니다." : string.Empty;
+
+            ShowBalloon(
+                title: "연장 요청이 승인되었습니다",
+                text: $"{decision.GrantedMinutes}분 연장되었습니다.{until}",
+                warning: false);
+        }
+        else
+        {
+            var note = string.IsNullOrWhiteSpace(decision.Note) ? string.Empty : $"\n사유: {decision.Note}";
+
+            ShowBalloon(
+                title: "연장 요청이 거절되었습니다",
+                text: $"관리자가 요청을 승인하지 않았습니다.{note}",
+                warning: true);
+        }
     }
 
     private void ShowStatusDialog()
@@ -508,6 +580,17 @@ public sealed class AgentWindow : IDisposable
 
         lines.Add(string.Empty);
         lines.Add($"시간 초과 시 조치: {DescribeAction(status.Action)}");
+
+        if (status.ServerMode)
+        {
+            lines.Add(status.ServerReachable
+                ? "관리 서버와 연결되어 있습니다."
+                : "관리 서버와 연결이 끊겼습니다. 마지막으로 받은 시간표가 적용됩니다.");
+
+            lines.Add(string.Empty);
+            lines.Add("사용 시간이 더 필요하면 트레이 아이콘을 마우스 오른쪽 버튼으로 눌러");
+            lines.Add("[사용 시간 연장 요청] 을 선택해 주세요.");
+        }
 
         MessageBoxW(IntPtr.Zero, string.Join('\n', lines),
             "한일 TimeGuard — 사용 시간 안내", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);

@@ -5,6 +5,7 @@ using System.Security.Principal;
 using System.Text;
 using Hanil.TimeGuard.Core.Config;
 using Hanil.TimeGuard.Core.Ipc;
+using Hanil.TimeGuard.Core.Server;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -132,7 +133,7 @@ public sealed class ControlServer : BackgroundService
                 return IpcResponse.Success("PONG");
 
             case IpcCommands.Status:
-                return IpcResponse.Success(IpcJson.Serialize(_state.Status));
+                return IpcResponse.Success(IpcJson.Serialize(BuildStatus()));
 
             case IpcCommands.GetConfig:
                 return Authorized(request, server, out var getError, out _)
@@ -160,6 +161,9 @@ public sealed class ControlServer : BackgroundService
             case IpcCommands.CancelShutdown:
                 return HandleCancelShutdown(request, server);
 
+            case IpcCommands.RequestExtension:
+                return HandleRequestExtension(request, server);
+
             default:
                 return IpcResponse.Fail($"알 수 없는 명령입니다: {request.Command}");
         }
@@ -167,6 +171,7 @@ public sealed class ControlServer : BackgroundService
 
     private IpcResponse HandleSetConfig(IpcRequest request, NamedPipeServerStream server)
     {
+        if (ServerManaged(out var managed)) return managed;
         if (!Authorized(request, server, out var error, out var user)) return IpcResponse.Fail(error);
 
         var incoming = IpcJson.Deserialize<GuardConfig>(request.Payload);
@@ -211,6 +216,7 @@ public sealed class ControlServer : BackgroundService
 
     private IpcResponse HandleExtend(IpcRequest request, NamedPipeServerStream server)
     {
+        if (ServerManaged(out var managed)) return managed;
         if (!Authorized(request, server, out var error, out var user)) return IpcResponse.Fail(error);
 
         var payload = IpcJson.Deserialize<ExtendRequest>(request.Payload);
@@ -234,6 +240,7 @@ public sealed class ControlServer : BackgroundService
 
     private IpcResponse HandleSuspend(IpcRequest request, NamedPipeServerStream server)
     {
+        if (ServerManaged(out var managed)) return managed;
         if (!Authorized(request, server, out var error, out var user)) return IpcResponse.Fail(error);
 
         var payload = IpcJson.Deserialize<SuspendRequest>(request.Payload);
@@ -254,6 +261,7 @@ public sealed class ControlServer : BackgroundService
 
     private IpcResponse HandleSetEnabled(IpcRequest request, NamedPipeServerStream server)
     {
+        if (ServerManaged(out var managed)) return managed;
         if (!Authorized(request, server, out var error, out var user)) return IpcResponse.Fail(error);
 
         var payload = IpcJson.Deserialize<SetEnabledRequest>(request.Payload);
@@ -288,6 +296,78 @@ public sealed class ControlServer : BackgroundService
         return ok
             ? IpcResponse.Success()
             : IpcResponse.Fail("취소할 수 있는 종료가 없습니다. 이미 종료가 시작되었을 수 있습니다.");
+    }
+
+    /// <summary>
+    /// 사용자가 올리는 연장 요청. 관리자 비밀번호가 필요 없다.
+    /// 서비스가 서버로 전달하고, 승인 여부는 관리자가 웹 화면에서 정한다.
+    /// </summary>
+    private IpcResponse HandleRequestExtension(IpcRequest request, NamedPipeServerStream server)
+    {
+        if (!_state.ServerMode)
+            return IpcResponse.Fail("이 PC 는 관리 서버를 쓰지 않습니다. 관리자에게 직접 문의해 주세요.");
+
+        var payload = IpcJson.Deserialize<UserExtensionRequest>(request.Payload);
+        if (payload is null) return IpcResponse.Fail("요청 내용을 해석하지 못했습니다.");
+
+        if (payload.Minutes <= 0 || payload.Minutes > 720)
+            return IpcResponse.Fail("연장 요청은 1분에서 720분(12시간) 사이로 해 주세요.");
+
+        var user = DescribeCaller(server);
+        var settings = ServerSettings.Load();
+
+        if (!settings.IsEnrolled)
+            return IpcResponse.Fail("이 PC 가 아직 관리 서버에 등록되지 않았습니다.");
+
+        try
+        {
+            using var connection = new ServerConnection(settings);
+
+            // 사용자가 창 앞에서 기다리므로 짧게 기다렸다 결과를 돌려준다.
+            var (ok, message) = connection
+                .RequestExtensionAsync(payload.Minutes, payload.Reason, user)
+                .GetAwaiter().GetResult();
+
+            _state.Log.Write("요청", ok
+                ? $"{user} 님이 {payload.Minutes}분 연장을 요청했습니다. 사유: {payload.Reason}"
+                : $"연장 요청을 보내지 못했습니다: {message}");
+
+            return ok ? IpcResponse.Success(message) : IpcResponse.Fail(message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "연장 요청을 보내지 못했습니다.");
+            return IpcResponse.Fail($"요청을 보내지 못했습니다: {ex.Message}");
+        }
+    }
+
+    /// <summary>서버가 관리하는 PC 에서는 로컬에서 설정을 바꾸지 못하게 막는다.</summary>
+    private bool ServerManaged(out IpcResponse response)
+    {
+        if (!_state.ServerMode)
+        {
+            response = IpcResponse.Success();
+            return false;
+        }
+
+        var url = _state.ServerUrl ?? "관리 서버";
+        response = IpcResponse.Fail(
+            $"이 PC 는 관리 서버({url})가 설정을 관리합니다. 변경은 서버의 웹 화면에서 해 주세요.");
+
+        return true;
+    }
+
+    /// <summary>상태에 서버 관련 정보와 알릴 내용을 덧붙인다.</summary>
+    private StatusSnapshot BuildStatus()
+    {
+        var status = _state.Status;
+
+        status.ServerMode = _state.ServerMode;
+        status.ServerReachable = _state.ServerReachable;
+        status.ServerUrl = _state.ServerUrl;
+        status.Decision = _state.DequeueDecision();
+
+        return status;
     }
 
     /// <summary>비밀번호를 확인하고, 감사 로그에 남길 호출자 이름을 얻는다.</summary>

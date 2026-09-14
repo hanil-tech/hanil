@@ -298,6 +298,58 @@ internal static class Win32
     [DllImport("user32.dll")]
     internal static extern bool GetCursorPos(out POINT point);
 
+    // ---- 대화 상자용 컨트롤 ----
+
+    internal const uint WS_CHILD = 0x40000000;
+    internal const uint WS_TABSTOP = 0x00010000;
+    internal const uint WS_VSCROLL = 0x00200000;
+    internal const uint WS_OVERLAPPED = 0x00000000;
+    internal const uint WS_CAPTION = 0x00C00000;
+    internal const uint WS_SYSMENU = 0x00080000;
+
+    internal const uint ES_MULTILINE = 0x0004;
+    internal const uint ES_AUTOVSCROLL = 0x0040;
+    internal const uint ES_WANTRETURN = 0x1000;
+
+    internal const uint CBS_DROPDOWNLIST = 0x0003;
+
+    internal const uint BS_PUSHBUTTON = 0x0000;
+    internal const uint BS_DEFPUSHBUTTON = 0x0001;
+
+    internal const uint WM_SETFONT = 0x0030;
+    internal const uint WM_GETTEXT = 0x000D;
+    internal const uint WM_GETTEXTLENGTH = 0x000E;
+
+    internal const uint CB_ADDSTRING = 0x0143;
+    internal const uint CB_SETCURSEL = 0x014E;
+    internal const uint CB_GETCURSEL = 0x0147;
+
+    internal const uint SW_SHOW = 5;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, string lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int GetWindowTextW(IntPtr hWnd, System.Text.StringBuilder text, int maxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int GetWindowTextLengthW(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern bool EnableWindow(IntPtr hWnd, bool enable);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern bool IsDialogMessageW(IntPtr dialog, ref MSG message);
+
     internal const uint MF_STRING = 0x00000000;
     internal const uint MF_SEPARATOR = 0x00000800;
     internal const uint MF_GRAYED = 0x00000001;

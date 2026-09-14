@@ -30,6 +30,8 @@ internal sealed class MenuUi
             ConsoleUi.Title("한일 TimeGuard — 관리자 설정");
             PrintStatusLine();
 
+            var serverManaged = PrintServerLine();
+
             Console.WriteLine();
             Console.WriteLine("  1. 현재 상태 자세히 보기");
             Console.WriteLine("  2. 허용 시간대 설정");
@@ -46,6 +48,15 @@ internal sealed class MenuUi
             Console.WriteLine();
 
             var choice = ConsoleUi.Prompt("선택");
+
+            // 서버가 관리하는 PC 에서는 설정 변경 메뉴가 동작하지 않는다. 미리 알려 준다.
+            if (serverManaged && choice is "2" or "3" or "4" or "5" or "6" or "7" or "8" or "9")
+            {
+                ConsoleUi.Warn("이 PC 는 관리 서버가 설정을 관리합니다.");
+                ConsoleUi.Dim("  시간표 변경과 연장은 서버의 웹 화면에서 해 주세요.");
+                ConsoleUi.Pause();
+                continue;
+            }
 
             switch (choice)
             {
@@ -102,6 +113,20 @@ internal sealed class MenuUi
         }
     }
 
+    /// <summary>관리 서버를 쓰는 PC 인지 알려 주고, 그 여부를 돌려준다.</summary>
+    private bool PrintServerLine()
+    {
+        var status = _session.GetStatus();
+        if (status is null || !status.ServerMode) return false;
+
+        if (status.ServerReachable)
+            ConsoleUi.Info($"관리 서버: {status.ServerUrl} (연결됨) — 설정은 서버에서 변경합니다.");
+        else
+            ConsoleUi.Warn($"관리 서버: {status.ServerUrl} (연결 끊김) — 마지막으로 받은 시간표가 적용 중입니다.");
+
+        return true;
+    }
+
     private void ShowStatus()
     {
         ConsoleUi.Title("현재 상태");
@@ -119,6 +144,16 @@ internal sealed class MenuUi
         Console.WriteLine($"  현재 판정        : {DescribeState(status.State)}");
         Console.WriteLine($"  판정 근거        : {status.Reason}");
         Console.WriteLine($"  시간 초과 시 조치: {DescribeAction(status.Action)}");
+
+        if (status.ServerMode)
+        {
+            Console.WriteLine($"  관리 서버        : {status.ServerUrl}");
+            Console.WriteLine($"  서버 연결        : {(status.ServerReachable ? "정상" : "끊김 (마지막 시간표 적용 중)")}");
+        }
+        else
+        {
+            Console.WriteLine("  관리 서버        : 사용 안 함 (단독 모드)");
+        }
 
         if (status.RemainingSeconds is { } seconds)
             Console.WriteLine($"  남은 시간        : {FormatDuration(TimeSpan.FromSeconds(seconds))}");

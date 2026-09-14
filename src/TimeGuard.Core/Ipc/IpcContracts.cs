@@ -26,6 +26,9 @@ public static class IpcCommands
     public const string SetEnabled = "SET_ENABLED";
     public const string GetLog = "GET_LOG";
     public const string CancelShutdown = "CANCEL_SHUTDOWN";
+
+    /// <summary>사용자가 관리자에게 사용 시간 연장을 요청한다. 비밀번호가 필요 없다.</summary>
+    public const string RequestExtension = "REQUEST_EXTENSION";
 }
 
 public sealed class IpcRequest
@@ -85,6 +88,26 @@ public sealed class StatusSnapshot
 
     public DateTimeOffset ServerTime { get; set; }
     public string? Warning { get; set; }
+
+    // --- 관리 서버 ---
+
+    /// <summary>관리 서버가 설정되어 있는지. 이 경우 설정은 서버에서만 바꿀 수 있다.</summary>
+    public bool ServerMode { get; set; }
+
+    /// <summary>서버와 연락이 되고 있는지. 끊겨도 마지막 정책은 계속 적용된다.</summary>
+    public bool ServerReachable { get; set; }
+
+    public string? ServerUrl { get; set; }
+
+    /// <summary>사용자에게 알려야 할 연장 요청 처리 결과. 없으면 null.</summary>
+    public Server.RequestDecision? Decision { get; set; }
+}
+
+/// <summary>사용자가 올리는 연장 요청.</summary>
+public sealed class UserExtensionRequest
+{
+    public int Minutes { get; set; }
+    public string Reason { get; set; } = string.Empty;
 }
 
 /// <summary>EXTEND 명령 인자.</summary>

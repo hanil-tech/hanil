@@ -23,9 +23,11 @@ if (args.Length > 0 && args[0] is "--help" or "-h" or "/?")
           TimeGuard.Service.exe --help     이 도움말
 
         설정 파일: %ProgramData%\HanilTimeGuard\config.json
+        서버 설정: %ProgramData%\HanilTimeGuard\server.json
         로그 파일: %ProgramData%\HanilTimeGuard\timeguard.log
 
         설정 변경은 TimeGuard.Admin.exe 로 하십시오.
+        관리 서버를 쓰는 경우 시간표는 서버에서만 바꿀 수 있습니다.
         """);
     return 0;
 }
@@ -39,6 +41,7 @@ builder.Services.AddSingleton(_ => new AuditLog(AuditLog.DefaultPath));
 builder.Services.AddSingleton<ServiceState>();
 builder.Services.AddHostedService<GuardWorker>();
 builder.Services.AddHostedService<ControlServer>();
+builder.Services.AddHostedService<ServerSync>();
 
 if (WindowsServiceHelpers.IsWindowsService())
 {
