@@ -13,41 +13,46 @@ Windows 64비트용입니다. **대상 PC 에 .NET 을 따로 설치할 필요�
 
 ### 1단계 — 관리 서버 (먼저)
 
-사무실 PC 한 대를 정해 관리서버 zip 을 풀고, **관리자 권한 PowerShell** 에서:
+사무실 PC 한 대를 정해 관리서버 zip 을 풀고, 폴더 안의
+**`TimeGuard서버-설치.exe` 를 더블클릭**합니다.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install-server.ps1
-```
+1. 관리자 권한을 물어보면 [예]
+2. 메뉴에서 **[1] 설치**
+3. "통신을 암호화할까요?" → Enter (권장: 예)
+4. "접속 포트" → Enter (기본값)
 
 끝나면 접속 주소와 임시 비밀번호가 나옵니다. 브라우저로 접속해:
 
 1. `admin` 과 임시 비밀번호로 로그인
 2. **[설정]** → 비밀번호 변경
 3. **[기본 시간표]** → 허용 시간대 지정 (예: 월~금 `09:00-18:00`)
-4. **[설정]** → **클라이언트 등록 키** 확인 (다음 단계에 필요)
 
 자세한 내용은 zip 안의 `서버설치안내.txt` 를 보십시오.
 
 ### 2단계 — 직원 PC
 
-직원PC zip 을 풀고, **관리자 권한 PowerShell** 에서:
+직원PC zip 을 풀고, 폴더 안의 **`TimeGuard-설치.exe` 를 더블클릭**한 뒤
+**[1] 설치** 를 누릅니다. 이것으로 끝입니다.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+**등록 키도, 서버 주소도 입력하지 않습니다.** 설치된 PC 가 사내망에서 서버를
+찾아 스스로 자기를 알립니다.
+
+여러 대를 자동으로 설치할 때만 명령줄을 씁니다.
+
+```
+TimeGuard-설치.exe /설치
 ```
 
-이어서 서버에 등록합니다. 주소와 등록 키는 1단계에서 확인한 값입니다.
+### 3단계 — 서버에서 승인
 
-```powershell
-& "C:\Program Files\HanilTimeGuard\TimeGuard.Admin.exe" enroll `
-    --server http://192.168.0.10:8080 `
-    --key ABCDE-FGHIJ-KLMNO-PQRST
+서버 웹 화면의 **[새 PC 승인]** 에 방금 설치한 PC 가 나타납니다.
+메뉴 옆 빨간 숫자가 기다리는 대수입니다.
 
-net stop HanilTimeGuard
-net start HanilTimeGuard
-```
+PC 이름과 확인 문자(8자리)가 설치 화면에 찍힌 값과 같은지 보고 **[승인]** 을
+누릅니다. 여러 대는 **[모두 승인]** 으로 한 번에 처리합니다.
 
-등록되면 서버의 **PC 목록** 에 나타납니다.
+승인한 순간부터 시간표가 적용되고 **PC 목록** 으로 옮겨 갑니다.
+모르는 PC 는 **[거절]** 하십시오. **승인 전에는 어떤 정책도 내려가지 않습니다.**
 
 ## 들어 있는 것
 
@@ -55,18 +60,18 @@ net start HanilTimeGuard
 
 | 파일 | 역할 |
 |---|---|
+| `TimeGuard서버-설치.exe` | 설치 / 제거 / 접속 주소 확인 |
 | `TimeGuard.Server.exe` | 관리 서버 (웹 화면 + 시간표 배포) |
-| `install-server.ps1` / `uninstall-server.ps1` | 설치 / 제거 |
 | `서버설치안내.txt` | 한글 설치 안내 |
 
 **직원PC zip**
 
 | 파일 | 역할 |
 |---|---|
+| `TimeGuard-설치.exe` | 설치 / 제거 / 상태 확인 |
 | `TimeGuard.Service.exe` | 시간 감시와 전원 차단 (Windows 서비스) |
 | `TimeGuard.Agent.exe` | 트레이 아이콘, 경고, 연장 요청 |
-| `TimeGuard.Admin.exe` | 서버 등록, 상태 확인 |
-| `install.ps1` / `uninstall.ps1` | 설치 / 제거 |
+| `TimeGuard.Admin.exe` | 상태 확인, 기록 보기 |
 | `설치안내.txt` | 한글 설치 안내 |
 
 ## 단독 실행 파일이 필요하다면
@@ -78,7 +83,7 @@ net start HanilTimeGuard
 ./build/publish.sh --single-file
 ```
 
-세 exe 는 **반드시 같은 폴더**에 두어야 합니다. 서비스가 같은 폴더에서
+exe 들은 **반드시 같은 폴더**에 두어야 합니다. 서비스가 같은 폴더에서
 `TimeGuard.Agent.exe` 를 찾아 실행하기 때문입니다.
 
 ## 설치 후 꼭 해야 할 한 가지

@@ -2,9 +2,44 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Hanil.TimeGuard.Server.Data;
 
+/// <summary>PC 가 관리 대상으로 승인되었는지.</summary>
+public enum ApprovalState
+{
+    /// <summary>발견되었지만 아직 관리자가 승인하지 않았다. 아무 정책도 주지 않는다.</summary>
+    Pending = 0,
+
+    /// <summary>관리자가 승인했다. 정상 동작한다.</summary>
+    Approved = 1,
+
+    /// <summary>관리자가 거절했다. 목록에 다시 나타나지 않는다.</summary>
+    Rejected = 2
+}
+
 /// <summary>관리 대상 PC 한 대.</summary>
 public sealed class Device
 {
+    /// <summary>승인 상태. 승인 전에는 시간표를 받아 갈 수 없다.</summary>
+    public ApprovalState Approval { get; set; } = ApprovalState.Approved;
+
+    /// <summary>
+    /// 이 PC 가 스스로 만든 비밀값의 해시.
+    /// 승인된 뒤 토큰을 받아 갈 때 자기가 맞다는 것을 확인하는 데 쓴다.
+    /// </summary>
+    public string ClientIdHash { get; set; } = string.Empty;
+
+    /// <summary>관리자가 화면에서 알아볼 수 있게 보여 줄 짧은 문자.</summary>
+    public string Fingerprint { get; set; } = string.Empty;
+
+    /// <summary>처음 발견된 시각.</summary>
+    public DateTimeOffset? AnnouncedAt { get; set; }
+
+    /// <summary>알림이 들어온 주소. 어느 PC 인지 가늠하는 데 쓴다.</summary>
+    public string AnnouncedFrom { get; set; } = string.Empty;
+
+    /// <summary>승인하거나 거절한 사람과 시각.</summary>
+    public DateTimeOffset? DecidedAt { get; set; }
+    public string DecidedBy { get; set; } = string.Empty;
+
     /// <summary>등록할 때 서버가 발급하는 식별자.</summary>
     [Key]
     public string Id { get; set; } = Guid.NewGuid().ToString("N");

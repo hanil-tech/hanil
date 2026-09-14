@@ -63,14 +63,18 @@ Windows 서비스는 세션 0 에 격리되어 있어 사용자 화면에 창을
 
 ### 1단계 — 관리 서버
 
-사무실 PC 한 대를 정해 `dist/TimeGuard-서버` 폴더를 복사한 뒤, **관리자 권한 PowerShell**에서:
+사무실 PC 한 대를 정해 `dist/TimeGuard-서버` 폴더를 복사한 뒤, 폴더 안의
+**`TimeGuard서버-설치.exe` 를 더블클릭**합니다.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install-server.ps1
-```
+Windows 가 관리자 권한을 물어보면 [예], 메뉴에서 [1] 설치 를 누릅니다.
+암호화 여부와 포트만 물어보고(둘 다 Enter 로 기본값), 나머지는 알아서 합니다.
 
-설치 스크립트가 서비스 등록, 방화벽 개방(사내망만), 자료 폴더 권한 설정까지 처리합니다.
-끝나면 접속 주소와 임시 비밀번호를 알려 줍니다.
+- 프로그램 복사와 폴더 권한 설정
+- 사내용 인증서 생성 (HTTPS)
+- 방화벽 개방 — 사내망 프로필만
+- 서비스 등록·보호·시작
+
+끝나면 접속 주소와 임시 비밀번호를 화면에 보여 줍니다.
 
 브라우저로 접속해 다음 순서로 진행하세요.
 
@@ -79,27 +83,36 @@ powershell -ExecutionPolicy Bypass -File .\install-server.ps1
 | 1 | 로그인 | 아이디 `admin`, 임시 비밀번호 |
 | 2 | 설정 | 관리자 비밀번호 변경 |
 | 3 | 기본 시간표 | 예: 월~금 `09:00-18:00`, 토·일 `없음` |
-| 4 | 설정 | **클라이언트 등록 키** 확인 (직원 PC 설치에 필요) |
 
-### 2단계 — 직원 PC (명령 한 줄)
+### 2단계 — 직원 PC (더블클릭 한 번)
 
-`dist/TimeGuard` 폴더를 복사한 뒤, **관리자 권한 PowerShell**에서:
+`dist/TimeGuard` 폴더를 복사한 뒤, 폴더 안의
+**`TimeGuard-설치.exe` 를 더블클릭**합니다. [1] 설치 를 누르면 끝입니다.
 
-```powershell
-.\install.ps1 -Key ABCDE-FGHIJ-KLMNO-PQRST
+**등록 키도, 서버 주소도 입력하지 않습니다.** 설치된 PC 가 사내망에서 서버를
+찾아 스스로 자기를 알립니다.
+
+여러 대를 자동으로 설치할 때만 명령줄을 씁니다.
+
+```
+TimeGuard-설치.exe /설치
 ```
 
-이것으로 끝입니다. 설치, 서비스 등록, **서버 자동 검색**, 등록, 서비스 시작까지
-한 번에 처리합니다. 등록 키는 서버 [설정] 화면에 나와 있고, 그 화면에 이 명령이
-그대로 적혀 있어 복사해 쓰면 됩니다.
+### 3단계 — 서버에서 승인
 
-서버 주소를 직접 적고 싶다면:
+새로 설치된 PC 는 서버의 **[새 PC 승인]** 화면에 나타납니다. 메뉴 옆 빨간 숫자가
+기다리는 대수입니다.
 
-```powershell
-.\install.ps1 -Server https://192.168.0.10:8443 -Key ABCDE-FGHIJ-KLMNO-PQRST
-```
+| 보이는 것 | 쓰임 |
+|---|---|
+| PC 이름 · 로그인 사용자 | 어느 자리의 PC 인지 확인 |
+| 확인 문자 (8자리) | 설치 화면에 찍힌 값과 같은지 대조 |
+| 관리자 권한 표시 | 그 계정이 서비스를 멈출 수 있는지 |
 
-등록되면 서버의 **PC 목록**에 나타납니다.
+[승인] 을 누르면 그때부터 시간표가 내려가고 **PC 목록**으로 옮겨 갑니다.
+여러 대를 한꺼번에 승인하려면 [모두 승인] 을 누릅니다.
+
+모르는 PC 는 [거절] 합니다. **승인 전에는 어떤 정책도 내려가지 않습니다.**
 
 > .NET 설치가 필요 없습니다. 런타임이 함께 들어 있습니다.
 
@@ -194,7 +207,8 @@ PC 가 꺼져 있으면 어떤 방법으로도 들어올 수 없습니다.
 | **연장 요청** | 직원 요청 승인·거절. 요청보다 적게 줄 수도 있음 |
 | **기본 시간표** | 전용 시간표를 쓰지 않는 모든 PC 에 적용 |
 | **기록** | 언제 어느 PC 가 꺼졌는지 전체 조회 |
-| **설정** | 등록 키, 연결 끊김 판단 기준, 비밀번호 |
+| **새 PC 승인** | 새로 설치된 PC 를 승인·거절. 승인 전에는 정책이 내려가지 않음 |
+| **설정** | 직원 PC 설치 방법, 연결 끊김 판단 기준, 비밀번호 |
 
 화면 모습은 `docs/` 폴더의 캡처 이미지를 보십시오.
 
@@ -330,9 +344,12 @@ TimeGuard.Admin.exe unenroll
 
 ```powershell
 TimeGuard.Admin.exe status                                   # 현재 상태
-TimeGuard.Admin.exe enroll --server <주소> --key <등록키>      # 서버에 등록
 TimeGuard.Admin.exe unenroll                                 # 단독 모드로
 TimeGuard.Admin.exe log 50                                   # 기록 보기
+TimeGuard.Admin.exe unlock-accounts                          # 잠긴 Windows 계정 풀기
+
+# 서버 주소를 직접 지정해야 할 때만 (보통은 설치 후 승인만 하면 됩니다)
+TimeGuard.Admin.exe enroll --server <주소> --key <등록키>
 
 # 단독 모드에서만 동작합니다 (서버 모드에서는 서버가 관리)
 TimeGuard.Admin.exe set-window 평일 09:00-18:00 -p 비밀번호
@@ -400,13 +417,14 @@ src/
     AgentWindow.cs       트레이 아이콘 + 카운트다운 창 (Win32)
     ExtensionRequestDialog.cs   연장 요청 창 (Win32)
   TimeGuard.Admin/       직원 PC 의 설정 도구
+  TimeGuard.SetupKit/    설치 공통 기능 (서비스 등록, 폴더 권한, 방화벽, 인증서)
+  TimeGuard.Setup/       TimeGuard-설치.exe — 직원 PC 설치 프로그램
+  TimeGuard.ServerSetup/ TimeGuard서버-설치.exe — 관리 서버 설치 프로그램
 tests/
   TimeGuard.Core.Tests/      판정 엔진 단위 테스트
   TimeGuard.Server.Tests/    서버 통합 테스트 + 클라이언트 연동 테스트
 build/
   publish.sh                 배포본 생성
-  install.ps1                직원 PC 설치
-  install-server.ps1         관리 서버 설치
 docs/
   설치안내.txt                직원 PC 설치 안내
   서버설치안내.txt            관리 서버 설치 안내

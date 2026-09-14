@@ -14,6 +14,13 @@
             <a class="brand" asp-page="/Index">한일 TimeGuard</a>
             <nav>
                 <a asp-page="/Index">PC 목록</a>
+                <a asp-page="/Pending">
+                    새 PC 승인
+                    @if (ViewData["WaitingCount"] is int waiting && waiting > 0)
+                    {
+                        <span class="badge">@waiting</span>
+                    }
+                </a>
                 <a asp-page="/Requests">
                     연장 요청
                     @if (ViewData["PendingCount"] is int pending && pending > 0)

@@ -25,11 +25,16 @@ public sealed class IndexModel : PageModel
     /// <summary>직원이 관리자 권한으로 로그인해 제한을 피할 수 있는 PC 수.</summary>
     public int BypassableCount { get; private set; }
 
+    /// <summary>승인을 기다리는 PC 수.</summary>
+    public int WaitingApprovalCount { get; private set; }
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         OfflineAfterMinutes = await _settings.GetOfflineAfterMinutesAsync(cancellationToken);
 
+        // 승인되지 않은 PC 는 [새 PC 승인] 화면에서 다룬다.
         var devices = await _db.Devices
+            .Where(d => d.Approval == ApprovalState.Approved)
             .OrderBy(d => d.DisplayName)
             .ThenBy(d => d.MachineName)
             .ToListAsync(cancellationToken);
@@ -53,5 +58,8 @@ public sealed class IndexModel : PageModel
             .CountAsync(e => e.Category == "보안" && e.At > since, cancellationToken);
 
         BypassableCount = Devices.Count(d => d.UserCanBypass);
+
+        WaitingApprovalCount = await _db.Devices
+            .CountAsync(d => d.Approval == ApprovalState.Pending, cancellationToken);
     }
 }

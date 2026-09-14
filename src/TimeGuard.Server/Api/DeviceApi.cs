@@ -62,7 +62,11 @@ public static class DeviceApi
                 MachineName = request.MachineName,
                 DisplayName = request.MachineName,
                 LastUser = request.OsUser ?? string.Empty,
-                TokenHash = hash
+                TokenHash = hash,
+
+                // 등록 키를 아는 쪽에서 온 요청이므로 따로 승인을 받지 않는다.
+                // 여러 대를 한꺼번에 설치할 때 쓰는 경로다.
+                Approval = ApprovalState.Approved
             };
 
             db.Devices.Add(device);
@@ -72,6 +76,7 @@ public static class DeviceApi
         {
             // 재설치 등으로 다시 등록하는 경우. 토큰만 갱신하고 설정은 유지한다.
             device.TokenHash = hash;
+            device.Approval = ApprovalState.Approved;
             device.MachineName = request.MachineName;
             device.LastUser = request.OsUser ?? device.LastUser;
             logger.LogInformation("기존 PC 가 다시 등록했습니다: {Machine}", request.MachineName);
@@ -105,6 +110,9 @@ public static class DeviceApi
     {
         var device = await AuthenticateAsync(context, db, token);
         if (device is null) return Unauthorized();
+
+        // 승인이 취소된 PC 는 더 이상 정책을 받아 갈 수 없다.
+        if (device.Approval != ApprovalState.Approved) return NotApproved();
 
         device.LastSeenAt = DateTimeOffset.Now;
         device.LastState = request.State ?? string.Empty;
@@ -184,6 +192,7 @@ public static class DeviceApi
     {
         var device = await AuthenticateAsync(context, db, token);
         if (device is null) return Unauthorized();
+        if (device.Approval != ApprovalState.Approved) return NotApproved();
 
         var entries = report.Entries.Take(MaxEventsPerReport);
 
@@ -212,6 +221,7 @@ public static class DeviceApi
     {
         var device = await AuthenticateAsync(context, db, token);
         if (device is null) return Unauthorized();
+        if (device.Approval != ApprovalState.Approved) return NotApproved();
 
         if (input.Minutes <= 0 || input.Minutes > 12 * 60)
             return Results.BadRequest(ApiError.From("연장 요청은 1분에서 720분(12시간) 사이여야 합니다."));
@@ -286,12 +296,21 @@ public static class DeviceApi
         if (string.IsNullOrWhiteSpace(raw)) return null;
 
         var hash = SettingsService.HashToken(raw);
-        return await db.Devices.FirstOrDefaultAsync(d => d.TokenHash == hash, token);
+
+        // 아직 토큰을 받지 않은 PC 는 TokenHash 가 비어 있다.
+        // 빈 값끼리 맞아떨어져 통과하는 일이 없도록 걸러 낸다.
+        return await db.Devices.FirstOrDefaultAsync(
+            d => d.TokenHash != string.Empty && d.TokenHash == hash, token);
     }
 
     private static IResult Unauthorized() =>
         Results.Json(ApiError.From("장비 인증에 실패했습니다. 다시 등록이 필요합니다."),
             statusCode: StatusCodes.Status401Unauthorized);
+
+    /// <summary>승인되지 않은 PC 는 아무 정책도 받아 갈 수 없다.</summary>
+    private static IResult NotApproved() =>
+        Results.Json(ApiError.From("이 PC 는 아직 관리자의 승인을 받지 못했습니다."),
+            statusCode: StatusCodes.Status403Forbidden);
 
     private static string Trim(string? text, int max)
     {

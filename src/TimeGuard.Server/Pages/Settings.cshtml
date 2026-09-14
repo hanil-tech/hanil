@@ -8,26 +8,35 @@
 <h1>설정</h1>
 
 <div class="panel">
-    <h2 style="margin-top:0">클라이언트 등록 키</h2>
+    <h2 style="margin-top:0">직원 PC 설치 방법</h2>
     <p class="muted">
-        직원 PC 에 클라이언트를 설치할 때 이 키를 입력해야 서버에 등록됩니다.
-        아무 PC 나 등록되지 않도록 막는 용도입니다.
+        배포 폴더를 직원 PC 에 복사한 뒤 <strong>TimeGuard-설치.exe</strong> 를 더블클릭하면 끝입니다.
+        등록 키나 서버 주소를 입력할 필요가 없습니다.
     </p>
 
-    <div class="key-display">@Model.EnrollmentKey</div>
+    <ol class="muted" style="line-height:1.9">
+        <li>직원 PC 에서 <strong>TimeGuard-설치.exe</strong> 더블클릭 → [1] 설치</li>
+        <li>그 PC 가 사내망에서 이 서버를 찾아 스스로 자기를 알립니다</li>
+        <li>왼쪽 <a asp-page="/Pending">[새 PC 승인]</a> 화면에 나타나면 [승인] 을 누릅니다</li>
+    </ol>
 
-    <p class="muted" style="margin-top:18px">
-        <strong>직원 PC 설치 명령</strong> — 아래 한 줄을 복사해 직원 PC 의 관리자 권한 PowerShell 에 붙여 넣으면
-        설치부터 서버 등록까지 한 번에 끝납니다.
+    <p class="muted">
+        이 서버의 주소는 <code>@Model.ServerUrlHint</code> 입니다.
+        직원 PC 가 서버를 못 찾는 경우에만 필요합니다.
     </p>
-    <div class="key-display" style="font-size:13px; letter-spacing:0">
-        .\install.ps1 -Server @Model.ServerUrlHint -Key @Model.EnrollmentKey
-    </div>
 
-    <form method="post" asp-page-handler="RegenerateKey" style="margin-top:14px"
-          onsubmit="return confirm('등록 키를 새로 만들까요? 이미 등록된 PC 는 영향받지 않지만, 앞으로 설치할 때는 새 키를 써야 합니다.');">
-        <button type="submit" class="secondary">등록 키 새로 만들기</button>
-    </form>
+    <details style="margin-top:14px">
+        <summary class="muted" style="cursor:pointer">등록 키 (보통은 쓰지 않습니다)</summary>
+        <p class="muted" style="margin-top:12px">
+            승인 방식을 쓰지 않고 설치 시점에 바로 등록하고 싶을 때만 쓰는 값입니다.
+            여러 대를 무인 설치하는 경우 등에 씁니다.
+        </p>
+        <div class="key-display">@Model.EnrollmentKey</div>
+        <form method="post" asp-page-handler="RegenerateKey" style="margin-top:14px"
+              onsubmit="return confirm('등록 키를 새로 만들까요? 이미 등록된 PC 는 영향받지 않지만, 앞으로 이 키로 설치할 때는 새 키를 써야 합니다.');">
+            <button type="submit" class="secondary">등록 키 새로 만들기</button>
+        </form>
+    </details>
 </div>
 
 <div class="panel">

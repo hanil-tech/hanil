@@ -2,6 +2,7 @@ using Hanil.TimeGuard.Core.Ipc;
 using Hanil.TimeGuard.Server;
 using Hanil.TimeGuard.Server.Api;
 using Hanil.TimeGuard.Server.Data;
+using Hanil.TimeGuard.Server.Pages;
 using Hanil.TimeGuard.Server.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -67,6 +68,9 @@ builder.Services.AddRazorPages(options =>
 {
     options.Conventions.AuthorizeFolder("/");
     options.Conventions.AllowAnonymousToPage("/Login");
+
+    // 승인 대기 건수는 어느 화면에서나 보여야 놓치지 않는다.
+    options.Conventions.ConfigureFilter(new PendingCountFilter());
 });
 
 builder.Services.AddAntiforgery();
@@ -105,6 +109,7 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 app.MapDeviceApi();
+app.MapApprovalApi();
 
 // 서버가 살아 있는지 확인하는 용도. 로그인 없이 접근할 수 있다.
 app.MapGet("/api/ping", () => Results.Ok(new { ok = true, time = DateTimeOffset.Now }));

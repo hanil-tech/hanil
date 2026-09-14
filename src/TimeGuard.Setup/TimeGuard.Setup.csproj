@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Hanil.TimeGuard.Setup</RootNamespace>
+    <!-- 직원 PC 에서 더블클릭하는 파일이라 한글 이름으로 둔다 -->
+    <AssemblyName>TimeGuard-설치</AssemblyName>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../TimeGuard.SetupKit/TimeGuard.SetupKit.csproj" />
+    <ProjectReference Include="../TimeGuard.Core/TimeGuard.Core.csproj" />
+  </ItemGroup>
+</Project>

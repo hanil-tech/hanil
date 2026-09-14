@@ -29,7 +29,13 @@ public sealed class GuardDbContext : DbContext
         builder.Entity<Device>(entity =>
         {
             entity.HasIndex(d => d.MachineName);
-            entity.HasIndex(d => d.TokenHash).IsUnique();
+
+            // 토큰이 아직 없는(승인 대기) PC 가 여럿일 수 있으므로 고유 조건을 걸지 않는다.
+            entity.HasIndex(d => d.TokenHash);
+
+            // 승인 대기 목록을 자주 훑는다.
+            entity.HasIndex(d => d.Approval);
+            entity.HasIndex(d => d.ClientIdHash);
         });
 
         builder.Entity<ExtensionRequest>(entity =>

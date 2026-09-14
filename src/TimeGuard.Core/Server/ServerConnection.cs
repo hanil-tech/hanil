@@ -121,6 +121,101 @@ public sealed class ServerConnection : IDisposable
         }
     }
 
+    /// <summary>
+    /// 등록 키 없이 서버에 자기를 알린다.
+    /// 관리자가 서버 화면에서 승인할 때까지는 아무것도 받지 못한다.
+    /// </summary>
+    public async Task<(bool Reached, string State, string Message)> AnnounceAsync(
+        string machineName, string osUser, CancellationToken token = default)
+    {
+        if (!_settings.IsConfigured) return (false, ApprovalStates.Pending, "서버 주소가 설정되지 않았습니다.");
+
+        try
+        {
+            var request = new AnnounceRequest
+            {
+                MachineName = machineName,
+                OsUser = osUser,
+                ClientId = _settings.EnsureClientId(_settingsPath),
+                ClientVersion = typeof(ServerConnection).Assembly.GetName().Version?.ToString() ?? "1.0.0"
+            };
+
+            using var response = await _http.PostAsJsonAsync(
+                ServerRoutes.Announce.TrimStart('/'), request, IpcJson.Options, token);
+
+            if (!response.IsSuccessStatusCode)
+                return (false, ApprovalStates.Pending, await ReadErrorAsync(response, token));
+
+            var result = await response.Content.ReadFromJsonAsync<AnnounceResponse>(IpcJson.Options, token);
+
+            return result is null
+                ? (false, ApprovalStates.Pending, "서버 응답을 해석하지 못했습니다.")
+                : (true, result.State, result.Message);
+        }
+        catch (Exception) when (CertificateMismatch)
+        {
+            return (false, ApprovalStates.Pending,
+                "서버 인증서가 기억해 둔 것과 다릅니다. 다른 서버이거나 누군가 가로채고 있을 수 있습니다.");
+        }
+        catch (Exception ex)
+        {
+            return (false, ApprovalStates.Pending, $"서버에 연결하지 못했습니다: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 승인되었는지 확인하고, 승인되었으면 토큰을 받아 저장한다.
+    /// </summary>
+    public async Task<(bool Approved, string State, string Message)> ClaimAsync(
+        string machineName, CancellationToken token = default)
+    {
+        if (!_settings.IsConfigured) return (false, ApprovalStates.Pending, "서버 주소가 설정되지 않았습니다.");
+
+        try
+        {
+            var request = new ClaimRequest
+            {
+                ClientId = _settings.EnsureClientId(_settingsPath),
+                MachineName = machineName
+            };
+
+            using var response = await _http.PostAsJsonAsync(
+                ServerRoutes.Claim.TrimStart('/'), request, IpcJson.Options, token);
+
+            if (!response.IsSuccessStatusCode)
+                return (false, ApprovalStates.Pending, await ReadErrorAsync(response, token));
+
+            var result = await response.Content.ReadFromJsonAsync<ClaimResponse>(IpcJson.Options, token);
+            if (result is null) return (false, ApprovalStates.Pending, "서버 응답을 해석하지 못했습니다.");
+
+            if (result.State != ApprovalStates.Approved || string.IsNullOrWhiteSpace(result.Token))
+                return (false, result.State, result.Message);
+
+            _settings.DeviceId = result.DeviceId ?? string.Empty;
+            _settings.Token = result.Token;
+
+            // 처음 연결할 때 본 인증서를 기억해 둔다.
+            if (_settings.UsesHttps &&
+                string.IsNullOrWhiteSpace(_settings.CertificateThumbprint) &&
+                !string.IsNullOrWhiteSpace(_observedThumbprint))
+            {
+                _settings.CertificateThumbprint = _observedThumbprint;
+            }
+
+            _settings.Save(_settingsPath);
+
+            return (true, result.State, result.Message);
+        }
+        catch (Exception) when (CertificateMismatch)
+        {
+            return (false, ApprovalStates.Pending, "서버 인증서가 기억해 둔 것과 다릅니다.");
+        }
+        catch (Exception ex)
+        {
+            return (false, ApprovalStates.Pending, $"서버에 연결하지 못했습니다: {ex.Message}");
+        }
+    }
+
     /// <summary>이 PC 를 서버에 등록한다. 성공하면 토큰을 받아 설정 파일에 저장한다.</summary>
     public async Task<(bool Ok, string Message)> EnrollAsync(
         string machineName, string osUser, string enrollmentKey, CancellationToken token = default)

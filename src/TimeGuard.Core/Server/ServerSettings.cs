@@ -19,8 +19,18 @@ public sealed class ServerSettings
     /// <summary>서버가 발급한 장비 토큰.</summary>
     public string Token { get; set; } = string.Empty;
 
-    /// <summary>등록에 쓴 키. 토큰이 만료되어 다시 등록할 때 쓴다.</summary>
+    /// <summary>
+    /// 등록 키. 여러 대를 한꺼번에 설치할 때만 쓴다.
+    /// 비어 있으면 관리자 승인 방식으로 등록한다.
+    /// </summary>
     public string EnrollmentKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 이 PC 가 스스로 만들어 보관하는 비밀값.
+    /// 서버에 자기를 알리고, 승인된 뒤 토큰을 받아 갈 때 쓴다.
+    /// 관리자가 받아 적을 일이 없도록 처음 한 번 자동으로 만들어진다.
+    /// </summary>
+    public string ClientId { get; set; } = string.Empty;
 
     /// <summary>서버에 연락하는 주기(초).</summary>
     public int PollSeconds { get; set; } = 60;
@@ -41,6 +51,28 @@ public sealed class ServerSettings
 
     /// <summary>등록까지 마친 상태인지.</summary>
     public bool IsEnrolled => IsConfigured && !string.IsNullOrWhiteSpace(Token);
+
+    /// <summary>
+    /// 이 PC 의 비밀값을 얻는다. 없으면 만들어 저장한다.
+    /// </summary>
+    public string EnsureClientId(string? path = null)
+    {
+        if (!string.IsNullOrWhiteSpace(ClientId)) return ClientId;
+
+        ClientId = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        Save(path);
+
+        return ClientId;
+    }
+
+    /// <summary>
+    /// 관리자가 화면에서 이 PC 를 알아볼 수 있게 보여 줄 짧은 문자.
+    /// 비밀값 자체를 보여 주면 안 되므로 앞부분만 쓴다.
+    /// </summary>
+    public static string DescribeFingerprint(string clientId) =>
+        string.IsNullOrWhiteSpace(clientId) || clientId.Length < 8
+            ? "-"
+            : clientId[..8];
 
     public static string DefaultPath =>
         Path.Combine(

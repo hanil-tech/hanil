@@ -33,6 +33,9 @@ public sealed class ServerSync : BackgroundService
     private bool _lastReachable = true;
     private DateTimeOffset _lastFailureLogged = DateTimeOffset.MinValue;
 
+    /// <summary>승인 대기 안내를 한 번만 남기기 위한 표시.</summary>
+    private bool _waitingLogged;
+
     public ServerSync(ServiceState state, ILogger<ServerSync> logger)
     {
         _state = state;
@@ -61,7 +64,10 @@ public sealed class ServerSync : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var interval = TimeSpan.FromSeconds(Math.Clamp(_settings.PollSeconds, 10, 3600));
+            // 승인을 기다리는 동안에는 자주 확인한다. 관리자가 승인하면 바로 동작해야 한다.
+            var interval = _settings.IsEnrolled
+                ? TimeSpan.FromSeconds(Math.Clamp(_settings.PollSeconds, 10, 3600))
+                : TimeSpan.FromSeconds(10);
 
             try
             {
@@ -118,23 +124,7 @@ public sealed class ServerSync : BackgroundService
         // 아직 등록되지 않았으면 먼저 등록한다.
         if (!_settings.IsEnrolled)
         {
-            if (string.IsNullOrWhiteSpace(_settings.EnrollmentKey))
-            {
-                LogFailureOccasionally("등록 키가 없어 서버에 등록할 수 없습니다. 설치 시 등록 키를 입력해 주세요.");
-                return;
-            }
-
-            var (ok, message) = await _connection.EnrollAsync(machineName, osUser, _settings.EnrollmentKey, token);
-
-            if (!ok)
-            {
-                LogFailureOccasionally($"서버 등록에 실패했습니다: {message}");
-                _lastReachable = false;
-                return;
-            }
-
-            _logger.LogInformation("서버에 등록했습니다: {Message}", message);
-            _state.Log.Write("서버", message);
+            if (!await RegisterAsync(machineName, osUser, token)) return;
         }
 
         var heartbeat = new HeartbeatRequest
@@ -202,6 +192,81 @@ public sealed class ServerSync : BackgroundService
         }
 
         await UploadPendingEventsAsync(token);
+    }
+
+    /// <summary>
+    /// 이 PC 를 서버에 등록한다.
+    ///
+    /// 등록 키가 있으면 곧바로 등록한다(여러 대를 한꺼번에 설치할 때).
+    /// 없으면 서버에 자기를 알리고 관리자가 승인할 때까지 기다린다.
+    /// 승인되면 다음 연락에서 자동으로 토큰을 받아 간다.
+    /// </summary>
+    private async Task<bool> RegisterAsync(string machineName, string osUser, CancellationToken token)
+    {
+        if (_connection is null) return false;
+
+        if (!string.IsNullOrWhiteSpace(_settings.EnrollmentKey))
+        {
+            var (ok, message) = await _connection.EnrollAsync(machineName, osUser, _settings.EnrollmentKey, token);
+
+            if (!ok)
+            {
+                LogFailureOccasionally($"서버 등록에 실패했습니다: {message}");
+                _lastReachable = false;
+                return false;
+            }
+
+            _logger.LogInformation("서버에 등록했습니다: {Message}", message);
+            _state.Log.Write("서버", message);
+            return true;
+        }
+
+        // 승인 방식. 먼저 자기를 알린다.
+        var (reached, state, announceMessage) = await _connection.AnnounceAsync(machineName, osUser, token);
+
+        if (!reached)
+        {
+            LogFailureOccasionally($"서버에 알리지 못했습니다: {announceMessage}");
+            _lastReachable = false;
+            return false;
+        }
+
+        _lastReachable = true;
+
+        if (state == ApprovalStates.Rejected)
+        {
+            LogFailureOccasionally("관리자가 이 PC 의 등록을 거절했습니다. 관리자에게 문의해 주세요.");
+            _state.SetApprovalState(state);
+            return false;
+        }
+
+        // 승인되었는지 확인하고, 되었으면 토큰을 받아 온다.
+        var (approved, claimState, claimMessage) = await _connection.ClaimAsync(machineName, token);
+
+        _state.SetApprovalState(claimState);
+
+        if (!approved)
+        {
+            // 승인을 기다리는 것은 정상 상태다. 매번 기록하지 않는다.
+            if (!_waitingLogged)
+            {
+                _waitingLogged = true;
+                _logger.LogInformation("서버에 등록을 요청했습니다. 관리자 승인을 기다립니다.");
+                _state.Log.Write("서버",
+                    "서버에 이 PC 를 알렸습니다. 관리자가 승인하면 시간표를 받아 옵니다. " +
+                    $"확인 문자: {ServerSettings.DescribeFingerprint(_settings.ClientId)}");
+            }
+
+            return false;
+        }
+
+        _waitingLogged = false;
+
+        _logger.LogInformation("승인되어 등록을 마쳤습니다: {Message}", claimMessage);
+        _state.Log.Write("서버", claimMessage);
+        _state.QueueEvent("서버", "관리자 승인 후 등록을 마쳤습니다.");
+
+        return true;
     }
 
     /// <summary>서비스가 남긴 기록 중 아직 올리지 않은 것을 서버로 보낸다.</summary>

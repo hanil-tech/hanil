@@ -1,0 +1,107 @@
+@page
+@model PendingModel
+@{
+    ViewData["Title"] = "새 PC 승인";
+    ViewData["PendingCount"] = Model.PendingRequestCount;
+}
+
+<h1>새 PC 승인</h1>
+<p class="subtitle">
+    사내망에서 발견된 PC 입니다. 승인해야 시간표를 받아 가고 관리 대상이 됩니다.
+</p>
+
+@if (Model.Pending.Count == 0)
+{
+    <div class="panel empty">
+        <p>승인을 기다리는 PC 가 없습니다.</p>
+        <p class="muted">
+            직원 PC 에 설치 프로그램을 실행하면 몇 초 안에 여기에 나타납니다.<br />
+            나타나지 않으면 그 PC 와 서버가 같은 사내망에 있는지 확인해 주세요.
+        </p>
+    </div>
+}
+else
+{
+    <table>
+        <thead>
+        <tr>
+            <th>PC 이름</th>
+            <th>사용자</th>
+            <th class="hide-narrow">주소</th>
+            <th class="hide-narrow">확인 문자</th>
+            <th class="hide-narrow">발견 시각</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var device in Model.Pending)
+        {
+            <tr>
+                <td><strong>@device.MachineName</strong></td>
+                <td>@(string.IsNullOrWhiteSpace(device.LastUser) ? "-" : device.LastUser)</td>
+                <td class="hide-narrow muted">@device.AnnouncedFrom</td>
+                <td class="hide-narrow muted"><code>@device.Fingerprint</code></td>
+                <td class="hide-narrow muted">@device.AnnouncedAt.Local("MM-dd HH:mm")</td>
+                <td>
+                    <div class="actions">
+                        <form method="post" asp-page-handler="Approve">
+                            <input type="hidden" name="deviceId" value="@device.Id" />
+                            <button type="submit" class="small">승인</button>
+                        </form>
+                        <form method="post" asp-page-handler="Reject">
+                            <input type="hidden" name="deviceId" value="@device.Id" />
+                            <button type="submit" class="secondary small">거절</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    @if (Model.Pending.Count > 1)
+    {
+        <div class="panel" style="margin-top:20px">
+            <form method="post" asp-page-handler="ApproveAll"
+                  onsubmit="return confirm('발견된 @Model.Pending.Count 대를 모두 승인할까요?');">
+                <button type="submit">@Model.Pending.Count 대 모두 승인</button>
+                <span class="muted" style="margin-left:10px">여러 대를 한꺼번에 설치했을 때 씁니다.</span>
+            </form>
+        </div>
+    }
+
+    <div class="hint">
+        <strong>확인 문자</strong>는 각 PC 가 스스로 만든 값의 앞부분입니다.
+        같은 이름의 PC 가 둘 이상 보일 때 어느 것이 진짜인지 가릴 때 씁니다.
+        해당 PC 에서 <code>TimeGuard.Admin.exe status</code> 를 실행하면 같은 값이 나옵니다.
+        <br /><br />
+        모르는 PC 가 보이면 <strong>거절</strong>하십시오. 거절한 PC 는 다시 나타나지 않고,
+        아무 정보도 받아 가지 못합니다.
+    </div>
+}
+
+@if (Model.Rejected.Count > 0)
+{
+    <h2>거절한 PC</h2>
+    <table>
+        <thead>
+        <tr><th>PC 이름</th><th>사용자</th><th class="hide-narrow">거절 시각</th><th></th></tr>
+        </thead>
+        <tbody>
+        @foreach (var device in Model.Rejected)
+        {
+            <tr>
+                <td>@device.MachineName</td>
+                <td class="muted">@(string.IsNullOrWhiteSpace(device.LastUser) ? "-" : device.LastUser)</td>
+                <td class="hide-narrow muted">@device.DecidedAt.Local("MM-dd HH:mm")</td>
+                <td>
+                    <form method="post" asp-page-handler="Approve">
+                        <input type="hidden" name="deviceId" value="@device.Id" />
+                        <button type="submit" class="secondary small">다시 승인</button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

@@ -11,7 +11,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(grep -oP '(?<=<Version>)[^<]+' "$ROOT/Directory.Build.props" | head -1)"
-PROJECTS=(TimeGuard.Service TimeGuard.Agent TimeGuard.Admin)
+PROJECTS=(TimeGuard.Service TimeGuard.Agent TimeGuard.Admin TimeGuard.Setup)
+
+# 프로젝트 이름과 만들어지는 exe 이름이 다른 것들
+exe_name() {
+  case "$1" in
+    TimeGuard.Setup)       echo "TimeGuard-설치.exe" ;;
+    TimeGuard.ServerSetup) echo "TimeGuard서버-설치.exe" ;;
+    *)                     echo "$1.exe" ;;
+  esac
+}
 
 MODE="shared"
 case "${1:-}" in
@@ -25,8 +34,6 @@ esac
 # 직원 PC 용 배포 폴더에 함께 넣을 파일들
 copy_extras() {
   local out="$1"
-  cp "$ROOT/build/install.ps1"   "$out/"
-  cp "$ROOT/build/uninstall.ps1" "$out/"
   cp "$ROOT/docs/설치안내.txt"              "$out/"
   cp "$ROOT/docs/직원계정_권한낮추기.md"     "$out/"
 }
@@ -43,8 +50,13 @@ publish_server() {
     -p:DebugType=none \
     -o "$out" --nologo -v quiet
 
-  cp "$ROOT/build/install-server.ps1"   "$out/"
-  cp "$ROOT/build/uninstall-server.ps1" "$out/"
+  dotnet publish "$ROOT/src/TimeGuard.ServerSetup/TimeGuard.ServerSetup.csproj" \
+    -c Release -r win-x64 --self-contained true \
+    -p:EnableWindowsTargeting=true \
+    -p:PublishSingleFile=false \
+    -p:DebugType=none \
+    -o "$out" --nologo -v quiet
+
   cp "$ROOT/docs/서버설치안내.txt"           "$out/" 2>/dev/null || true
   cp "$ROOT/docs/직원계정_권한낮추기.md"      "$out/" 2>/dev/null || true
 
@@ -91,7 +103,7 @@ publish_single() {
       -p:DebugType=none \
       -o "$stage" --nologo -v quiet
 
-    cp "$stage/$project.exe" "$out/"
+    cp "$stage/$(exe_name "$project")" "$out/"
     rm -rf "$stage"
   done
 
@@ -134,6 +146,6 @@ esac
 
 echo
 echo "== 만들어진 실행 파일 =="
-find "$ROOT/dist" -maxdepth 2 -name 'TimeGuard.*.exe' | sort | while read -r f; do
+find "$ROOT/dist" -maxdepth 2 -name '*.exe' | sort | while read -r f; do
   printf '  %-56s %8s\n' "${f#$ROOT/dist/}" "$(du -h "$f" | cut -f1)"
 done

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Hanil.TimeGuard.ServerSetup</RootNamespace>
+    <AssemblyName>TimeGuard서버-설치</AssemblyName>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../TimeGuard.SetupKit/TimeGuard.SetupKit.csproj" />
+  </ItemGroup>
+</Project>

@@ -21,6 +21,7 @@ public sealed class ServiceState
     private string? _serverUrl;
     private bool _serverReachable;
     private string? _policyStamp;
+    private string _approvalState = string.Empty;
     private readonly Queue<EventEntry> _pendingEvents = new();
     private readonly Queue<RequestDecision> _pendingDecisions = new();
 
@@ -76,6 +77,17 @@ public sealed class ServiceState
     public void SetServerReachable(bool reachable)
     {
         lock (_gate) _serverReachable = reachable;
+    }
+
+    /// <summary>서버 승인 상태. 아직 승인 전이면 사용자에게 알려 준다.</summary>
+    public string ApprovalState
+    {
+        get { lock (_gate) return _approvalState; }
+    }
+
+    public void SetApprovalState(string state)
+    {
+        lock (_gate) _approvalState = state;
     }
 
     public void UpdatePolicyStamp(string stamp)

@@ -5,6 +5,13 @@ namespace Hanil.TimeGuard.Core.Server;
 /// <summary>서버와 클라이언트가 주고받는 내용. 양쪽이 같은 정의를 쓴다.</summary>
 public static class ServerRoutes
 {
+    /// <summary>등록 키 없이 자기를 알리고 승인을 기다린다.</summary>
+    public const string Announce = "/api/announce";
+
+    /// <summary>승인되었는지 확인하고, 승인되었으면 토큰을 받아 온다.</summary>
+    public const string Claim = "/api/claim";
+
+    /// <summary>등록 키로 곧바로 등록한다. 여러 대를 한꺼번에 설치할 때 쓴다.</summary>
     public const string Enroll = "/api/enroll";
     public const string Heartbeat = "/api/heartbeat";
     public const string Events = "/api/events";
@@ -13,6 +20,66 @@ public static class ServerRoutes
 
     /// <summary>장비 토큰을 실어 보내는 헤더 이름.</summary>
     public const string TokenHeader = "X-TimeGuard-Token";
+}
+
+/// <summary>
+/// 직원 PC 가 서버에 자기를 알린다.
+///
+/// 등록 키가 필요 없다. 관리자가 서버 화면에서 승인해야 실제로 등록된다.
+/// 승인 전에는 아무 정책도 받지 못한다.
+/// </summary>
+public sealed class AnnounceRequest
+{
+    public string MachineName { get; set; } = string.Empty;
+    public string OsUser { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 이 PC 가 스스로 만들어 보관하는 비밀값.
+    /// 나중에 토큰을 받아 갈 때 자기가 맞다는 것을 증명하는 데 쓴다.
+    /// 관리자가 받아 적을 일이 없도록 자동으로 만들어진다.
+    /// </summary>
+    public string ClientId { get; set; } = string.Empty;
+
+    public string ClientVersion { get; set; } = string.Empty;
+}
+
+public sealed class AnnounceResponse
+{
+    /// <summary>지금 어떤 상태인지. Pending / Approved / Rejected.</summary>
+    public string State { get; set; } = string.Empty;
+
+    /// <summary>관리자가 알아보기 쉽도록 보여 줄 짧은 확인 문자.</summary>
+    public string Fingerprint { get; set; } = string.Empty;
+
+    /// <summary>사람이 읽을 안내 문구.</summary>
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>승인되었는지 확인하고 토큰을 받아 온다.</summary>
+public sealed class ClaimRequest
+{
+    public string ClientId { get; set; } = string.Empty;
+    public string MachineName { get; set; } = string.Empty;
+}
+
+public sealed class ClaimResponse
+{
+    public string State { get; set; } = string.Empty;
+
+    /// <summary>승인된 경우에만 채워진다.</summary>
+    public string? DeviceId { get; set; }
+    public string? Token { get; set; }
+    public string? DisplayName { get; set; }
+
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>승인 상태.</summary>
+public static class ApprovalStates
+{
+    public const string Pending = "Pending";
+    public const string Approved = "Approved";
+    public const string Rejected = "Rejected";
 }
 
 /// <summary>최초 등록 요청.</summary>
