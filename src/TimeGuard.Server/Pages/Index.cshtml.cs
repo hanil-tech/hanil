@@ -22,6 +22,9 @@ public sealed class IndexModel : PageModel
     /// <summary>최근 하루 동안의 보안 기록 수.</summary>
     public int RecentSecurityCount { get; private set; }
 
+    /// <summary>직원이 관리자 권한으로 로그인해 제한을 피할 수 있는 PC 수.</summary>
+    public int BypassableCount { get; private set; }
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         OfflineAfterMinutes = await _settings.GetOfflineAfterMinutesAsync(cancellationToken);
@@ -48,5 +51,7 @@ public sealed class IndexModel : PageModel
         var since = DateTimeOffset.Now.AddDays(-1);
         RecentSecurityCount = await _db.DeviceEvents
             .CountAsync(e => e.Category == "보안" && e.At > since, cancellationToken);
+
+        BypassableCount = Devices.Count(d => d.UserCanBypass);
     }
 }

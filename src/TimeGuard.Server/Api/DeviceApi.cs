@@ -112,6 +112,23 @@ public static class DeviceApi
 
         if (!string.IsNullOrWhiteSpace(request.OsUser)) device.LastUser = request.OsUser;
 
+        if (request.UserIsAdministrator is { } isAdmin)
+        {
+            // 관리자 권한이 새로 확인되면 기록에 남긴다. 관리자가 조치할 수 있게 하기 위해서다.
+            if (device.LastUserIsAdministrator != true && isAdmin)
+            {
+                db.DeviceEvents.Add(new DeviceEvent
+                {
+                    DeviceId = device.Id,
+                    Category = "보안",
+                    Message = $"로그인 계정 '{device.LastUser}' 이(가) 이 PC 의 관리자입니다. " +
+                              "서비스를 멈춰 제한을 무력화할 수 있으니 일반 사용자로 낮춰 주세요."
+                });
+            }
+
+            device.LastUserIsAdministrator = isAdmin;
+        }
+
         var stamp = await policies.BuildPolicyStampAsync(device, token);
 
         var response = new HeartbeatResponse

@@ -51,6 +51,12 @@ public sealed class DeviceView
 
     public string PolicyText => Device.UsesDefaultPolicy ? "기본 시간표" : "전용 시간표";
 
+    /// <summary>
+    /// 로그인 계정이 관리자라서 제한을 무력화할 수 있는 상태인지.
+    /// 이 PC 는 서비스를 멈춰 시간 제한을 피할 수 있다.
+    /// </summary>
+    public bool UserCanBypass => Device.LastUserIsAdministrator == true;
+
     public static DeviceView From(Device device, int offlineAfterMinutes, int pendingRequests = 0) => new()
     {
         Device = device,

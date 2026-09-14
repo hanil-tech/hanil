@@ -27,7 +27,8 @@ copy_extras() {
   local out="$1"
   cp "$ROOT/build/install.ps1"   "$out/"
   cp "$ROOT/build/uninstall.ps1" "$out/"
-  cp "$ROOT/docs/설치안내.txt"    "$out/"
+  cp "$ROOT/docs/설치안내.txt"              "$out/"
+  cp "$ROOT/docs/직원계정_권한낮추기.md"     "$out/"
 }
 
 # 관리 서버 배포본
@@ -44,7 +45,8 @@ publish_server() {
 
   cp "$ROOT/build/install-server.ps1"   "$out/"
   cp "$ROOT/build/uninstall-server.ps1" "$out/"
-  cp "$ROOT/docs/서버설치안내.txt"       "$out/" 2>/dev/null || true
+  cp "$ROOT/docs/서버설치안내.txt"           "$out/" 2>/dev/null || true
+  cp "$ROOT/docs/직원계정_권한낮추기.md"      "$out/" 2>/dev/null || true
 
   echo "완료: $out  ($(du -sh "$out" | cut -f1))"
 }

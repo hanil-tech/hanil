@@ -49,6 +49,15 @@ public sealed class HeartbeatRequest
     public string OsUser { get; set; } = string.Empty;
     public double? RemainingSeconds { get; set; }
     public string ClientVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 지금 로그인한 계정이 이 PC 의 관리자인지.
+    ///
+    /// 관리자면 서비스를 멈춰 제한을 무력화할 수 있으므로,
+    /// 관리자가 어느 PC 를 손봐야 하는지 알 수 있도록 함께 보고한다.
+    /// 확인하지 못했으면 null.
+    /// </summary>
+    public bool? UserIsAdministrator { get; set; }
 }
 
 public sealed class HeartbeatResponse

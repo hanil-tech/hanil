@@ -24,6 +24,12 @@ public sealed class Device
     public DateTimeOffset EnrolledAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? LastSeenAt { get; set; }
 
+    /// <summary>
+    /// 마지막으로 로그인한 계정이 이 PC 의 관리자인지.
+    /// 관리자면 서비스를 멈춰 제한을 무력화할 수 있으므로 화면에 눈에 띄게 알린다.
+    /// </summary>
+    public bool? LastUserIsAdministrator { get; set; }
+
     /// <summary>클라이언트가 마지막으로 보고한 판정 상태.</summary>
     public string LastState { get; set; } = string.Empty;
     public string LastReason { get; set; } = string.Empty;

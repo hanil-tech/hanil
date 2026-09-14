@@ -26,6 +26,17 @@
     마지막 연결 @view.LastSeenText
 </p>
 
+@if (view.UserCanBypass)
+{
+    <div class="alert error">
+        <strong>이 PC 의 로그인 계정 '@view.Device.LastUser' 은(는) 관리자 권한을 가지고 있습니다.</strong>
+        <br />
+        서비스를 멈춰 시간 제한을 무력화할 수 있고, 계정 잠금 조치도 적용되지 않습니다.
+        이 계정을 일반 사용자로 낮춰 주세요.
+        방법은 배포 폴더의 <code>직원계정_권한낮추기.md</code> 를 보십시오.
+    </div>
+}
+
 @if (!string.IsNullOrWhiteSpace(view.Device.LastReason))
 {
     <div class="alert info">클라이언트 보고: @view.Device.LastReason</div>

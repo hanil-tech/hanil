@@ -144,7 +144,8 @@ public sealed class ServerSync : BackgroundService
             Reason = status.Reason,
             OsUser = osUser,
             RemainingSeconds = status.RemainingSeconds,
-            ClientVersion = typeof(ServerSync).Assembly.GetName().Version?.ToString() ?? "1.0.0"
+            ClientVersion = typeof(ServerSync).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+            UserIsAdministrator = DescribeAdminRights(osUser)
         };
 
         var result = await _connection.SyncAsync(heartbeat, machineName, token);
@@ -217,6 +218,24 @@ public sealed class ServerSync : BackgroundService
         {
             // 실패하면 다시 넣어 두어 다음 기회에 올린다.
             _state.RestorePendingEvents(pending);
+        }
+    }
+
+    /// <summary>
+    /// 로그인한 계정이 이 PC 의 관리자인지 확인한다.
+    /// 확인하지 못하면 null 을 돌려준다. 잘못된 정보를 올리는 것보다 낫다.
+    /// </summary>
+    private static bool? DescribeAdminRights(string osUser)
+    {
+        if (string.IsNullOrWhiteSpace(osUser)) return null;
+
+        try
+        {
+            return AccountController.IsAdministrator(osUser);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

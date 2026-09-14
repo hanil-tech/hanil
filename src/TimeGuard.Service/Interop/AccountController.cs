@@ -110,9 +110,14 @@ internal static class AccountController
 
             // 로컬 관리자 그룹에 속한 계정도 잠그지 않는다.
             // 실수로 잠그면 그 PC 를 복구할 방법이 사라진다.
-            if (IsLocalAdministrator(name))
+            // 확인하지 못한 경우에도 잠그지 않는다. 되돌릴 수 없는 일이라 조심하는 편이 낫다.
+            var isAdmin = IsLocalAdministrator(name);
+
+            if (isAdmin != false)
             {
-                reason = "관리자 권한을 가진 계정은 잠글 수 없습니다.";
+                reason = isAdmin == true
+                    ? "관리자 권한을 가진 계정은 잠글 수 없습니다."
+                    : "계정의 권한을 확인하지 못해 잠그지 않았습니다.";
                 return false;
             }
         }
@@ -130,8 +135,12 @@ internal static class AccountController
     ///
     /// 그룹 이름은 언어에 따라 다르므로("Administrators", "관리자") 이름이 아니라
     /// SID 로 비교한다.
+    ///
+    /// 확인하지 못하면 null 을 돌려준다.
+    /// "모른다" 와 "관리자다" 를 구분해야, 잠금 판단은 안전하게 하면서도
+    /// 화면에는 헛된 경고를 띄우지 않을 수 있다.
     /// </summary>
-    private static bool IsLocalAdministrator(string userName)
+    private static bool? IsLocalAdministrator(string userName)
     {
         var buffer = IntPtr.Zero;
 
@@ -142,7 +151,7 @@ internal static class AccountController
             var result = NetUserGetLocalGroups(null, userName, 0, LG_INCLUDE_INDIRECT,
                 out buffer, MAX_PREFERRED_LENGTH, out var entriesRead, out _);
 
-            if (result != NERR_Success) return true; // 확인할 수 없으면 잠그지 않는 쪽으로 본다
+            if (result != NERR_Success) return null; // 확인할 수 없음
 
             var size = Marshal.SizeOf<LOCALGROUP_USERS_INFO_0>();
 
@@ -168,13 +177,35 @@ internal static class AccountController
         }
         catch (Exception)
         {
-            // 확인할 수 없으면 안전한 쪽으로 판단한다. 잠그지 않는다.
-            return true;
+            return null; // 확인할 수 없음
         }
         finally
         {
             if (buffer != IntPtr.Zero) NetApiBufferFree(buffer);
         }
+    }
+
+    /// <summary>
+    /// 이 계정이 PC 의 관리자 권한을 가졌는지 알려 준다.
+    /// 서버에 보고해 관리자가 어느 PC 를 손봐야 하는지 알 수 있게 한다.
+    /// </summary>
+    internal static bool? IsAdministrator(string userName)
+    {
+        var name = StripDomain(userName);
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        try
+        {
+            var sid = (SecurityIdentifier)new NTAccount(name).Translate(typeof(SecurityIdentifier));
+
+            if (sid.IsWellKnown(WellKnownSidType.AccountAdministratorSid)) return true;
+        }
+        catch (Exception)
+        {
+            // 계정을 확인하지 못하면 그룹 소속만으로 판단한다.
+        }
+
+        return IsLocalAdministrator(name);
     }
 
     /// <summary>계정을 잠근다(로그인 불가). 이미 잠겨 있으면 아무 일도 하지 않는다.</summary>
