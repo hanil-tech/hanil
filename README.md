@@ -61,31 +61,31 @@ Windows 서비스는 세션 0 에 격리되어 있어 사용자 화면에 창을
 
 ## 설치
 
-### 0단계 — 내려받기
+받을 파일은 **하나씩**입니다. 압축을 풀 것도, 다른 파일을 같이 둘 것도 없습니다.
+설치에 필요한 모든 것이 그 안에 들어 있습니다.
 
-| 받기 | 설치 대상 | 크기 |
+| 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[① 관리 서버 받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/HanilTimeGuard-1.0.0-%EA%B4%80%EB%A6%AC%EC%84%9C%EB%B2%84-win-x64.zip)** | 관리 서버로 쓸 PC **한 대** | 46MB |
-| **[② 직원 PC 받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/HanilTimeGuard-1.0.0-%EC%A7%81%EC%9B%90PC-win-x64.zip)** | 시간을 제한할 **직원 PC 들** | 33MB |
+| **[① 관리 서버 설치 파일](https://github.com/hanil-tech/hanil/raw/HEAD/release/TimeGuard-Server-Setup.exe)** | 서버로 쓸 PC **한 대** | 80MB |
+| **[② 직원 PC 설치 파일](https://github.com/hanil-tech/hanil/raw/HEAD/release/TimeGuard-Setup.exe)** | 시간을 제한할 **직원 PC 들** | 67MB |
 
-.NET 을 따로 설치할 필요가 없습니다. 런타임이 함께 들어 있습니다.
+> 파일이 안 열리면: "Windows의 PC 보호" → **[추가 정보]** → **[실행]**.
+> 그래도 안 되면 오른쪽 클릭 → **[속성]** → **[차단 해제]** 체크.
+> 사내에서 만든 프로그램이라 서명이 없어서 그렇습니다.
 
 ### 1단계 — 관리 서버
 
-사무실 PC 한 대를 정해 `dist/TimeGuard-서버` 폴더를 복사한 뒤, 폴더 안의
-**`TimeGuard서버-설치.exe` 를 더블클릭**합니다.
+서버로 쓸 PC 에서 **`TimeGuard-Server-Setup.exe` 를 더블클릭**합니다.
+Windows 가 관리자 권한을 물어보면 [예], 설치 창에서 [설치] 를 누릅니다.
 
-Windows 가 관리자 권한을 물어보면 [예], 메뉴에서 [1] 설치 를 누릅니다.
-암호화 여부와 포트만 물어보고(둘 다 Enter 로 기본값), 나머지는 알아서 합니다.
+암호화 여부와 포트만 확인하고(기본값 그대로 두시면 됩니다), 나머지는 알아서 합니다.
 
-- 프로그램 복사와 폴더 권한 설정
+- 프로그램 파일 풀기와 폴더 권한 설정
 - 사내용 인증서 생성 (HTTPS)
 - 방화벽 개방 — 사내망 프로필만
 - 서비스 등록·보호·시작
 
-끝나면 접속 주소와 임시 비밀번호를 화면에 보여 줍니다.
-
-브라우저로 접속해 다음 순서로 진행하세요.
+끝나면 접속 주소와 임시 비밀번호가 나오고, [관리 화면 열기] 로 브라우저가 열립니다.
 
 | 순서 | 화면 | 내용 |
 |---|---|---|
@@ -95,8 +95,8 @@ Windows 가 관리자 권한을 물어보면 [예], 메뉴에서 [1] 설치 를 
 
 ### 2단계 — 직원 PC (더블클릭 한 번)
 
-`dist/TimeGuard` 폴더를 복사한 뒤, 폴더 안의
-**`TimeGuard-설치.exe` 를 더블클릭**합니다. [1] 설치 를 누르면 끝입니다.
+직원 PC 에서 **`TimeGuard-Setup.exe` 를 더블클릭**하고 [설치] 를 누르면 끝입니다.
+파일 하나만 보내면 되므로 메신저나 USB 로 그대로 전달하시면 됩니다.
 
 **등록 키도, 서버 주소도 입력하지 않습니다.** 설치된 PC 가 사내망에서 서버를
 찾아 스스로 자기를 알립니다.
@@ -104,7 +104,7 @@ Windows 가 관리자 권한을 물어보면 [예], 메뉴에서 [1] 설치 를 
 여러 대를 자동으로 설치할 때만 명령줄을 씁니다.
 
 ```
-TimeGuard-설치.exe /설치
+TimeGuard-Setup.exe /설치
 ```
 
 ### 3단계 — 서버에서 승인
@@ -115,7 +115,7 @@ TimeGuard-설치.exe /설치
 | 보이는 것 | 쓰임 |
 |---|---|
 | PC 이름 · 로그인 사용자 | 어느 자리의 PC 인지 확인 |
-| 확인 문자 (8자리) | 설치 화면에 찍힌 값과 같은지 대조 |
+| 확인 문자 (8자리) | 설치 화면에 나온 값과 같은지 대조 |
 | 관리자 권한 표시 | 그 계정이 서비스를 멈출 수 있는지 |
 
 [승인] 을 누르면 그때부터 시간표가 내려가고 **PC 목록**으로 옮겨 갑니다.
@@ -123,7 +123,7 @@ TimeGuard-설치.exe /설치
 
 모르는 PC 는 [거절] 합니다. **승인 전에는 어떤 정책도 내려가지 않습니다.**
 
-> .NET 설치가 필요 없습니다. 런타임이 함께 들어 있습니다.
+> .NET 설치가 필요 없습니다. 런타임이 설치 파일 안에 들어 있습니다.
 
 #### 서버를 어떻게 찾나
 
@@ -427,13 +427,13 @@ src/
     ExtensionRequestDialog.cs   연장 요청 창 (Win32)
   TimeGuard.Admin/       직원 PC 의 설정 도구
   TimeGuard.SetupKit/    설치 공통 기능 (서비스 등록, 폴더 권한, 방화벽, 인증서)
-  TimeGuard.Setup/       TimeGuard-설치.exe — 직원 PC 설치 프로그램
-  TimeGuard.ServerSetup/ TimeGuard서버-설치.exe — 관리 서버 설치 프로그램
+  TimeGuard.Setup/       TimeGuard-Setup.exe — 직원 PC 설치 프로그램
+  TimeGuard.ServerSetup/ TimeGuard-Server-Setup.exe — 관리 서버 설치 프로그램
 tests/
   TimeGuard.Core.Tests/      판정 엔진 단위 테스트
   TimeGuard.Server.Tests/    서버 통합 테스트 + 클라이언트 연동 테스트
 build/
-  publish.sh                 배포본 생성
+  publish.sh                 설치 파일 두 개를 만든다
 docs/
   설치안내.txt                직원 PC 설치 안내
   서버설치안내.txt            관리 서버 설치 안내

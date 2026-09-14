@@ -6,6 +6,7 @@
     <AssemblyName>TimeGuard.Admin</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+      <ApplicationIcon>../../assets/timeguard.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TimeGuard.Core/TimeGuard.Core.csproj" />

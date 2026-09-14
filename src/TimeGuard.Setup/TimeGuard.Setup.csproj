@@ -1,15 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- 창 프로그램이라 검은 명령 창이 뜨지 않는다 -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>Hanil.TimeGuard.Setup</RootNamespace>
-    <!-- 직원 PC 에서 더블클릭하는 파일이라 한글 이름으로 둔다 -->
-    <AssemblyName>TimeGuard-설치</AssemblyName>
+    <!--
+      파일 이름은 반드시 영문으로 둔다.
+      한글 이름은 메신저나 압축 프로그램을 거치면서 깨져
+      압축을 풀 때 파일이 통째로 사라지는 일이 생긴다.
+    -->
+    <AssemblyName>TimeGuard-Setup</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../assets/timeguard.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TimeGuard.SetupKit/TimeGuard.SetupKit.csproj" />
     <ProjectReference Include="../TimeGuard.Core/TimeGuard.Core.csproj" />
+  </ItemGroup>
+  <!--
+    설치할 파일 묶음을 설치 프로그램 안에 넣는다.
+    배포본을 만들 때 build/publish.sh 가 PayloadZip 값을 넘겨 준다.
+    값이 없으면(개발 중 빌드) 같은 폴더의 파일을 복사하는 방식으로 동작한다.
+  -->
+  <ItemGroup Condition="'$(PayloadZip)' != ''">
+    <EmbeddedResource Include="$(PayloadZip)" LogicalName="TimeGuard.Payload.zip" />
   </ItemGroup>
 </Project>

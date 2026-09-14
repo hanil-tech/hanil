@@ -2,74 +2,44 @@
 #
 # Windows(x64)용 배포 파일을 만든다.
 #
-#   ./build/publish.sh                직원 PC 용 배포본 + 관리 서버 배포본
-#   ./build/publish.sh --single-file  직원 PC 용을 단독 실행 파일로
-#   ./build/publish.sh --all          모두 만들고 zip 으로 묶는다
+#   ./build/publish.sh
 #
-# 어느 쪽이든 대상 PC 에 .NET 을 따로 설치할 필요가 없다.
+# 결과는 파일 두 개다.
+#
+#   dist/TimeGuard-Setup.exe          직원 PC 에 설치
+#   dist/TimeGuard-Server-Setup.exe   관리 서버에 설치
+#
+# 설치에 필요한 모든 것이 이 안에 들어 있다.
+# 받는 사람은 이 파일 하나만 있으면 되고, .NET 을 따로 깔 필요도 없다.
+#
+# 파일 이름을 영문으로 두는 이유:
+#   한글 이름은 메신저나 압축 프로그램을 거치면서 깨진다.
+#   압축을 풀 때 그 파일을 아예 건너뛰어서, 받는 쪽에서는 사라진 것처럼 보인다.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIST="$ROOT/dist"
+WORK="$DIST/.work"
+
 VERSION="$(grep -oP '(?<=<Version>)[^<]+' "$ROOT/Directory.Build.props" | head -1)"
-PROJECTS=(TimeGuard.Service TimeGuard.Agent TimeGuard.Admin TimeGuard.Setup)
 
-# 프로젝트 이름과 만들어지는 exe 이름이 다른 것들
-exe_name() {
-  case "$1" in
-    TimeGuard.Setup)       echo "TimeGuard-설치.exe" ;;
-    TimeGuard.ServerSetup) echo "TimeGuard서버-설치.exe" ;;
-    *)                     echo "$1.exe" ;;
-  esac
-}
-
-MODE="shared"
 case "${1:-}" in
-  --single-file) MODE="single" ;;
-  --all)         MODE="all" ;;
-  --help|-h)     sed -n '3,10p' "$0"; exit 0 ;;
-  "")            ;;
-  *)             echo "알 수 없는 옵션: $1"; exit 1 ;;
+  --help|-h) sed -n '3,18p' "$0"; exit 0 ;;
+  "")        ;;
+  *)         echo "알 수 없는 옵션: $1"; exit 1 ;;
 esac
 
-# 직원 PC 용 배포 폴더에 함께 넣을 파일들
-copy_extras() {
-  local out="$1"
-  cp "$ROOT/docs/설치안내.txt"              "$out/"
-  cp "$ROOT/docs/직원계정_권한낮추기.md"     "$out/"
-}
+rm -rf "$WORK"
+mkdir -p "$DIST" "$WORK"
 
-# 관리 서버 배포본
-publish_server() {
-  local out="$ROOT/dist/TimeGuard-서버"
-  echo "=== 관리 서버 ==="
-  rm -rf "$out"; mkdir -p "$out"
+# 설치될 프로그램들을 한 폴더에 모은다. 런타임을 함께 쓰므로 용량이 줄어든다.
+stage() {
+  local name="$1"; shift
+  local out="$WORK/$name"
 
-  dotnet publish "$ROOT/src/TimeGuard.Server/TimeGuard.Server.csproj" \
-    -c Release -r win-x64 --self-contained true \
-    -p:PublishSingleFile=false \
-    -p:DebugType=none \
-    -o "$out" --nologo -v quiet
+  mkdir -p "$out"
 
-  dotnet publish "$ROOT/src/TimeGuard.ServerSetup/TimeGuard.ServerSetup.csproj" \
-    -c Release -r win-x64 --self-contained true \
-    -p:EnableWindowsTargeting=true \
-    -p:PublishSingleFile=false \
-    -p:DebugType=none \
-    -o "$out" --nologo -v quiet
-
-  cp "$ROOT/docs/서버설치안내.txt"           "$out/" 2>/dev/null || true
-  cp "$ROOT/docs/직원계정_권한낮추기.md"      "$out/" 2>/dev/null || true
-
-  echo "완료: $out  ($(du -sh "$out" | cut -f1))"
-}
-
-publish_shared() {
-  local out="$ROOT/dist/TimeGuard"
-  echo "=== 기본 배포본 (런타임 공유) ==="
-  rm -rf "$out"; mkdir -p "$out"
-
-  for project in "${PROJECTS[@]}"; do
-    echo "--> $project"
+  for project in "$@"; do
     dotnet publish "$ROOT/src/$project/$project.csproj" \
       -c Release -r win-x64 --self-contained true \
       -p:EnableWindowsTargeting=true \
@@ -77,75 +47,73 @@ publish_shared() {
       -p:DebugType=none \
       -o "$out" --nologo -v quiet
   done
-
-  copy_extras "$out"
-  echo "완료: $out  ($(du -sh "$out" | cut -f1))"
 }
 
-publish_single() {
-  local out="$ROOT/dist/TimeGuard-단독실행"
-  echo "=== 단독 실행 파일 ==="
-  rm -rf "$out"; mkdir -p "$out"
+# 모아 둔 폴더를 설치 프로그램 안에 넣을 묶음으로 만든다.
+pack() {
+  local name="$1"
+  local zip="$WORK/$name.zip"
 
-  for project in "${PROJECTS[@]}"; do
-    echo "--> $project"
-    # 프로젝트마다 따로 내보낸 뒤 exe 만 모은다.
-    # 한 폴더에 바로 내보내면 서로의 부속 파일을 덮어써 버린다.
-    local stage="$ROOT/dist/.stage-$project"
-    rm -rf "$stage"
+  # -j: 폴더 이름 없이 파일만 담는다. 푸는 쪽에서 그대로 설치 폴더가 된다.
+  # -UN=UTF8: 이름을 UTF-8 로 못박는다.
+  (cd "$WORK/$name" && zip -qr9 -UN=UTF8 "$zip" .)
 
-    dotnet publish "$ROOT/src/$project/$project.csproj" \
-      -c Release -r win-x64 --self-contained true \
-      -p:EnableWindowsTargeting=true \
-      -p:PublishSingleFile=true \
-      -p:EnableCompressionInSingleFile=true \
-      -p:IncludeNativeLibrariesForSelfExtract=true \
-      -p:DebugType=none \
-      -o "$stage" --nologo -v quiet
-
-    cp "$stage/$(exe_name "$project")" "$out/"
-    rm -rf "$stage"
-  done
-
-  copy_extras "$out"
-  echo "완료: $out  ($(du -sh "$out" | cut -f1))"
+  echo "$zip"
 }
 
-make_zip() {
-  local folder="$1" name="$2"
-  local zip="$ROOT/dist/$name"
+# 설치 프로그램을 파일 하나로 만든다.
+build_setup() {
+  local project="$1" exe="$2" payload="$3"
+  local stage_dir="$WORK/setup-$project"
 
-  rm -f "$zip"
-  (cd "$ROOT/dist" && zip -qr9 "$zip" "$(basename "$folder")")
-  echo "압축 완료: $zip  ($(du -h "$zip" | cut -f1))"
+  dotnet publish "$ROOT/src/$project/$project.csproj" \
+    -c Release -r win-x64 --self-contained true \
+    -p:EnableWindowsTargeting=true \
+    -p:PublishSingleFile=true \
+    -p:EnableCompressionInSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:DebugType=none \
+    -p:PayloadZip="$payload" \
+    -o "$stage_dir" --nologo -v quiet
+
+  mv "$stage_dir/$exe" "$DIST/$exe"
 }
 
-case "$MODE" in
-  shared)
-    publish_shared
-    echo
-    publish_server
-    ;;
-  single)
-    publish_single
-    echo
-    publish_server
-    ;;
-  all)
-    publish_shared
-    echo
-    publish_single
-    echo
-    publish_server
-    echo
-    make_zip "$ROOT/dist/TimeGuard"          "HanilTimeGuard-$VERSION-직원PC-win-x64.zip"
-    make_zip "$ROOT/dist/TimeGuard-단독실행"  "HanilTimeGuard-$VERSION-직원PC-단독실행-win-x64.zip"
-    make_zip "$ROOT/dist/TimeGuard-서버"      "HanilTimeGuard-$VERSION-관리서버-win-x64.zip"
-    ;;
-esac
+# 메신저가 exe 첨부를 막는 경우를 대비해 zip 도 하나 만들어 둔다.
+wrap_zip() {
+  local exe="$1" zip="$2"
+
+  rm -f "$DIST/$zip"
+  (cd "$DIST" && zip -q9 -UN=UTF8 "$zip" "$exe")
+
+  echo "        $zip  ($(du -h "$DIST/$zip" | cut -f1))"
+}
+
+echo "=== 직원 PC 설치 파일 ==="
+stage client TimeGuard.Service TimeGuard.Agent TimeGuard.Admin
+cp "$ROOT/docs/설치안내.txt"          "$WORK/client/Install-Guide.txt"
+cp "$ROOT/docs/직원계정_권한낮추기.md" "$WORK/client/Employee-Account-Guide.md"
+build_setup TimeGuard.Setup "TimeGuard-Setup.exe" "$(pack client)"
+echo "완료: dist/TimeGuard-Setup.exe  ($(du -h "$DIST/TimeGuard-Setup.exe" | cut -f1))"
 
 echo
-echo "== 만들어진 실행 파일 =="
-find "$ROOT/dist" -maxdepth 2 -name '*.exe' | sort | while read -r f; do
-  printf '  %-56s %8s\n' "${f#$ROOT/dist/}" "$(du -h "$f" | cut -f1)"
+echo "=== 관리 서버 설치 파일 ==="
+stage server TimeGuard.Server
+cp "$ROOT/docs/서버설치안내.txt"       "$WORK/server/Server-Install-Guide.txt"
+cp "$ROOT/docs/직원계정_권한낮추기.md" "$WORK/server/Employee-Account-Guide.md"
+build_setup TimeGuard.ServerSetup "TimeGuard-Server-Setup.exe" "$(pack server)"
+echo "완료: dist/TimeGuard-Server-Setup.exe  ($(du -h "$DIST/TimeGuard-Server-Setup.exe" | cut -f1))"
+
+echo
+echo "=== exe 를 막는 메신저용 zip ==="
+wrap_zip "TimeGuard-Setup.exe"        "HanilTimeGuard-$VERSION-Client.zip"
+wrap_zip "TimeGuard-Server-Setup.exe" "HanilTimeGuard-$VERSION-Server.zip"
+
+rm -rf "$WORK"
+
+echo
+echo "== 배포 파일 =="
+for f in "$DIST"/*.exe "$DIST"/*.zip; do
+  [ -e "$f" ] || continue
+  printf '  %-44s %8s\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
 done

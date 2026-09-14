@@ -1,18 +1,24 @@
+using System.IO.Compression;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text;
 using Hanil.TimeGuard.Core.Config;
 using Hanil.TimeGuard.Core.Server;
 using Hanil.TimeGuard.SetupKit;
+using Hanil.TimeGuard.SetupKit.Ui;
 using Microsoft.Win32;
 
 [assembly: SupportedOSPlatform("windows")]
 
 // 직원 PC 용 설치 프로그램.
-// 더블클릭하면 Windows 가 관리자 권한을 물어보고, 그 뒤로는 알아서 진행된다.
+// 더블클릭하면 Windows 가 관리자 권한을 물어보고, 설치 창이 뜬다.
 
 const string ServiceName = "HanilTimeGuard";
 const string DisplayName = "한일 TimeGuard";
 const string RunKeyName = "HanilTimeGuardAgent";
 const string RunKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+const string Caption = "한일 TimeGuard 설치";
 
 var installPath = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HanilTimeGuard");
@@ -21,337 +27,322 @@ var dataPath = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "HanilTimeGuard");
 
 var sourcePath = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-var selfFileName = Path.GetFileName(Environment.ProcessPath ?? "TimeGuard-설치.exe");
+var selfFileName = Path.GetFileName(Environment.ProcessPath ?? "TimeGuard-Setup.exe");
 
-SetupConsole.Prepare("한일 TimeGuard 설치");
-
-// 명령줄로도 쓸 수 있게 한다. 여러 대를 자동으로 설치할 때 쓴다.
+// 여러 대를 한 번에 설치할 때 쓰는 명령줄 방식
 var silent = args.Contains("/설치") || args.Contains("/install");
-var uninstall = args.Contains("/제거") || args.Contains("/uninstall");
+var silentRemove = args.Contains("/제거") || args.Contains("/uninstall");
+
+SetupErrorReport.Install(Caption);
 
 if (!SetupConsole.IsElevated())
 {
-    SetupConsole.Error("관리자 권한이 필요합니다.");
-    SetupConsole.Dim("이 파일을 마우스 오른쪽 클릭 후 [관리자 권한으로 실행] 을 선택해 주세요.");
-    SetupConsole.WaitForKey();
+    Message(
+        "관리자 권한이 필요합니다.\n\n" +
+        "이 파일을 마우스 오른쪽 버튼으로 누른 뒤\n" +
+        "[관리자 권한으로 실행] 을 선택해 주세요.",
+        MessageKind.Error);
+
     return 1;
 }
 
-if (uninstall) return Uninstall(confirm: false);
-if (silent) return Install(quiet: true);
-
-return ShowMenu();
-
-// ================= 메뉴 =================
-
-int ShowMenu()
+if (silent || silentRemove)
 {
-    while (true)
+    SetupConsole.AttachToParentConsole();
+    var reporter = new ConsoleProgress();
+
+    var outcome = silentRemove
+        ? Remove(reporter, keepData: false)
+        : Install(reporter, new SetupAnswers());
+
+    Console.WriteLine();
+    Console.WriteLine(outcome.Heading);
+
+    return outcome.Success ? 0 : 1;
+}
+
+try
+{
+    return ShowWindow();
+}
+catch (Exception ex)
+{
+    // 창을 띄우는 중에 문제가 생기면 그냥 죽지 말고 원인을 알려 준다.
+    SetupErrorReport.Show(ex);
+    return 1;
+}
+
+// ================= 설치 창 =================
+
+int ShowWindow()
+{
+    var installed = WindowsServiceSetup.Exists(ServiceName);
+
+    using var wizard = new SetupWizard(Caption, "한일 TimeGuard")
     {
-        Console.Clear();
-        SetupConsole.Banner("한일 TimeGuard", "직원 PC 설치 프로그램");
+        Subheading = "직원 PC 설치 프로그램",
+        CanRemove = installed,
+        InstallButtonText = installed ? "다시 설치" : "설치",
+        StatusIsGood = installed,
+        StatusLine = installed
+            ? $"이미 설치되어 있습니다.  (서비스: {DescribeStatus(WindowsServiceSetup.GetStatus(ServiceName))})"
+            : "아직 설치되지 않았습니다.",
+        WelcomeBody = BuildWelcomeText(installed),
+        RemoveConfirmText =
+            "제거하면 이 PC 는 더 이상 시간 제한을 받지 않습니다.\n\n" +
+            "잠겨 있던 Windows 계정은 풀리고,\n" +
+            "막아 두었던 원격 접속 설정도 되돌아갑니다.\n\n" +
+            "정말 제거할까요?",
+        InstallAction = Install,
+        RemoveAction = progress => Remove(progress, keepData: true)
+    };
 
-        var installed = WindowsServiceSetup.Exists(ServiceName);
+    return wizard.Run();
+}
 
-        if (installed)
+string BuildWelcomeText(bool installed)
+{
+    var text = new StringBuilder();
+
+    if (installed)
+    {
+        text.AppendLine("다시 설치하면 프로그램 파일이 최신으로 바뀝니다.");
+        text.AppendLine("설정과 기록, 서버 등록 상태는 그대로 유지됩니다.");
+        text.AppendLine();
+
+        var settings = ServerSettings.Load();
+
+        if (settings.IsConfigured)
         {
-            var status = WindowsServiceSetup.GetStatus(ServiceName);
-            SetupConsole.Ok($"이미 설치되어 있습니다. (서비스 상태: {DescribeStatus(status)})");
-            DescribeServerLink();
+            text.AppendLine($"관리 서버   :  {settings.ServerUrl}");
+            text.AppendLine($"등록 상태   :  {(settings.IsEnrolled ? "승인 완료" : "승인 대기 중")}");
+            text.AppendLine($"확인 문자   :  {ServerSettings.DescribeFingerprint(settings.ClientId)}");
         }
         else
         {
-            SetupConsole.Info("아직 설치되지 않았습니다.");
+            text.AppendLine("관리 서버   :  아직 찾지 못했습니다 (사내망에서 찾는 중)");
         }
 
-        var choice = installed
-            ? SetupConsole.Choose("다시 설치 (프로그램 갱신)", "현재 상태 보기", "제거")
-            : SetupConsole.Choose("설치", "현재 상태 보기");
-
-        switch (choice)
-        {
-            case 0:
-                return 0;
-
-            case 1:
-                Install(quiet: false);
-                SetupConsole.WaitForKey("메뉴로 돌아가려면 아무 키나 누르세요.");
-                break;
-
-            case 2:
-                ShowStatus();
-                SetupConsole.WaitForKey("메뉴로 돌아가려면 아무 키나 누르세요.");
-                break;
-
-            case 3:
-                Uninstall(confirm: true);
-                SetupConsole.WaitForKey("메뉴로 돌아가려면 아무 키나 누르세요.");
-                break;
-        }
+        return text.ToString();
     }
+
+    text.AppendLine("이 PC 에 사용 시간 제한을 설치합니다.");
+    text.AppendLine();
+    text.AppendLine("설치하면 이렇게 됩니다.");
+    text.AppendLine();
+    text.AppendLine("    ·  사내망에서 관리 서버를 스스로 찾습니다");
+    text.AppendLine("    ·  관리자가 서버에서 [승인] 하면 시간표가 내려옵니다");
+    text.AppendLine("    ·  승인 전에는 아무 제한도 걸리지 않습니다");
+    text.AppendLine();
+    text.AppendLine("등록 키나 서버 주소를 입력할 필요가 없습니다.");
+    text.AppendLine("아래 [설치] 를 누르시면 됩니다.");
+
+    return text.ToString();
 }
 
 // ================= 설치 =================
 
-int Install(bool quiet)
+SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
 {
-    SetupConsole.Blank();
-    SetupConsole.Banner("설치를 시작합니다", "잠시만 기다려 주세요");
+    var embedded = Payload.IsEmbedded(Assembly.GetExecutingAssembly());
 
-    if (!File.Exists(Path.Combine(sourcePath, "TimeGuard.Service.exe")))
+    if (!embedded && !File.Exists(Path.Combine(sourcePath, "TimeGuard.Service.exe")))
     {
-        SetupConsole.Error("설치 파일을 찾을 수 없습니다.");
-        SetupConsole.Dim($"이 프로그램이 있는 폴더: {sourcePath}");
-        SetupConsole.Dim("압축을 푼 폴더 안에서 실행해 주세요.");
-        if (!quiet) SetupConsole.WaitForKey();
-        return 1;
+        return new SetupOutcome(false, "설치 파일이 온전하지 않습니다",
+            "설치에 필요한 파일이 들어 있지 않습니다.\r\n\r\n" +
+            "파일을 다시 받아 주세요.\r\n" +
+            "메신저로 주고받는 중에 파일이 깨졌을 수 있습니다.");
     }
 
     // --- 실행 중인 것 정리 ---
-    SetupConsole.Step("실행 중인 프로그램을 정리합니다");
+    progress.Step("실행 중인 프로그램을 정리합니다");
 
     if (WindowsServiceSetup.Exists(ServiceName))
     {
         WindowsServiceSetup.ResetAccessRights(ServiceName);
 
         if (!WindowsServiceSetup.Stop(ServiceName, out var stopError))
-            SetupConsole.Warn($"서비스를 멈추지 못했습니다: {stopError}");
+            progress.Warn($"서비스를 멈추지 못했습니다: {stopError}");
     }
 
     StopAgentProcesses();
-    SetupConsole.Ok("정리했습니다.");
+    progress.Done("정리했습니다.");
 
-    // --- 파일 복사 ---
-    SetupConsole.Step($"프로그램을 설치합니다: {installPath}");
-
-    if (!FileSetup.Copy(sourcePath, installPath, selfFileName, out var copyError))
+    // --- 파일 풀기 ---
+    if (embedded)
     {
-        SetupConsole.Error($"파일을 복사하지 못했습니다: {copyError}");
-        if (!quiet) SetupConsole.WaitForKey();
-        return 1;
+        var count = Payload.Count(Assembly.GetExecutingAssembly());
+        progress.Step($"프로그램 파일 {count}개를 풉니다");
+
+        if (!Payload.Extract(Assembly.GetExecutingAssembly(), installPath, out var extractError))
+        {
+            return new SetupOutcome(false, "프로그램 파일을 풀지 못했습니다",
+                extractError + "\r\n\r\n" +
+                "백신 프로그램이 막고 있을 수 있습니다.\r\n잠시 끄고 다시 시도해 보세요.");
+        }
+    }
+    else
+    {
+        // 개발 중이거나 폴더째 복사해 쓰는 경우
+        progress.Step("프로그램을 설치합니다");
+
+        if (!FileSetup.Copy(sourcePath, installPath, selfFileName, out var copyError))
+        {
+            return new SetupOutcome(false, "파일을 복사하지 못했습니다",
+                copyError + "\r\n\r\n" +
+                "백신 프로그램이 막고 있을 수 있습니다.\r\n잠시 끄고 다시 시도해 보세요.");
+        }
     }
 
-    SetupConsole.Ok("복사를 마쳤습니다.");
+    progress.Done($"설치했습니다: {installPath}");
 
     // --- 자료 폴더 ---
-    SetupConsole.Step("설정 폴더를 준비합니다");
+    progress.Step("설정 폴더를 준비합니다");
 
     if (FileSetup.PrepareDataFolder(dataPath, allowUsersRead: true, out var dataError))
-        SetupConsole.Ok("일반 사용자는 읽기만 할 수 있도록 설정했습니다.");
+        progress.Done("일반 사용자는 읽기만 하도록 막았습니다.");
     else
-        SetupConsole.Warn($"폴더 권한을 설정하지 못했습니다: {dataError}");
+        progress.Warn($"폴더 권한을 설정하지 못했습니다: {dataError}");
 
-    EnsureInitialConfig();
+    EnsureInitialConfig(progress);
 
     // --- 서비스 등록 ---
-    SetupConsole.Step("서비스를 등록합니다");
+    progress.Step("서비스를 등록합니다");
 
     var binaryPath = Path.Combine(installPath, "TimeGuard.Service.exe");
 
     if (!WindowsServiceSetup.Register(ServiceName, DisplayName,
             "허용된 시간대를 벗어나면 안내 후 설정된 조치를 수행합니다.", binaryPath, out var registerError))
     {
-        SetupConsole.Error($"서비스를 등록하지 못했습니다: {registerError}");
-        if (!quiet) SetupConsole.WaitForKey();
-        return 1;
+        return new SetupOutcome(false, "서비스를 등록하지 못했습니다", registerError);
     }
 
-    SetupConsole.Ok("등록했습니다.");
+    progress.Done("등록했습니다.");
 
     // --- 보호 ---
-    SetupConsole.Step("함부로 멈추거나 지울 수 없게 보호합니다");
+    progress.Step("함부로 멈추거나 지울 수 없게 보호합니다");
 
     if (WindowsServiceSetup.Protect(ServiceName, out var protectError))
-        SetupConsole.Ok("서비스를 보호했습니다.");
+        progress.Done("서비스를 보호했습니다.");
     else
-        SetupConsole.Warn($"서비스 보호에 실패했습니다: {protectError}");
+        progress.Warn($"서비스 보호에 실패했습니다: {protectError}");
 
     if (FileSetup.ProtectProgramFolder(installPath, out var folderError))
-        SetupConsole.Ok("프로그램 폴더를 보호했습니다.");
+        progress.Done("프로그램 폴더를 보호했습니다.");
     else
-        SetupConsole.Warn($"폴더 보호에 실패했습니다: {folderError}");
+        progress.Warn($"폴더 보호에 실패했습니다: {folderError}");
 
     // --- 알림 프로그램 자동 실행 ---
-    SetupConsole.Step("알림 프로그램을 시작 프로그램에 등록합니다");
-    RegisterAgentAutoStart();
-    SetupConsole.Ok("등록했습니다.");
+    progress.Step("알림 프로그램을 시작 프로그램에 등록합니다");
+    RegisterAgentAutoStart(progress);
+    progress.Done("등록했습니다.");
 
     // --- 시작 ---
-    SetupConsole.Step("서비스를 시작합니다");
+    progress.Step("서비스를 시작합니다");
 
     if (!WindowsServiceSetup.Start(ServiceName, out var startError))
     {
-        SetupConsole.Error($"서비스를 시작하지 못했습니다: {startError}");
-        SetupConsole.Dim("이벤트 뷰어의 응용 프로그램 로그를 확인해 주세요.");
-        if (!quiet) SetupConsole.WaitForKey();
-        return 1;
+        return new SetupOutcome(false, "서비스를 시작하지 못했습니다",
+            startError + "\r\n\r\n" +
+            "이벤트 뷰어의 [Windows 로그] → [응용 프로그램] 에서\r\n" +
+            "자세한 원인을 확인할 수 있습니다.");
     }
 
-    SetupConsole.Ok("실행 중입니다.");
+    progress.Done("실행 중입니다.");
 
     // --- 안내 ---
-    SetupConsole.Blank();
-    SetupConsole.Banner("설치가 끝났습니다", "이제 서버에서 이 PC 를 승인해 주세요");
-
-    Console.WriteLine("  이 PC 가 사내망에서 관리 서버를 찾아 자기를 알립니다.");
-    Console.WriteLine();
-    Console.WriteLine("  관리자가 할 일:");
-    Console.WriteLine("    1. 서버 웹 화면에 접속합니다");
-    Console.WriteLine("    2. [새 PC 승인] 화면에 이 PC 가 나타납니다");
-    Console.WriteLine("    3. [승인] 을 누르면 끝입니다");
-    SetupConsole.Blank();
-
     var settings = ServerSettings.Load();
     var fingerprint = ServerSettings.DescribeFingerprint(settings.EnsureClientId());
 
-    Console.WriteLine($"  이 PC 이름   : {Environment.MachineName}");
-    Console.WriteLine($"  확인 문자    : {fingerprint}");
-    SetupConsole.Dim("  (승인 화면에서 같은 값이 보이면 이 PC 가 맞습니다)");
+    var body = new StringBuilder();
+    body.AppendLine("이 PC 가 사내망에서 관리 서버를 찾아 자기를 알립니다.");
+    body.AppendLine();
+    body.AppendLine("이제 관리자가 서버에서 승인해 주시면 됩니다.");
+    body.AppendLine();
+    body.AppendLine("    1.  서버 웹 화면에 접속합니다");
+    body.AppendLine("    2.  [새 PC 승인] 에 이 PC 가 나타납니다");
+    body.AppendLine("    3.  [승인] 을 누르면 끝입니다");
+    body.AppendLine();
+    body.AppendLine($"이 PC 이름   :  {Environment.MachineName}");
+    body.AppendLine($"확인 문자    :  {fingerprint}");
+    body.AppendLine();
+    body.AppendLine("승인 화면에 같은 확인 문자가 보이면 이 PC 가 맞습니다.");
 
-    SetupConsole.Blank();
-    SetupConsole.Dim($"  설정 파일: {Path.Combine(dataPath, "config.json")}");
-    SetupConsole.Dim($"  기록 파일: {Path.Combine(dataPath, "timeguard.log")}");
-
-    if (quiet) return 0;
-
-    SetupConsole.Blank();
-    return 0;
+    return new SetupOutcome(true, "설치가 끝났습니다", body.ToString(),
+        CopyText: $"{Environment.MachineName} / {fingerprint}",
+        CopyButtonText: "PC 이름·확인 문자 복사");
 }
 
 // ================= 제거 =================
 
-int Uninstall(bool confirm)
+SetupOutcome Remove(ISetupProgress progress, bool keepData)
 {
-    SetupConsole.Blank();
-    SetupConsole.Banner("제거", "이 PC 에서 TimeGuard 를 지웁니다");
+    progress.Step("잠겨 있던 Windows 계정을 풀어 줍니다");
 
-    if (confirm)
-    {
-        SetupConsole.Warn("제거하면 이 PC 는 더 이상 시간 제한을 받지 않습니다.");
-        SetupConsole.Blank();
+    var unlocked = UnlockAccounts(progress);
+    progress.Done(unlocked == 0 ? "잠긴 계정이 없습니다." : $"{unlocked}개 계정을 풀었습니다.");
 
-        if (!SetupConsole.Confirm("정말 제거할까요?", defaultYes: false))
-        {
-            SetupConsole.Info("취소했습니다.");
-            return 0;
-        }
-    }
-
-    SetupConsole.Blank();
-
-    // --- 잠긴 계정 풀기 ---
-    SetupConsole.Step("잠겨 있던 Windows 계정을 풀어 줍니다");
-
-    var unlocked = UnlockAccounts();
-    SetupConsole.Ok(unlocked == 0 ? "잠긴 계정이 없습니다." : $"{unlocked}개 계정을 풀었습니다.");
-
-    // --- 원격 접속 차단 해제 ---
-    SetupConsole.Step("원격 접속 차단을 되돌립니다");
+    progress.Step("원격 접속 차단을 되돌립니다");
     RestoreRemoteAccess();
-    SetupConsole.Ok("되돌렸습니다.");
+    progress.Done("되돌렸습니다.");
 
-    // --- 서비스 삭제 ---
-    SetupConsole.Step("서비스를 지웁니다");
+    progress.Step("서비스를 지웁니다");
 
     if (WindowsServiceSetup.Delete(ServiceName, out var deleteError))
-        SetupConsole.Ok("지웠습니다.");
+        progress.Done("지웠습니다.");
     else
-        SetupConsole.Warn($"서비스를 지우지 못했습니다: {deleteError}");
+        progress.Warn($"서비스를 지우지 못했습니다: {deleteError}");
 
     StopAgentProcesses();
 
-    // --- 시작 프로그램 해제 ---
-    SetupConsole.Step("시작 프로그램 등록을 해제합니다");
+    progress.Step("시작 프로그램 등록을 해제합니다");
 
     try
     {
         using var key = Registry.LocalMachine.OpenSubKey(RunKeyPath, writable: true);
         key?.DeleteValue(RunKeyName, throwOnMissingValue: false);
-        SetupConsole.Ok("해제했습니다.");
+        progress.Done("해제했습니다.");
     }
     catch (Exception ex)
     {
-        SetupConsole.Warn($"해제하지 못했습니다: {ex.Message}");
+        progress.Warn($"해제하지 못했습니다: {ex.Message}");
     }
 
+    // 서비스가 완전히 멈춰야 파일이 풀린다.
     Thread.Sleep(2000);
 
-    // --- 파일 삭제 ---
-    SetupConsole.Step("프로그램 파일을 지웁니다");
+    progress.Step("프로그램 파일을 지웁니다");
 
     if (FileSetup.RemoveFolder(installPath, out var removeError))
-        SetupConsole.Ok("지웠습니다.");
+        progress.Done("지웠습니다.");
     else
-        SetupConsole.Warn($"일부 파일을 지우지 못했습니다: {removeError}");
+        progress.Warn($"일부 파일을 지우지 못했습니다: {removeError}");
 
-    // --- 설정 ---
-    SetupConsole.Blank();
+    var body = new StringBuilder();
+    body.AppendLine("이 PC 는 더 이상 시간 제한을 받지 않습니다.");
+    body.AppendLine();
 
-    var keepData = confirm && SetupConsole.Confirm("설정과 기록을 남겨 둘까요?", defaultYes: false);
-
-    if (!keepData)
+    if (keepData)
     {
-        SetupConsole.Step("설정과 기록을 지웁니다");
+        body.AppendLine("설정과 기록은 남겨 두었습니다.");
+        body.AppendLine($"    {dataPath}");
+        body.AppendLine();
+        body.AppendLine("필요 없으시면 위 폴더를 직접 지우시면 됩니다.");
+    }
+    else
+    {
+        progress.Step("설정과 기록을 지웁니다");
 
         if (FileSetup.RemoveFolder(dataPath, out var dataRemoveError))
-            SetupConsole.Ok("지웠습니다.");
+            progress.Done("지웠습니다.");
         else
-            SetupConsole.Warn($"지우지 못했습니다: {dataRemoveError}");
-    }
-    else
-    {
-        SetupConsole.Info($"설정과 기록은 그대로 두었습니다: {dataPath}");
+            progress.Warn($"지우지 못했습니다: {dataRemoveError}");
     }
 
-    SetupConsole.Blank();
-    SetupConsole.Banner("제거가 끝났습니다", "");
+    body.AppendLine();
+    body.AppendLine("서버의 [PC 목록] 에서도 이 PC 를 지워 주십시오.");
 
-    return 0;
-}
-
-// ================= 상태 =================
-
-void ShowStatus()
-{
-    SetupConsole.Blank();
-    SetupConsole.Banner("현재 상태", Environment.MachineName);
-
-    var status = WindowsServiceSetup.GetStatus(ServiceName);
-    Console.WriteLine($"  서비스      : {DescribeStatus(status)}");
-
-    DescribeServerLink();
-
-    var configPath = Path.Combine(dataPath, "config.json");
-
-    if (File.Exists(configPath))
-    {
-        var config = new ConfigStore(configPath).Load(out _);
-
-        Console.WriteLine($"  감시        : {(config.Enabled ? "켜짐" : "꺼짐")}");
-        Console.WriteLine($"  시간 초과 시: {DescribeAction(config.Action)}");
-    }
-    else
-    {
-        Console.WriteLine("  설정        : 아직 없습니다.");
-    }
-
-    SetupConsole.Blank();
-    SetupConsole.Dim($"  자세한 상태: \"{Path.Combine(installPath, "TimeGuard.Admin.exe")}\" status");
-}
-
-void DescribeServerLink()
-{
-    var settings = ServerSettings.Load();
-
-    if (!settings.IsConfigured)
-    {
-        Console.WriteLine("  관리 서버   : 아직 찾지 못했습니다 (사내망에서 찾는 중)");
-        return;
-    }
-
-    Console.WriteLine($"  관리 서버   : {settings.ServerUrl}");
-    Console.WriteLine($"  등록 상태   : {(settings.IsEnrolled ? "승인 완료" : "승인 대기 중")}");
-    Console.WriteLine($"  확인 문자   : {ServerSettings.DescribeFingerprint(settings.ClientId)}");
+    return new SetupOutcome(true, "제거가 끝났습니다", body.ToString());
 }
 
 // ================= 도우미 =================
@@ -366,16 +357,7 @@ string DescribeStatus(System.ServiceProcess.ServiceControllerStatus? status) => 
     _ => status.ToString() ?? "알 수 없음"
 };
 
-static string DescribeAction(GuardAction action) => action switch
-{
-    GuardAction.Shutdown => "전원 차단",
-    GuardAction.AccountLock => "계정 잠금",
-    GuardAction.LogOff => "로그오프",
-    GuardAction.Lock => "화면 잠금",
-    _ => action.ToString()
-};
-
-void EnsureInitialConfig()
+void EnsureInitialConfig(ISetupProgress progress)
 {
     try
     {
@@ -387,11 +369,11 @@ void EnsureInitialConfig()
     }
     catch (Exception ex)
     {
-        SetupConsole.Warn($"기본 설정을 만들지 못했습니다: {ex.Message}");
+        progress.Warn($"기본 설정을 만들지 못했습니다: {ex.Message}");
     }
 }
 
-void RegisterAgentAutoStart()
+void RegisterAgentAutoStart(ISetupProgress progress)
 {
     try
     {
@@ -400,7 +382,7 @@ void RegisterAgentAutoStart()
     }
     catch (Exception ex)
     {
-        SetupConsole.Warn($"시작 프로그램에 등록하지 못했습니다: {ex.Message}");
+        progress.Warn($"시작 프로그램에 등록하지 못했습니다: {ex.Message}");
     }
 }
 
@@ -430,7 +412,7 @@ static void StopAgentProcesses()
     }
 }
 
-int UnlockAccounts()
+int UnlockAccounts(ISetupProgress progress)
 {
     var path = Path.Combine(dataPath, "locked-accounts.json");
     if (!File.Exists(path)) return 0;
@@ -469,8 +451,8 @@ int UnlockAccounts()
     }
     catch (Exception ex)
     {
-        SetupConsole.Warn($"잠긴 계정을 푸는 중 문제가 있었습니다: {ex.Message}");
-        SetupConsole.Dim("직접 풀려면: net user 계정이름 /active:yes");
+        progress.Warn($"잠긴 계정을 푸는 중 문제가 있었습니다: {ex.Message}");
+        progress.Note("직접 풀려면: net user 계정이름 /active:yes");
     }
 
     return count;
@@ -495,7 +477,35 @@ static void RestoreRemoteAccess()
     }
 }
 
+// 창을 띄우기 전에 쓸 수 있는 간단한 알림 상자
+static void Message(string text, MessageKind kind)
+{
+    const uint MB_OK = 0x0;
+    uint icon = kind switch
+    {
+        MessageKind.Error => 0x10,
+        MessageKind.Warning => 0x30,
+        _ => 0x40
+    };
+
+    MessageBoxW(IntPtr.Zero, text, "한일 TimeGuard 설치", MB_OK | icon);
+}
+
+[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+
+internal enum MessageKind { Info, Warning, Error }
+
 internal sealed class LockedAccountEntry
 {
     public string UserName { get; set; } = string.Empty;
+}
+
+/// <summary>무인 설치용. 창 없이 명령 창에 진행 상황을 쓴다.</summary>
+internal sealed class ConsoleProgress : ISetupProgress
+{
+    public void Step(string text) => Console.WriteLine($"   {text}");
+    public void Done(string text) => Console.WriteLine($"[완료] {text}");
+    public void Note(string text) => Console.WriteLine($"       {text}");
+    public void Warn(string text) => Console.WriteLine($"[주의] {text}");
 }

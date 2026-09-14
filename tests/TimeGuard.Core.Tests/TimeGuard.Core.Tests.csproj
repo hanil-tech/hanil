@@ -12,4 +12,12 @@
   <ItemGroup>
     <ProjectReference Include="../../src/TimeGuard.Core/TimeGuard.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!--
+      설치 파일 묶음을 푸는 코드만 따로 가져와 시험한다.
+      SetupKit 전체는 Windows 전용이라 참조할 수 없지만,
+      이 파일은 Windows API 를 쓰지 않아 여기서 그대로 돌려 볼 수 있다.
+    -->
+    <Compile Include="../../src/TimeGuard.SetupKit/Payload.cs" />
+  </ItemGroup>
 </Project>

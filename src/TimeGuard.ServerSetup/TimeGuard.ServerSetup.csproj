@@ -1,13 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>Hanil.TimeGuard.ServerSetup</RootNamespace>
-    <AssemblyName>TimeGuard서버-설치</AssemblyName>
+    <AssemblyName>TimeGuard-Server-Setup</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../assets/timeguard-server.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TimeGuard.SetupKit/TimeGuard.SetupKit.csproj" />
+  </ItemGroup>
+  <!--
+    설치할 파일 묶음을 설치 프로그램 안에 넣는다.
+    배포본을 만들 때 build/publish.sh 가 PayloadZip 값을 넘겨 준다.
+    값이 없으면(개발 중 빌드) 같은 폴더의 파일을 복사하는 방식으로 동작한다.
+  -->
+  <ItemGroup Condition="'$(PayloadZip)' != ''">
+    <EmbeddedResource Include="$(PayloadZip)" LogicalName="TimeGuard.Payload.zip" />
   </ItemGroup>
 </Project>
