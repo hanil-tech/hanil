@@ -1,0 +1,15 @@
+@page
+@model ErrorModel
+@{
+    ViewData["Title"] = "오류";
+}
+
+<div class="panel">
+    <h1>문제가 발생했습니다</h1>
+    <p class="muted">요청을 처리하는 중 오류가 났습니다. 잠시 후 다시 시도해 주세요.</p>
+    @if (Model.RequestId is not null)
+    {
+        <p class="muted">요청 번호: <code>@Model.RequestId</code></p>
+    }
+    <a class="button secondary" asp-page="/Index">처음으로</a>
+</div>

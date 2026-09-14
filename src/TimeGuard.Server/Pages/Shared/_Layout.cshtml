@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] — 한일 TimeGuard</title>
+    <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
+</head>
+<body>
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <header class="topbar">
+        <div class="wrap">
+            <a class="brand" asp-page="/Index">한일 TimeGuard</a>
+            <nav>
+                <a asp-page="/Index">PC 목록</a>
+                <a asp-page="/Requests">
+                    연장 요청
+                    @if (ViewData["PendingCount"] is int pending && pending > 0)
+                    {
+                        <span class="badge">@pending</span>
+                    }
+                </a>
+                <a asp-page="/Policy">기본 시간표</a>
+                <a asp-page="/Events">기록</a>
+                <a asp-page="/Settings">설정</a>
+            </nav>
+            <form method="post" asp-page="/Logout" class="logout">
+                <span class="who">@User.Identity!.Name</span>
+                <button type="submit" class="link">로그아웃</button>
+            </form>
+        </div>
+    </header>
+}
+
+<main class="wrap">
+    @if (TempData["Ok"] is string okMessage)
+    {
+        <div class="alert ok">@okMessage</div>
+    }
+    @if (TempData["Error"] is string errorMessage)
+    {
+        <div class="alert error">@errorMessage</div>
+    }
+
+    @RenderBody()
+</main>
+
+<footer class="wrap muted">
+    한일 TimeGuard · 서버 시각 @DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss")
+</footer>
+</body>
+</html>

@@ -117,12 +117,33 @@ public sealed class GetLogRequest
 
 public static class IpcJson
 {
-    public static readonly JsonSerializerOptions Options = new()
+    public static readonly JsonSerializerOptions Options = CreateOptions();
+
+    /// <summary>
+    /// 통신과 설정 파일이 같은 형식을 쓰도록 한곳에서 만든다.
+    /// 서버의 HTTP 응답도 이 설정을 그대로 쓴다.
+    /// </summary>
+    public static JsonSerializerOptions CreateOptions() => new()
     {
         WriteIndented = false,
-        Converters = { new JsonStringEnumConverter() },
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters =
+        {
+            new JsonStringEnumConverter(),
+            new Config.TimeOnlyConverter()
+        },
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+
+    /// <summary>이미 만들어진 설정의 변환기와 규칙을 다른 설정에 그대로 옮긴다.</summary>
+    public static void ApplyTo(JsonSerializerOptions target)
+    {
+        target.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        target.Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+
+        target.Converters.Add(new JsonStringEnumConverter());
+        target.Converters.Add(new Config.TimeOnlyConverter());
+    }
 
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
 

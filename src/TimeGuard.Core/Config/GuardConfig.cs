@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Hanil.TimeGuard.Core.Config;
 
 /// <summary>시간 초과 시 수행할 동작.</summary>
@@ -97,6 +99,7 @@ public sealed class WarningSettings
     /// <summary>사용자에게 표시할 안내 문구.</summary>
     public string Message { get; set; } = "허용된 사용 시간이 끝났습니다. 작업 중인 내용을 저장해 주세요.";
 
+    [JsonIgnore]
     public IEnumerable<int> OrderedNoticeMinutes =>
         NoticeMinutes.Where(m => m > 0).Distinct().OrderByDescending(m => m);
 }

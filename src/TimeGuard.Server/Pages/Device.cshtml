@@ -1,0 +1,174 @@
+@page "{id}"
+@model DeviceModel
+@{
+    ViewData["Title"] = Model.View?.Name ?? "PC";
+    ViewData["PendingCount"] = Model.PendingRequestCount;
+}
+
+@if (Model.View is null)
+{
+    <div class="panel empty">
+        <p>해당 PC 를 찾을 수 없습니다.</p>
+        <a class="button secondary" asp-page="/Index">목록으로</a>
+    </div>
+    return;
+}
+
+@{
+    var view = Model.View;
+    var status = view.Status;
+}
+
+<h1>@view.Name <span class="state @status.Css">@status.Label</span></h1>
+<p class="subtitle">
+    컴퓨터 이름 @view.Device.MachineName ·
+    사용자 @(string.IsNullOrWhiteSpace(view.Device.LastUser) ? "-" : view.Device.LastUser) ·
+    마지막 연결 @view.LastSeenText
+</p>
+
+@if (!string.IsNullOrWhiteSpace(view.Device.LastReason))
+{
+    <div class="alert info">클라이언트 보고: @view.Device.LastReason</div>
+}
+
+<!-- 즉시 조치 -->
+<div class="panel">
+    <h2 style="margin-top:0">즉시 조치</h2>
+
+    <div class="row">
+        <form method="post" asp-page-handler="Extend" class="field">
+            <label>사용 시간 연장</label>
+            <div class="actions">
+                <input type="number" name="minutes" value="30" min="0" max="1440" style="width:100px" />
+                <button type="submit">연장</button>
+            </div>
+            <div class="muted">지금부터 지정한 분만큼 더 쓸 수 있게 합니다. 0 을 넣으면 연장을 취소합니다.</div>
+        </form>
+
+        <form method="post" asp-page-handler="Suspend" class="field">
+            <label>감시 일시 중지</label>
+            <div class="actions">
+                <input type="number" name="minutes" value="60" min="0" max="10080" style="width:100px" />
+                <button type="submit" class="secondary">중지</button>
+            </div>
+            <div class="muted">점검 중 PC 가 꺼지면 안 될 때 사용합니다. 0 을 넣으면 해제합니다.</div>
+        </form>
+    </div>
+
+    @if (view.Device.ExtensionUntil is { } extension && extension > DateTimeOffset.Now)
+    {
+        <div class="alert ok">@extension.Local("MM-dd HH:mm") 까지 연장되어 있습니다.</div>
+    }
+    @if (view.Device.SuspendedUntil is { } suspended && suspended > DateTimeOffset.Now)
+    {
+        <div class="alert ok">@suspended.Local("MM-dd HH:mm") 까지 감시가 중지되어 있습니다.</div>
+    }
+</div>
+
+<!-- 기본 정보 -->
+<div class="panel">
+    <h2 style="margin-top:0">기본 정보</h2>
+
+    <form method="post" asp-page-handler="Save">
+        <div class="row">
+            <div class="field">
+                <label for="DisplayName">표시 이름</label>
+                <input type="text" id="DisplayName" name="DisplayName" value="@view.Device.DisplayName" />
+                <div class="muted">예: 생산1팀 홍길동</div>
+            </div>
+            <div class="field">
+                <label for="Enforced">제한 적용</label>
+                <select id="Enforced" name="Enforced">
+                    <option value="true" selected="@view.Device.Enforced">적용함</option>
+                    <option value="false" selected="@(!view.Device.Enforced)">적용 안 함</option>
+                </select>
+                <div class="muted">끄면 이 PC 는 시간 제한을 받지 않습니다.</div>
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="Note">메모</label>
+            <textarea id="Note" name="Note">@view.Device.Note</textarea>
+        </div>
+
+        <button type="submit">저장</button>
+    </form>
+</div>
+
+<!-- 시간표 -->
+<div class="panel">
+    <h2 style="margin-top:0">이 PC 의 시간표</h2>
+
+    <form method="post" asp-page-handler="Schedule">
+        <div class="field">
+            <label for="UsesDefaultPolicy">시간표 방식</label>
+            <select id="UsesDefaultPolicy" name="UsesDefaultPolicy">
+                <option value="true" selected="@view.Device.UsesDefaultPolicy">기본 시간표를 따름</option>
+                <option value="false" selected="@(!view.Device.UsesDefaultPolicy)">이 PC 전용 시간표 사용</option>
+            </select>
+            <div class="muted">
+                기본 시간표는 <a asp-page="/Policy">기본 시간표</a> 에서 바꿉니다. 여기서 바꾸면 이 PC 에만 적용됩니다.
+            </div>
+        </div>
+
+        @foreach (var day in ScheduleText.WeekOrder)
+        {
+            <div class="schedule-day">
+                <span class="day-name">@ScheduleText.KoreanDay(day)</span>
+                <input type="text" name="day_@day"
+                       value="@ScheduleText.Format(Model.EditingSchedule.ForDay(day))"
+                       placeholder="없음" />
+            </div>
+        }
+
+        <div class="hint">
+            <code>09:00-18:00</code> 한 구간 ·
+            <code>09:00-12:00, 13:00-18:00</code> 점심 제외 ·
+            <code>22:00-06:00</code> 자정을 넘기는 야간 ·
+            <code>없음</code> 그날은 사용 불가 ·
+            <code>종일</code> 24시간 허용
+        </div>
+
+        <button type="submit">시간표 저장</button>
+    </form>
+</div>
+
+<!-- 최근 기록 -->
+<div class="panel">
+    <h2 style="margin-top:0">최근 기록</h2>
+
+    @if (Model.RecentEvents.Count == 0)
+    {
+        <p class="muted">기록이 없습니다.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+            <tr><th style="width:150px">시각</th><th style="width:90px">구분</th><th>내용</th></tr>
+            </thead>
+            <tbody>
+            @foreach (var entry in Model.RecentEvents)
+            {
+                <tr>
+                    <td class="muted">@entry.At.Local("MM-dd HH:mm:ss")</td>
+                    <td>@entry.Category</td>
+                    <td>@entry.Message</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</div>
+
+<div class="panel">
+    <h2 style="margin-top:0">PC 등록 삭제</h2>
+    <p class="muted">
+        목록에서 이 PC 를 지웁니다. 클라이언트가 아직 살아 있다면 다시 등록되어 목록에 나타납니다.
+        PC 를 폐기했거나 잘못 등록된 항목을 정리할 때 쓰십시오.
+    </p>
+    <form method="post" asp-page-handler="Delete"
+          onsubmit="return confirm('이 PC 등록을 삭제할까요? 기록도 함께 지워집니다.');">
+        <button type="submit" class="danger">등록 삭제</button>
+    </form>
+</div>

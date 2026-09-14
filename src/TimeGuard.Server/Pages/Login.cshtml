@@ -1,0 +1,33 @@
+@page
+@model LoginModel
+@{
+    ViewData["Title"] = "로그인";
+    Layout = "_Layout";
+}
+
+<div class="login-box">
+    <h1>한일 TimeGuard</h1>
+
+    <div class="panel">
+        @if (Model.Error is not null)
+        {
+            <div class="alert error">@Model.Error</div>
+        }
+
+        <form method="post">
+            <div class="field">
+                <label for="UserName">아이디</label>
+                <input type="text" id="UserName" name="UserName" value="@Model.UserName" autofocus autocomplete="username" />
+            </div>
+            <div class="field">
+                <label for="Password">비밀번호</label>
+                <input type="password" id="Password" name="Password" autocomplete="current-password" />
+            </div>
+            <button type="submit" style="width:100%">로그인</button>
+        </form>
+    </div>
+
+    <p class="muted" style="text-align:center">
+        최초 설치라면 서버의 <code>최초설정정보.txt</code> 파일을 확인하세요.
+    </p>
+</div>

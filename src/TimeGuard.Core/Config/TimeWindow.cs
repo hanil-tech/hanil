@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Hanil.TimeGuard.Core.Config;
 
 /// <summary>
@@ -18,9 +20,11 @@ public sealed class TimeWindow
     }
 
     /// <summary>자정을 넘겨 다음 날로 이어지는 구간인지 여부.</summary>
+    [JsonIgnore]
     public bool CrossesMidnight => End <= Start;
 
     /// <summary>구간의 실제 길이. 자정을 넘기면 다음 날 기준으로 계산한다.</summary>
+    [JsonIgnore]
     public TimeSpan Duration =>
         CrossesMidnight
             ? TimeSpan.FromDays(1) - (Start - End)

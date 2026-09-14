@@ -98,8 +98,11 @@ public sealed class ConfigStore
     }
 }
 
-/// <summary>TimeOnly 를 "HH:mm" 문자열로 직렬화해 설정 파일을 사람이 읽고 고칠 수 있게 한다.</summary>
-internal sealed class TimeOnlyConverter : JsonConverter<TimeOnly>
+/// <summary>
+/// TimeOnly 를 "HH:mm" 문자열로 다룬다.
+/// 설정 파일과 서버 통신에서 같은 형식을 써서 사람이 읽고 고칠 수 있게 한다.
+/// </summary>
+public sealed class TimeOnlyConverter : JsonConverter<TimeOnly>
 {
     public override TimeOnly Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {

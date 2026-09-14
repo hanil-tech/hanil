@@ -1,0 +1,76 @@
+@page
+@model SettingsModel
+@{
+    ViewData["Title"] = "설정";
+    ViewData["PendingCount"] = Model.PendingRequestCount;
+}
+
+<h1>설정</h1>
+
+<div class="panel">
+    <h2 style="margin-top:0">클라이언트 등록 키</h2>
+    <p class="muted">
+        직원 PC 에 클라이언트를 설치할 때 이 키를 입력해야 서버에 등록됩니다.
+        아무 PC 나 등록되지 않도록 막는 용도입니다.
+    </p>
+
+    <div class="key-display">@Model.EnrollmentKey</div>
+
+    <p class="muted" style="margin-top:14px">
+        설치 명령 예시:<br />
+        <code>TimeGuard.Client.exe enroll --server @Model.ServerUrlHint --key @Model.EnrollmentKey</code>
+    </p>
+
+    <form method="post" asp-page-handler="RegenerateKey" style="margin-top:14px"
+          onsubmit="return confirm('등록 키를 새로 만들까요? 이미 등록된 PC 는 영향받지 않지만, 앞으로 설치할 때는 새 키를 써야 합니다.');">
+        <button type="submit" class="secondary">등록 키 새로 만들기</button>
+    </form>
+</div>
+
+<div class="panel">
+    <h2 style="margin-top:0">연결 끊김 판단 기준</h2>
+    <form method="post" asp-page-handler="Offline">
+        <div class="field" style="max-width:260px">
+            <label for="minutes">이 시간 동안 연락이 없으면 끊긴 것으로 봅니다 (분)</label>
+            <input type="number" id="minutes" name="minutes" value="@Model.OfflineAfterMinutes" min="2" max="120" />
+        </div>
+        <button type="submit">저장</button>
+    </form>
+</div>
+
+<div class="panel">
+    <h2 style="margin-top:0">관리자 비밀번호 변경</h2>
+    <form method="post" asp-page-handler="Password">
+        <div class="row">
+            <div class="field">
+                <label for="current">현재 비밀번호</label>
+                <input type="password" id="current" name="current" autocomplete="current-password" />
+            </div>
+            <div class="field">
+                <label for="next">새 비밀번호</label>
+                <input type="password" id="next" name="next" autocomplete="new-password" />
+            </div>
+            <div class="field">
+                <label for="confirm">새 비밀번호 확인</label>
+                <input type="password" id="confirm" name="confirm" autocomplete="new-password" />
+            </div>
+        </div>
+        <div class="muted" style="margin-bottom:12px">8자 이상이어야 하며 숫자만으로는 설정할 수 없습니다.</div>
+        <button type="submit">비밀번호 변경</button>
+    </form>
+</div>
+
+<div class="panel">
+    <h2 style="margin-top:0">서버 정보</h2>
+    <table>
+        <tbody>
+        <tr><th style="width:180px">등록된 PC</th><td>@Model.DeviceCount 대</td></tr>
+        <tr><th>보관 중인 기록</th><td>@Model.EventCount 건</td></tr>
+        <tr><th>데이터 파일</th><td class="muted">@Model.DatabasePath</td></tr>
+        </tbody>
+    </table>
+    <p class="muted" style="margin-top:12px">
+        데이터 파일 하나만 복사해 두면 전체 설정과 기록이 백업됩니다.
+        백업은 서버를 잠시 멈춘 뒤에 하는 편이 안전합니다.
+    </p>
+</div>

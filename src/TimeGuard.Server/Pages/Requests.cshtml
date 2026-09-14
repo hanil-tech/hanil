@@ -1,0 +1,108 @@
+@page
+@model RequestsModel
+@{
+    ViewData["Title"] = "연장 요청";
+    ViewData["PendingCount"] = Model.Pending.Count;
+}
+
+<h1>연장 요청</h1>
+<p class="subtitle">직원이 올린 사용 시간 연장 요청입니다. 승인하면 해당 PC 가 곧바로 반영합니다.</p>
+
+<h2>처리 대기 @(Model.Pending.Count > 0 ? $"({Model.Pending.Count}건)" : "")</h2>
+
+@if (Model.Pending.Count == 0)
+{
+    <div class="panel empty">
+        <p>처리할 요청이 없습니다.</p>
+    </div>
+}
+else
+{
+    @foreach (var item in Model.Pending)
+    {
+        <div class="panel">
+            <div class="row" style="align-items:flex-start">
+                <div style="flex:2; min-width:240px">
+                    <strong>@item.DeviceName</strong>
+                    <div class="muted">
+                        요청자 @item.Request.RequestedBy ·
+                        @item.Request.RequestedAt.Local("MM-dd HH:mm") ·
+                        @item.Request.RequestedMinutes 분 요청
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(item.Request.Reason))
+                    {
+                        <p style="margin:8px 0 0">사유: @item.Request.Reason</p>
+                    }
+                </div>
+
+                <form method="post" asp-page-handler="Approve" style="flex:1; min-width:240px">
+                    <input type="hidden" name="requestId" value="@item.Request.Id" />
+                    <label>승인할 시간(분)</label>
+                    <div class="actions">
+                        <input type="number" name="minutes" value="@item.Request.RequestedMinutes"
+                               min="1" max="1440" style="width:90px" />
+                        <button type="submit">승인</button>
+                    </div>
+                    <div class="muted">요청보다 적게 줄 수도 있습니다.</div>
+                </form>
+
+                <form method="post" asp-page-handler="Deny" style="flex:1; min-width:200px">
+                    <input type="hidden" name="requestId" value="@item.Request.Id" />
+                    <label>거절 사유(선택)</label>
+                    <div class="actions">
+                        <input type="text" name="note" placeholder="예: 사전 결재 필요" />
+                        <button type="submit" class="secondary">거절</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+<h2>최근 처리 내역</h2>
+
+@if (Model.Decided.Count == 0)
+{
+    <div class="panel empty"><p class="muted">처리한 요청이 없습니다.</p></div>
+}
+else
+{
+    <table>
+        <thead>
+        <tr>
+            <th>PC</th>
+            <th>요청자</th>
+            <th>요청</th>
+            <th>결과</th>
+            <th class="hide-narrow">처리 시각</th>
+            <th class="hide-narrow">처리자</th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var item in Model.Decided)
+        {
+            <tr>
+                <td>@item.DeviceName</td>
+                <td>@item.Request.RequestedBy</td>
+                <td>@item.Request.RequestedMinutes 분</td>
+                <td>
+                    @if (item.Request.Status == RequestStatus.Approved)
+                    {
+                        <span class="state allowed">승인 @item.Request.GrantedMinutes 분</span>
+                    }
+                    else
+                    {
+                        <span class="state blocked">거절</span>
+                        @if (!string.IsNullOrWhiteSpace(item.Request.DecisionNote))
+                        {
+                            <div class="muted">@item.Request.DecisionNote</div>
+                        }
+                    }
+                </td>
+                <td class="hide-narrow muted">@item.Request.DecidedAt.Local("MM-dd HH:mm")</td>
+                <td class="hide-narrow muted">@item.Request.DecidedBy</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

@@ -1,0 +1,94 @@
+@page
+@model PolicyModel
+@{
+    ViewData["Title"] = "기본 시간표";
+    ViewData["PendingCount"] = Model.PendingRequestCount;
+}
+
+<h1>기본 시간표</h1>
+<p class="subtitle">
+    전용 시간표를 쓰지 않는 모든 PC 에 적용됩니다.
+    현재 @Model.DevicesUsingDefault 대가 이 시간표를 따르고 있습니다.
+</p>
+
+<div class="panel">
+    <form method="post">
+        <h2 style="margin-top:0">요일별 허용 시간대</h2>
+
+        @foreach (var day in ScheduleText.WeekOrder)
+        {
+            <div class="schedule-day">
+                <span class="day-name">@ScheduleText.KoreanDay(day)</span>
+                <input type="text" name="day_@day"
+                       value="@ScheduleText.Format(Model.Schedule.ForDay(day))"
+                       placeholder="없음" />
+            </div>
+        }
+
+        <div class="hint">
+            <code>09:00-18:00</code> 한 구간 ·
+            <code>09:00-12:00, 13:00-18:00</code> 점심 제외 ·
+            <code>22:00-06:00</code> 자정을 넘기는 야간 ·
+            <code>없음</code> 그날은 사용 불가 ·
+            <code>종일</code> 24시간 허용
+        </div>
+
+        <h2>시간 초과 시 조치</h2>
+        <div class="row">
+            <div class="field">
+                <label for="Action">조치</label>
+                <select id="Action" name="Action">
+                    <option value="Shutdown" selected="@(Model.Action == GuardAction.Shutdown)">전원 차단</option>
+                    <option value="LogOff" selected="@(Model.Action == GuardAction.LogOff)">로그오프</option>
+                    <option value="Lock" selected="@(Model.Action == GuardAction.Lock)">화면 잠금</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="HolidayPolicy">지정 휴일 처리</label>
+                <select id="HolidayPolicy" name="HolidayPolicy">
+                    <option value="Blocked" selected="@(Model.HolidayPolicy == HolidayPolicy.Blocked)">사용 불가</option>
+                    <option value="Unrestricted" selected="@(Model.HolidayPolicy == HolidayPolicy.Unrestricted)">제한 없음</option>
+                </select>
+            </div>
+        </div>
+
+        <h2>경고 방식</h2>
+        <div class="row">
+            <div class="field">
+                <label for="NoticeMinutes">미리 알릴 시점(분, 쉼표로 구분)</label>
+                <input type="text" id="NoticeMinutes" name="NoticeMinutes" value="@Model.NoticeMinutesText" />
+            </div>
+            <div class="field">
+                <label for="CountdownSeconds">마지막 카운트다운(초)</label>
+                <input type="number" id="CountdownSeconds" name="CountdownSeconds"
+                       value="@Model.Warnings.CountdownSeconds" min="0" max="600" />
+            </div>
+            <div class="field">
+                <label for="GraceSeconds">허용 시간 밖 부팅 유예(초)</label>
+                <input type="number" id="GraceSeconds" name="GraceSeconds"
+                       value="@Model.Warnings.OutsideWindowGraceSeconds" min="0" max="3600" />
+            </div>
+        </div>
+
+        <div class="field">
+            <label for="Message">직원 화면에 보여 줄 문구</label>
+            <input type="text" id="Message" name="Message" value="@Model.Warnings.Message" />
+        </div>
+
+        <h2>지정 휴일</h2>
+        <div class="field">
+            <label for="Holidays">날짜 목록 (yyyy-MM-dd, 쉼표 또는 줄바꿈으로 구분)</label>
+            <textarea id="Holidays" name="Holidays">@Model.HolidaysText</textarea>
+            <div class="muted">예: 2026-01-01, 2026-03-01</div>
+        </div>
+
+        <h2>제한 제외 계정</h2>
+        <div class="field">
+            <label for="ExemptUsers">Windows 계정 이름 (쉼표 또는 줄바꿈으로 구분)</label>
+            <textarea id="ExemptUsers" name="ExemptUsers">@Model.ExemptUsersText</textarea>
+            <div class="muted">여기 적은 계정으로 로그인하면 어느 PC 에서든 제한을 받지 않습니다. 관리자 계정을 넣어 두십시오.</div>
+        </div>
+
+        <button type="submit">저장</button>
+    </form>
+</div>

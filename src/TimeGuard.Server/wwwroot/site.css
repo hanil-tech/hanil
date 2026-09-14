@@ -1,0 +1,302 @@
+/* 한일 TimeGuard 관리 화면
+   사무실 PC 의 기본 브라우저에서 잘 보이도록 단순하게 유지한다. */
+
+:root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --line: #dcdfe5;
+    --text: #1d2129;
+    --muted: #6b7280;
+    --accent: #1f5fa8;
+    --ok: #15803d;
+    --warn: #b45309;
+    --error: #b91c1c;
+    --offline: #9ca3af;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "맑은 고딕", "Malgun Gothic", -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* --- 상단 --- */
+
+.topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 24px;
+}
+
+.topbar .wrap {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    min-height: 56px;
+    flex-wrap: wrap;
+}
+
+.brand {
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.topbar nav {
+    display: flex;
+    gap: 18px;
+    flex: 1;
+    flex-wrap: wrap;
+}
+
+.topbar nav a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    white-space: nowrap;
+}
+
+.topbar nav a:hover { color: var(--accent); }
+
+.logout {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+}
+
+.who { color: var(--muted); font-size: 13px; }
+
+button.link {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    text-decoration: underline;
+    padding: 0;
+}
+
+.badge {
+    display: inline-block;
+    min-width: 18px;
+    padding: 0 6px;
+    margin-left: 4px;
+    background: var(--error);
+    color: #fff;
+    border-radius: 9px;
+    font-size: 12px;
+    text-align: center;
+    line-height: 18px;
+}
+
+/* --- 본문 --- */
+
+h1 { font-size: 22px; margin: 0 0 6px; }
+h2 { font-size: 17px; margin: 28px 0 10px; }
+
+.subtitle { color: var(--muted); margin: 0 0 20px; }
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+th, td {
+    padding: 11px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+}
+
+th {
+    background: #fafbfc;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+tr:last-child td { border-bottom: none; }
+
+td a { color: var(--accent); }
+
+.empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--muted);
+}
+
+/* --- 상태 표시 --- */
+
+.state {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 11px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.state.allowed  { background: #e6f4ea; color: var(--ok); }
+.state.blocked  { background: #fde8e8; color: var(--error); }
+.state.disabled { background: #f0f1f3; color: var(--muted); }
+.state.offline  { background: #f0f1f3; color: var(--offline); }
+.state.pending  { background: #fef3c7; color: var(--warn); }
+
+/* --- 입력 --- */
+
+label { display: block; margin-bottom: 4px; font-size: 13px; color: var(--muted); }
+
+input[type=text], input[type=password], input[type=number], select, textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+    background: #fff;
+    color: var(--text);
+}
+
+textarea { min-height: 70px; resize: vertical; }
+
+.field { margin-bottom: 14px; }
+
+.row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.row .field { flex: 1; min-width: 180px; }
+
+button, .button {
+    display: inline-block;
+    padding: 8px 16px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+button:hover { background: #18538f; }
+
+button.secondary, .button.secondary {
+    background: #fff;
+    color: var(--text);
+    border-color: var(--line);
+}
+
+button.danger { background: var(--error); border-color: var(--error); }
+
+button.small, .button.small { padding: 4px 10px; font-size: 13px; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* --- 알림 --- */
+
+.alert {
+    padding: 11px 15px;
+    border-radius: 6px;
+    margin-bottom: 18px;
+    border: 1px solid;
+}
+
+.alert.ok    { background: #e6f4ea; border-color: #b7e0c4; color: var(--ok); }
+.alert.error { background: #fde8e8; border-color: #f5c2c2; color: var(--error); }
+.alert.info  { background: #e8f0fb; border-color: #c2d6f0; color: var(--accent); }
+
+.muted { color: var(--muted); font-size: 13px; }
+
+footer.wrap { padding: 24px 20px 40px; }
+
+/* --- 로그인 --- */
+
+.login-box {
+    max-width: 380px;
+    margin: 80px auto;
+}
+
+.login-box h1 { text-align: center; margin-bottom: 24px; }
+
+/* --- 시간표 편집 --- */
+
+.schedule-day {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.schedule-day:last-child { border-bottom: none; }
+
+.schedule-day .day-name {
+    width: 64px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.schedule-day input { flex: 1; min-width: 150px; }
+
+.hint {
+    background: #f8f9fb;
+    border-left: 3px solid var(--accent);
+    padding: 12px 15px;
+    margin: 14px 0;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.hint code {
+    background: #eceff3;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text);
+}
+
+.key-display {
+    font-family: Consolas, "D2Coding", monospace;
+    font-size: 17px;
+    letter-spacing: 1px;
+    background: #f8f9fb;
+    border: 1px dashed var(--line);
+    padding: 12px 15px;
+    border-radius: 6px;
+    word-break: break-all;
+}
+
+@media (max-width: 720px) {
+    .topbar .wrap { min-height: auto; padding-top: 10px; padding-bottom: 10px; }
+    th, td { padding: 9px 10px; font-size: 14px; }
+    .hide-narrow { display: none; }
+}

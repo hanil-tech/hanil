@@ -1,0 +1,81 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "PC 목록";
+    ViewData["PendingCount"] = Model.PendingRequestCount;
+}
+
+<h1>PC 목록</h1>
+<p class="subtitle">
+    전체 @Model.Devices.Count 대 ·
+    연결됨 @Model.Devices.Count(d => d.Online) 대 ·
+    연결 끊김 @Model.Devices.Count(d => !d.Online) 대
+</p>
+
+@if (Model.PendingRequestCount > 0)
+{
+    <div class="alert info">
+        처리를 기다리는 연장 요청이 <strong>@Model.PendingRequestCount 건</strong> 있습니다.
+        <a asp-page="/Requests">지금 처리하기</a>
+    </div>
+}
+
+@if (Model.Devices.Count == 0)
+{
+    <div class="panel empty">
+        <p>아직 등록된 PC 가 없습니다.</p>
+        <p class="muted">
+            직원 PC 에 클라이언트를 설치하고 등록 키를 입력하면 여기에 나타납니다.<br />
+            등록 키는 <a asp-page="/Settings">설정</a> 에서 확인할 수 있습니다.
+        </p>
+    </div>
+}
+else
+{
+    <table>
+        <thead>
+        <tr>
+            <th>PC 이름</th>
+            <th>사용자</th>
+            <th>상태</th>
+            <th>시간표</th>
+            <th class="hide-narrow">마지막 연결</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var item in Model.Devices)
+        {
+            var status = item.Status;
+            <tr>
+                <td>
+                    <a asp-page="/Device" asp-route-id="@item.Id">@item.Name</a>
+                    @if (item.Name != item.Device.MachineName)
+                    {
+                        <div class="muted">@item.Device.MachineName</div>
+                    }
+                </td>
+                <td>@(string.IsNullOrWhiteSpace(item.Device.LastUser) ? "-" : item.Device.LastUser)</td>
+                <td>
+                    <span class="state @status.Css">@status.Label</span>
+                    @if (item.PendingRequests > 0)
+                    {
+                        <span class="state pending">요청 @item.PendingRequests</span>
+                    }
+                </td>
+                <td>@item.PolicyText</td>
+                <td class="hide-narrow">@item.LastSeenText</td>
+                <td>
+                    <a class="button secondary small" asp-page="/Device" asp-route-id="@item.Id">설정</a>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    <div class="hint">
+        <strong>연결 끊김</strong> 은 해당 PC 가 @Model.OfflineAfterMinutes 분 넘게 서버에 연락하지 않았다는 뜻입니다.
+        PC 가 꺼져 있거나, 랜선이 빠졌거나, 누군가 서비스를 멈췄을 수 있습니다.
+        이 경우에도 직원 PC 는 <strong>마지막으로 받은 시간표를 그대로 적용</strong>합니다.
+    </div>
+}
