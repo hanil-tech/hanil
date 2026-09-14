@@ -15,4 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="../TimeGuard.Core/TimeGuard.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 시계를 바꿔 끼워 시간 관련 동작을 검증할 수 있도록 테스트에 내부 접근을 연다 -->
+    <InternalsVisibleTo Include="TimeGuard.Server.Tests" />
+  </ItemGroup>
 </Project>

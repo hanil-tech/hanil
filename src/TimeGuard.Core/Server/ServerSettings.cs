@@ -25,6 +25,17 @@ public sealed class ServerSettings
     /// <summary>서버에 연락하는 주기(초).</summary>
     public int PollSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// 처음 등록할 때 본 서버 인증서의 지문.
+    /// 이후로는 이 지문과 맞는 서버에만 연결한다. 중간에서 가로채는 가짜 서버를 막는다.
+    /// 사내에서 쓰는 자체 서명 인증서라 공인 기관 검증 대신 이 방식을 쓴다.
+    /// </summary>
+    public string CertificateThumbprint { get; set; } = string.Empty;
+
+    /// <summary>암호화된 연결(HTTPS)을 쓰는지.</summary>
+    public bool UsesHttps =>
+        ServerUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>서버를 쓰는 상태인지.</summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ServerUrl);
 

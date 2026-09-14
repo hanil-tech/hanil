@@ -9,6 +9,7 @@ public sealed class SettingsService
 {
     internal const string EnrollmentKeyName = "EnrollmentKey";
     internal const string OfflineMinutesName = "OfflineAfterMinutes";
+    internal const string AdminAddressesName = "AdminAllowedAddresses";
 
     private readonly GuardDbContext _db;
 
@@ -48,6 +49,10 @@ public sealed class SettingsService
         await _db.SaveChangesAsync(token);
         return key;
     }
+
+    /// <summary>관리 화면을 열 수 있는 주소 목록. 비어 있으면 제한하지 않는다.</summary>
+    public Task<string> GetAdminAddressesAsync(CancellationToken token = default) =>
+        GetAsync(AdminAddressesName, string.Empty, token);
 
     /// <summary>하트비트가 이 시간 이상 없으면 연결이 끊긴 것으로 본다.</summary>
     public async Task<int> GetOfflineAfterMinutesAsync(CancellationToken token = default)

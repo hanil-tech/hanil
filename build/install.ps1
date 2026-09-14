@@ -1,17 +1,33 @@
 <#
 .SYNOPSIS
-    한일 TimeGuard 를 설치하고 Windows 서비스로 등록합니다.
+    한일 TimeGuard 클라이언트를 설치합니다.
 
 .DESCRIPTION
-    이 스크립트는 반드시 관리자 권한 PowerShell 에서 실행해야 합니다.
-    설치 후에는 관리자 비밀번호를 설정하고 허용 시간대를 지정해야 감시가 시작됩니다.
+    관리자 권한 PowerShell 에서 실행해야 합니다.
+
+    관리 서버를 쓰는 경우 -Server 와 -Key 를 주면
+    설치부터 서버 등록까지 한 번에 끝납니다.
+    (두 값은 서버의 [설정] 화면에 그대로 나와 있습니다.)
+
+.PARAMETER Server
+    관리 서버 주소. 예: http://192.168.0.10:8080
+
+.PARAMETER Key
+    서버의 [설정] 화면에 있는 클라이언트 등록 키.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\install.ps1
+    # 서버에 붙여서 쓰는 경우 (권장)
+    .\install.ps1 -Server http://192.168.0.10:8080 -Key ABCDE-FGHIJ-KLMNO-PQRST
+
+.EXAMPLE
+    # 이 PC 하나만 단독으로 쓰는 경우
+    .\install.ps1
 #>
 
 [CmdletBinding()]
 param(
+    [string]$Server,
+    [string]$Key,
     [string]$InstallPath = "$env:ProgramFiles\HanilTimeGuard"
 )
 
@@ -119,19 +135,58 @@ if ($service.Status -eq 'Running') {
     Write-Warn2 "이벤트 뷰어의 응용 프로그램 로그를 확인해 주세요."
 }
 
+# --- 관리 서버에 등록 ---
+$adminExe = Join-Path $InstallPath 'TimeGuard.Admin.exe'
+
+if ($Server -and $Key) {
+    Write-Step "관리 서버에 등록합니다: $Server"
+
+    & $adminExe enroll --server $Server --key $Key
+    $enrolled = ($LASTEXITCODE -eq 0)
+
+    if ($enrolled) {
+        # 등록 직후 서비스를 다시 띄워야 서버 시간표를 바로 받아 온다
+        Write-Step '서비스를 다시 시작해 서버 시간표를 받아옵니다'
+        Restart-Service -Name $ServiceName -Force
+        Start-Sleep -Seconds 3
+        Write-Ok '등록을 마쳤습니다.'
+    } else {
+        Write-Warn2 '서버 등록에 실패했습니다. 설치 자체는 끝났습니다.'
+        Write-Warn2 '서버 주소와 등록 키를 확인한 뒤 아래를 다시 실행해 주세요:'
+        Write-Warn2 "  `"$adminExe`" enroll --server $Server --key $Key"
+    }
+} elseif ($Server -or $Key) {
+    Write-Warn2 '-Server 와 -Key 는 둘 다 필요합니다. 서버 등록을 건너뜁니다.'
+    $enrolled = $false
+} else {
+    $enrolled = $false
+}
+
 # --- 안내 ---
 Write-Host ''
 Write-Host '설치가 끝났습니다.' -ForegroundColor Green
 Write-Host ''
-Write-Host '중요: 지금은 감시가 꺼져 있어 아무도 제한받지 않습니다.' -ForegroundColor Yellow
-Write-Host '      아래 순서로 설정을 마쳐야 동작합니다.' -ForegroundColor Yellow
-Write-Host ''
-Write-Host '  1) 관리자 도구를 실행합니다'
-Write-Host "     `"$InstallPath\TimeGuard.Admin.exe`"" -ForegroundColor White
-Write-Host '  2) [10] 관리자 비밀번호 변경  — 비밀번호를 먼저 정합니다'
-Write-Host '  3) [2]  허용 시간대 설정      — 예: 평일 09:00-18:00'
-Write-Host '  4) [4]  시간 초과 시 조치     — 전원 차단 / 로그오프 / 화면 잠금'
-Write-Host '  5) [3]  감시 켜기             — 이때부터 실제로 동작합니다'
+
+if ($enrolled) {
+    Write-Host '이 PC 는 관리 서버가 관리합니다.' -ForegroundColor Green
+    Write-Host '  · 서버의 [PC 목록] 에 이 PC 가 나타납니다.'
+    Write-Host '  · 시간표 변경과 연장 승인은 서버 화면에서 합니다.'
+    Write-Host '  · 더 하실 일이 없습니다.'
+    Write-Host ''
+    Write-Host '  이 PC 상태 확인:' -ForegroundColor White
+    Write-Host "    `"$adminExe`" status"
+} else {
+    Write-Host '중요: 지금은 감시가 꺼져 있어 아무도 제한받지 않습니다.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  관리 서버를 쓰시려면' -ForegroundColor White
+    Write-Host "    `"$adminExe`" enroll --server http://서버주소:8080 --key 등록키"
+    Write-Host '    net stop HanilTimeGuard && net start HanilTimeGuard'
+    Write-Host ''
+    Write-Host '  이 PC 하나만 단독으로 쓰시려면' -ForegroundColor White
+    Write-Host "    `"$adminExe`" 를 실행해 아래 순서로 설정합니다"
+    Write-Host '      [10] 관리자 비밀번호 변경 → [2] 허용 시간대 → [4] 조치 → [3] 감시 켜기'
+}
+
 Write-Host ''
 Write-Host "설정 파일: $DataPath\config.json"
 Write-Host "기록 파일: $DataPath\timeguard.log"

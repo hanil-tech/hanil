@@ -1,6 +1,7 @@
 using Hanil.TimeGuard.Core.Ipc;
 using Hanil.TimeGuard.Server.Api;
 using Hanil.TimeGuard.Server.Data;
+using Hanil.TimeGuard.Server.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting.WindowsServices;
@@ -35,6 +36,12 @@ builder.Services.ConfigureHttpJsonOptions(options => IpcJson.ApplyTo(options.Ser
 
 builder.Services.AddScoped<PolicyService>();
 builder.Services.AddScoped<SettingsService>();
+
+// 로그인 대입을 막는다. 서버 하나에서만 쓰므로 메모리에 두면 충분하다.
+builder.Services.AddSingleton<LoginThrottle>();
+
+// 관리 화면을 볼 수 있는 위치. 웹 화면에서 바꿀 수 있도록 설정을 객체에 담아 둔다.
+builder.Services.AddSingleton<AdminAccessPolicy>();
 
 // --- 인증 ---
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -82,6 +89,9 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error");
 }
 
+app.UseMiddleware<SecurityHeadersMiddleware>();
+app.UseMiddleware<AdminNetworkMiddleware>();
+
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
@@ -106,6 +116,15 @@ static async Task InitializeAsync(WebApplication app)
 
     await db.Database.EnsureCreatedAsync();
     await policies.GetDefaultPolicyAsync();
+
+    // 관리 화면 접근 제한을 불러와 적용한다.
+    var policy = app.Services.GetRequiredService<AdminAccessPolicy>();
+    var addresses = await settings.GetAdminAddressesAsync();
+    policy.Update(addresses);
+
+    logger.LogInformation(policy.Enabled
+        ? "관리 화면은 지정된 주소에서만 열립니다: {Addresses}"
+        : "관리 화면 접근 주소가 제한되어 있지 않습니다. [설정] 화면에서 제한할 수 있습니다.", addresses);
 
     var enrollmentKey = await settings.GetOrCreateEnrollmentKeyAsync();
     var initialPassword = await settings.EnsureAdminUserAsync();

@@ -10,18 +10,26 @@
     (꺼져 있어도 직원 PC 는 마지막으로 받은 시간표를 그대로 적용합니다.)
 
 .PARAMETER Port
-    웹 화면과 클라이언트가 접속할 포트. 기본 8080.
+    웹 화면과 클라이언트가 접속할 포트. 기본 8443(암호화) 또는 8080(암호화 안 함).
+
+.PARAMETER NoHttps
+    암호화를 쓰지 않습니다. 권하지 않습니다.
+    사내망에서 비밀번호가 그대로 오갑니다.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\install-server.ps1
-    powershell -ExecutionPolicy Bypass -File .\install-server.ps1 -Port 9000
+    powershell -ExecutionPolicy Bypass -File .\install-server.ps1 -Port 9443
 #>
 
 [CmdletBinding()]
 param(
     [string]$InstallPath = "$env:ProgramFiles\HanilTimeGuardServer",
-    [int]$Port = 8080
+    [int]$Port = 0,
+    [switch]$NoHttps
 )
+
+# 포트를 지정하지 않으면 암호화 여부에 맞는 기본값을 쓴다
+if ($Port -eq 0) { $Port = if ($NoHttps) { 8080 } else { 8443 } }
 
 $ErrorActionPreference = 'Stop'
 $ServiceName = 'HanilTimeGuardServer'
@@ -64,13 +72,97 @@ New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 Copy-Item -Path (Join-Path $source '*') -Destination $InstallPath -Recurse -Force
 Write-Ok '복사를 마쳤습니다.'
 
-# --- 포트 설정 ---
-Write-Step "접속 포트를 설정합니다: $Port"
+# --- 인증서와 포트 설정 ---
 $settingsPath = Join-Path $InstallPath 'appsettings.json'
 $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
-$settings.Kestrel.Endpoints.Http.Url = "http://0.0.0.0:$Port"
+$certPath = Join-Path $InstallPath 'server-cert.pfx'
+$cerPath  = Join-Path $InstallPath '서버인증서.cer'
+$scheme   = 'http'
+
+if ($NoHttps) {
+    Write-Step "접속 포트를 설정합니다: $Port (암호화 없음)"
+    $settings.Kestrel.Endpoints = @{ Http = @{ Url = "http://0.0.0.0:$Port" } }
+    Write-Ok '설정했습니다.'
+} else {
+    Write-Step '통신 암호화를 설정합니다'
+
+    # 이 PC 의 이름과 IP 를 모두 담아 인증서를 만든다.
+    # 어느 주소로 접속하든 이름이 맞지 않는다는 오류가 나지 않게 하기 위해서다.
+    $names = @($env:COMPUTERNAME, 'localhost')
+
+    # 도메인에 속한 PC 라면 전체 이름도 넣는다. 작업 그룹이면 이 값이 비어 있다.
+    if ($env:USERDNSDOMAIN) {
+        $names += "$env:COMPUTERNAME.$env:USERDNSDOMAIN"
+    }
+
+    $names += (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+               Where-Object { $_.IPAddress -notlike '169.254.*' } |
+               Select-Object -ExpandProperty IPAddress)
+
+    $names = $names | Where-Object { $_ -and "$_".Trim() -ne '' } | Select-Object -Unique
+
+    # 기존 인증서가 있으면 다시 쓴다. 새로 만들면 직원 PC 들이 모두 재등록해야 한다.
+    $existingCert = Get-ChildItem Cert:\LocalMachine\My |
+                    Where-Object { $_.Subject -eq 'CN=HanilTimeGuardServer' } |
+                    Sort-Object NotAfter -Descending |
+                    Select-Object -First 1
+
+    if ($existingCert -and $existingCert.NotAfter -gt (Get-Date).AddMonths(1)) {
+        $cert = $existingCert
+        Write-Ok "기존 인증서를 계속 씁니다. (만료: $($cert.NotAfter.ToString('yyyy-MM-dd')))"
+    } else {
+        $cert = New-SelfSignedCertificate `
+                    -Subject 'CN=HanilTimeGuardServer' `
+                    -DnsName $names `
+                    -CertStoreLocation 'Cert:\LocalMachine\My' `
+                    -KeyExportPolicy Exportable `
+                    -KeyLength 2048 `
+                    -NotAfter (Get-Date).AddYears(10) `
+                    -FriendlyName '한일 TimeGuard 관리 서버'
+        Write-Ok "인증서를 만들었습니다. (10년 유효)"
+    }
+
+    # 서버 PC 자신은 이 인증서를 믿도록 해 둔다. 여기서는 브라우저 경고가 뜨지 않는다.
+    $rootStore = New-Object Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+    $rootStore.Open('ReadWrite')
+    if (-not ($rootStore.Certificates | Where-Object { $_.Thumbprint -eq $cert.Thumbprint })) {
+        $rootStore.Add($cert)
+    }
+    $rootStore.Close()
+
+    # 관리자 PC 에서도 믿을 수 있도록 인증서 파일을 남겨 둔다.
+    Export-Certificate -Cert $cert -FilePath $cerPath -Force | Out-Null
+
+    # Kestrel 이 쓸 수 있도록 내보낸다. 비밀번호는 이 PC 안에서만 쓰인다.
+    # Get-Random 은 암호용 난수가 아니므로 암호학적 난수 생성기를 쓴다.
+    $passwordBytes = New-Object byte[] 24
+    $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider
+    try { $rng.GetBytes($passwordBytes) } finally { $rng.Dispose() }
+    $pfxPassword = [Convert]::ToBase64String($passwordBytes)
+    $securePassword = ConvertTo-SecureString -String $pfxPassword -Force -AsPlainText
+    Export-PfxCertificate -Cert $cert -FilePath $certPath -Password $securePassword -Force | Out-Null
+
+    $settings.Kestrel.Endpoints = @{
+        Https = @{
+            Url = "https://0.0.0.0:$Port"
+            Certificate = @{ Path = $certPath; Password = $pfxPassword }
+        }
+    }
+
+    $scheme = 'https'
+    Write-Ok "포트 $Port 에서 암호화된 연결을 받습니다."
+}
+
 $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
-Write-Ok '설정했습니다.'
+
+# 인증서 비밀번호가 들어 있으므로 설정 파일도 관리자만 읽게 한다
+$settingsAcl = Get-Acl $settingsPath
+$settingsAcl.SetAccessRuleProtection($true, $false)
+foreach ($account in @('SYSTEM', 'Administrators')) {
+    $settingsAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+        $account, 'FullControl', 'Allow')))
+}
+Set-Acl -Path $settingsPath -AclObject $settingsAcl
 
 # --- 자료 폴더 권한 ---
 # 데이터베이스에 관리자 비밀번호 해시와 장비 토큰이 들어 있으므로 일반 사용자는 접근할 수 없게 한다
@@ -138,11 +230,20 @@ Write-Host ''
 Write-Host '설치가 끝났습니다.' -ForegroundColor Green
 Write-Host ''
 Write-Host '  관리 화면 주소' -ForegroundColor White
-Write-Host "    이 PC 에서   : http://localhost:$Port"
+Write-Host "    이 PC 에서   : ${scheme}://localhost:$Port"
 if ($address) {
-    Write-Host "    다른 PC 에서 : http://${address}:$Port"
+    Write-Host "    다른 PC 에서 : ${scheme}://${address}:$Port"
 }
 Write-Host ''
+
+if (-not $NoHttps) {
+    Write-Host '  다른 PC 에서 접속할 때 인증서 경고가 뜬다면' -ForegroundColor White
+    Write-Host "    아래 파일을 그 PC 로 복사해 두 번 클릭 → [인증서 설치]"
+    Write-Host "    → [로컬 컴퓨터] → [신뢰할 수 있는 루트 인증 기관] 선택"
+    Write-Host "      $cerPath" -ForegroundColor Gray
+    Write-Host '    (경고를 무시하고 계속 진행해도 통신은 암호화됩니다.)'
+    Write-Host ''
+}
 
 if (Test-Path $notePath) {
     Write-Host '  최초 로그인 정보' -ForegroundColor White
@@ -159,5 +260,11 @@ Write-Host '  다음 순서' -ForegroundColor White
 Write-Host '    1) 웹 브라우저로 위 주소에 접속해 admin 으로 로그인'
 Write-Host '    2) [설정] 에서 비밀번호 변경'
 Write-Host '    3) [기본 시간표] 에서 허용 시간대 지정'
-Write-Host '    4) [설정] 화면의 등록 키를 확인해 직원 PC 에 클라이언트 설치'
+Write-Host '    4) [설정] 화면에서 [지금 이 PC 에서만 열리도록 설정] 을 눌러 접근 제한'
+Write-Host '    5) [설정] 화면에 나오는 설치 명령 한 줄을 복사해 직원 PC 에서 실행'
+Write-Host ''
+Write-Host '  직원 PC 설치 명령 (서버 [설정] 화면에도 나옵니다)' -ForegroundColor White
+if ($address) {
+    Write-Host "    .\install.ps1 -Server ${scheme}://${address}:$Port -Key <등록키>"
+}
 Write-Host ''

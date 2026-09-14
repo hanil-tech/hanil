@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography.X509Certificates;
 using Hanil.TimeGuard.Core.Config;
 using Hanil.TimeGuard.Core.Ipc;
 
@@ -43,16 +44,63 @@ public sealed class ServerConnection : IDisposable
     private readonly ServerSettings _settings;
     private readonly string _settingsPath;
 
+    /// <summary>가장 최근 연결에서 본 서버 인증서의 지문.</summary>
+    private string? _observedThumbprint;
+
+    /// <summary>인증서가 기억해 둔 것과 달랐는지.</summary>
+    public bool CertificateMismatch { get; private set; }
+
     public ServerConnection(ServerSettings settings, string? settingsPath = null, HttpMessageHandler? handler = null)
     {
         _settings = settings;
         _settingsPath = settingsPath ?? ServerSettings.DefaultPath;
 
-        _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        _http = handler is null
+            ? new HttpClient(CreateHandler(), disposeHandler: true)
+            : new HttpClient(handler, disposeHandler: false);
+
         _http.Timeout = RequestTimeout;
 
         if (settings.IsConfigured)
             _http.BaseAddress = new Uri(settings.ServerUrl.TrimEnd('/') + "/");
+    }
+
+    /// <summary>
+    /// 서버 인증서를 확인하는 규칙을 건 통신 핸들러를 만든다.
+    ///
+    /// 사내에 두는 서버라 공인 인증 기관이 발급한 인증서를 쓰기 어렵다.
+    /// 대신 처음 등록할 때 본 인증서를 기억해 두고, 이후 달라지면 연결을 끊는다.
+    /// 가짜 서버를 세워 중간에서 가로채는 것을 막기 위해서다.
+    /// </summary>
+    private HttpClientHandler CreateHandler()
+    {
+        var handler = new HttpClientHandler();
+
+        handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+        {
+            if (certificate is null) return false;
+
+            var thumbprint = certificate.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            _observedThumbprint = thumbprint;
+
+            var expected = _settings.CertificateThumbprint;
+
+            if (string.IsNullOrWhiteSpace(expected))
+            {
+                // 아직 기억해 둔 인증서가 없다. 등록 과정에서 이 값을 저장한다.
+                CertificateMismatch = false;
+                return true;
+            }
+
+            var matches = string.Equals(thumbprint, expected, StringComparison.OrdinalIgnoreCase);
+            CertificateMismatch = !matches;
+
+            // 지문이 맞으면 공인 기관 검증 결과(errors)는 따지지 않는다.
+            // 자체 서명 인증서라 어차피 통과하지 못하기 때문이다.
+            return matches;
+        };
+
+        return handler;
     }
 
     public ServerSettings Settings => _settings;
@@ -104,9 +152,26 @@ public sealed class ServerConnection : IDisposable
             _settings.DeviceId = result.DeviceId;
             _settings.Token = result.Token;
             _settings.EnrollmentKey = enrollmentKey;
+
+            // 처음 등록할 때 본 인증서를 기억해 둔다. 이후에는 이 서버에만 연결한다.
+            var pinned = false;
+            if (_settings.UsesHttps &&
+                string.IsNullOrWhiteSpace(_settings.CertificateThumbprint) &&
+                !string.IsNullOrWhiteSpace(_observedThumbprint))
+            {
+                _settings.CertificateThumbprint = _observedThumbprint;
+                pinned = true;
+            }
+
             _settings.Save(_settingsPath);
 
-            return (true, $"'{result.DisplayName}' 이름으로 등록했습니다.");
+            var note = pinned ? " 서버 인증서를 기억했습니다." : string.Empty;
+            return (true, $"'{result.DisplayName}' 이름으로 등록했습니다.{note}");
+        }
+        catch (Exception) when (CertificateMismatch)
+        {
+            return (false,
+                "서버 인증서가 기억해 둔 것과 다릅니다. 다른 서버이거나 누군가 가로채고 있을 수 있습니다.");
         }
         catch (Exception ex)
         {
@@ -174,6 +239,12 @@ public sealed class ServerConnection : IDisposable
         catch (TaskCanceledException) when (!token.IsCancellationRequested)
         {
             return SyncResult.Failed("서버 응답이 없습니다(시간 초과).");
+        }
+        catch (Exception ex) when (CertificateMismatch)
+        {
+            return SyncResult.Failed(
+                "서버 인증서가 처음 등록할 때와 다릅니다. 연결을 중단했습니다. " +
+                $"서버를 다시 설치했다면 이 PC 를 다시 등록해 주세요. ({ex.Message})");
         }
         catch (Exception ex)
         {
