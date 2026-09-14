@@ -14,17 +14,105 @@ internal static class Enrollment
         {
             "enroll" => Enroll(options),
             "unenroll" => Unenroll(),
+            "discover" => Discover(),
+            "unlock-accounts" => AccountRecovery.UnlockAll(),
             _ => 3
         };
 
+    /// <summary>사내망에서 관리 서버를 찾아 보여 준다.</summary>
+    private static int Discover()
+    {
+        ConsoleUi.Info("사내망에서 관리 서버를 찾는 중입니다...");
+
+        var servers = ServerDiscovery.FindAsync().GetAwaiter().GetResult();
+
+        if (servers.Count == 0)
+        {
+            ConsoleUi.Error("관리 서버를 찾지 못했습니다.");
+            Console.WriteLine();
+            ConsoleUi.Dim("  · 서버가 켜져 있는지 확인해 주세요.");
+            ConsoleUi.Dim("  · 서버와 이 PC 가 같은 사내망에 있어야 합니다.");
+            ConsoleUi.Dim("  · 서버 방화벽에서 UDP 8765 가 열려 있어야 합니다.");
+            ConsoleUi.Dim("  · 찾지 못해도 --server 로 주소를 직접 적으면 등록할 수 있습니다.");
+            return 2;
+        }
+
+        Console.WriteLine();
+        foreach (var server in servers)
+        {
+            ConsoleUi.Success($"{server.Url}");
+            ConsoleUi.Dim($"    서버 PC: {server.MachineName} · 버전 {server.Version}");
+        }
+
+        Console.WriteLine();
+        ConsoleUi.Dim("  등록하려면:");
+        ConsoleUi.Dim($"    TimeGuard.Admin.exe enroll --server {servers[0].Url} --key <등록키>");
+
+        return 0;
+    }
+
+    /// <summary>
+    /// 서버 주소를 정한다. 직접 적었으면 그대로 쓰고, 없으면 사내망에서 찾는다.
+    ///
+    /// 찾은 결과를 그대로 쓰지 않고 확인을 받는 이유는,
+    /// 누군가 가짜 서버를 세워 두었을 수 있기 때문이다.
+    /// 관리자가 서버 PC 이름을 보고 맞는지 확인한 뒤 진행한다.
+    /// </summary>
+    private static string? ResolveServerUrl(CommandLineOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.ServerUrl)) return options.ServerUrl;
+
+        ConsoleUi.Info("서버 주소가 지정되지 않아 사내망에서 찾아봅니다...");
+
+        var servers = ServerDiscovery.FindAsync().GetAwaiter().GetResult();
+
+        if (servers.Count == 0)
+        {
+            ConsoleUi.Error("관리 서버를 찾지 못했습니다. --server 로 주소를 직접 적어 주세요.");
+            return null;
+        }
+
+        if (servers.Count == 1)
+        {
+            var only = servers[0];
+
+            Console.WriteLine();
+            ConsoleUi.Success($"찾았습니다: {only.Url}");
+            ConsoleUi.Dim($"  서버 PC 이름: {only.MachineName}");
+            Console.WriteLine();
+
+            if (options.AssumeYes) return only.Url;
+
+            return ConsoleUi.Confirm("이 서버가 맞습니까?", defaultYes: true) ? only.Url : null;
+        }
+
+        Console.WriteLine();
+        ConsoleUi.Warn($"관리 서버가 {servers.Count} 대 발견되었습니다. 어느 것이 맞는지 골라 주세요.");
+        Console.WriteLine();
+
+        for (var i = 0; i < servers.Count; i++)
+            Console.WriteLine($"  {i + 1}. {servers[i].Url}  (서버 PC: {servers[i].MachineName})");
+
+        Console.WriteLine();
+
+        var choice = ConsoleUi.PromptInt("번호", 1, 1, servers.Count);
+        return choice is null ? null : servers[choice.Value - 1].Url;
+    }
+
     private static int Enroll(CommandLineOptions options)
     {
-        var url = options.ServerUrl ?? ConsoleUi.Prompt("관리 서버 주소 (예: http://192.168.0.10:8080)");
+        var url = ResolveServerUrl(options);
+        if (url is null)
+        {
+            ConsoleUi.Info("등록을 취소했습니다.");
+            return 3;
+        }
+
         var key = options.EnrollmentKey ?? ConsoleUi.Prompt("클라이언트 등록 키");
 
-        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(key))
+        if (string.IsNullOrWhiteSpace(key))
         {
-            ConsoleUi.Error("서버 주소와 등록 키가 모두 필요합니다.");
+            ConsoleUi.Error("등록 키가 필요합니다. 서버의 [설정] 화면에서 확인할 수 있습니다.");
             return 3;
         }
 
@@ -37,6 +125,10 @@ internal static class Enrollment
 
         var settings = ServerSettings.Load();
         settings.ServerUrl = url.TrimEnd('/');
+
+        // 다른 서버로 옮기는 경우 기억해 둔 인증서를 지운다.
+        if (!string.Equals(settings.ServerUrl, url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            settings.CertificateThumbprint = string.Empty;
 
         using var connection = new ServerConnection(settings);
 
@@ -97,6 +189,7 @@ internal static class Enrollment
         settings.ServerUrl = string.Empty;
         settings.Token = string.Empty;
         settings.EnrollmentKey = string.Empty;
+        settings.CertificateThumbprint = string.Empty;
         settings.Save();
 
         new PolicyCache().Clear();

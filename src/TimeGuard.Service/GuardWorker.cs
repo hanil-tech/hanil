@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using Hanil.TimeGuard.Core.Config;
+using Hanil.TimeGuard.Core.State;
 using Hanil.TimeGuard.Core.Ipc;
 using Hanil.TimeGuard.Core.Schedule;
 using Hanil.TimeGuard.Service.Interop;
@@ -31,6 +32,7 @@ public sealed class GuardWorker : BackgroundService
     private readonly ServiceState _state;
     private readonly ILogger<GuardWorker> _logger;
     private readonly string _agentPath;
+    private readonly LockedAccountStore _lockedAccounts = new();
 
     private GuardState? _previousState;
     private DateTimeOffset? _blockedDeadline;
@@ -44,6 +46,8 @@ public sealed class GuardWorker : BackgroundService
     private int? _activeNoticeMinutes;
     private DateTimeOffset _activeNoticeUntil = DateTimeOffset.MinValue;
 
+    private readonly BootAttemptTracker _bootAttempts = new();
+
     public GuardWorker(ServiceState state, ILogger<GuardWorker> logger)
     {
         _state = state;
@@ -55,6 +59,16 @@ public sealed class GuardWorker : BackgroundService
     {
         _state.Log.Write("서비스", $"서비스를 시작했습니다. 설정 파일: {_state.Store.Path}");
         _state.QueueEvent("서비스", "서비스를 시작했습니다.");
+
+        // 서비스가 멈춰 있는 동안 허용 시간이 되었을 수 있다.
+        // 잠긴 계정을 그대로 두면 직원이 출근해도 로그인하지 못하므로 먼저 확인한다.
+        var decision = ScheduleEvaluator.Evaluate(_state.Current, DateTimeOffset.Now);
+        if (decision.State != GuardState.Blocked)
+        {
+            ReleaseLockedAccounts("서비스를 시작하며 확인했습니다.");
+            ReleaseRemoteAccessBlock();
+        }
+
         return base.StartAsync(cancellationToken);
     }
 
@@ -120,9 +134,16 @@ public sealed class GuardWorker : BackgroundService
         {
             case GuardState.Disabled:
                 ResetTracking();
+                ReleaseLockedAccounts("제한이 적용되지 않는 상태가 되었습니다.");
+                ReleaseRemoteAccessBlock();
                 break;
 
             case GuardState.Allowed:
+                // 허용 시간이 되면 잠갔던 계정과 원격 차단을 자동으로 풀어 준다.
+                // 이 처리가 없으면 직원이 다음 날에도 로그인하지 못한다.
+                ReleaseLockedAccounts("허용 시간이 되었습니다.");
+                ReleaseRemoteAccessBlock();
+                _bootAttempts.Reset();
                 HandleAllowed(config, decision, now, snapshot);
                 break;
 
@@ -177,13 +198,35 @@ public sealed class GuardWorker : BackgroundService
             // 차단 상태로 막 들어왔다.
             // 허용 구간이 정상적으로 끝난 경우라면 이미 경고를 다 했으므로 즉시 조치한다.
             // PC 를 허용 시간 밖에 켠 경우라면 저장할 시간을 주기 위해 유예를 둔다.
-            var grace = _countdownCompleted
-                ? TimeSpan.Zero
-                : TimeSpan.FromSeconds(Math.Max(0, config.Warnings.OutsideWindowGraceSeconds));
+            TimeSpan grace;
+
+            if (_countdownCompleted)
+            {
+                grace = TimeSpan.Zero;
+            }
+            else
+            {
+                var baseGrace = TimeSpan.FromSeconds(Math.Max(0, config.Warnings.OutsideWindowGraceSeconds));
+
+                // 껐다 켜기를 되풀이해 유예 시간만큼씩 쓰는 것을 막는다.
+                // 같은 차단 구간에서 다시 켤수록 유예가 짧아진다.
+                grace = _bootAttempts.NextGrace(baseGrace, now, out var attempt);
+
+                if (attempt > 1)
+                {
+                    var message = $"허용 시간이 아닌데 {attempt}번째로 켰습니다. 유예를 {grace.TotalSeconds:0}초로 줄였습니다.";
+
+                    _state.Log.Write("차단", message);
+                    _state.QueueEvent("차단", message);
+                }
+            }
 
             _blockedDeadline = now + grace;
             _lastNoticeShown = null;
             _noticeWindowEnd = null;
+
+            // 원격으로 들어와 쓰는 것도 함께 막는다.
+            ApplyRemoteAccessBlock(config);
 
             _state.Log.Write("차단",
                 $"허용 시간대를 벗어났습니다. {grace.TotalSeconds:0}초 뒤 {Describe(config.Action)}을(를) 실행합니다.");
@@ -231,7 +274,22 @@ public sealed class GuardWorker : BackgroundService
         _state.Log.Write("조치", start);
         _state.QueueEvent("조치", start);   // 서버에도 남겨 관리자가 확인할 수 있게 한다
 
-        var (ok, detail) = PowerController.Execute(config.Action);
+        bool ok;
+        string detail;
+
+        if (config.Action == GuardAction.AccountLock)
+        {
+            // 계정을 잠근 경우에는 나중에 풀어 줄 수 있도록 기록해 둔다.
+            string? lockedUser;
+            (ok, detail, lockedUser) = PowerController.LockAccountDetailed(config.ExemptUsers);
+
+            if (ok && lockedUser is not null)
+                _lockedAccounts.Add(lockedUser, "허용 시간이 끝나 잠갔습니다.");
+        }
+        else
+        {
+            (ok, detail) = PowerController.Execute(config.Action);
+        }
 
         _state.Log.Write(ok ? "조치" : "오류", detail);
         _state.QueueEvent(ok ? "조치" : "오류", detail);
@@ -262,6 +320,77 @@ public sealed class GuardWorker : BackgroundService
 
         snapshot.NoticeMinutes = minutes;
         snapshot.NoticeId = _noticeCounter;
+    }
+
+    /// <summary>
+    /// 잠가 둔 계정을 모두 풀어 준다.
+    /// 허용 시간이 되었거나 제한이 꺼졌을 때 호출한다.
+    /// </summary>
+    private void ReleaseLockedAccounts(string why)
+    {
+        var locked = _lockedAccounts.Load();
+        if (locked.Count == 0) return;
+
+        foreach (var entry in locked)
+        {
+            var (ok, detail) = PowerController.UnlockAccount(entry.UserName);
+
+            if (ok)
+            {
+                _lockedAccounts.Remove(entry.UserName);
+
+                _state.Log.Write("조치", $"{detail} ({why})");
+                _state.QueueEvent("조치", $"{entry.UserName} 계정 잠금을 풀었습니다. {why}");
+            }
+            else
+            {
+                _logger.LogError("계정 잠금을 풀지 못했습니다: {Detail}", detail);
+                _state.Log.Write("오류", $"계정 잠금을 풀지 못했습니다: {detail}");
+            }
+        }
+    }
+
+    /// <summary>설정이 켜져 있으면 원격 접속을 막는다.</summary>
+    private void ApplyRemoteAccessBlock(GuardConfig config)
+    {
+        if (!config.BlockRemoteAccess) return;
+        if (RemoteAccessController.IsBlockedByUs()) return;
+
+        var (ok, detail) = RemoteAccessController.Block();
+
+        if (ok)
+        {
+            if (string.IsNullOrEmpty(detail)) return;
+
+            _state.Log.Write("차단", detail);
+            _state.QueueEvent("차단", detail);
+        }
+        else
+        {
+            _logger.LogError("원격 접속을 막지 못했습니다: {Detail}", detail);
+            _state.Log.Write("오류", detail);
+        }
+    }
+
+    /// <summary>우리가 막아 둔 원격 접속 차단을 푼다.</summary>
+    private void ReleaseRemoteAccessBlock()
+    {
+        if (!RemoteAccessController.IsBlockedByUs()) return;
+
+        var (ok, detail) = RemoteAccessController.Unblock();
+
+        if (ok)
+        {
+            if (string.IsNullOrEmpty(detail)) return;
+
+            _state.Log.Write("조치", detail);
+            _state.QueueEvent("조치", detail);
+        }
+        else
+        {
+            _logger.LogError("원격 접속 차단을 풀지 못했습니다: {Detail}", detail);
+            _state.Log.Write("오류", detail);
+        }
     }
 
     private void ResetTracking()
@@ -325,6 +454,7 @@ public sealed class GuardWorker : BackgroundService
         GuardAction.Shutdown => "전원 차단",
         GuardAction.LogOff => "로그오프",
         GuardAction.Lock => "화면 잠금",
+        GuardAction.AccountLock => "계정 잠금",
         _ => action.ToString()
     };
 }

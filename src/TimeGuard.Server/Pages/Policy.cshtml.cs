@@ -23,6 +23,7 @@ public sealed class PolicyModel : PageModel
     public WarningSettings Warnings { get; private set; } = new();
     public GuardAction Action { get; private set; } = GuardAction.Shutdown;
     public HolidayPolicy HolidayPolicy { get; private set; } = HolidayPolicy.Blocked;
+    public bool BlockRemoteAccess { get; private set; }
     public string HolidaysText { get; private set; } = string.Empty;
     public string ExemptUsersText { get; private set; } = string.Empty;
     public string NoticeMinutesText { get; private set; } = string.Empty;
@@ -34,6 +35,7 @@ public sealed class PolicyModel : PageModel
     public async Task<IActionResult> OnPostAsync(
         string action,
         string holidayPolicy,
+        bool blockRemoteAccess,
         string? noticeMinutes,
         int countdownSeconds,
         int graceSeconds,
@@ -108,6 +110,7 @@ public sealed class PolicyModel : PageModel
             : nameof(Core.Config.HolidayPolicy.Blocked);
         policy.HolidaysJson = JsonSerializer.Serialize(normalizedHolidays, IpcJson.Options);
         policy.ExemptUsersJson = JsonSerializer.Serialize(SplitList(exemptUsers), IpcJson.Options);
+        policy.BlockRemoteAccess = blockRemoteAccess;
 
         await _policies.BumpDefaultVersionAsync(User.Identity?.Name ?? "관리자", cancellationToken);
 
@@ -126,6 +129,7 @@ public sealed class PolicyModel : PageModel
             ? holiday
             : Core.Config.HolidayPolicy.Blocked;
 
+        BlockRemoteAccess = policy.BlockRemoteAccess;
         HolidaysText = string.Join(", ", Deserialize<List<string>>(policy.HolidaysJson) ?? new List<string>());
         ExemptUsersText = string.Join(", ", Deserialize<List<string>>(policy.ExemptUsersJson) ?? new List<string>());
         NoticeMinutesText = string.Join(", ", Warnings.OrderedNoticeMinutes);

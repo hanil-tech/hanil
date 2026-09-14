@@ -14,7 +14,7 @@ internal static class PowerController
     /// 설정된 조치를 수행한다. 성공 여부와 설명을 돌려준다.
     /// 실패해도 예외를 밖으로 던지지 않고 서비스가 계속 돌게 한다.
     /// </summary>
-    internal static (bool Ok, string Detail) Execute(GuardAction action)
+    internal static (bool Ok, string Detail) Execute(GuardAction action, IReadOnlyList<string>? neverLock = null)
     {
         try
         {
@@ -23,6 +23,7 @@ internal static class PowerController
                 GuardAction.Shutdown => Shutdown(),
                 GuardAction.LogOff => LogOff(),
                 GuardAction.Lock => LockWorkstation(),
+                GuardAction.AccountLock => LockAccount(neverLock ?? Array.Empty<string>()),
                 _ => (false, $"알 수 없는 조치: {action}")
             };
         }
@@ -76,6 +77,52 @@ internal static class PowerController
             ? (true, "화면을 잠갔습니다.")
             : (false, $"화면 잠금 실패: {error}");
     }
+
+    /// <summary>
+    /// 지금 로그인한 계정을 잠그고 로그오프한다.
+    /// 직원이 다시 로그인할 수 없게 되며, 스스로 풀 수도 없다.
+    /// </summary>
+    /// <returns>성공 여부와 설명. 성공하면 잠근 계정 이름도 함께 돌려준다.</returns>
+    internal static (bool Ok, string Detail, string? LockedUser) LockAccountDetailed(IReadOnlyList<string> neverLock)
+    {
+        var user = SessionLauncher.GetActiveSessionUser();
+
+        if (string.IsNullOrWhiteSpace(user))
+            return (false, "로그인한 사용자를 찾지 못했습니다.", null);
+
+        var name = AccountController.StripDomain(user);
+
+        // 관리자가 제외 대상으로 지정한 계정은 잠그지 않는다.
+        foreach (var exempt in neverLock)
+        {
+            if (string.Equals(AccountController.StripDomain(exempt), name, StringComparison.OrdinalIgnoreCase))
+                return (false, $"'{name}' 은(는) 제외 계정이라 잠그지 않았습니다.", null);
+        }
+
+        // 관리자 계정을 잠그면 그 PC 를 되돌릴 방법이 없어진다.
+        if (!AccountController.CanLock(user, out var reason))
+            return (false, $"계정을 잠그지 않았습니다: {reason}", null);
+
+        var (locked, detail) = AccountController.Lock(user);
+        if (!locked) return (false, detail, null);
+
+        // 잠그기만 하면 이미 로그인한 상태는 그대로 유지되므로 로그오프까지 해야 한다.
+        var (loggedOff, logoffDetail) = LogOff();
+
+        return loggedOff
+            ? (true, $"{detail} 로그오프했습니다.", name)
+            : (true, $"{detail} 다만 로그오프하지 못했습니다: {logoffDetail}", name);
+    }
+
+    private static (bool, string) LockAccount(IReadOnlyList<string> neverLock)
+    {
+        var (ok, detail, _) = LockAccountDetailed(neverLock);
+        return (ok, detail);
+    }
+
+    /// <summary>계정 잠금을 푼다.</summary>
+    internal static (bool Ok, string Detail) UnlockAccount(string userName) =>
+        AccountController.Unlock(userName);
 
     /// <summary>예약된 시스템 종료를 취소한다. InitiateSystemShutdownEx 가 이미 실행된 뒤에는 효과가 없다.</summary>
     internal static bool AbortShutdown()

@@ -171,6 +171,7 @@ internal sealed class MenuUi
         var config = _session.GetConfig();
         if (config is not null)
         {
+            Console.WriteLine($"  원격 접속 차단   : {(config.BlockRemoteAccess ? "사용" : "사용 안 함")}");
             Console.WriteLine();
             PrintSchedule(config);
         }
@@ -370,9 +371,11 @@ internal sealed class MenuUi
         ConsoleUi.Title("시간 초과 시 조치");
         Console.WriteLine($"  현재: {DescribeAction(config.Action)}");
         Console.WriteLine();
-        Console.WriteLine("  1. 전원 차단 (컴퓨터를 끕니다)");
-        Console.WriteLine("  2. 로그오프 (사용자만 로그아웃합니다)");
-        Console.WriteLine("  3. 화면 잠금 (가장 약한 조치)");
+        Console.WriteLine("  1. 전원 차단  — 컴퓨터를 끕니다. 가장 확실합니다.");
+        Console.WriteLine("  2. 계정 잠금  — 로그오프하고 다시 로그인할 수 없게 합니다.");
+        Console.WriteLine("                  직원이 스스로 풀 수 없고, 허용 시간이 되면 자동으로 풀립니다.");
+        Console.WriteLine("  3. 로그오프   — 로그아웃만 합니다. 바로 다시 로그인할 수 있습니다.");
+        Console.WriteLine("  4. 화면 잠금  — 직원이 자기 비밀번호로 바로 풉니다. 제한 효과가 거의 없습니다.");
         Console.WriteLine("  0. 변경하지 않음");
         Console.WriteLine();
 
@@ -380,10 +383,28 @@ internal sealed class MenuUi
         GuardAction? action = choice switch
         {
             "1" => GuardAction.Shutdown,
-            "2" => GuardAction.LogOff,
-            "3" => GuardAction.Lock,
+            "2" => GuardAction.AccountLock,
+            "3" => GuardAction.LogOff,
+            "4" => GuardAction.Lock,
             _ => null
         };
+
+        if (action == GuardAction.AccountLock)
+        {
+            Console.WriteLine();
+            ConsoleUi.Warn("계정 잠금은 직원이 Windows 에 로그인하지 못하게 만듭니다.");
+            ConsoleUi.Dim("  · 허용 시간이 되면 서비스가 자동으로 풀어 줍니다.");
+            ConsoleUi.Dim("  · 관리자 권한을 가진 계정에는 적용되지 않습니다.");
+            ConsoleUi.Dim("  · 문제가 생기면 TimeGuard.Admin.exe unlock-accounts 로 되돌릴 수 있습니다.");
+            Console.WriteLine();
+
+            if (!ConsoleUi.Confirm("계정 잠금으로 설정할까요?"))
+            {
+                ConsoleUi.Info("변경하지 않았습니다.");
+                ConsoleUi.Pause();
+                return;
+            }
+        }
 
         if (action is null)
         {
@@ -393,6 +414,14 @@ internal sealed class MenuUi
         }
 
         config.Action = action.Value;
+
+        Console.WriteLine();
+        ConsoleUi.Dim("  계정을 잠가도 PC 에 다른 계정이 있으면 그 계정으로 원격 접속해 쓸 수 있습니다.");
+
+        config.BlockRemoteAccess = ConsoleUi.Confirm(
+            "허용 시간이 아닐 때 원격 데스크톱 접속도 막을까요?",
+            defaultYes: config.BlockRemoteAccess);
+
         _session.SaveConfig(config);
         ConsoleUi.Pause();
     }
@@ -714,8 +743,9 @@ internal sealed class MenuUi
     internal static string DescribeAction(GuardAction action) => action switch
     {
         GuardAction.Shutdown => "전원 차단",
+        GuardAction.AccountLock => "계정 잠금",
         GuardAction.LogOff => "로그오프",
-        GuardAction.Lock => "화면 잠금",
+        GuardAction.Lock => "화면 잠금(직원이 풀 수 있음)",
         _ => action.ToString()
     };
 

@@ -9,8 +9,19 @@ public enum GuardAction
     Shutdown = 0,
     /// <summary>사용자 로그오프.</summary>
     LogOff = 1,
-    /// <summary>화면 잠금(가장 약한 조치).</summary>
-    Lock = 2
+    /// <summary>
+    /// 화면 잠금. 가장 약한 조치다.
+    /// 직원이 자기 Windows 비밀번호로 바로 풀 수 있으므로 실질적인 제한이 되지 않는다.
+    /// </summary>
+    Lock = 2,
+
+    /// <summary>
+    /// Windows 계정 잠금 + 로그오프.
+    /// 직원이 다시 로그인할 수 없고 스스로 풀 수도 없다.
+    /// 허용 시간이 되면 서비스가 자동으로 풀어 준다.
+    /// 관리자 권한을 가진 계정에는 적용되지 않는다.
+    /// </summary>
+    AccountLock = 3
 }
 
 /// <summary>지정 휴일의 처리 방식.</summary>
@@ -56,6 +67,15 @@ public sealed class GuardConfig
 
     /// <summary>제한을 적용하지 않을 Windows 계정 이름 목록(관리자 계정 등).</summary>
     public List<string> ExemptUsers { get; set; } = new();
+
+    /// <summary>
+    /// 허용 시간이 아닐 때 원격 데스크톱 접속을 막을지.
+    ///
+    /// 계정을 잠가도 PC 에 다른 계정이 있으면 그 계정으로 원격 접속해 쓸 수 있다.
+    /// 이 설정을 켜면 차단 중에는 원격 접속 자체가 막히고, 접속 중인 원격 세션도 끊긴다.
+    /// 허용 시간이 되면 원래대로 돌아간다.
+    /// </summary>
+    public bool BlockRemoteAccess { get; set; }
 
     /// <summary>마지막 수정 시각과 수정자.</summary>
     public DateTimeOffset LastModified { get; set; } = DateTimeOffset.Now;

@@ -599,6 +599,7 @@ public sealed class AgentWindow : IDisposable
     internal static string DescribeAction(GuardAction action) => action switch
     {
         GuardAction.Shutdown => "전원이 차단",
+        GuardAction.AccountLock => "로그오프",
         GuardAction.LogOff => "로그오프",
         GuardAction.Lock => "화면이 잠금",
         _ => "조치가 실행"

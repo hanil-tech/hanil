@@ -27,7 +27,7 @@ if (options.ShowHelp)
 }
 
 // 서버 등록은 서비스와 무관하게 설정 파일만 다루므로 먼저 처리한다.
-if (options.Command is "enroll" or "unenroll")
+if (options.Command is "enroll" or "unenroll" or "discover" or "unlock-accounts")
     return Enrollment.Run(options);
 
 using var session = new AdminSession();

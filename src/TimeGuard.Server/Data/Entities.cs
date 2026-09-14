@@ -72,6 +72,9 @@ public sealed class DefaultPolicy
     /// <summary>제한을 적용하지 않을 Windows 계정(JSON 배열).</summary>
     public string ExemptUsersJson { get; set; } = "[]";
 
+    /// <summary>차단 중에 원격 데스크톱 접속을 막을지.</summary>
+    public bool BlockRemoteAccess { get; set; }
+
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public string UpdatedBy { get; set; } = string.Empty;
 

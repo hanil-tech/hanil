@@ -5,6 +5,7 @@ internal sealed class CommandLineOptions
     internal string? Command { get; set; }
     internal string? ServerUrl { get; set; }
     internal string? EnrollmentKey { get; set; }
+    internal bool AssumeYes { get; set; }
     internal string? Password { get; set; }
     internal string? NewPassword { get; set; }
     internal int? Minutes { get; set; }
@@ -53,6 +54,10 @@ internal static class CommandLine
 
                 case "--key" or "-k" when i + 1 < args.Length:
                     options.EnrollmentKey = args[++i];
+                    break;
+
+                case "--yes" or "-y":
+                    options.AssumeYes = true;
                     break;
 
                 default:
@@ -108,13 +113,17 @@ internal static class CommandLine
               TimeGuard.Admin.exe set-window <요일> <시간대>  허용 시간대를 지정합니다
               TimeGuard.Admin.exe log [줄수]               기록을 출력합니다
               TimeGuard.Admin.exe set-password             관리자 비밀번호를 변경합니다
+              TimeGuard.Admin.exe discover                 사내망에서 관리 서버를 찾습니다
+              TimeGuard.Admin.exe enroll --key <등록키>      서버를 자동으로 찾아 등록합니다
               TimeGuard.Admin.exe enroll --server <주소> --key <등록키>
-                                                           이 PC 를 관리 서버에 등록합니다
+                                                           서버 주소를 직접 적어 등록합니다
               TimeGuard.Admin.exe unenroll                 관리 서버 연결을 끊고 단독 모드로 돌립니다
+              TimeGuard.Admin.exe unlock-accounts          잠긴 Windows 계정을 풀어 줍니다 (비상용)
 
             공통 옵션:
               -s, --server <주소>            관리 서버 주소 (예: http://192.168.0.10:8080)
               -k, --key <등록키>             서버의 [설정] 화면에 있는 클라이언트 등록 키
+              -y, --yes                      찾은 서버를 확인 없이 그대로 씁니다(자동 설치용)
               -p, --password <비밀번호>      비밀번호를 미리 넘깁니다(자동화용)
                   --new-password <비밀번호>  set-password 에서 쓸 새 비밀번호
               -h, --help                     이 도움말
@@ -130,7 +139,9 @@ internal static class CommandLine
               종일                     24시간 허용
 
             예시:
-              TimeGuard.Admin.exe enroll -s http://192.168.0.10:8080 -k ABCDE-FGHIJ-KLMNO-PQRST
+              TimeGuard.Admin.exe discover
+              TimeGuard.Admin.exe enroll -k ABCDE-FGHIJ-KLMNO-PQRST
+              TimeGuard.Admin.exe enroll -s https://192.168.0.10:8443 -k ABCDE-FGHIJ-KLMNO-PQRST
               TimeGuard.Admin.exe set-window 평일 08:30-18:00 -p 관리자비번
               TimeGuard.Admin.exe set-window 주말 없음 -p 관리자비번
               TimeGuard.Admin.exe extend 30 -p 관리자비번

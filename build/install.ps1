@@ -9,15 +9,21 @@
     설치부터 서버 등록까지 한 번에 끝납니다.
     (두 값은 서버의 [설정] 화면에 그대로 나와 있습니다.)
 
-.PARAMETER Server
-    관리 서버 주소. 예: http://192.168.0.10:8080
-
 .PARAMETER Key
     서버의 [설정] 화면에 있는 클라이언트 등록 키.
+    이것만 주면 서버는 사내망에서 자동으로 찾습니다.
+
+.PARAMETER Server
+    관리 서버 주소. 적지 않으면 사내망에서 찾습니다.
+    예: https://192.168.0.10:8443
 
 .EXAMPLE
-    # 서버에 붙여서 쓰는 경우 (권장)
-    .\install.ps1 -Server http://192.168.0.10:8080 -Key ABCDE-FGHIJ-KLMNO-PQRST
+    # 가장 간단한 방법 - 서버는 알아서 찾습니다
+    .\install.ps1 -Key ABCDE-FGHIJ-KLMNO-PQRST
+
+.EXAMPLE
+    # 서버 주소를 직접 적는 경우
+    .\install.ps1 -Server https://192.168.0.10:8443 -Key ABCDE-FGHIJ-KLMNO-PQRST
 
 .EXAMPLE
     # 이 PC 하나만 단독으로 쓰는 경우
@@ -76,6 +82,27 @@ New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 Copy-Item -Path (Join-Path $source '*') -Destination $InstallPath -Recurse -Force
 Write-Ok '복사를 마쳤습니다.'
 
+# --- 프로그램 폴더 보호 ---
+# 일반 사용자가 실행 파일을 지우거나 바꿔치기하지 못하게 한다.
+Write-Step '프로그램 폴더를 보호합니다'
+$programAcl = Get-Acl $InstallPath
+$programAcl.SetAccessRuleProtection($true, $false)
+
+foreach ($account in @('SYSTEM', 'Administrators')) {
+    $programAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+        $account, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+}
+
+# 일반 사용자는 실행만 할 수 있고 지우거나 고칠 수 없다
+$programAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+    'Users', 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+
+$programAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+    'Users', 'Delete,DeleteSubdirectoriesAndFiles,Write', 'ContainerInherit,ObjectInherit', 'None', 'Deny')))
+
+Set-Acl -Path $InstallPath -AclObject $programAcl
+Write-Ok '일반 사용자는 지우거나 고칠 수 없습니다.'
+
 # --- 설정 폴더와 권한 ---
 Write-Step "설정 폴더 권한을 설정합니다: $DataPath"
 New-Item -ItemType Directory -Path $DataPath -Force | Out-Null
@@ -112,7 +139,29 @@ if ($existing) {
 
 # 서비스가 죽으면 자동으로 다시 시작하게 한다
 & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/10000 | Out-Null
+
+# 서비스가 스스로 멈춘 경우에도 복구 동작을 적용한다(기본값은 비정상 종료만 해당)
+& sc.exe failureflag $ServiceName 1 | Out-Null
 Write-Ok '등록했습니다.'
+
+# --- 서비스 보호 ---
+# 일반 사용자는 물론 관리자도 실수로 멈추지 못하게 권한을 좁힌다.
+# SYSTEM 은 그대로 모든 권한을 가지므로 서비스 자신과 제거 스크립트는 문제없이 동작한다.
+#
+#   D:  권한 목록
+#   A;;CCLCSWRPWPDTLOCRRC;;;SY    SYSTEM       : 전체 권한
+#   A;;CCLCSWRPDTLOCRRC;;;BA     관리자 그룹   : 조회와 설정은 되지만 중지(WP)는 뺐다
+#   A;;CCLCSWLOCRRC;;;IU         로그인 사용자 : 조회만
+#   A;;CCLCSWLOCRRC;;;SU         서비스 계정   : 조회만
+Write-Step '서비스를 함부로 멈출 수 없게 보호합니다'
+$sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPDTLOCRRC;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)'
+& sc.exe sdset $ServiceName $sddl | Out-Null
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok '설정했습니다. (제거할 때는 uninstall.ps1 이 알아서 되돌립니다)'
+} else {
+    Write-Warn2 '서비스 보호 설정에 실패했습니다. 설치는 계속됩니다.'
+}
 
 # --- 알림 프로그램 자동 실행 등록 ---
 # 서비스도 직접 띄우지만, 로그온 직후 바로 뜨도록 시작 프로그램에도 넣어 둔다
@@ -138,10 +187,15 @@ if ($service.Status -eq 'Running') {
 # --- 관리 서버에 등록 ---
 $adminExe = Join-Path $InstallPath 'TimeGuard.Admin.exe'
 
-if ($Server -and $Key) {
-    Write-Step "관리 서버에 등록합니다: $Server"
+if ($Key) {
+    if ($Server) {
+        Write-Step "관리 서버에 등록합니다: $Server"
+        & $adminExe enroll --server $Server --key $Key --yes
+    } else {
+        Write-Step '사내망에서 관리 서버를 찾아 등록합니다'
+        & $adminExe enroll --key $Key --yes
+    }
 
-    & $adminExe enroll --server $Server --key $Key
     $enrolled = ($LASTEXITCODE -eq 0)
 
     if ($enrolled) {
@@ -152,11 +206,17 @@ if ($Server -and $Key) {
         Write-Ok '등록을 마쳤습니다.'
     } else {
         Write-Warn2 '서버 등록에 실패했습니다. 설치 자체는 끝났습니다.'
-        Write-Warn2 '서버 주소와 등록 키를 확인한 뒤 아래를 다시 실행해 주세요:'
-        Write-Warn2 "  `"$adminExe`" enroll --server $Server --key $Key"
+        Write-Warn2 '아래를 실행해 다시 시도할 수 있습니다:'
+        if ($Server) {
+            Write-Warn2 "  `"$adminExe`" enroll --server $Server --key $Key"
+        } else {
+            Write-Warn2 "  `"$adminExe`" discover     (사내망에서 서버를 찾습니다)"
+            Write-Warn2 "  `"$adminExe`" enroll --key $Key"
+        }
     }
-} elseif ($Server -or $Key) {
-    Write-Warn2 '-Server 와 -Key 는 둘 다 필요합니다. 서버 등록을 건너뜁니다.'
+} elseif ($Server) {
+    Write-Warn2 '등록 키(-Key)가 없어 서버 등록을 건너뜁니다.'
+    Write-Warn2 '등록 키는 서버의 [설정] 화면에서 확인할 수 있습니다.'
     $enrolled = $false
 } else {
     $enrolled = $false
@@ -179,7 +239,7 @@ if ($enrolled) {
     Write-Host '중요: 지금은 감시가 꺼져 있어 아무도 제한받지 않습니다.' -ForegroundColor Yellow
     Write-Host ''
     Write-Host '  관리 서버를 쓰시려면' -ForegroundColor White
-    Write-Host "    `"$adminExe`" enroll --server http://서버주소:8080 --key 등록키"
+    Write-Host "    `"$adminExe`" enroll --key 등록키       (서버는 알아서 찾습니다)"
     Write-Host '    net stop HanilTimeGuard && net start HanilTimeGuard'
     Write-Host ''
     Write-Host '  이 PC 하나만 단독으로 쓰시려면' -ForegroundColor White

@@ -1,8 +1,11 @@
 using Hanil.TimeGuard.Core.Ipc;
+using Hanil.TimeGuard.Server;
 using Hanil.TimeGuard.Server.Api;
 using Hanil.TimeGuard.Server.Data;
 using Hanil.TimeGuard.Server.Security;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
@@ -67,6 +70,9 @@ builder.Services.AddRazorPages(options =>
 });
 
 builder.Services.AddAntiforgery();
+
+// 사내망에서 이 서버를 찾을 수 있게 한다. 직원 PC 설치 때 주소를 적지 않아도 된다.
+builder.Services.AddHostedService<DiscoveryResponder>();
 
 // Razor 는 기본적으로 한글을 &#xC0DD; 같은 형태로 바꿔 내보낸다.
 // 문서가 두 배 가까이 커지고 사람이 읽기도 어려우므로 한글을 그대로 내보내게 한다.

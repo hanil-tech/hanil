@@ -150,7 +150,7 @@ public sealed class ExtensionRequestDialog : IDisposable
 
         SendMessageW(_minutesBox, CB_SETCURSEL, new IntPtr(1), IntPtr.Zero); // 기본 1시간
 
-        Label("사유 (관리자가 판단할 때 참고합니다)", 20, 146, 390, 22, instance);
+        Label("사유를 적어 주세요 (예: 납기 때문에 야근, 마감 작업 중)", 20, 146, 390, 22, instance);
 
         _reasonBox = CreateWindowExW(0x00000200, "EDIT", null,   // WS_EX_CLIENTEDGE
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL,
@@ -225,7 +225,20 @@ public sealed class ExtensionRequestDialog : IDisposable
         if (reason.Length == 0)
         {
             MessageBoxW(_hwnd,
-                "사유를 적어 주세요.\n관리자가 승인 여부를 판단하는 데 필요합니다.",
+                "사유를 적어 주세요.\n\n관리자가 이 내용을 보고 승인 여부를 정합니다.\n" +
+                "예) 납기 때문에 야근이 필요합니다\n" +
+                "예) 월말 마감 작업이 남았습니다",
+                "사용 시간 연장 요청", MB_OK | MB_ICONINFORMATION);
+
+            SetFocus(_reasonBox);
+            return;
+        }
+
+        // 너무 짧으면 관리자가 판단할 수 없다.
+        if (reason.Length < 4)
+        {
+            MessageBoxW(_hwnd,
+                "사유를 조금 더 자세히 적어 주세요.\n관리자가 보고 승인 여부를 정합니다.",
                 "사용 시간 연장 요청", MB_OK | MB_ICONINFORMATION);
 
             SetFocus(_reasonBox);
