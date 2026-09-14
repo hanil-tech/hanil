@@ -2,12 +2,19 @@
 
 Windows 64비트용입니다. **대상 PC 에 .NET 을 따로 설치할 필요가 없습니다.**
 
-받는 방법: GitHub 저장소에서 파일을 클릭한 뒤 오른쪽 위 **Download** 버튼
+## 내려받기
 
-| 파일 | 설치 대상 | 크기 |
+아래를 누르면 바로 받아집니다. (GitHub 에 로그인되어 있어야 합니다)
+
+| 받기 | 설치 대상 | 크기 |
 |---|---|---|
-| `HanilTimeGuard-1.0.0-관리서버-win-x64.zip` | 관리 서버로 쓸 PC **한 대** | 46MB |
-| `HanilTimeGuard-1.0.0-직원PC-win-x64.zip` | 시간을 제한할 **직원 PC 들** | 33MB |
+| **[① 관리 서버 받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/HanilTimeGuard-1.0.0-%EA%B4%80%EB%A6%AC%EC%84%9C%EB%B2%84-win-x64.zip)** | 관리 서버로 쓸 PC **한 대** | 46MB |
+| **[② 직원 PC 받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/HanilTimeGuard-1.0.0-%EC%A7%81%EC%9B%90PC-win-x64.zip)** | 시간을 제한할 **직원 PC 들** | 33MB |
+
+두 개를 다 받으십시오. **①번을 먼저 설치**해야 합니다.
+
+> 눌러도 안 받아지면, 저장소의 `release` 폴더에서 파일 이름을 클릭한 뒤
+> 오른쪽 위 **Download** 버튼을 누르시면 됩니다.
 
 ## 설치 순서
 

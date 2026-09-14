@@ -61,6 +61,15 @@ Windows 서비스는 세션 0 에 격리되어 있어 사용자 화면에 창을
 
 ## 설치
 
+### 0단계 — 내려받기
+
+| 받기 | 설치 대상 | 크기 |
+|---|---|---|
+| **[① 관리 서버 받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/HanilTimeGuard-1.0.0-%EA%B4%80%EB%A6%AC%EC%84%9C%EB%B2%84-win-x64.zip)** | 관리 서버로 쓸 PC **한 대** | 46MB |
+| **[② 직원 PC 받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/HanilTimeGuard-1.0.0-%EC%A7%81%EC%9B%90PC-win-x64.zip)** | 시간을 제한할 **직원 PC 들** | 33MB |
+
+.NET 을 따로 설치할 필요가 없습니다. 런타임이 함께 들어 있습니다.
+
 ### 1단계 — 관리 서버
 
 사무실 PC 한 대를 정해 `dist/TimeGuard-서버` 폴더를 복사한 뒤, 폴더 안의
