@@ -29,7 +29,14 @@ Windows 서비스는 세션 0에 격리되어 있어 사용자 화면에 창을 
 
 ## 설치
 
-배포 폴더(`dist/TimeGuard`)를 대상 PC에 복사한 뒤, **관리자 권한 PowerShell**에서:
+### 만들어진 배포 파일 받기
+
+저장소의 [`release/HanilTimeGuard-1.0.0-win-x64.zip`](release/) 을 내려받아 압축을 풉니다.
+빌드 과정 없이 바로 설치할 수 있으며, 대상 PC 에 .NET 을 설치할 필요가 없습니다.
+
+### 설치 실행
+
+압축을 푼 폴더를 대상 PC에 복사한 뒤, **관리자 권한 PowerShell**에서:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
