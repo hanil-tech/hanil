@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TimeGuard.SetupKit/TimeGuard.SetupKit.csproj" />
+    <ProjectReference Include="../TimeGuard.Core/TimeGuard.Core.csproj" />
   </ItemGroup>
   <!--
     설치할 파일 묶음을 설치 프로그램 안에 넣는다.

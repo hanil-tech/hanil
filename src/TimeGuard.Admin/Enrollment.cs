@@ -124,11 +124,15 @@ internal static class Enrollment
         }
 
         var settings = ServerSettings.Load();
-        settings.ServerUrl = url.TrimEnd('/');
+        var target = url.TrimEnd('/');
 
         // 다른 서버로 옮기는 경우 기억해 둔 인증서를 지운다.
-        if (!string.Equals(settings.ServerUrl, url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+        // (먼저 비교해야 한다. 주소를 덮어쓴 뒤에는 늘 같은 값이 되어 버린다.)
+        if (!string.Equals(settings.ServerUrl, target, StringComparison.OrdinalIgnoreCase))
             settings.CertificateThumbprint = string.Empty;
+
+        settings.ServerUrl = target;
+        settings.StandaloneMode = false;
 
         using var connection = new ServerConnection(settings);
 
@@ -190,6 +194,9 @@ internal static class Enrollment
         settings.Token = string.Empty;
         settings.EnrollmentKey = string.Empty;
         settings.CertificateThumbprint = string.Empty;
+
+        // 이걸 켜 두지 않으면 서비스가 사내망에서 서버를 다시 찾아 붙는다.
+        settings.StandaloneMode = true;
         settings.Save();
 
         new PolicyCache().Clear();

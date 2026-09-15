@@ -13,6 +13,12 @@ public sealed class ServerSettings
     /// <summary>관리 서버 주소. 비어 있으면 서버 없이 단독으로 동작한다.</summary>
     public string ServerUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 처음 붙었을 때 본 관리 서버 PC 의 이름.
+    /// 서버 주소가 바뀌었을 때 같은 서버인지 확인하는 데 쓴다.
+    /// </summary>
+    public string ServerMachineName { get; set; } = string.Empty;
+
     /// <summary>서버가 발급한 이 PC 의 식별자.</summary>
     public string DeviceId { get; set; } = string.Empty;
 
@@ -36,6 +42,15 @@ public sealed class ServerSettings
     public int PollSeconds { get; set; } = 60;
 
     /// <summary>
+    /// 관리자가 일부러 서버 없이 쓰기로 한 상태인지.
+    ///
+    /// 이 값이 꺼져 있고 서버 주소도 비어 있으면, 서비스가 사내망에서
+    /// 서버를 찾아 스스로 등록을 요청한다. 설치 직후가 그 상태다.
+    /// unenroll 로 서버를 떼어 냈을 때만 켜져서, 다시 찾아 붙지 않게 한다.
+    /// </summary>
+    public bool StandaloneMode { get; set; }
+
+    /// <summary>
     /// 처음 등록할 때 본 서버 인증서의 지문.
     /// 이후로는 이 지문과 맞는 서버에만 연결한다. 중간에서 가로채는 가짜 서버를 막는다.
     /// 사내에서 쓰는 자체 서명 인증서라 공인 기관 검증 대신 이 방식을 쓴다.
@@ -48,6 +63,9 @@ public sealed class ServerSettings
 
     /// <summary>서버를 쓰는 상태인지.</summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ServerUrl);
+
+    /// <summary>사내망에서 서버를 찾아야 하는 상태인지.</summary>
+    public bool ShouldDiscoverServer => !IsConfigured && !StandaloneMode;
 
     /// <summary>등록까지 마친 상태인지.</summary>
     public bool IsEnrolled => IsConfigured && !string.IsNullOrWhiteSpace(Token);

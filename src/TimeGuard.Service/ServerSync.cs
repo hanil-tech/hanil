@@ -20,6 +20,18 @@ public sealed class ServerSync : BackgroundService
     /// <summary>연락이 끊겼을 때 다시 시도하는 간격.</summary>
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>설치 직후 서버를 찾는 간격. 빨리 붙어야 관리자가 바로 승인할 수 있다.</summary>
+    private static readonly TimeSpan FirstSearchInterval = TimeSpan.FromSeconds(10);
+
+    /// <summary>한참 못 찾았을 때의 간격. 사내망에 신호를 계속 뿌리지 않도록 늦춘다.</summary>
+    private static readonly TimeSpan SlowSearchInterval = TimeSpan.FromMinutes(2);
+
+    /// <summary>빠른 간격으로 찾아 보는 횟수. 약 2분.</summary>
+    private const int FastSearchAttempts = 12;
+
+    /// <summary>이만큼 연락이 끊겨 있으면 서버가 옮겨 갔는지 다시 찾아본다.</summary>
+    private static readonly TimeSpan RediscoverAfter = TimeSpan.FromMinutes(10);
+
     /// <summary>한 번에 올리는 기록 개수.</summary>
     private const int EventBatchSize = 50;
 
@@ -32,6 +44,9 @@ public sealed class ServerSync : BackgroundService
 
     private bool _lastReachable = true;
     private DateTimeOffset _lastFailureLogged = DateTimeOffset.MinValue;
+
+    /// <summary>연락이 끊긴 시각. 오래되면 서버를 다시 찾아본다.</summary>
+    private DateTimeOffset? _unreachableSince;
 
     /// <summary>승인 대기 안내를 한 번만 남기기 위한 표시.</summary>
     private bool _waitingLogged;
@@ -46,9 +61,19 @@ public sealed class ServerSync : BackgroundService
     {
         _settings = ServerSettings.Load();
 
+        // 설치 직후에는 서버 주소를 모른다. 사내망에서 찾아낼 때까지 기다린다.
+        // 관리자가 일부러 단독 모드로 둔 경우에만 찾지 않는다.
+        if (_settings.ShouldDiscoverServer)
+        {
+            _state.SetServerMode(false, null);
+            _state.Log.Write("서버", "사내망에서 관리 서버를 찾는 중입니다.");
+
+            if (!await SearchUntilFoundAsync(stoppingToken)) return;
+        }
+
         if (!_settings.IsConfigured)
         {
-            _logger.LogInformation("관리 서버가 설정되어 있지 않아 단독 모드로 동작합니다.");
+            _logger.LogInformation("관리 서버 없이 단독 모드로 동작합니다.");
             _state.SetServerMode(false, null);
             return;
         }
@@ -92,6 +117,129 @@ public sealed class ServerSync : BackgroundService
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// 사내망에서 관리 서버를 찾을 때까지 되풀이한다.
+    ///
+    /// 설치할 때 서버 주소를 적어 넣지 않아도 되게 하는 부분이다.
+    /// 서버가 아직 안 켜져 있거나 나중에 설치될 수도 있으므로 계속 찾는다.
+    /// 서비스가 멈출 때만 false 를 돌려준다.
+    /// </summary>
+    private async Task<bool> SearchUntilFoundAsync(CancellationToken token)
+    {
+        var attempts = 0;
+
+        while (!token.IsCancellationRequested)
+        {
+            var found = await FindOneAsync(token);
+
+            if (found is not null)
+            {
+                _settings.ServerUrl = found.Url.TrimEnd('/');
+                _settings.ServerMachineName = found.MachineName;
+                _settings.StandaloneMode = false;
+                _settings.Save();
+
+                _logger.LogInformation("관리 서버를 찾았습니다: {Url} ({Machine})", found.Url, found.MachineName);
+                _state.Log.Write("서버", $"관리 서버를 찾았습니다: {found.Url} ({found.MachineName})");
+
+                return true;
+            }
+
+            attempts++;
+
+            if (attempts == FastSearchAttempts)
+            {
+                _logger.LogWarning("사내망에서 관리 서버를 찾지 못했습니다. 계속 찾습니다.");
+                _state.Log.Write("서버",
+                    "사내망에서 관리 서버를 찾지 못했습니다. 서버가 켜져 있는지, " +
+                    "서버 방화벽에서 UDP 8765 가 열려 있는지 확인해 주세요. 계속 찾습니다.");
+            }
+
+            var wait = attempts < FastSearchAttempts ? FirstSearchInterval : SlowSearchInterval;
+
+            try
+            {
+                await Task.Delay(wait, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>사내망에 한 번 물어보고 쓸 만한 서버 하나를 고른다.</summary>
+    private async Task<DiscoveredServer?> FindOneAsync(CancellationToken token)
+    {
+        List<DiscoveredServer> servers;
+
+        try
+        {
+            servers = await ServerDiscovery.FindAsync(token: token);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "서버를 찾는 중 문제가 있었습니다.");
+            return null;
+        }
+
+        if (servers.Count == 0) return null;
+
+        if (servers.Count > 1)
+        {
+            _logger.LogWarning("관리 서버가 여러 대 응답했습니다: {Servers}",
+                string.Join(", ", servers.Select(s => s.ToString())));
+        }
+
+        return servers[0];
+    }
+
+    /// <summary>
+    /// 서버가 다른 주소로 옮겨 갔는지 찾아본다.
+    ///
+    /// 사내망은 대개 주소를 자동으로 나눠 주기 때문에 서버 PC 의 주소가 바뀔 수 있다.
+    /// 그대로 두면 옛 주소만 붙잡고 영영 연결되지 않는다.
+    ///
+    /// 다만 아무 서버에나 붙으면 안 된다. 처음에 붙었던 서버 PC 이름이 같을 때만 옮긴다.
+    /// 기억해 둔 인증서 지문은 그대로 두므로, 이름을 흉내 낸 가짜 서버에는 연결되지 않는다.
+    /// </summary>
+    private async Task TryRediscoverAsync(CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.ServerMachineName)) return;
+
+        var found = await FindOneAsync(token);
+        if (found is null) return;
+
+        var sameUrl = string.Equals(found.Url.TrimEnd('/'), _settings.ServerUrl, StringComparison.OrdinalIgnoreCase);
+        if (sameUrl) return;
+
+        if (!string.Equals(found.MachineName, _settings.ServerMachineName, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("다른 이름의 서버가 응답했습니다. 옮기지 않습니다: {Machine}", found.MachineName);
+            return;
+        }
+
+        var previous = _settings.ServerUrl;
+
+        _settings.ServerUrl = found.Url.TrimEnd('/');
+        _settings.Save();
+
+        _connection?.Dispose();
+        _connection = new ServerConnection(_settings);
+
+        _state.SetServerMode(true, _settings.ServerUrl);
+        _unreachableSince = null;
+
+        _logger.LogInformation("서버 주소가 바뀐 것을 확인했습니다: {Old} -> {New}", previous, _settings.ServerUrl);
+        _state.Log.Write("서버", $"관리 서버 주소가 바뀌어 다시 연결합니다: {previous} -> {_settings.ServerUrl}");
     }
 
     /// <summary>
@@ -150,6 +298,16 @@ public sealed class ServerSync : BackgroundService
 
             _lastReachable = false;
             _state.SetServerReachable(false);
+
+            _unreachableSince ??= DateTimeOffset.Now;
+
+            // 오래 끊겨 있으면 서버가 다른 주소로 옮겨 갔는지 확인한다.
+            if (DateTimeOffset.Now - _unreachableSince.Value >= RediscoverAfter)
+            {
+                _unreachableSince = DateTimeOffset.Now;
+                await TryRediscoverAsync(token);
+            }
+
             return;
         }
 
@@ -160,6 +318,7 @@ public sealed class ServerSync : BackgroundService
         }
 
         _lastReachable = true;
+        _unreachableSince = null;
         _state.SetServerReachable(true);
 
         // 정책이 바뀌었으면 저장하고 적용한다.

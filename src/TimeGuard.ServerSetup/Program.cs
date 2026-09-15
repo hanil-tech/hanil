@@ -6,6 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Hanil.TimeGuard.Core.Server;
 using Hanil.TimeGuard.SetupKit;
 using Hanil.TimeGuard.SetupKit.Ui;
 
@@ -269,6 +270,21 @@ SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
     Thread.Sleep(4000);
     progress.Done("실행 중입니다.");
 
+    // --- 직원 PC 가 실제로 찾을 수 있는지 확인 ---
+    //
+    // 직원 PC 와 똑같은 신호를 사내망에 보내 본다.
+    // 답이 오지 않으면 방화벽이나 네트워크 설정 문제이며,
+    // 그대로 두면 직원 PC 에서 아무리 설치해도 서버 화면에 나타나지 않는다.
+    // 나중에 원인을 찾느라 헤매지 않도록 지금 확인해서 알려 준다.
+    progress.Step("직원 PC 가 이 서버를 찾을 수 있는지 확인합니다");
+
+    var discoverable = CanBeDiscovered();
+
+    if (discoverable)
+        progress.Done("찾을 수 있습니다.");
+    else
+        progress.Warn("이 PC 에서조차 찾지 못했습니다. 아래 안내를 확인해 주세요.");
+
     // --- 안내 ---
     var address = NetworkSetup.FindLocalAddress();
     var localUrl = $"{scheme}://localhost:{port}";
@@ -301,6 +317,24 @@ SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
     body.AppendLine("    1.  [기본 시간표] 에서 허용 시간대를 정합니다");
     body.AppendLine("    2.  직원 PC 에서 설치 프로그램을 실행합니다");
     body.AppendLine("    3.  [새 PC 승인] 에 나타나면 [승인] 을 누릅니다");
+
+    if (!discoverable)
+    {
+        body.AppendLine();
+        body.AppendLine("──────────────────────────────────────────");
+        body.AppendLine("주의:  직원 PC 가 이 서버를 찾지 못할 수 있습니다.");
+        body.AppendLine();
+        body.AppendLine("이 PC 에서 서버 찾기 신호를 보내 봤지만 답이 오지 않았습니다.");
+        body.AppendLine("대개 Windows 가 사무실 랜을 [공용 네트워크] 로 잡아 둔 탓입니다.");
+        body.AppendLine("방화벽 규칙은 사내망에만 열리므로 그때는 적용되지 않습니다.");
+        body.AppendLine();
+        body.AppendLine("고치는 방법");
+        body.AppendLine("    [설정] → [네트워크 및 인터넷] → 연결된 네트워크를 누르고");
+        body.AppendLine("    네트워크 프로필을 [개인] 으로 바꾸십시오.");
+        body.AppendLine();
+        body.AppendLine("바꾼 뒤 이 설치 프로그램을 다시 실행해 [다시 설치] 를 누르면");
+        body.AppendLine("여기서 다시 확인해 드립니다.");
+    }
 
     if (scheme == "https")
     {
@@ -575,6 +609,32 @@ string? CurrentAddress()
     {
         return ("admin", null);
     }
+}
+
+/// <summary>직원 PC 와 똑같이 사내망에 물어보고 이 서버가 답하는지 본다.</summary>
+bool CanBeDiscovered()
+{
+    try
+    {
+        // 서버가 막 떴을 수 있으므로 몇 번 시도한다.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var servers = ServerDiscovery.FindAsync(TimeSpan.FromSeconds(2))
+                .GetAwaiter().GetResult();
+
+            if (servers.Any(server =>
+                    string.Equals(server.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+    }
+    catch (Exception)
+    {
+        // 확인하지 못한 것과 못 찾은 것을 같게 다룬다. 안내를 보여 주는 편이 낫다.
+    }
+
+    return false;
 }
 
 string DescribeStatus(System.ServiceProcess.ServiceControllerStatus? status) => status switch

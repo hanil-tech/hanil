@@ -250,15 +250,47 @@ SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
 
     progress.Done("실행 중입니다.");
 
+    // --- 서버를 찾을 수 있는지 지금 확인한다 ---
+    //
+    // 설치가 끝났다고만 하고 보내면, 서버를 못 찾는 경우 아무 일도 일어나지 않는다.
+    // 관리자는 승인 화면만 들여다보며 기다리게 된다. 지금 확인해서 알려 준다.
+    progress.Step("사내망에서 관리 서버를 찾아봅니다");
+
+    var server = FindServer();
+
+    if (server is not null)
+        progress.Done($"찾았습니다: {server.Url} ({server.MachineName})");
+    else
+        progress.Warn("아직 찾지 못했습니다. 서비스가 계속 찾습니다.");
+
     // --- 안내 ---
     var settings = ServerSettings.Load();
     var fingerprint = ServerSettings.DescribeFingerprint(settings.EnsureClientId());
 
     var body = new StringBuilder();
-    body.AppendLine("이 PC 가 사내망에서 관리 서버를 찾아 자기를 알립니다.");
+
+    if (server is not null)
+    {
+        body.AppendLine($"관리 서버를 찾았습니다:  {server.MachineName}");
+        body.AppendLine($"    {server.Url}");
+        body.AppendLine();
+        body.AppendLine("이제 관리자가 서버에서 승인해 주시면 됩니다.");
+    }
+    else
+    {
+        body.AppendLine("아직 관리 서버를 찾지 못했습니다.");
+        body.AppendLine("서비스가 계속 찾으므로, 서버를 켜 두시면 곧 나타납니다.");
+        body.AppendLine();
+        body.AppendLine("한참 지나도 [새 PC 승인] 에 나타나지 않으면");
+        body.AppendLine("    ·  서버 PC 가 켜져 있는지");
+        body.AppendLine("    ·  이 PC 와 서버가 같은 사내망에 있는지");
+        body.AppendLine("    ·  서버 PC 의 네트워크가 [개인] 으로 되어 있는지");
+        body.AppendLine("      ([공용] 이면 방화벽이 막습니다)");
+        body.AppendLine("확인해 주십시오.");
+    }
+
     body.AppendLine();
-    body.AppendLine("이제 관리자가 서버에서 승인해 주시면 됩니다.");
-    body.AppendLine();
+    body.AppendLine("승인 순서");
     body.AppendLine("    1.  서버 웹 화면에 접속합니다");
     body.AppendLine("    2.  [새 PC 승인] 에 이 PC 가 나타납니다");
     body.AppendLine("    3.  [승인] 을 누르면 끝입니다");
@@ -346,6 +378,28 @@ SetupOutcome Remove(ISetupProgress progress, bool keepData)
 }
 
 // ================= 도우미 =================
+
+/// <summary>사내망에서 관리 서버를 찾아본다. 못 찾아도 설치는 끝난 것이다.</summary>
+DiscoveredServer? FindServer()
+{
+    try
+    {
+        // 서비스가 막 떠서 아직 못 찾았을 수 있으므로 몇 번 시도한다.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var servers = ServerDiscovery.FindAsync(TimeSpan.FromSeconds(2))
+                .GetAwaiter().GetResult();
+
+            if (servers.Count > 0) return servers[0];
+        }
+    }
+    catch (Exception)
+    {
+        // 못 찾은 것과 같게 다룬다. 서비스가 계속 찾는다.
+    }
+
+    return null;
+}
 
 string DescribeStatus(System.ServiceProcess.ServiceControllerStatus? status) => status switch
 {

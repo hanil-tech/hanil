@@ -124,3 +124,63 @@ public class ServerSettingsTests : IDisposable
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
     }
 }
+
+/// <summary>
+/// 설치 직후 클라이언트가 서버를 "찾아 나서야 하는 상태" 인지 판단하는 부분.
+///
+/// 이걸 놓쳐서 실제로 문제가 있었다. 설치는 끝났는데 서버 주소가 비어 있으니
+/// 서비스가 단독 모드로 넘어가 버렸고, 사내망에 신호를 한 번도 보내지 않았다.
+/// 그래서 서버 [새 PC 승인] 화면에 아무것도 나타나지 않았다.
+/// </summary>
+public class ServerDiscoveryDecisionTests
+{
+    [Fact]
+    public void 설치_직후에는_서버를_찾아_나선다()
+    {
+        // 설치 프로그램은 서버 주소를 적어 주지 않는다. 스스로 찾아야 한다.
+        var settings = new ServerSettings();
+
+        Assert.False(settings.IsConfigured);
+        Assert.True(settings.ShouldDiscoverServer);
+    }
+
+    [Fact]
+    public void 이미_서버를_알면_다시_찾지_않는다()
+    {
+        var settings = new ServerSettings { ServerUrl = "https://192.168.0.10:8443" };
+
+        Assert.True(settings.IsConfigured);
+        Assert.False(settings.ShouldDiscoverServer);
+    }
+
+    [Fact]
+    public void 관리자가_단독_모드로_두면_찾지_않는다()
+    {
+        // unenroll 로 서버를 떼어 낸 상태. 다시 찾아 붙으면 관리자 의도를 거스른다.
+        var settings = new ServerSettings { StandaloneMode = true };
+
+        Assert.False(settings.IsConfigured);
+        Assert.False(settings.ShouldDiscoverServer);
+    }
+
+    [Fact]
+    public void 단독_모드_표시는_저장했다_읽어도_남는다()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"tg-settings-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            new ServerSettings { StandaloneMode = true, ServerMachineName = "사무실서버" }.Save(path);
+
+            var loaded = ServerSettings.Load(path);
+
+            Assert.True(loaded.StandaloneMode);
+            Assert.False(loaded.ShouldDiscoverServer);
+            Assert.Equal("사무실서버", loaded.ServerMachineName);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+}
