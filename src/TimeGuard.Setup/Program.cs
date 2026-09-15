@@ -30,6 +30,9 @@ var sourcePath = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
 var selfFileName = Path.GetFileName(Environment.ProcessPath ?? "TimeGuard-Setup.exe");
 
 // 여러 대를 한 번에 설치할 때 쓰는 명령줄 방식
+// 설치할 파일이 이 프로그램 안에 들어 있는지. 배포본은 늘 들어 있다.
+var embedded = Payload.IsEmbedded(Assembly.GetExecutingAssembly());
+
 var silent = args.Contains("/설치") || args.Contains("/install");
 var silentRemove = args.Contains("/제거") || args.Contains("/uninstall");
 
@@ -144,8 +147,6 @@ string BuildWelcomeText(bool installed)
 
 SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
 {
-    var embedded = Payload.IsEmbedded(Assembly.GetExecutingAssembly());
-
     if (!embedded && !File.Exists(Path.Combine(sourcePath, "TimeGuard.Service.exe")))
     {
         return new SetupOutcome(false, "설치 파일이 온전하지 않습니다",
@@ -168,30 +169,31 @@ SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
     StopAgentProcesses();
     progress.Done("정리했습니다.");
 
-    // --- 파일 풀기 ---
-    if (embedded)
+    // --- 예전 설치가 걸어 둔 보호 풀기 ---
+    //
+    // 예전 판은 프로그램 폴더에 "거부" 규칙을 걸었다.
+    // 관리자 계정도 Users 그룹에 들어 있고 거부가 허용을 이기므로,
+    // 그대로 두면 관리자 권한으로도 파일을 덮어쓰지 못해 다시 설치가 실패한다.
+    if (Directory.Exists(installPath))
     {
-        var count = Payload.Count(Assembly.GetExecutingAssembly());
-        progress.Step($"프로그램 파일 {count}개를 풉니다");
-
-        if (!Payload.Extract(Assembly.GetExecutingAssembly(), installPath, out var extractError))
-        {
-            return new SetupOutcome(false, "프로그램 파일을 풀지 못했습니다",
-                extractError + "\r\n\r\n" +
-                "백신 프로그램이 막고 있을 수 있습니다.\r\n잠시 끄고 다시 시도해 보세요.");
-        }
+        progress.Step("이전 설치의 파일 보호를 풉니다");
+        FileSetup.Unprotect(installPath);
+        progress.Done("풀었습니다.");
     }
-    else
-    {
-        // 개발 중이거나 폴더째 복사해 쓰는 경우
-        progress.Step("프로그램을 설치합니다");
 
-        if (!FileSetup.Copy(sourcePath, installPath, selfFileName, out var copyError))
-        {
-            return new SetupOutcome(false, "파일을 복사하지 못했습니다",
-                copyError + "\r\n\r\n" +
-                "백신 프로그램이 막고 있을 수 있습니다.\r\n잠시 끄고 다시 시도해 보세요.");
-        }
+    // --- 파일 풀기 ---
+    progress.Step(embedded
+        ? $"프로그램 파일 {Payload.Count(Assembly.GetExecutingAssembly())}개를 풉니다"
+        : "프로그램을 설치합니다");
+
+    if (!PlaceFiles(progress, out var placeError))
+    {
+        return new SetupOutcome(false, "프로그램 파일을 넣지 못했습니다",
+            placeError + "\r\n\r\n" +
+            "이런 경우에 그렇습니다.\r\n" +
+            "    ·  백신 프로그램이 막고 있다  → 잠시 끄고 다시 해 보세요\r\n" +
+            "    ·  TimeGuard 가 아직 돌고 있다  → PC 를 다시 켠 뒤 해 보세요\r\n" +
+            $"    ·  폴더 권한이 꼬였다  → {installPath} 폴더를 지운 뒤 해 보세요");
     }
 
     progress.Done($"설치했습니다: {installPath}");
@@ -378,6 +380,48 @@ SetupOutcome Remove(ISetupProgress progress, bool keepData)
 }
 
 // ================= 도우미 =================
+
+/// <summary>
+/// 프로그램 파일을 설치 폴더에 넣는다.
+///
+/// 서비스를 막 멈춘 직후에는 Windows 가 실행 파일을 아직 붙잡고 있을 수 있다.
+/// 그래서 한 번 실패했다고 포기하지 않고 잠깐 기다렸다가 다시 해 본다.
+/// </summary>
+bool PlaceFiles(ISetupProgress progress, out string detail)
+{
+    const int attempts = 3;
+    detail = string.Empty;
+
+    for (var attempt = 1; attempt <= attempts; attempt++)
+    {
+        if (Write(out detail)) return true;
+
+        if (attempt < attempts)
+        {
+            progress.Note("잠시 뒤 다시 시도합니다...");
+            Thread.Sleep(2000);
+        }
+    }
+
+    // 마지막 수단: 설치 폴더를 통째로 지우고 새로 넣는다.
+    //
+    // 폴더 권한이 꼬였거나 남은 파일이 걸리적거리는 경우를 위한 것이다.
+    // 이 폴더에는 프로그램 파일만 있다. 설정과 기록은 다른 폴더에 있으므로
+    // 지워도 서버 등록 상태나 시간표를 잃지 않는다.
+    progress.Warn("설치 폴더를 정리하고 새로 넣어 봅니다.");
+
+    if (!FileSetup.RemoveFolder(installPath, out var removeError))
+    {
+        detail = $"{detail}\r\n설치 폴더를 정리하지도 못했습니다: {removeError}";
+        return false;
+    }
+
+    return Write(out detail);
+
+    bool Write(out string error) => embedded
+        ? Payload.Extract(Assembly.GetExecutingAssembly(), installPath, out error)
+        : FileSetup.Copy(sourcePath, installPath, selfFileName, out error);
+}
 
 /// <summary>사내망에서 관리 서버를 찾아본다. 못 찾아도 설치는 끝난 것이다.</summary>
 DiscoveredServer? FindServer()

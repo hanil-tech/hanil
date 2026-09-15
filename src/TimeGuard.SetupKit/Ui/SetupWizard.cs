@@ -102,6 +102,9 @@ public sealed class SetupWizard : IDisposable
     private static WndProc? _registeredProc;   // GC 가 수거하지 못하게 붙잡아 둔다
 
     private readonly ConcurrentQueue<(string Text, uint Color)> _pending = new();
+
+    /// <summary>지금까지 지나온 단계. 실패했을 때 파일로 남겨 원인을 찾는 데 쓴다.</summary>
+    private readonly List<string> _transcript = new();
     private readonly Dictionary<IntPtr, uint> _textColors = new();
     private readonly List<IntPtr> _welcomeControls = new();
     private readonly List<IntPtr> _optionControls = new();
@@ -724,6 +727,8 @@ public sealed class SetupWizard : IDisposable
 
     private void AppendLine(string text)
     {
+        _transcript.Add(text);
+
         SendMessageW(_logBox, EM_SETSEL, new IntPtr(-1), new IntPtr(-1));
         SendMessageW(_logBox, EM_REPLACESEL, IntPtr.Zero, text + "\r\n");
         SendMessageW(_logBox, EM_SCROLLCARET, IntPtr.Zero, IntPtr.Zero);
@@ -737,6 +742,9 @@ public sealed class SetupWizard : IDisposable
         SendMessageW(_progressBar, PBM_SETMARQUEE, IntPtr.Zero, IntPtr.Zero);
 
         var outcome = _outcome ?? new SetupOutcome(false, "끝내지 못했습니다", "결과를 확인하지 못했습니다.");
+
+        // 실패하면 지나온 단계가 화면에서 사라진다. 원인을 찾을 수 있게 파일로 남긴다.
+        if (!outcome.Success) outcome = AttachTranscript(outcome);
 
         _exitCode = outcome.Success ? 0 : 1;
 
@@ -755,6 +763,66 @@ public sealed class SetupWizard : IDisposable
         if (_removing) CanRemove = false;
 
         SwitchTo(Page.Done);
+    }
+
+    /// <summary>실패한 설치의 진행 기록을 파일로 남기고 안내에 덧붙인다.</summary>
+    private SetupOutcome AttachTranscript(SetupOutcome outcome)
+    {
+        var text = new StringBuilder();
+        text.AppendLine($"{_caption} — {(_removing ? "제거" : "설치")} 실패 기록");
+        text.AppendLine($"시각    : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        text.AppendLine($"PC 이름 : {Environment.MachineName}");
+        text.AppendLine($"사용자  : {Environment.UserName}");
+        text.AppendLine($"Windows : {Environment.OSVersion}");
+        text.AppendLine();
+        text.AppendLine("지나온 단계");
+
+        foreach (var line in _transcript) text.AppendLine("  " + line);
+
+        text.AppendLine();
+        text.AppendLine(outcome.Heading);
+        text.AppendLine(outcome.Body);
+
+        var full = text.ToString();
+        string? path = null;
+
+        try
+        {
+            path = Path.Combine(Path.GetTempPath(),
+                $"TimeGuard-설치기록-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+
+            File.WriteAllText(path, full, Encoding.UTF8);
+        }
+        catch (Exception)
+        {
+            path = null;
+        }
+
+        var body = new StringBuilder(outcome.Body);
+        body.AppendLine();
+        body.AppendLine();
+        body.AppendLine("──────────────────────────────────────────");
+
+        if (path is not null)
+        {
+            body.AppendLine("무엇을 하다 멈췄는지 아래 파일에 적어 두었습니다.");
+            body.AppendLine(path);
+            body.AppendLine();
+            body.AppendLine("이 파일을 보내 주시면 원인을 찾을 수 있습니다.");
+            body.AppendLine("[진행 기록 복사] 를 눌러 그대로 붙여넣으셔도 됩니다.");
+        }
+        else
+        {
+            body.AppendLine("[진행 기록 복사] 를 누르면 무엇을 하다 멈췄는지 복사됩니다.");
+            body.AppendLine("그 내용을 보내 주시면 원인을 찾을 수 있습니다.");
+        }
+
+        return outcome with
+        {
+            Body = body.ToString(),
+            CopyText = full,
+            CopyButtonText = "진행 기록 복사"
+        };
     }
 
     /// <summary>작업 스레드에서 호출된다. 창을 직접 건드리지 않고 줄만 쌓아 둔다.</summary>

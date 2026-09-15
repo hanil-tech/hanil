@@ -167,11 +167,17 @@ public static class WindowsServiceSetup
     {
         detail = string.Empty;
 
+        // 노리는 것은 일반 직원이 서비스를 멈추지 못하게 하는 것이다.
+        // 관리자에게서는 중지 권한(WP)만 뺀다.
+        //
+        // 권한 되돌리기(WD)와 설정 변경(DC), 삭제(SD)는 남겨 둔다.
+        // 이게 없으면 설치 프로그램이 보호를 풀지 못해 다시 설치도, 제거도 막힌다.
+        // 어차피 관리자는 소유권을 가져오면 무엇이든 할 수 있으므로 지켜지는 것도 없다.
         const string sddl =
-            "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)" +   // SYSTEM: 전체
-            "(A;;CCLCSWRPDTLOCRRC;;;BA)" +       // 관리자: 중지 권한 없음
-            "(A;;CCLCSWLOCRRC;;;IU)" +           // 로그인 사용자: 조회만
-            "(A;;CCLCSWLOCRRC;;;SU)" +           // 서비스 계정: 조회만
+            "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)" +       // SYSTEM: 전체
+            "(A;;CCDCLCSWRPDTLOCRSDRCWDWO;;;BA)" +   // 관리자: 중지 권한만 없음
+            "(A;;CCLCSWLOCRRC;;;IU)" +               // 로그인 사용자: 조회만
+            "(A;;CCLCSWLOCRRC;;;SU)" +               // 서비스 계정: 조회만
             "S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
 
         var result = Sc($"sdset {serviceName} {sddl}");

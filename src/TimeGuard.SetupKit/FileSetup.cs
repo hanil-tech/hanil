@@ -73,22 +73,18 @@ public static class FileSetup
                     AccessControlType.Allow));
             }
 
-            var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
-
+            // 일반 사용자에게는 실행과 읽기만 준다.
+            //
+            // 여기에 "거부" 규칙을 따로 걸면 안 된다.
+            // 관리자 계정도 Users 그룹에 들어 있고 거부는 허용보다 우선하므로,
+            // 관리자 권한으로 실행한 설치 프로그램조차 파일을 덮어쓰지 못하게 된다.
+            // 상속을 끊고 허용 규칙만 두었으므로 이것만으로 직원은 지울 수 없다.
             security.AddAccessRule(new FileSystemAccessRule(
-                users,
+                new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
                 FileSystemRights.ReadAndExecute,
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
                 PropagationFlags.None,
                 AccessControlType.Allow));
-
-            // 지우거나 고치는 것만 따로 막는다.
-            security.AddAccessRule(new FileSystemAccessRule(
-                users,
-                FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles | FileSystemRights.Write,
-                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
-                PropagationFlags.None,
-                AccessControlType.Deny));
 
             directory.SetAccessControl(security);
             return true;
@@ -147,16 +143,19 @@ public static class FileSetup
         }
     }
 
-    /// <summary>제거할 때 폴더 보호를 풀고 지운다.</summary>
-    public static bool RemoveFolder(string path, out string detail)
+    /// <summary>
+    /// 폴더에 걸린 "거부" 규칙을 모두 풀고 상속을 되살린다.
+    ///
+    /// 예전 판으로 설치한 PC 에는 거부 규칙이 남아 있다.
+    /// 그대로 두면 관리자 권한으로도 파일을 덮어쓰지 못해
+    /// 다시 설치하거나 지우는 것이 실패한다.
+    /// </summary>
+    public static void Unprotect(string path)
     {
-        detail = string.Empty;
-
-        if (!Directory.Exists(path)) return true;
+        if (!Directory.Exists(path)) return;
 
         try
         {
-            // 설치할 때 걸어 둔 삭제 금지를 먼저 되돌린다.
             var directory = new DirectoryInfo(path);
             var security = directory.GetAccessControl();
 
@@ -171,8 +170,18 @@ public static class FileSetup
         }
         catch (Exception)
         {
-            // 권한을 되돌리지 못해도 삭제를 시도해 본다.
+            // 풀지 못해도 뒤 단계를 시도해 본다.
         }
+    }
+
+    /// <summary>제거할 때 폴더 보호를 풀고 지운다.</summary>
+    public static bool RemoveFolder(string path, out string detail)
+    {
+        detail = string.Empty;
+
+        if (!Directory.Exists(path)) return true;
+
+        Unprotect(path);
 
         try
         {
