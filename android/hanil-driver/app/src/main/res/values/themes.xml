@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--  ⚠ 주소창도 제목줄도 없다 — 화면을 꽉 쓴다(기사님은 장갑 낀 손으로 누른다). -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#1b2a4a</item>
+        <item name="android:colorPrimaryDark">#152140</item>
+        <item name="android:colorAccent">#2742a8</item>
+        <item name="android:windowBackground">#ffffff</item>
+    </style>
+</resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--  🚚 짐칸 + 운전석 + 바퀴 둘. ⚠ 가운데 66dp 안에 담는다(바깥은 폰이 잘라 낸다). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- 짐칸 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M26,42 h32 a2,2 0 0 1 2,2 v22 a2,2 0 0 1 -2,2 h-32 a2,2 0 0 1 -2,-2 v-22 a2,2 0 0 1 2,-2 z" />
+    <!-- 운전석 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M62,50 h10 a2,2 0 0 1 1.6,0.8 l7,9.4 a2,2 0 0 1 0.4,1.2 v4.6 a2,2 0 0 1 -2,2 h-17 a2,2 0 0 1 -2,-2 v-14 a2,2 0 0 1 2,-2 z" />
+    <!-- 창문(파낸 자리) -->
+    <path android:fillColor="#1b2a4a"
+        android:pathData="M64,53 h7 l5,6.5 h-12 z" />
+    <!-- 바퀴 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M38,72 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+    <path android:fillColor="#1b2a4a"
+        android:pathData="M38,72 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M72,72 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+    <path android:fillColor="#1b2a4a"
+        android:pathData="M72,72 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0" />
+</vector>

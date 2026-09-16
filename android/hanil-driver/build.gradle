@@ -1,0 +1,4 @@
+//  🚚 한일 기사 — 안드로이드 앱(껍데기). 화면은 포털에서 온다.
+plugins {
+  id 'com.android.application' version '8.5.2' apply false
+}

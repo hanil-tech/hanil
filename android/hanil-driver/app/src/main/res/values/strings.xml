@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">한일 기사</string>
+    <string name="setup_title">처음 설정</string>
+</resources>

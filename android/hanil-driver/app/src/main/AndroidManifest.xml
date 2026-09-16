@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--  📷 카메라 — 이 앱의 존재 이유 가운데 하나. 브라우저가 「차단」을 기억해 버리는 일이 없어진다. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!--  ⚠ 안드로이드 9 이하에서만 필요하다(사진을 찍어 넣을 자리를 만들 때). 10부터는 안 쓴다. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!--  ⚠ 카메라가 없는 기기(태블릿 거치대 등)에서도 깔려야 한다 — 스캐너(총)만 쓰는 분이 있다. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:hardwareAccelerated="true"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
+        <!--  ⚠ usesCleartextTraffic — 사내망에서 http 주소(192.168.x.x)로 쓰는 일이 있어 열어 둔다.
+              바깥에서는 https 주소(work.hanil-steel.com)로만 쓰므로 실제로 평문이 오가지 않는다. -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|layoutDirection">
+            <!--  ⚠⚠⚠ configChanges 에 **keyboard·navigation** 이 들어 있는 것이 중요하다.
+                  스캐너(EY-017P)를 블루투스로 연결하면 안드로이드는 **자판이 생겼다**고 보고
+                  화면을 통째로 다시 만든다 — 그러면 **담아 둔 것이 날아간다.**
+                  현장에서 「짐 다 찍었는데 없어졌다」로 나타나는 자리다. 여기서 막는다. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".SetupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:label="@string/setup_title" />
+    </application>
+</manifest>

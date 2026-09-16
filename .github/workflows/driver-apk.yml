@@ -1,0 +1,75 @@
+#  🚚📱 기사앱(한일 기사) APK 굽기
+#
+#  ⚠⚠ 안드로이드 앱은 **구글 도구(SDK)** 가 있어야 구울 수 있다. 사무실 PC 에 그것을 깔 까닭이 없으므로
+#    **깃허브가 대신 굽는다.** 사람이 할 일은 [Actions] 에서 단추 한 번 누르는 것뿐이다.
+#
+#  ⭐ 구운 APK 는 두 곳에 둔다:
+#    ① 이 실행의 「Artifacts」 — PC 에서 바로 내려받을 수 있다(깃허브에 로그인한 상태여야 한다).
+#    ② 저장소의 `release/hanil-driver.apk` — **포털에 실어** 기사님 폰이 QR 로 받게 하려고 둔다.
+#      (저장소가 사내용이라 폰에서 깃허브 주소로는 못 받는다 — 그래서 포털이 나눠 준다.)
+name: 기사앱 APK 굽기
+
+on:
+  workflow_dispatch:          # ⭐ 사람이 단추로 굽는다
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/driver-apk.yml'
+
+permissions:
+  contents: write             # ⚠ 구운 APK 를 저장소에 되돌려 넣기 위해 필요하다
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 자바 17 준비
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 안드로이드 SDK 준비
+        uses: android-actions/setup-android@v3
+
+      - name: 그레이들 준비
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: APK 굽기
+        working-directory: android/hanil-driver
+        env:
+          #  ⚠ 판 번호는 실행 번호로 올린다 — 같은 번호면 폰이 「덮어쓰기」를 거부한다
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: 구워진 것 보기
+        run: ls -l android/hanil-driver/app/build/outputs/apk/release/
+
+      - name: 내려받을 수 있게 올리기
+        uses: actions/upload-artifact@v4
+        with:
+          name: hanil-driver-apk
+          path: android/hanil-driver/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      #  📦 포털이 나눠 줄 수 있도록 저장소에도 넣어 둔다.
+      #  ⚠ 넣는 자리를 `release/` 로 둔 것은 일부러다 — 위 `paths` 가 `android/**` 라서
+      #    이 넣기가 **또 굽기를 부르지 않는다**(끝없이 도는 것을 막는다).
+      - name: 저장소에 넣기
+        run: |
+          set -e
+          mkdir -p release
+          cp android/hanil-driver/app/build/outputs/apk/release/*.apk release/hanil-driver.apk
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f release/hanil-driver.apk
+          if git diff --cached --quiet; then
+            echo "바뀐 것이 없습니다."
+          else
+            git commit -m "기사앱 APK 판 1.0.${{ github.run_number }} [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
