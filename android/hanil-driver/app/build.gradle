@@ -10,8 +10,11 @@ android {
     minSdk 26
     targetSdk 34
     //  ⚠ 판 번호는 깃허브가 굽을 때마다 하나씩 올린다(같은 번호면 폰이 「덮어쓰기」를 거부한다).
-    versionCode (System.getenv('BUILD_NUMBER') ?: '1').toInteger()
-    versionName '1.0.' + (System.getenv('BUILD_NUMBER') ?: '0')
+    //  ⚠ **괄호를 붙여 쓰면 안 된다.** `versionCode (…).toInteger()` 로 적었더니 그루비가
+    //   「versionCode(문자열) 을 부르고 그 답에 .toInteger() 를 부른다」로 읽어 **Value is null** 로 죽었다.
+    //   `=` 로 또박또박 적는다.
+    versionCode = Integer.parseInt(System.getenv('BUILD_NUMBER') ?: '1')
+    versionName = '1.0.' + (System.getenv('BUILD_NUMBER') ?: '0')
   }
 
   //  🔑 서명 — **늘 같은 열쇠**로 서명해야 새 판을 덮어쓸 수 있다(열쇠가 바뀌면 지우고 다시 깔아야 한다).
