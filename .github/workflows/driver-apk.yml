@@ -31,8 +31,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 안드로이드 SDK 준비
-        uses: android-actions/setup-android@v3
+      #  ⚠ 깃허브가 주는 컴퓨터에는 **안드로이드 SDK 가 이미 들어 있다**(라이선스 동의까지 끝나 있다).
+      #   따로 깔아 주는 도구(setup-android)를 썼더니 **없어진 옛 꾸러미(tools)를 찾다가 죽었다** —
+      #   있는 것을 그대로 쓴다. 모자란 것이 있으면 그레이들이 알아서 받는다.
+      - name: 안드로이드 SDK 확인
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+          ls "$ANDROID_HOME/build-tools" || true
 
       - name: 그레이들 준비
         uses: gradle/actions/setup-gradle@v4
