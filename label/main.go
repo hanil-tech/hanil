@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.5.0"
+const VERSION = "1.5.1"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -116,7 +116,12 @@ func main() {
 	killOld := false
 	if v, ok := runningVersion(conf.Port); ok {
 		if v == VERSION {
-			logf("이미 켜져 있음 — 창만 띄움")
+			//  ⚠⚠ 창을 닫아도 Edge 가 뒤에 남아(시작 부스트·백그라운드 실행) 이 프로그램도 살아 있다.
+			//    그 남은 Edge 에 새 창을 부탁하면 **제목줄 없는 빈 창**이 뜬다(현장 신고: 껐다 켜면 늘 빈 창).
+			//    → 이 프로그램 자리의 Edge 를 내리고, 창 자리 기억을 지운 뒤 새로 띄운다.
+			//    (키오스크는 창 하나만 쓴다 — 열려 있던 창이 있었다면 새 창으로 바뀔 뿐이다)
+			logf("이미 켜져 있음 — 남은 Edge 를 내리고 새 창: %s", cleanupStale(profileDir(), os.Getpid(), false))
+			fixPrefs()
 			if err := openApp(local(conf.Port) + startPath); err != nil {
 				msgBox("한일 라벨 발행기", "Edge 나 Chrome 을 찾지 못했습니다.\n"+err.Error())
 			}
@@ -203,9 +208,16 @@ func fixPrefs() {
 	}
 	br, _ := m["browser"].(map[string]any)
 	if br == nil {
-		return
+		br = map[string]any{}
 	}
 	changed := false
+	//  ⚠ 강제로 내린 뒤에는 «비정상 종료» 로 적혀 복구 창이 뜰 수 있다 → 정상 종료로 적어 둔다
+	if pr, _ := m["profile"].(map[string]any); pr != nil {
+		if pr["exit_type"] != "Normal" || pr["exited_cleanly"] != true {
+			pr["exit_type"], pr["exited_cleanly"] = "Normal", true
+			changed = true
+		}
+	}
 	for _, k := range []string{"app_window_placement", "window_placement"} {
 		if _, ok := br[k]; ok {
 			delete(br, k)
@@ -343,7 +355,7 @@ func browserArgs(url string) []string {
 		"--user-data-dir=" + profileDir(),
 		"--no-first-run", "--no-default-browser-check",
 		"--disable-session-crashed-bubble", "--overscroll-history-navigation=0",
-		"--disable-features=Translate",
+		"--disable-features=Translate", "--disable-background-mode",
 	}
 	if conf.Fullscreen {
 		args = append(args, "--kiosk", "--start-fullscreen", "--disable-pinch")
