@@ -6,3 +6,5 @@ package main
 func ensureShortcuts(exe string, autostart bool) {}
 
 func cleanupStale(prof string, pid int, killOld bool) string { return "" }
+
+func oldShortcutDir() string { return "" }

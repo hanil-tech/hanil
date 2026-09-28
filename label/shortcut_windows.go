@@ -84,3 +84,15 @@ Start-Sleep -Milliseconds 400
 `
 	return runPS(ps)
 }
+
+// 바탕화면 아이콘이 지금 가리키는 exe 의 폴더(예전 설정 파일을 찾으려고)
+func oldShortcutDir() string {
+	out := runPS(`$ErrorActionPreference='SilentlyContinue'
+$p=Join-Path ([Environment]::GetFolderPath('Desktop')) ` + "'" + strings.ReplaceAll(shortcutName, "'", "''") + ".lnk'" + `
+if(Test-Path $p){ (New-Object -ComObject WScript.Shell).CreateShortcut($p).TargetPath }`)
+	out = strings.TrimSpace(out)
+	if out == "" || strings.Contains(out, "exit status") {
+		return ""
+	}
+	return filepath.Dir(out)
+}

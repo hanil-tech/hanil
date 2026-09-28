@@ -184,7 +184,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p == startPath && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(pageHTML)
+		_, _ = w.Write([]byte(strings.Replace(string(pageHTML), "{{VER}}", VERSION, -1)))
 		return
 	}
 	switch rule(r.Method, p) {

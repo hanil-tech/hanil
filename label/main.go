@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.3.0"
+const VERSION = "1.4.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -81,6 +81,11 @@ func main() {
 		}
 		exeDir, exePath = filepath.Dir(p), p
 	}
+	openLog()
+	//  📦 어디서 누르든 한 자리(%LOCALAPPDATA%\HanilLabel\app)의 판으로 모은다 — 새 판이면 설치까지
+	if selfInstall(exePath) {
+		return
+	}
 	conf.URLs = append([]string{}, defaultURLs...)
 	ini := filepath.Join(exeDir, iniName)
 	if _, err := os.Stat(ini); os.IsNotExist(err) {
@@ -104,7 +109,6 @@ func main() {
 		}
 	}()
 
-	openLog()
 	logf("시작 v%s · %s · %s", VERSION, exePath, runtime.GOOS)
 
 	//  ⚠ 이미 켜져 있으면(관문이 살아 있으면) 창만 하나 더 띄우고 끝낸다.

@@ -99,6 +99,7 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 body.found #lgQuick{display:none}
 body.lang #langs{display:block}
 body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results,body.lang #detail,body.lang #lgQuick,body.lang .top .hb,body.lang .top a{display:none!important}
+#ver{position:fixed;right:10px;bottom:6px;font-size:12px;color:#9aa4b2}
 #toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:16px 26px;border-radius:14px;
   font-size:19px;box-shadow:0 6px 30px rgba(0,0,0,.25);display:none;z-index:9;max-width:92vw;text-align:center}
 #toast.ok{background:var(--good)}
@@ -162,6 +163,7 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
   </div>
 </main>
 <div id="toast"></div>
+<div id="ver">v{{VER}}</div>
 <!-- 라벨을 그리고 인쇄하는 것은 포털의 라벨 화면이 한다(보이지 않게 띄워 둔다).
      ⚠ 그리는 코드를 여기 따로 두면 사무실 라벨과 모양·번호가 갈라진다. -->
 <iframe id="engine" src="/kiosk/label" tabindex="-1" aria-hidden="true"></iframe>
