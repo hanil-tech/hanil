@@ -7,7 +7,9 @@
   if (window.top !== window.self) return;
   var LG = 'ko';
   try { LG = localStorage.getItem('hl_lang') || 'ko'; } catch (e) {}
-  var IX = { en: 0, vi: 1, my: 2, th: 3, ru: 4, zh: 5 }[LG];
+  //  ⚠ 우즈벡·네팔·크메르·인도네시아·싱할라는 상세 화면 사전이 아직 없어 **영어**로 보인다
+  //    (간편 화면은 제 말로 나온다 — 현장에서 주로 쓰는 것은 간편 화면이다)
+  var IX = { en: 0, vi: 1, my: 2, th: 3, ru: 4, zh: 5, uz: 0, ne: 0, km: 0, id: 0, si: 0 }[LG];
 
   //  한국어 → [English, Tiếng Việt, မြန်မာ, ไทย, Русский, 中文]
   var D = {
@@ -142,7 +144,7 @@
     if (document.getElementById('__hlHome')) return;
     var a = document.createElement('a');
     a.id = '__hlHome'; a.href = '/label';
-    a.textContent = '🏠 ' + ({ ko: '처음으로', en: 'Home', vi: 'Trang đầu', my: 'ပင်မ', th: 'หน้าแรก', ru: 'Главная', zh: '首页' }[LG] || '처음으로');
+    a.textContent = '🏠 ' + ({ ko: '처음으로', en: 'Home', vi: 'Trang đầu', my: 'ပင်မ', th: 'หน้าแรก', ru: 'Главная', zh: '首页', uz: 'Bosh sahifa', ne: 'गृह', km: 'ទំព័រដើម', id: 'Beranda', si: 'මුල් පිටුව' }[LG] || '처음으로');
     a.style.cssText = 'position:fixed;left:14px;bottom:96px;z-index:60;background:#fff;color:#1b2a4a;border:2px solid #2954A5;'
       + 'border-radius:14px;padding:12px 20px;font:700 19px "Segoe UI","Malgun Gothic",sans-serif;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.15)';
     document.body.appendChild(a);

@@ -179,7 +179,10 @@ var ROWS=[], CUR=null;
 //  ⭐ 포털 키오스크(작업실적)와 같은 일곱 나라 말. 라벨에 찍히는 글자는 그대로 한국어다
 //    (라벨은 거래처가 읽는 종이) — 바뀌는 것은 **이 화면의 메뉴**뿐이다.
 var LANG_LIST=[['ko','🇰🇷','한국어'],['en','🇬🇧','English'],['vi','🇻🇳','Tiếng Việt'],['my','🇲🇲','မြန်မာ'],
-  ['th','🇹🇭','ไทย'],['ru','🇷🇺','Русский'],['zh','🇨🇳','中文']];
+  ['th','🇹🇭','ไทย'],['ru','🇷🇺','Русский'],['zh','🇨🇳','中文'],
+  //  ⭐ 포털 인사카드 국적에 있는 나라 — 우즈베키스탄·네팔·캄보디아·인도네시아·스리랑카
+  //    (필리핀은 영어, 키르기스·카자흐는 러시아어 — 포털 키오스크와 같은 규칙)
+  ['uz','🇺🇿','O‘zbekcha'],['ne','🇳🇵','नेपाली'],['km','🇰🇭','ខ្មែរ'],['id','🇮🇩','Bahasa Indonesia'],['si','🇱🇰','සිංහල']];
 var L={
  ko:{brand:'한일 라벨',sub:'품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요',ph:'품번 · 품명 검색, 또는 라벨 QR 스캔',find:'찾기',
   tip:'라벨 샘플을 찍으면 그 라벨이 바로 열립니다 — 수량만 넣고 발행하세요',ready:'준비됨',wait:'준비 중…',waitlong:'라벨 화면을 기다리는 중',
@@ -236,7 +239,47 @@ var L={
   issue:'打印标签',making:'打印中…',back:'搜索其他 (Esc)',noimg:'没有图片',fromqr:'已从样品标签打开',fromqr2:'确认数量后打印',
   readqr:'已扫描标签',needqty:'请输入数量',notready:'标签页面尚未就绪 — 请稍后再试',
   qtyS:'数量',cntS:'张数',lotS:'LOT',printed:'已打印',bundle:'这是托盘标签 — 请在“详细”中打印',
-  notlabel:'这不是标签二维码',nopart:'没有此品号',pick:'请选择语言',makefail:'无法生成标签'}
+  notlabel:'这不是标签二维码',nopart:'没有此品号',pick:'请选择语言',makefail:'无法生成标签'},
+ uz:{brand:'HANIL yorliq',sub:'Detal raqami yoki nomini qidiring yoki namuna yorliqni skanerlang',ph:'Detal raqami · nomi yoki QR skanerlang',find:'Qidirish',
+  tip:'Namuna yorliqni skanerlang — faqat sonini kiriting va chop eting',ready:'Tayyor',wait:'Yuklanmoqda…',waitlong:'Yorliq oynasi kutilmoqda',
+  detail:'Batafsil',logout:'Chiqish',home:'Bosh sahifa',lang:'Til',searching:'Qidirilmoqda…',found:'{n} ta topildi',many:'Faqat birinchi 200 tasi — aniqroq yozing',
+  none:'Hech narsa topilmadi',more:'Yana {n} ta — hammasini ko‘rish uchun Enter',qty:'Soni (bitta yorliqqa)',cnt:'Yorliqlar soni',paper:'Yorliq qog‘ozi',form:'Shakl',
+  issue:'Yorliqni chop etish',making:'Chop etilmoqda…',back:'Boshqasini qidirish (Esc)',noimg:'Rasm yo‘q',fromqr:'Namuna yorliqdan ochildi',fromqr2:'sonini tekshirib chop eting',
+  readqr:'Yorliq o‘qildi',needqty:'Sonini kiriting',notready:'Yorliq oynasi hali tayyor emas — birozdan so‘ng urinib ko‘ring',
+  qtyS:'Soni',cntS:'Yorliq',lotS:'LOT',printed:'Chop etildi',bundle:'Bu paddon yorlig‘i — "Batafsil" bo‘limida chop eting',
+  notlabel:'Bu yorliq QR kodi emas',nopart:'Bunday detal raqami yo‘q',pick:'Tilni tanlang',makefail:'Yorliq yaratilmadi'},
+ ne:{brand:'HANIL लेबल',sub:'पार्ट नम्बर वा नाम खोज्नुहोस्, वा नमुना लेबल स्क्यान गर्नुहोस्',ph:'पार्ट नम्बर · नाम, वा लेबल QR स्क्यान',find:'खोज्नुहोस्',
+  tip:'नमुना लेबल स्क्यान गर्नुहोस् — संख्या मात्र हालेर प्रिन्ट गर्नुहोस्',ready:'तयार',wait:'लोड हुँदैछ…',waitlong:'लेबल स्क्रिन पर्खँदै',
+  detail:'विस्तृत',logout:'लग आउट',home:'गृह',lang:'भाषा',searching:'खोज्दै…',found:'{n} वटा भेटियो',many:'पहिलो 200 मात्र देखाइएको — अझ लेख्नुहोस्',
+  none:'केही भेटिएन',more:'अझै {n} वटा — सबै हेर्न Enter थिच्नुहोस्',qty:'संख्या (प्रति लेबल)',cnt:'लेबल संख्या',paper:'लेबल कागज',form:'ढाँचा',
+  issue:'लेबल प्रिन्ट',making:'प्रिन्ट हुँदैछ…',back:'अर्को खोज्नुहोस् (Esc)',noimg:'फोटो छैन',fromqr:'नमुना लेबलबाट खोलियो',fromqr2:'संख्या जाँचेर प्रिन्ट गर्नुहोस्',
+  readqr:'लेबल स्क्यान भयो',needqty:'संख्या हाल्नुहोस्',notready:'लेबल स्क्रिन तयार भएको छैन — केही बेरपछि फेरि थिच्नुहोस्',
+  qtyS:'संख्या',cntS:'लेबल',lotS:'LOT',printed:'प्रिन्ट भयो',bundle:'यो प्यालेट लेबल हो — "विस्तृत" मा प्रिन्ट गर्नुहोस्',
+  notlabel:'यो लेबल QR होइन',nopart:'यो पार्ट नम्बर छैन',pick:'भाषा छान्नुहोस्',makefail:'लेबल बनाउन सकिएन'},
+ km:{brand:'ស្លាក HANIL',sub:'ស្វែងរកលេខ ឬឈ្មោះគ្រឿង ឬស្កេនស្លាកគំរូ',ph:'លេខគ្រឿង · ឈ្មោះ ឬស្កេន QR ស្លាក',find:'ស្វែងរក',
+  tip:'ស្កេនស្លាកគំរូ — បញ្ចូលតែចំនួន ហើយបោះពុម្ព',ready:'រួចរាល់',wait:'កំពុងផ្ទុក…',waitlong:'កំពុងរង់ចាំអេក្រង់ស្លាក',
+  detail:'លម្អិត',logout:'ចាកចេញ',home:'ទំព័រដើម',lang:'ភាសា',searching:'កំពុងស្វែងរក…',found:'រកឃើញ {n}',many:'បង្ហាញតែ 200 ដំបូង — សូមវាយបន្ថែម',
+  none:'រកមិនឃើញ',more:'នៅសល់ {n} — ចុច Enter ដើម្បីមើលទាំងអស់',qty:'ចំនួន (ក្នុងមួយស្លាក)',cnt:'ចំនួនស្លាក',paper:'ក្រដាសស្លាក',form:'ទម្រង់',
+  issue:'បោះពុម្ពស្លាក',making:'កំពុងបោះពុម្ព…',back:'ស្វែងរកផ្សេងទៀត (Esc)',noimg:'គ្មានរូបថត',fromqr:'បើកពីស្លាកគំរូ',fromqr2:'ពិនិត្យចំនួន ហើយបោះពុម្ព',
+  readqr:'បានស្កេនស្លាក',needqty:'សូមបញ្ចូលចំនួន',notready:'អេក្រង់ស្លាកមិនទាន់រួចរាល់ — សូមព្យាយាមម្ដងទៀត',
+  qtyS:'ចំនួន',cntS:'ស្លាក',lotS:'LOT',printed:'បានបោះពុម្ព',bundle:'នេះជាស្លាកប៉ាឡែត — សូមបោះពុម្ពនៅ "លម្អិត"',
+  notlabel:'នេះមិនមែនជា QR ស្លាកទេ',nopart:'គ្មានលេខគ្រឿងនេះ',pick:'ជ្រើសរើសភាសា',makefail:'មិនអាចបង្កើតស្លាកបានទេ'},
+ id:{brand:'Label HANIL',sub:'Cari nomor atau nama barang, atau pindai label contoh',ph:'No. barang · nama, atau pindai QR label',find:'Cari',
+  tip:'Pindai label contoh untuk membukanya — cukup isi jumlah lalu cetak',ready:'Siap',wait:'Memuat…',waitlong:'Menunggu layar label',
+  detail:'Lanjutan',logout:'Keluar',home:'Beranda',lang:'Bahasa',searching:'Mencari…',found:'Ditemukan {n}',many:'Hanya 200 pertama — ketik lebih lengkap',
+  none:'Barang tidak ditemukan',more:'{n} lagi — tekan Enter untuk melihat semua',qty:'Jumlah (per label)',cnt:'Jumlah label',paper:'Kertas label',form:'Format',
+  issue:'Cetak label',making:'Mencetak…',back:'Cari yang lain (Esc)',noimg:'Tidak ada foto',fromqr:'Dibuka dari label contoh',fromqr2:'periksa jumlah lalu cetak',
+  readqr:'Label terbaca',needqty:'Masukkan jumlah',notready:'Layar label belum siap — coba lagi sebentar',
+  qtyS:'Jml',cntS:'Label',lotS:'LOT',printed:'Tercetak',bundle:'Ini label palet — cetak di menu "Lanjutan"',
+  notlabel:'Ini bukan QR label',nopart:'Nomor barang tidak ada',pick:'Pilih bahasa',makefail:'Gagal membuat label'},
+ si:{brand:'HANIL ලේබල්',sub:'කොටස් අංකය හෝ නම සොයන්න, නැතහොත් නියැදි ලේබලය ස්කෑන් කරන්න',ph:'කොටස් අංකය · නම, හෝ ලේබල් QR ස්කෑන්',find:'සොයන්න',
+  tip:'නියැදි ලේබලය ස්කෑන් කරන්න — ප්‍රමාණය පමණක් ඇතුළත් කර මුද්‍රණය කරන්න',ready:'සූදානම්',wait:'පූරණය වෙමින්…',waitlong:'ලේබල් තිරය එනතුරු රැඳී සිටී',
+  detail:'විස්තර',logout:'ඉවත් වන්න',home:'මුල් පිටුව',lang:'භාෂාව',searching:'සොයමින්…',found:'{n}ක් හමු විය',many:'පළමු 200 පමණි — තව ටයිප් කරන්න',
+  none:'කිසිවක් හමු නොවීය',more:'තව {n}ක් — සියල්ල බැලීමට Enter ඔබන්න',qty:'ප්‍රමාණය (ලේබලයකට)',cnt:'ලේබල් ගණන',paper:'ලේබල් කඩදාසි',form:'ආකෘතිය',
+  issue:'ලේබලය මුද්‍රණය',making:'මුද්‍රණය වෙමින්…',back:'වෙනත් එකක් සොයන්න (Esc)',noimg:'ඡායාරූපයක් නැත',fromqr:'නියැදි ලේබලයෙන් විවෘත කළා',fromqr2:'ප්‍රමාණය පරීක්ෂා කර මුද්‍රණය කරන්න',
+  readqr:'ලේබලය ස්කෑන් විය',needqty:'ප්‍රමාණය ඇතුළත් කරන්න',notready:'ලේබල් තිරය තවම සූදානම් නැත — මඳ වේලාවකින් නැවත උත්සාහ කරන්න',
+  qtyS:'ප්‍රමාණය',cntS:'ලේබල්',lotS:'LOT',printed:'මුද්‍රණය විය',bundle:'මෙය පැලට් ලේබලයකි — "විස්තර" තුළ මුද්‍රණය කරන්න',
+  notlabel:'මෙය ලේබල් QR එකක් නොවේ',nopart:'මෙම කොටස් අංකය නැත',pick:'භාෂාව තෝරන්න',makefail:'ලේබලය සෑදිය නොහැකි විය'}
 };
 //  🏳 국기 — ⚠ 윈도우는 국기 그림문자를 못 그린다(「KR」 같은 글자로 나온다) → 작은 그림으로 직접 그린다
 function star(cx,cy,r,fill){ var p=[]; for(var i=0;i<10;i++){ var a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*0.382:r; p.push((cx+rr*Math.cos(a)).toFixed(2)+','+(cy+rr*Math.sin(a)).toFixed(2)); }
@@ -255,6 +298,16 @@ function flag(c, h){
   else if(c==='th'){ b='<rect width="60" height="40" fill="#a51931"/><rect y="6.67" width="60" height="26.66" fill="#f4f5f8"/><rect y="13.33" width="60" height="13.34" fill="#2d2a4a"/>'; }
   else if(c==='ru'){ b='<rect width="60" height="13.4" fill="#fff"/><rect y="13.3" width="60" height="13.4" fill="#0039a6"/><rect y="26.6" width="60" height="13.4" fill="#d52b1e"/>'; }
   else if(c==='zh'){ b='<rect width="60" height="40" fill="#ee1c25"/>'+star(10,10,6,'#ffff00')+star(20,4,2,'#ffff00')+star(24,8,2,'#ffff00')+star(24,13,2,'#ffff00')+star(20,17,2,'#ffff00'); }
+  else if(c==='uz'){ b='<rect width="60" height="13" fill="#0099b5"/><rect y="13" width="60" height="1" fill="#ce1126"/><rect y="14" width="60" height="12" fill="#fff"/><rect y="26" width="60" height="1" fill="#ce1126"/><rect y="27" width="60" height="13" fill="#1eb53a"/>'
+      +'<circle cx="9" cy="6.5" r="4.2" fill="#fff"/><circle cx="10.6" cy="6.5" r="3.6" fill="#0099b5"/>'
+      +'<g fill="#fff"><circle cx="16" cy="3.5" r=".8"/><circle cx="19" cy="3.5" r=".8"/><circle cx="22" cy="3.5" r=".8"/><circle cx="19" cy="6.5" r=".8"/><circle cx="22" cy="6.5" r=".8"/><circle cx="16" cy="9.5" r=".8"/><circle cx="19" cy="9.5" r=".8"/><circle cx="22" cy="9.5" r=".8"/></g>'; }
+  else if(c==='ne'){ b='<path d="M8 1L50 21H22L50 39H8Z" fill="#003893"/><path d="M11 5.5L40 19H17.5L40 35.5H11Z" fill="#dc143c"/>'
+      +'<circle cx="18" cy="14" r="3" fill="#fff"/><circle cx="18" cy="12.6" r="2.6" fill="#dc143c"/><circle cx="18" cy="28.5" r="3.2" fill="#fff"/>'; }
+  else if(c==='km'){ b='<rect width="60" height="40" fill="#032ea1"/><rect y="10" width="60" height="20" fill="#e00025"/>'
+      +'<path d="M20 26h20v-2h-2v-4h-2v-4h-1v-3h-1l-1-3-1 3h-1v3h-1v4h-2v-3h-1v-2l-1-2-1 2v2h-1v3h-2v4h-2z" fill="#fff"/>'; }
+  else if(c==='id'){ b='<rect width="60" height="20" fill="#ce1126"/><rect y="20" width="60" height="20" fill="#fff"/>'; }
+  else if(c==='si'){ b='<rect width="60" height="40" fill="#ffbe29"/><rect x="3" y="3" width="7" height="34" fill="#00534e"/><rect x="11" y="3" width="7" height="34" fill="#eb7400"/>'
+      +'<rect x="20" y="3" width="37" height="34" fill="#8d153a"/><path d="M29 30v-9l3-4h6l2-3 3 2-1 3 4 2v5l-3 1v3h-2v-3h-7v3z" fill="#ffbe29"/>'; }
   return '<svg viewBox="0 0 60 40" width="'+w+'" height="'+h+'" style="border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.12);vertical-align:middle">'+b+'</svg>';
 }
 var LG=(function(){ try{ return localStorage.getItem('hl_lang')||'ko'; }catch(e){ return 'ko'; } }());
