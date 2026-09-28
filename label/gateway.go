@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -89,6 +90,7 @@ const (
 	pass verdict = iota
 	home         //  화면 요청 → 라벨 화면으로 돌려보낸다
 	deny         //  API 요청 → 403
+	gone         //  스크립트·그림 같은 조각 → 404 (라벨 화면 HTML 을 대신 주면 «스크립트가 아니다» 오류가 난다)
 )
 
 var staticOK = map[string]bool{
@@ -104,7 +106,16 @@ func rule(method, p string) verdict {
 	if isAPI || !get {
 		no = deny
 	}
+	//  ⚠ 조각(스크립트·그림·글꼴)은 돌려보내지 않고 «없음» 으로 답한다
+	if no == home && path.Ext(p) != "" {
+		no = gone
+	}
 	switch {
+	//  ⚠⚠ 포털의 앱 설치용 서비스 워커는 막는다. 이 창에 한 번 깔리면 요청을 가로채고
+	//    알림 권한을 물어 «Permissions check failed» 오류가 난다.
+	//    404 를 주면 브라우저가 이미 깔린 워커도 스스로 지운다.
+	case strings.HasSuffix(p, "/sw.js"):
+		return gone
 	//  라벨 화면
 	case p == startPath && get:
 		return pass
@@ -169,6 +180,9 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case home:
 		http.Redirect(w, r, startPath, http.StatusFound)
 		return
+	case gone:
+		http.NotFound(w, r)
+		return
 	case deny:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
@@ -196,8 +210,16 @@ func (g *gateway) proxy(up *url.URL) *httputil.ReverseProxy {
 			//  ⚠ X-Forwarded-For 를 붙이지 않는다 — 붙이면 포털 기록에 이 PC 가 아니라 127.0.0.1 이 남는다
 			pr.Out.Header.Del("X-Forwarded-For")
 			//  ⚠ 첫 화면(/)은 관문이 글을 읽어 고쳐야 한다 → 압축 없이 받는다(Go 가 알아서 풀어 준다)
-			if pr.In.URL.Path == "/" {
+			if pr.In.URL.Path == "/" || pr.In.URL.Path == startPath {
 				pr.Out.Header.Del("Accept-Encoding")
+			}
+			//  ⭐ 라벨 화면은 «끼워 넣은 화면(embed=1)» 으로 받는다.
+			//    그러면 포털이 사무실용 장치(통합검색·알림·쪽지·점검 안내·앱 설치·자동 로그아웃)를
+			//    붙이지 않는다 — 그 장치들이 부르는 API 는 관문이 막으므로 붙어 있으면 오류만 난다.
+			if pr.In.URL.Path == startPath {
+				q := pr.Out.URL.Query()
+				q.Set("embed", "1")
+				pr.Out.URL.RawQuery = q.Encode()
 			}
 		},
 		ModifyResponse: func(res *http.Response) error { return g.fixResponse(res, up) },
@@ -234,7 +256,25 @@ func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 	if loc := res.Header.Get("Location"); loc != "" {
 		res.Header.Set("Location", g.fixLocation(loc, up))
 	}
-	//  ③ 로그인한 채로 «/» 를 열면 포털 첫 화면이 나온다 → 라벨 화면으로 돌린다.
+	//  ③ 라벨 화면 — 예전 판이 깔아 둔 서비스 워커를 지운다(한 번 지우면 다시 안 깔린다)
+	if req.URL.Path == startPath && req.Method == http.MethodGet && res.StatusCode == http.StatusOK {
+		body, err := io.ReadAll(io.LimitReader(res.Body, 16<<20))
+		res.Body.Close()
+		if err != nil {
+			return err
+		}
+		html := string(body)
+		if i := strings.Index(strings.ToLower(html), "</head>"); i >= 0 {
+			html = html[:i] + swKill + html[i:]
+		} else {
+			html = swKill + html
+		}
+		res.Header.Del("Content-Length")
+		res.Header.Del("Content-Encoding")
+		res.Body = io.NopCloser(strings.NewReader(html))
+		res.ContentLength = int64(len(html))
+	}
+	//  ④ 로그인한 채로 «/» 를 열면 포털 첫 화면이 나온다 → 라벨 화면으로 돌린다.
 	//     로그인 화면(아직 안 들어옴)일 때만 그대로 보여 주고, 들어오면 라벨 화면으로 오게 `next` 를 심는다.
 	if req.URL.Path == "/" && req.Method == http.MethodGet && res.StatusCode == http.StatusOK {
 		body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
@@ -262,6 +302,10 @@ func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 	}
 	return nil
 }
+
+// 이 창(127.0.0.1)에 깔린 서비스 워커를 모두 지운다
+const swKill = `<script>try{navigator.serviceWorker&&navigator.serviceWorker.getRegistrations()` +
+	`.then(function(rs){rs.forEach(function(r){r.unregister();});}).catch(function(){});}catch(e){}</script>`
 
 // 로그인 화면 아래에 붙이는 한 줄 — 이 창이 라벨 전용임을 알린다
 const loginNote = `<div style="position:fixed;left:0;right:0;bottom:0;background:#1b2a4a;color:#fff;` +
