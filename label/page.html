@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>한일 라벨 발행</title>
+<title>한일 라벨 발행 · v{{VER}}</title>
 <style>
 :root{--ink:#1b2a4a;--acc:#2954A5;--acc2:#1f4488;--bg:#f4f6fa;--card:#fff;--line:#e3e8f0;--muted:#6b7684;--good:#1a7f4b;--bad:#c0392b}
 *{box-sizing:border-box}
@@ -99,7 +99,8 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 body.found #lgQuick{display:none}
 body.lang #langs{display:block}
 body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results,body.lang #detail,body.lang #lgQuick,body.lang .top .hb,body.lang .top a{display:none!important}
-#ver{position:fixed;right:10px;bottom:6px;font-size:12px;color:#9aa4b2}
+#ver{display:inline-block;background:var(--ink);color:#fff;border-radius:8px;padding:3px 10px;font-size:14px;font-weight:700;letter-spacing:.3px}
+#lgVer{margin-top:28px}
 #toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:16px 26px;border-radius:14px;
   font-size:19px;box-shadow:0 6px 30px rgba(0,0,0,.25);display:none;z-index:9;max-width:92vw;text-align:center}
 #toast.ok{background:var(--good)}
@@ -116,6 +117,7 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
   <button class="hb" id="homeBtn" onclick="home()">🏠 <span data-t="home">처음으로</span></button>
   <div class="brand" onclick="home()">🏷 <span data-t="brand">한일 라벨</span></div>
   <span class="sp"></span>
+  <span id="ver">v{{VER}}</span>
   <span id="eng">…</span>
   <button class="hb" id="langBtn" onclick="showLang()">🌐</button>
   <a href="/kiosk/label" data-t="detail">상세 화면</a>
@@ -126,6 +128,7 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
     <h1>🌐</h1>
     <div id="lgTitle"></div>
     <div id="lgGrid"></div>
+    <div id="lgVer"><span id="ver2" style="display:inline-block;background:var(--ink);color:#fff;border-radius:8px;padding:4px 12px;font-size:15px;font-weight:700">🏷 v{{VER}}</span></div>
   </div>
   <div id="hero">
     <h1>🏷 <span data-t="brand">한일 라벨</span></h1>
@@ -163,7 +166,7 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
   </div>
 </main>
 <div id="toast"></div>
-<div id="ver">v{{VER}}</div>
+
 <!-- 라벨을 그리고 인쇄하는 것은 포털의 라벨 화면이 한다(보이지 않게 띄워 둔다).
      ⚠ 그리는 코드를 여기 따로 두면 사무실 라벨과 모양·번호가 갈라진다. -->
 <iframe id="engine" src="/kiosk/label" tabindex="-1" aria-hidden="true"></iframe>
