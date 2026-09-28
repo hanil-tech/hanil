@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 )
@@ -40,6 +41,10 @@ Put ([Environment]::GetFolderPath('Programs'))
 $st=[Environment]::GetFolderPath('Startup')
 if(` + auto + `){ Put $st } elseif($st){ Remove-Item (Join-Path $st $name) -ErrorAction SilentlyContinue }
 `
+	runPS(ps)
+}
+
+func runPS(ps string) string {
 	u := utf16.Encode([]rune(ps))
 	b := make([]byte, len(u)*2)
 	for i, r := range u {
@@ -49,5 +54,33 @@ if(` + auto + `){ Put $st } elseif($st){ Remove-Item (Join-Path $st $name) -Erro
 	c := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
 		"-EncodedCommand", base64.StdEncoding.EncodeToString(b))
 	hideWindow(c)
-	_ = c.Run()
+	out, err := c.Output()
+	if err != nil {
+		return strings.TrimSpace(string(out)) + " (" + err.Error() + ")"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// ── 남아 있는 것 치우기 ─────────────────────────────────────
+//
+//	⚠⚠ 창을 닫아도 Edge 는 뒤에 프로세스를 남겨 둘 때가 있다(시작 부스트·백그라운드 실행).
+//	  이 프로그램 자리(프로필)를 쥔 채 남은 Edge 에 새 창을 붙이면 **빈 창**이 뜬다.
+//	  또 예전 판 hanil-label 이 뒤에 살아 있으면 새 판 대신 그것이 창을 띄운다.
+//	⭐ 그래서 관문을 새로 열 때(= 이 프로그램이 처음 켜질 때) 둘 다 내린다.
+//	  ⚠ 이 프로그램 자리(HanilLabel)를 쓰는 Edge·Chrome 만 — 직원이 쓰는 Edge 는 건드리지 않는다.
+func cleanupStale(prof string, pid int, killOld bool) string {
+	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	old := "$false"
+	if killOld {
+		old = "$true"
+	}
+	ps := `$ErrorActionPreference='SilentlyContinue'
+$prof=` + q(prof) + `
+$n=0; $o=0
+Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($prof, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $n++ }
+if(` + old + `){ Get-Process | Where-Object { $_.ProcessName -like 'hanil-label*' -and $_.Id -ne ` + strconv.Itoa(pid) + ` } | ForEach-Object { Stop-Process -Id $_.Id -Force; $o++ } }
+Start-Sleep -Milliseconds 400
+"browser=$n old=$o"
+`
+	return runPS(ps)
 }

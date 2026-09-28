@@ -24,6 +24,7 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -34,10 +35,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-const VERSION = "1.2.1"
+const VERSION = "1.2.2"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -102,12 +104,31 @@ func main() {
 		}
 	}()
 
-	//  ⚠ 이미 켜져 있으면(관문이 살아 있으면) 창만 하나 더 띄우고 끝낸다
-	if alreadyRunning(conf.Port) {
-		if err := openApp(local(conf.Port) + startPath); err != nil {
-			msgBox("한일 라벨 발행기", "Edge 나 Chrome 을 찾지 못했습니다.\n"+err.Error())
+	openLog()
+	logf("시작 v%s · %s · %s", VERSION, exePath, runtime.GOOS)
+
+	//  ⚠ 이미 켜져 있으면(관문이 살아 있으면) 창만 하나 더 띄우고 끝낸다.
+	//    ⚠ 단 **예전 판**이 떠 있으면 그것을 내리고 새 판으로 연다(안 그러면 고친 것이 안 먹는다).
+	killOld := false
+	if v, ok := runningVersion(conf.Port); ok {
+		if v == VERSION {
+			logf("이미 켜져 있음 — 창만 띄움")
+			if err := openApp(local(conf.Port) + startPath); err != nil {
+				msgBox("한일 라벨 발행기", "Edge 나 Chrome 을 찾지 못했습니다.\n"+err.Error())
+			}
+			return
 		}
-		return
+		logf("예전 판(%s)이 떠 있음 — 내리고 새로 연다", v)
+		killOld = true
+	}
+	//  🧹 빈 창의 원인들을 치운다 — 남은 Edge, 예전 판, 창 자리 기억(전체 화면으로 굳은 것)
+	logf("치우기: %s", cleanupStale(profileDir(), os.Getpid(), killOld))
+	fixPrefs()
+	for i := 0; i < 20 && killOld; i++ {
+		if _, ok := runningVersion(conf.Port); !ok {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(conf.Port))
@@ -118,10 +139,14 @@ func main() {
 	}
 	gw := newGateway()
 	gw.pickUpstream()
+	gw.mu.Lock()
+	logf("포털 주소: %v", gw.tried)
+	gw.mu.Unlock()
 	go func() { _ = (&http.Server{Handler: gw}).Serve(ln) }()
 
 	cmd, err := launch(local(conf.Port) + startPath)
 	if err != nil {
+		logf("브라우저 못 띄움: %v", err)
 		msgBox("한일 라벨 발행기", "Edge 나 Chrome 을 찾지 못했습니다.\n"+
 			"Microsoft Edge 또는 Google Chrome 을 설치한 뒤 다시 실행해 주세요.")
 		return
@@ -129,6 +154,7 @@ func main() {
 	//  ⭐ 창이 닫히면 관문도 닫는다(이 PC 에 쓸데없이 남지 않게)
 	started := time.Now()
 	_ = cmd.Wait()
+	logf("브라우저 끝남 (%s)", time.Since(started).Round(time.Second))
 	if time.Since(started) < 5*time.Second {
 		//  ⚠ 브라우저가 곧바로 끝났다 = 이미 떠 있던 같은 자리(프로필)의 창에 일을 넘긴 것이다.
 		//    그 창은 여전히 이 관문을 쓴다 → 창을 쓰는 동안(마지막 요청 뒤 10분) 더 버틴다.
@@ -140,15 +166,83 @@ func main() {
 
 func local(port int) string { return "http://127.0.0.1:" + strconv.Itoa(port) }
 
-func alreadyRunning(port int) bool {
+// 떠 있는 관문의 판 번호("hanil-label 1.2.2" 의 뒤)
+func runningVersion(port int) (string, bool) {
 	cl := &http.Client{Timeout: 800 * time.Millisecond}
 	r, err := cl.Get(local(port) + pingPath)
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer r.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 64))
-	return strings.HasPrefix(string(b), "hanil-label")
+	s := string(b)
+	if !strings.HasPrefix(s, "hanil-label") {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(s, "hanil-label")), true
+}
+
+// ── 창 자리 기억 지우기 ─────────────────────────────────────
+//
+//	⚠⚠ 예전 판은 포털 라벨 화면을 창 전체로 열었고, 그 화면은 처음 누를 때 **전체 화면**을 켠다.
+//	  Edge 는 앱 창의 자리·크기를 기억해 두었다가 다음에 그대로 여는데, 전체 화면으로 굳은 자리를
+//	  되살리면 **제목줄 없는 빈 창**이 뜬다. 켤 때마다 그 기억을 지운다(창은 늘 최대화로 열린다).
+func fixPrefs() {
+	p := filepath.Join(profileDir(), "Default", "Preferences")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return
+	}
+	br, _ := m["browser"].(map[string]any)
+	if br == nil {
+		return
+	}
+	changed := false
+	for _, k := range []string{"app_window_placement", "window_placement"} {
+		if _, ok := br[k]; ok {
+			delete(br, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if nb, err := json.Marshal(m); err == nil {
+		if os.WriteFile(p, nb, 0o644) == nil {
+			logf("창 자리 기억을 지웠습니다")
+		}
+	}
+}
+
+// ── 기록 ────────────────────────────────────────────────────
+//
+//	%LOCALAPPDATA%\HanilLabel\hanil-label.log — 현장에서 «안 돼요» 할 때 이 파일을 받아 본다.
+var logFile *os.File
+var logMu sync.Mutex
+
+func openLog() {
+	_ = os.MkdirAll(profileDir(), 0o755)
+	p := filepath.Join(profileDir(), "hanil-label.log")
+	if fi, err := os.Stat(p); err == nil && fi.Size() > 1<<20 {
+		_ = os.Rename(p, p+".old")
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err == nil {
+		logFile = f
+	}
+}
+
+func logf(format string, a ...any) {
+	logMu.Lock()
+	defer logMu.Unlock()
+	if logFile == nil {
+		return
+	}
+	fmt.Fprintf(logFile, "%s  %s\r\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, a...))
 }
 
 // ── 주소 고르기 ────────────────────────────────────────────

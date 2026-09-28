@@ -235,6 +235,7 @@ func (g *gateway) proxy(up *url.URL) *httputil.ReverseProxy {
 		},
 		ModifyResponse: func(res *http.Response) error { return g.fixResponse(res, up) },
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			logf("포털 연결 끊김 %s %s: %v", r.Method, r.URL.Path, err)
 			//  ⚠ 붙어 있던 주소가 끊겼다 — 다음 «다시 시도»에서 새로 고르게 비운다
 			g.mu.Lock()
 			g.upstream = nil
@@ -315,7 +316,12 @@ func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 }
 
 // 이 창(127.0.0.1)에 깔린 서비스 워커를 모두 지운다
-const swKill = `<script>try{navigator.serviceWorker&&navigator.serviceWorker.getRegistrations()` +
+//
+//	⚠ 전체 화면 요청도 막는다 — 전체 화면으로 굳은 창 자리를 Edge 가 기억해 다음에 빈 창이 뜬다.
+//	  (전체 화면이 필요하면 설정 파일의 FULLSCREEN=1 — 그건 브라우저가 처음부터 전체 화면으로 연다)
+const swKill = `<script>try{if(window.top===window.self){var nf=function(){return Promise.resolve();};` +
+	`Element.prototype.requestFullscreen=nf;Element.prototype.webkitRequestFullscreen=nf;}}catch(e){}` +
+	`try{navigator.serviceWorker&&navigator.serviceWorker.getRegistrations()` +
 	`.then(function(rs){rs.forEach(function(r){r.unregister();});}).catch(function(){});}catch(e){}</script>`
 
 // 로그인 화면 아래에 붙이는 한 줄 — 이 창이 라벨 전용임을 알린다
