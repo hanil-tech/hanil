@@ -80,6 +80,25 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 #go:hover{background:var(--acc2)}
 #go:disabled{background:#9aa9c6;cursor:wait}
 #back{border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:17px;cursor:pointer;color:var(--ink)}
+/* ── 처음으로 · 언어 ── */
+.hb{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:12px;padding:8px 16px;font-size:17px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;gap:6px}
+.hb:hover{border-color:var(--acc);color:var(--acc)}
+#homeBtn{font-size:18px}
+#langs{display:none;text-align:center;margin-top:9vh}
+#langs h1{font-size:44px;color:var(--ink);margin:0 0 6px}
+#lgTitle{color:var(--muted);font-size:17px;max-width:900px;margin:0 auto 30px;line-height:1.7}
+#lgGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;max-width:960px;margin:0 auto}
+.lgb{border:2px solid var(--line);background:#fff;border-radius:18px;padding:22px 10px;cursor:pointer;display:flex;flex-direction:column;
+  align-items:center;gap:8px;font-size:24px;font-weight:700;color:var(--ink)}
+.lgb .fl{font-size:54px;line-height:1}
+.lgb:hover,.lgb:focus{border-color:var(--acc);box-shadow:0 4px 18px rgba(41,84,165,.18);outline:0}
+#lgQuick{display:flex;justify-content:center;gap:8px;margin-top:22px}
+.lgq{border:2px solid transparent;background:transparent;border-radius:10px;font-size:30px;padding:4px 6px;line-height:0;cursor:pointer;opacity:.55}
+.lgq.on,.lgq:hover{opacity:1;border-color:var(--acc);background:#fff}
+body.found #lgQuick{display:none}
+body.lang #langs{display:block}
+body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results,body.lang #detail,body.lang #lgQuick,body.lang .top .hb,body.lang .top a{display:none!important}
 #toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:16px 26px;border-radius:14px;
   font-size:19px;box-shadow:0 6px 30px rgba(0,0,0,.25);display:none;z-index:9;max-width:92vw;text-align:center}
 #toast.ok{background:var(--good)}
@@ -93,25 +112,33 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 </style></head>
 <body>
 <div class="top">
-  <div class="brand" onclick="home()">🏷 한일 라벨</div>
+  <button class="hb" id="homeBtn" onclick="home()">🏠 <span data-t="home">처음으로</span></button>
+  <div class="brand" onclick="home()">🏷 <span data-t="brand">한일 라벨</span></div>
   <span class="sp"></span>
-  <span id="eng">준비 중…</span>
-  <a href="/kiosk/label" title="여러 품번 묶기·나누기 같은 자세한 기능">상세 화면</a>
-  <a href="/logout">로그아웃</a>
+  <span id="eng">…</span>
+  <button class="hb" id="langBtn" onclick="showLang()">🌐</button>
+  <a href="/kiosk/label" data-t="detail">상세 화면</a>
+  <a href="/logout" data-t="logout">로그아웃</a>
 </div>
 <main>
+  <div id="langs">
+    <h1>🌐</h1>
+    <div id="lgTitle"></div>
+    <div id="lgGrid"></div>
+  </div>
   <div id="hero">
-    <h1>🏷 한일 <span>라벨</span></h1>
-    <p>품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요</p>
+    <h1>🏷 <span data-t="brand">한일 라벨</span></h1>
+    <p data-t="sub">품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요</p>
   </div>
   <div id="sbox">
     <form id="sf" onsubmit="event.preventDefault();submitQ()">
-      <input id="q" autocomplete="off" spellcheck="false" placeholder="품번 · 품명 검색, 또는 라벨 QR 스캔" autofocus>
-      <button type="submit">찾기</button>
+      <input id="q" autocomplete="off" spellcheck="false" data-tp="ph" autofocus>
+      <button type="submit" data-t="find">찾기</button>
     </form>
     <div id="sug"></div>
   </div>
-  <div id="tip">📷 <b>라벨 샘플을 찍으면</b> 그 라벨이 바로 열립니다 — 수량만 넣고 발행하세요</div>
+  <div id="tip">📷 <span data-t="tip"></span></div>
+  <div id="lgQuick"></div>
   <div id="msg"></div>
   <div id="results"></div>
   <div id="detail">
@@ -122,15 +149,15 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
       <div id="dnm"></div>
       <div id="dcu"></div>
       <div class="fl">
-        <div style="flex:2"><label>수량 (라벨 한 장에)</label><input id="qty" inputmode="numeric" autocomplete="off"></div>
-        <div><label>장수</label><input id="cnt" type="number" min="1" value="1" style="text-align:right"></div>
+        <div style="flex:2"><label data-t="qty"></label><input id="qty" inputmode="numeric" autocomplete="off"></div>
+        <div><label data-t="cnt"></label><input id="cnt" type="number" min="1" value="1" style="text-align:right"></div>
       </div>
       <div class="fl">
-        <div><label>라벨지</label><select id="paper"></select></div>
-        <div><label>양식</label><select id="form"></select></div>
+        <div><label data-t="paper"></label><select id="paper"></select></div>
+        <div><label data-t="form"></label><select id="form"></select></div>
       </div>
-      <button id="go" onclick="issue()">🏷 라벨 발행</button>
-      <button id="back" onclick="backToList()">← 다른 품번 찾기 (Esc)</button>
+      <button id="go" onclick="issue()">🏷 <span data-t="issue"></span></button>
+      <button id="back" onclick="backToList()">← <span data-t="back"></span></button>
     </div>
   </div>
 </main>
@@ -143,6 +170,126 @@ try{navigator.serviceWorker&&navigator.serviceWorker.getRegistrations().then(fun
 function $(i){return document.getElementById(i);}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 var ROWS=[], CUR=null;
+//  🗣 ── 말(언어) ─────────────────────────────────────────────
+//  ⭐ 포털 키오스크(작업실적)와 같은 일곱 나라 말. 라벨에 찍히는 글자는 그대로 한국어다
+//    (라벨은 거래처가 읽는 종이) — 바뀌는 것은 **이 화면의 메뉴**뿐이다.
+var LANG_LIST=[['ko','🇰🇷','한국어'],['en','🇬🇧','English'],['vi','🇻🇳','Tiếng Việt'],['my','🇲🇲','မြန်မာ'],
+  ['th','🇹🇭','ไทย'],['ru','🇷🇺','Русский'],['zh','🇨🇳','中文']];
+var L={
+ ko:{brand:'한일 라벨',sub:'품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요',ph:'품번 · 품명 검색, 또는 라벨 QR 스캔',find:'찾기',
+  tip:'라벨 샘플을 찍으면 그 라벨이 바로 열립니다 — 수량만 넣고 발행하세요',ready:'준비됨',wait:'준비 중…',waitlong:'라벨 화면을 기다리는 중',
+  detail:'상세 화면',logout:'로그아웃',home:'처음으로',lang:'언어',searching:'찾는 중…',found:'{n}개 찾았습니다',many:'200개까지 보여 줍니다 — 더 자세히 적어 주세요',
+  none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',
+  issue:'라벨 발행',making:'만드는 중…',back:'다른 품번 찾기 (Esc)',noimg:'사진이 없습니다',fromqr:'라벨 샘플에서 불러왔습니다',fromqr2:'수량을 확인하고 발행하세요',
+  readqr:'라벨을 읽었습니다',needqty:'수량을 넣어 주세요',notready:'라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요',
+  qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',
+  notlabel:'이 코드는 라벨 QR 이 아닙니다',nopart:'품목에 없는 품번입니다',pick:'언어를 고르세요',makefail:'라벨을 만들지 못했습니다'},
+ en:{brand:'HANIL Label',sub:'Search a part no. or name, or scan a sample label',ph:'Part no. · name, or scan label QR',find:'Search',
+  tip:'Scan a sample label to open it — just enter the quantity and print',ready:'Ready',wait:'Loading…',waitlong:'Waiting for the label screen',
+  detail:'Advanced',logout:'Log out',home:'Home',lang:'Language',searching:'Searching…',found:'{n} found',many:'Showing the first 200 — type more to narrow',
+  none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',
+  issue:'Print label',making:'Printing…',back:'Search another (Esc)',noimg:'No photo',fromqr:'Opened from a sample label',fromqr2:'check the quantity and print',
+  readqr:'Label scanned',needqty:'Enter the quantity',notready:'The label screen is not ready yet — try again in a moment',
+  qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',
+  notlabel:'This is not a label QR code',nopart:'This part no. is not in the item list',pick:'Choose your language',makefail:'Could not make the label'},
+ vi:{brand:'Nhãn HANIL',sub:'Tìm mã hàng hoặc tên hàng, hoặc quét nhãn mẫu',ph:'Mã hàng · tên hàng, hoặc quét QR nhãn',find:'Tìm',
+  tip:'Quét nhãn mẫu để mở ngay — chỉ cần nhập số lượng và in',ready:'Sẵn sàng',wait:'Đang tải…',waitlong:'Đang chờ màn hình nhãn',
+  detail:'Chi tiết',logout:'Đăng xuất',home:'Trang đầu',lang:'Ngôn ngữ',searching:'Đang tìm…',found:'Tìm thấy {n}',many:'Chỉ hiện 200 mục đầu — hãy gõ thêm',
+  none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',
+  issue:'In nhãn',making:'Đang in…',back:'Tìm mã khác (Esc)',noimg:'Không có ảnh',fromqr:'Đã mở từ nhãn mẫu',fromqr2:'kiểm tra số lượng rồi in',
+  readqr:'Đã quét nhãn',needqty:'Hãy nhập số lượng',notready:'Màn hình nhãn chưa sẵn sàng — vui lòng thử lại sau',
+  qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',
+  notlabel:'Đây không phải mã QR nhãn',nopart:'Không có mã hàng này',pick:'Chọn ngôn ngữ',makefail:'Không tạo được nhãn'},
+ my:{brand:'HANIL တံဆိပ်',sub:'ပစ္စည်းနံပါတ် သို့မဟုတ် အမည်ကို ရှာပါ၊ သို့မဟုတ် နမူနာတံဆိပ်ကို စကင်ဖတ်ပါ',ph:'ပစ္စည်းနံပါတ် · အမည်၊ သို့မဟုတ် QR စကင်',find:'ရှာရန်',
+  tip:'နမူနာတံဆိပ်ကို စကင်ဖတ်ပါ — အရေအတွက်ထည့်ပြီး ပရင့်ထုတ်ပါ',ready:'အဆင်သင့်',wait:'ဖွင့်နေသည်…',waitlong:'တံဆိပ်စာမျက်နှာကို စောင့်နေသည်',
+  detail:'အသေးစိတ်',logout:'ထွက်ရန်',home:'ပင်မ',lang:'ဘာသာစကား',searching:'ရှာနေသည်…',found:'{n} ခု တွေ့သည်',many:'ပထမ 200 ခုသာ ပြသည် — ထပ်ရိုက်ပါ',
+  none:'မတွေ့ပါ',more:'နောက်ထပ် {n} ခု — Enter နှိပ်ပါ',qty:'အရေအတွက် (တံဆိပ်တစ်ခုလျှင်)',cnt:'တံဆိပ်အရေအတွက်',paper:'တံဆိပ်စက္ကူ',form:'ပုံစံ',
+  issue:'တံဆိပ် ပရင့်ထုတ်ရန်',making:'ပရင့်ထုတ်နေသည်…',back:'အခြားတစ်ခု ရှာရန် (Esc)',noimg:'ဓာတ်ပုံမရှိပါ',fromqr:'နမူနာတံဆိပ်မှ ဖွင့်ထားသည်',fromqr2:'အရေအတွက်စစ်ပြီး ပရင့်ထုတ်ပါ',
+  readqr:'တံဆိပ်ကို စကင်ဖတ်ပြီးပါပြီ',needqty:'အရေအတွက် ထည့်ပါ',notready:'တံဆိပ်စာမျက်နှာ မအဆင်သင့်သေးပါ — ခဏနေ ထပ်နှိပ်ပါ',
+  qtyS:'အရေအတွက်',cntS:'တံဆိပ်',lotS:'LOT',printed:'ပရင့်ထုတ်ပြီးပါပြီ',bundle:'ပယ်လက်တံဆိပ် ဖြစ်သည် — "အသေးစိတ်" တွင် ထုတ်ပါ',
+  notlabel:'တံဆိပ် QR မဟုတ်ပါ',nopart:'ဤပစ္စည်းနံပါတ် မရှိပါ',pick:'ဘာသာစကား ရွေးပါ',makefail:'တံဆိပ် မထုတ်နိုင်ပါ'},
+ th:{brand:'ฉลาก HANIL',sub:'ค้นหารหัสหรือชื่อสินค้า หรือสแกนฉลากตัวอย่าง',ph:'รหัส · ชื่อสินค้า หรือสแกน QR ฉลาก',find:'ค้นหา',
+  tip:'สแกนฉลากตัวอย่างเพื่อเปิดทันที — ใส่จำนวนแล้วพิมพ์',ready:'พร้อม',wait:'กำลังโหลด…',waitlong:'กำลังรอหน้าฉลาก',
+  detail:'ขั้นสูง',logout:'ออกจากระบบ',home:'หน้าแรก',lang:'ภาษา',searching:'กำลังค้นหา…',found:'พบ {n} รายการ',many:'แสดง 200 รายการแรก — พิมพ์เพิ่มเพื่อค้นหา',
+  none:'ไม่พบสินค้า',more:'อีก {n} รายการ — กด Enter เพื่อดูทั้งหมด',qty:'จำนวน (ต่อฉลาก)',cnt:'จำนวนฉลาก',paper:'กระดาษฉลาก',form:'แบบฉลาก',
+  issue:'พิมพ์ฉลาก',making:'กำลังพิมพ์…',back:'ค้นหาใหม่ (Esc)',noimg:'ไม่มีรูปภาพ',fromqr:'เปิดจากฉลากตัวอย่าง',fromqr2:'ตรวจจำนวนแล้วพิมพ์',
+  readqr:'สแกนฉลากแล้ว',needqty:'กรุณาใส่จำนวน',notready:'หน้าฉลากยังไม่พร้อม — กรุณาลองอีกครั้ง',
+  qtyS:'จำนวน',cntS:'ฉลาก',lotS:'LOT',printed:'พิมพ์แล้ว',bundle:'นี่คือฉลากพาเลท — กรุณาพิมพ์ที่ "ขั้นสูง"',
+  notlabel:'นี่ไม่ใช่ QR ฉลาก',nopart:'ไม่มีรหัสสินค้านี้',pick:'เลือกภาษา',makefail:'สร้างฉลากไม่สำเร็จ'},
+ ru:{brand:'Этикетки HANIL',sub:'Найдите код или название детали, либо отсканируйте образец этикетки',ph:'Код · название, или QR этикетки',find:'Найти',
+  tip:'Отсканируйте образец этикетки — введите количество и печатайте',ready:'Готово',wait:'Загрузка…',waitlong:'Ожидание экрана этикеток',
+  detail:'Подробно',logout:'Выход',home:'Главная',lang:'Язык',searching:'Поиск…',found:'Найдено: {n}',many:'Показаны первые 200 — уточните запрос',
+  none:'Ничего не найдено',more:'Ещё {n} — нажмите Enter, чтобы увидеть все',qty:'Количество (на этикетку)',cnt:'Этикеток',paper:'Бумага',form:'Шаблон',
+  issue:'Печать этикетки',making:'Печать…',back:'Искать другую (Esc)',noimg:'Нет фото',fromqr:'Открыто по образцу этикетки',fromqr2:'проверьте количество и печатайте',
+  readqr:'Этикетка считана',needqty:'Введите количество',notready:'Экран этикеток ещё не готов — попробуйте через минуту',
+  qtyS:'Кол-во',cntS:'Этикеток',lotS:'LOT',printed:'Напечатано',bundle:'Это этикетка паллеты — печатайте в разделе «Подробно»',
+  notlabel:'Это не QR-код этикетки',nopart:'Такого кода детали нет',pick:'Выберите язык',makefail:'Не удалось создать этикетку'},
+ zh:{brand:'韩一标签',sub:'搜索品号或品名，或扫描样品标签',ph:'品号 · 品名，或扫描标签二维码',find:'搜索',
+  tip:'扫描样品标签即可打开 — 只需输入数量并打印',ready:'就绪',wait:'加载中…',waitlong:'正在等待标签页面',
+  detail:'详细',logout:'退出',home:'首页',lang:'语言',searching:'搜索中…',found:'找到 {n} 个',many:'仅显示前 200 个 — 请输入更多内容',
+  none:'未找到物品',more:'还有 {n} 个 — 按 Enter 查看全部',qty:'数量（每张标签）',cnt:'张数',paper:'标签纸',form:'样式',
+  issue:'打印标签',making:'打印中…',back:'搜索其他 (Esc)',noimg:'没有图片',fromqr:'已从样品标签打开',fromqr2:'确认数量后打印',
+  readqr:'已扫描标签',needqty:'请输入数量',notready:'标签页面尚未就绪 — 请稍后再试',
+  qtyS:'数量',cntS:'张数',lotS:'LOT',printed:'已打印',bundle:'这是托盘标签 — 请在“详细”中打印',
+  notlabel:'这不是标签二维码',nopart:'没有此品号',pick:'请选择语言',makefail:'无法生成标签'}
+};
+//  🏳 국기 — ⚠ 윈도우는 국기 그림문자를 못 그린다(「KR」 같은 글자로 나온다) → 작은 그림으로 직접 그린다
+function star(cx,cy,r,fill){ var p=[]; for(var i=0;i<10;i++){ var a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*0.382:r; p.push((cx+rr*Math.cos(a)).toFixed(2)+','+(cy+rr*Math.sin(a)).toFixed(2)); }
+  return '<polygon points="'+p.join(' ')+'" fill="'+fill+'"/>'; }
+function flag(c, h){
+  h=h||40; var w=Math.round(h*1.5), b='';
+  if(c==='ko'){ b='<rect width="60" height="40" fill="#fff"/><g transform="translate(30 20)"><circle r="10" fill="#0047a0"/><path d="M-10 0a10 10 0 0 1 20 0a5 5 0 0 1-10 0a5 5 0 0 0-10 0z" fill="#cd2e3a"/></g>'
+      +'<g fill="#000"><g transform="translate(12 9) rotate(-33.7)"><rect x="-4" y="-3" width="8" height="1.2"/><rect x="-4" y="-.6" width="8" height="1.2"/><rect x="-4" y="1.8" width="8" height="1.2"/></g>'
+      +'<g transform="translate(48 31) rotate(-33.7)"><rect x="-4" y="-3" width="3.4" height="1.2"/><rect x=".6" y="-3" width="3.4" height="1.2"/><rect x="-4" y="-.6" width="3.4" height="1.2"/><rect x=".6" y="-.6" width="3.4" height="1.2"/><rect x="-4" y="1.8" width="3.4" height="1.2"/><rect x=".6" y="1.8" width="3.4" height="1.2"/></g>'
+      +'<g transform="translate(48 9) rotate(33.7)"><rect x="-4" y="-3" width="8" height="1.2"/><rect x="-4" y="-.6" width="3.4" height="1.2"/><rect x=".6" y="-.6" width="3.4" height="1.2"/><rect x="-4" y="1.8" width="8" height="1.2"/></g>'
+      +'<g transform="translate(12 31) rotate(33.7)"><rect x="-4" y="-3" width="3.4" height="1.2"/><rect x=".6" y="-3" width="3.4" height="1.2"/><rect x="-4" y="-.6" width="8" height="1.2"/><rect x="-4" y="1.8" width="3.4" height="1.2"/><rect x=".6" y="1.8" width="3.4" height="1.2"/></g></g>'; }
+  else if(c==='en'){ b='<rect width="60" height="40" fill="#012169"/><path d="M0 0L60 40M60 0L0 40" stroke="#fff" stroke-width="8"/><path d="M0 0L60 40M60 0L0 40" stroke="#c8102e" stroke-width="3"/>'
+      +'<path d="M30 0v40M0 20h60" stroke="#fff" stroke-width="12"/><path d="M30 0v40M0 20h60" stroke="#c8102e" stroke-width="7"/>'; }
+  else if(c==='vi'){ b='<rect width="60" height="40" fill="#da251d"/>'+star(30,20.5,11,'#ffff00'); }
+  else if(c==='my'){ b='<rect width="60" height="13.4" fill="#fecb00"/><rect y="13.3" width="60" height="13.4" fill="#34b233"/><rect y="26.6" width="60" height="13.4" fill="#ea2839"/>'+star(30,22,13,'#fff'); }
+  else if(c==='th'){ b='<rect width="60" height="40" fill="#a51931"/><rect y="6.67" width="60" height="26.66" fill="#f4f5f8"/><rect y="13.33" width="60" height="13.34" fill="#2d2a4a"/>'; }
+  else if(c==='ru'){ b='<rect width="60" height="13.4" fill="#fff"/><rect y="13.3" width="60" height="13.4" fill="#0039a6"/><rect y="26.6" width="60" height="13.4" fill="#d52b1e"/>'; }
+  else if(c==='zh'){ b='<rect width="60" height="40" fill="#ee1c25"/>'+star(10,10,6,'#ffff00')+star(20,4,2,'#ffff00')+star(24,8,2,'#ffff00')+star(24,13,2,'#ffff00')+star(20,17,2,'#ffff00'); }
+  return '<svg viewBox="0 0 60 40" width="'+w+'" height="'+h+'" style="border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.12);vertical-align:middle">'+b+'</svg>';
+}
+var LG=(function(){ try{ return localStorage.getItem('hl_lang')||'ko'; }catch(e){ return 'ko'; } }());
+function t(k, n){ var s=(L[LG]&&L[LG][k])||L.ko[k]||k; return n!=null ? s.replace('{n}', n) : s; }
+function applyLang(){
+  document.documentElement.lang=LG;
+  [].forEach.call(document.querySelectorAll('[data-t]'), function(e){ e.textContent=t(e.getAttribute('data-t')); });
+  [].forEach.call(document.querySelectorAll('[data-tp]'), function(e){ e.placeholder=t(e.getAttribute('data-tp')); });
+  var cur=LANG_LIST.filter(function(x){ return x[0]===LG; })[0]||LANG_LIST[0];
+  $('langBtn').innerHTML=flag(cur[0],20)+' '+esc(cur[2]);
+  [].forEach.call(document.querySelectorAll('.lgq'), function(e){ e.className='lgq'+(e.getAttribute('data-l')===LG?' on':''); });
+  if(engReady()){ $('eng').textContent='● '+t('ready'); }
+}
+function setLang(l){
+  LG=L[l]?l:'ko'; try{ localStorage.setItem('hl_lang', LG); }catch(e){}
+  applyLang();
+  document.body.classList.remove('lang');
+  home();
+}
+//  🌐 언어 고르기 화면 — 켤 때마다, 그리고 한동안 아무도 안 쓰면(다음 사람) 다시 뜬다
+function showLang(){
+  document.body.classList.add('lang');
+  document.body.classList.remove('found','pick');
+  hideSug && hideSug();
+}
+function drawLangs(){
+  $('lgGrid').innerHTML=LANG_LIST.map(function(x){
+    return '<button class="lgb" onclick="setLang(\''+x[0]+'\')"><span class="fl">'+flag(x[0],52)+'</span><span>'+x[2]+'</span></button>'; }).join('');
+  $('lgTitle').innerHTML=LANG_LIST.map(function(x){ return esc(L[x[0]].pick); }).join(' · ');
+  $('lgQuick').innerHTML=LANG_LIST.map(function(x){
+    return '<button type="button" class="lgq" data-l="'+x[0]+'" title="'+esc(x[2])+'" onclick="LG=\''+x[0]+'\';try{localStorage.setItem(\'hl_lang\',LG)}catch(e){};applyLang();$(\'q\').focus()">'+flag(x[0],26)+'</button>'; }).join('');
+}
+var idleT=null;
+function idleReset(){
+  clearTimeout(idleT);
+  //  ⚠ 3분 동안 아무것도 안 하면 다음 사람을 위해 언어 고르기로 돌아간다(고르던 것이 있으면 그대로 둔다)
+  idleT=setTimeout(function(){ if(!busy && !document.body.classList.contains('pick') && !$('q').value) showLang(); else idleReset(); }, 180000);
+}
+['keydown','mousedown','touchstart'].forEach(function(ev){ document.addEventListener(ev, idleReset, true); });
+
 
 //  ── 포털 연결 ───────────────────────────────────────────
 async function api(u){
@@ -157,9 +304,9 @@ function W(){ try{ var w=$('engine').contentWindow; return (w && typeof w.previe
 function engReady(){ var w=W(); return !!(w && w.SHEETS && w.SHEETS.length && w.document.getElementById('form') && w.document.getElementById('form').options.length); }
 var engTries=0;
 function engWatch(){
-  if(engReady()){ $('eng').textContent='● 준비됨'; $('eng').style.color='var(--good)'; fillSel(); return; }
+  if(engReady()){ $('eng').textContent='● '+t('ready'); $('eng').style.color='var(--good)'; fillSel(); return; }
   engTries++;
-  if(engTries===40){ $('eng').textContent='● 라벨 화면을 기다리는 중'; $('eng').style.color='var(--bad)'; }
+  if(engTries===40){ $('eng').textContent='● '+t('waitlong'); $('eng').style.color='var(--bad)'; }
   setTimeout(engWatch, 250);
 }
 function store(k,v){ try{ if(v==null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
@@ -218,12 +365,12 @@ async function search(raw){
   var qr=parseQR(raw);
   if(qr){
     $('q').value='';
-    if(qr.bundle){ say('📦 파레트 라벨('+qr.bundle+')입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요.', true); return; }
-    if(qr.unknown || !qr.pn){ say('이 코드는 라벨 QR 이 아닙니다: '+(qr.unknown||raw), true); return; }
+    if(qr.bundle){ say('📦 '+qr.bundle+' — '+t('bundle'), true); return; }
+    if(qr.unknown || !qr.pn){ say(t('notlabel')+': '+(qr.unknown||raw), true); return; }
     return openFromQR(qr);
   }
   document.body.classList.add('found'); document.body.classList.remove('pick');
-  say('찾는 중…'); $('results').innerHTML='';
+  say(t('searching')); $('results').innerHTML='';
   try{
     var d=await api('/api/labels/find?src=item&q='+encodeURIComponent(raw));
     var rows=d.rows||[];
@@ -237,8 +384,8 @@ async function search(raw){
     var exact=rows.filter(function(r){ return String(r.part_no||'').toUpperCase()===raw.toUpperCase(); });
     if(exact.length===1) return pick(exact[0]);
     if(rows.length===1) return pick(rows[0]);
-    if(!rows.length){ say('「'+raw+'」 — 찾은 품목이 없습니다.', true); return; }
-    say(rows.length>=200 ? '200개까지 보여 줍니다 — 더 자세히 적어 주세요.' : rows.length+'개 찾았습니다.');
+    if(!rows.length){ say('「'+raw+'」 — '+t('none'), true); return; }
+    say(rows.length>=200 ? t('many') : t('found', rows.length));
     $('results').innerHTML=rows.map(function(r,i){
       var img=Number(r.img_id)||0;
       return '<button class="it" onclick="pick(ROWS['+i+'])">'
@@ -250,7 +397,7 @@ async function search(raw){
 }
 async function openFromQR(qr){
   document.body.classList.add('found');
-  say('라벨을 읽었습니다 — '+qr.pn);
+  say(t('readqr')+' — '+qr.pn);
   try{
     var d=await api('/api/labels/find?src=item&q='+encodeURIComponent(qr.pn));
     var row=(d.rows||[]).filter(function(r){ return String(r.part_no||'').toUpperCase()===qr.pn.toUpperCase(); })[0];
@@ -258,7 +405,7 @@ async function openFromQR(qr){
     var sv=null;
     if(qr.serial){ try{ var s=await api('/api/labels/serial/'+encodeURIComponent(qr.serial)); if(s.found) sv=s; }catch(e){} }
     if(!row){
-      if(!sv){ say('품목에 없는 품번입니다: '+qr.pn, true); return; }
+      if(!sv){ say(t('nopart')+': '+qr.pn, true); return; }
       row={part_no:sv.part_no, part_name:sv.part_name, customer:sv.customer, model:'', img_id:0};
     }
     row=Object.assign({}, row);
@@ -287,7 +434,7 @@ async function suggest(){
     if(!rows.length && hasKo(q)){ var alt=KO(q); var d2=await api('/api/labels/find?src=item&q='+encodeURIComponent(alt));
       if(my!==sugSeq) return; rows=d2.rows||[]; q=alt; }
     SUG=rows.slice(0,8); SUGI=-1;
-    if(!SUG.length){ $('sug').innerHTML='<div class="sgmore">「'+esc(q)+'」 — 찾은 품목이 없습니다</div>'; $('sug').className='on'; return; }
+    if(!SUG.length){ $('sug').innerHTML='<div class="sgmore">「'+esc(q)+'」 — '+t('none')+'</div>'; $('sug').className='on'; return; }
     $('sug').innerHTML=SUG.map(function(r,i){
       var img=Number(r.img_id)||0;
       return '<div class="sg" data-i="'+i+'" onmousedown="event.preventDefault();pickSug('+i+')">'
@@ -295,7 +442,7 @@ async function suggest(){
         +'<div class="gx"><div class="pn">'+mark(r.part_no,q)+'</div>'
         +'<div class="nm">'+mark(r.part_name||'',q)+'</div>'
         +'<div class="cu">'+esc([r.customer,r.model].filter(Boolean).join(' · '))+'</div></div></div>';
-    }).join('')+(rows.length>SUG.length?'<div class="sgmore">외 '+(rows.length-SUG.length)+'개 더 — Enter 를 누르면 모두 봅니다</div>':'');
+    }).join('')+(rows.length>SUG.length?'<div class="sgmore">'+esc(t('more', rows.length-SUG.length))+'</div>':'');
     $('sug').className='on';
   }catch(e){ hideSug(); }
 }
@@ -326,12 +473,12 @@ function pick(r, from){
   say('');
   var img=Number(r.img_id)||0;
   $('dimg').style.backgroundImage=img?'url(/api/items/img/'+img+')':'';
-  $('dimg').innerHTML=img?'<a href="/api/items/img/'+img+'" target="_blank" title="크게 보기"></a>':'사진이 없습니다';
+  $('dimg').innerHTML=img?'<a href="/api/items/img/'+img+'" target="_blank" title="크게 보기"></a>':esc(t('noimg'));
   $('dpn').textContent=r.part_no||'';
   $('dnm').textContent=r.part_name||'';
   $('dcu').textContent=[r.customer,r.model,r.spec].filter(Boolean).join(' · ');
   var fr=$('dfrom');
-  if(from){ fr.style.display='block'; fr.textContent='📷 라벨 샘플에서 불러왔습니다'+(from.serial?(' ('+from.serial+')'):'')+' — 수량을 확인하고 발행하세요'; }
+  if(from){ fr.style.display='block'; fr.textContent='📷 '+t('fromqr')+(from.serial?(' ('+from.serial+')'):'')+' — '+t('fromqr2'); }
   else fr.style.display='none';
   //  ⭐ 이 품번을 지난번에 뽑은 라벨지·양식을 되살린다(거래처마다 양식이 다르다)
   fillSel();
@@ -357,11 +504,11 @@ var busy=false;
 async function issue(){
   if(busy || !CUR) return;
   var qty=String($('qty').value||'').replace(/[^0-9.]/g,'');
-  if(!qty || !(Number(qty)>0)){ toast('수량을 넣어 주세요', 'bad'); $('qty').focus(); return; }
+  if(!qty || !(Number(qty)>0)){ toast(t('needqty'), 'bad'); $('qty').focus(); return; }
   var n=Math.max(1, Math.min(200, Math.floor(Number($('cnt').value)||1)));
   var w=W();
-  if(!w || !engReady()){ toast('라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요', 'bad'); return; }
-  busy=true; $('go').disabled=true; $('go').textContent='만드는 중…';
+  if(!w || !engReady()){ toast(t('notready'), 'bad'); return; }
+  busy=true; $('go').disabled=true; $('go').textContent=t('making');
   try{
     var doc=w.document;
     //  라벨지·양식 — 사무실에서 맞춰 둔 모양(여백·글자·QR)은 라벨 화면이 양식별로 불러온다
@@ -379,19 +526,19 @@ async function issue(){
       model:CUR.model||'', spec:CUR.spec||'', due:'', qty:qty, unit:'EA', n:n}];
     w.__lastHtml='';
     await w.preview();
-    if(!w.__lastHtml) throw new Error('라벨을 만들지 못했습니다');
+    if(!w.__lastHtml) throw new Error(t('makefail'));
     w.printHere();
     var info=(doc.getElementById('msg')||{}).textContent||'';
     var lot=(info.match(/로트\s+([0-9A-Za-z\-·\s]+)/)||[])[1]||'';
     //  다음에 같은 품번을 찍으면 같은 라벨지·양식으로
     var pref={paper:$('paper').value, form:$('form').value};
     store('hl_pn:'+String(CUR.part_no||'').toUpperCase(), pref); store('hl_last', pref);
-    toast('🖨 '+CUR.part_no+' · '+Number(qty).toLocaleString('ko-KR')+'개 · '+n+'장 발행'+(lot?(' · 로트 '+lot.trim()):''), 'ok');
+    toast('🖨 '+t('printed')+' — '+CUR.part_no+' · '+t('qtyS')+' '+Number(qty).toLocaleString('ko-KR')+' · '+t('cntS')+' '+n+(lot?(' · '+t('lotS')+' '+lot.trim()):''), 'ok');
     setTimeout(home, 1200);
   }catch(e){
     toast('⚠ '+e.message, 'bad');
   }finally{
-    busy=false; $('go').disabled=false; $('go').textContent='🏷 라벨 발행';
+    busy=false; $('go').disabled=false; $('go').innerHTML='🏷 '+esc(t('issue'));
   }
 }
 
@@ -406,6 +553,11 @@ $('qty').addEventListener('keydown', function(e){
 });
 $('cnt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); issue(); } });
 document.addEventListener('keydown', function(e){
+  if(document.body.classList.contains('lang')){
+    //  ⚠ 언어 화면에서 리더기로 찍으면 지난번 언어로 곧장 찾기 화면으로(찍은 글자를 잃지 않게)
+    if(e.key.length===1 && !e.ctrlKey && !e.altKey && !e.metaKey){ document.body.classList.remove('lang'); home(); }
+    return;
+  }
   if(e.key==='Escape'){ if(document.body.classList.contains('pick')) backToList(); else home(); return; }
   //  아무 칸에도 없을 때 들어온 글자(리더기)는 찾기 칸으로
   var a=document.activeElement, tag=a&&a.tagName;
@@ -414,7 +566,7 @@ document.addEventListener('keydown', function(e){
 });
 //  로그인이 풀렸는지 먼저 본다
 api('/api/labels/forms').catch(function(){});
+drawLangs(); applyLang(); showLang(); idleReset();
 engWatch();
-$('q').focus();
 </script>
 </body></html>
