@@ -31,8 +31,14 @@ import (
 //go:embed page.html
 var pageHTML []byte
 
+// 상세 화면(포털 라벨 화면)을 고른 말로 바꾸는 조각
+//
+//go:embed detail-i18n.js
+var detailJS []byte
+
 const pingPath = "/__label/ping"
 const retryPath = "/__label/retry"
+const i18nPath = "/__label/detail-i18n.js"
 
 type gateway struct {
 	mu       sync.Mutex
@@ -166,6 +172,11 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case pingPath:
 		fmt.Fprint(w, "hanil-label "+VERSION)
 		return
+	case i18nPath:
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(detailJS)
+		return
 	case retryPath:
 		ok := g.pickUpstream()
 		g.mu.Lock()
@@ -277,9 +288,9 @@ func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 		}
 		html := string(body)
 		if i := strings.Index(strings.ToLower(html), "</head>"); i >= 0 {
-			html = html[:i] + swKill + html[i:]
+			html = html[:i] + swKill + detailTag + html[i:]
 		} else {
-			html = swKill + html
+			html = swKill + detailTag + html
 		}
 		res.Header.Del("Content-Length")
 		res.Header.Del("Content-Encoding")
@@ -314,6 +325,9 @@ func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 	}
 	return nil
 }
+
+// 상세 화면 번역·🏠 단추
+const detailTag = `<script src="` + i18nPath + `"></script>`
 
 // 이 창(127.0.0.1)에 깔린 서비스 워커를 모두 지운다
 //

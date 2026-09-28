@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.4.2"
+const VERSION = "1.5.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
