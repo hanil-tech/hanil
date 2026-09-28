@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>한일 라벨 발행</title>
+<style>
+:root{--ink:#1b2a4a;--acc:#2954A5;--acc2:#1f4488;--bg:#f4f6fa;--card:#fff;--line:#e3e8f0;--muted:#6b7684;--good:#1a7f4b;--bad:#c0392b}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:#222;font:17px/1.5 "Segoe UI","Malgun Gothic",sans-serif}
+button,input,select{font:inherit}
+.top{display:flex;align-items:center;gap:14px;padding:12px 20px;min-height:56px}
+.top .brand{font-weight:800;color:var(--ink);font-size:20px;display:none;cursor:pointer}
+.top .sp{flex:1}
+.top a{color:var(--muted);text-decoration:none;font-size:15px;padding:6px 10px;border-radius:8px}
+.top a:hover{background:#e9edf4;color:var(--ink)}
+#eng{font-size:13px;color:var(--muted)}
+main{max-width:1100px;margin:0 auto;padding:0 20px 40px}
+/* ── 첫 화면: 가운데 검색 ── */
+#hero{text-align:center;margin-top:16vh;transition:margin .2s}
+#hero h1{margin:0;font-size:54px;letter-spacing:-1px;color:var(--ink)}
+#hero h1 span{color:var(--acc)}
+#hero p{margin:8px 0 26px;color:var(--muted);font-size:18px}
+#sf{display:flex;max-width:760px;margin:0 auto;background:#fff;border:2px solid var(--line);border-radius:40px;
+  padding:6px 6px 6px 26px;box-shadow:0 2px 10px rgba(20,30,60,.06);align-items:center}
+#sf:focus-within{border-color:var(--acc);box-shadow:0 3px 16px rgba(41,84,165,.18)}
+#q{flex:1;border:0;outline:0;font-size:26px;padding:10px 0;background:transparent;min-width:0}
+#sf button{border:0;background:var(--acc);color:#fff;border-radius:30px;padding:14px 30px;font-size:20px;font-weight:700;cursor:pointer}
+#tip{text-align:center;color:var(--muted);font-size:15px;margin-top:14px}
+#tip b{color:var(--ink)}
+body.found #hero{margin-top:0}
+body.found #hero h1,body.found #hero p{display:none}
+body.found .top .brand{display:block}
+body.found #tip{display:none}
+/* ── 찾은 것 ── */
+#msg{max-width:760px;margin:14px auto 0;color:var(--muted);text-align:center}
+#msg.bad{color:var(--bad)}
+#results{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:18px}
+.it{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;padding:0;
+  transition:transform .08s,box-shadow .08s}
+.it:hover,.it:focus{box-shadow:0 4px 18px rgba(20,30,60,.12);transform:translateY(-1px);outline:2px solid var(--acc)}
+.it .ph{height:150px;background:#fff center/contain no-repeat;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:#c2c9d6;font-size:40px}
+.it .tx{padding:10px 14px 12px}
+.it .pn{font-weight:800;font-size:19px;color:var(--ink);word-break:break-all}
+.it .nm{font-size:15px;margin-top:2px}
+.it .cu{font-size:13px;color:var(--muted);margin-top:4px}
+/* ── 고른 것: 사진 + 수량 + 발행 ── */
+#detail{display:none;background:var(--card);border:1px solid var(--line);border-radius:18px;margin-top:20px;overflow:hidden}
+body.pick #results{display:none}
+body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
+#dimg{background:#fff center/contain no-repeat;min-height:420px;border-right:1px solid var(--line);position:relative;display:flex;align-items:center;justify-content:center;color:#c2c9d6;font-size:18px}
+#dimg a{position:absolute;inset:0}
+#dinfo{padding:26px 30px;display:flex;flex-direction:column;gap:14px}
+#dpn{font-size:40px;font-weight:800;color:var(--ink);line-height:1.15;word-break:break-all}
+#dnm{font-size:22px;margin-top:-6px}
+#dcu{color:var(--muted);font-size:16px}
+#dfrom{display:none;background:#eef3fc;color:var(--acc2);border-radius:10px;padding:8px 12px;font-size:15px}
+.fl{display:flex;gap:12px;flex-wrap:wrap}
+.fl>div{flex:1;min-width:120px}
+.fl label{display:block;font-size:14px;color:var(--muted);margin-bottom:4px;font-weight:700}
+.fl input,.fl select{width:100%;border:2px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff;font-size:20px}
+.fl input:focus,.fl select:focus{border-color:var(--acc);outline:0}
+#qty{font-size:40px!important;font-weight:800;text-align:right;padding:10px 16px!important}
+#go{border:0;background:var(--acc);color:#fff;border-radius:14px;padding:22px;font-size:28px;font-weight:800;cursor:pointer;margin-top:4px}
+#go:hover{background:var(--acc2)}
+#go:disabled{background:#9aa9c6;cursor:wait}
+#back{border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:17px;cursor:pointer;color:var(--ink)}
+#toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:16px 26px;border-radius:14px;
+  font-size:19px;box-shadow:0 6px 30px rgba(0,0,0,.25);display:none;z-index:9;max-width:92vw;text-align:center}
+#toast.ok{background:var(--good)}
+#toast.bad{background:var(--bad)}
+#engine{position:fixed;width:1200px;height:900px;left:-3000px;top:0;border:0;visibility:hidden}
+@media (max-width:760px){
+  body.pick #detail{grid-template-columns:1fr}
+  #dimg{min-height:240px;border-right:0;border-bottom:1px solid var(--line)}
+  #hero h1{font-size:38px}
+}
+</style></head>
+<body>
+<div class="top">
+  <div class="brand" onclick="home()">🏷 한일 라벨</div>
+  <span class="sp"></span>
+  <span id="eng">준비 중…</span>
+  <a href="/kiosk/label" title="여러 품번 묶기·나누기 같은 자세한 기능">상세 화면</a>
+  <a href="/logout">로그아웃</a>
+</div>
+<main>
+  <div id="hero">
+    <h1>🏷 한일 <span>라벨</span></h1>
+    <p>품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요</p>
+  </div>
+  <form id="sf" onsubmit="event.preventDefault();search($('q').value)">
+    <input id="q" autocomplete="off" spellcheck="false" placeholder="품번 · 품명 검색, 또는 라벨 QR 스캔" autofocus>
+    <button type="submit">찾기</button>
+  </form>
+  <div id="tip">📷 <b>라벨 샘플을 찍으면</b> 그 라벨이 바로 열립니다 — 수량만 넣고 발행하세요</div>
+  <div id="msg"></div>
+  <div id="results"></div>
+  <div id="detail">
+    <div id="dimg"></div>
+    <div id="dinfo">
+      <div id="dfrom"></div>
+      <div id="dpn"></div>
+      <div id="dnm"></div>
+      <div id="dcu"></div>
+      <div class="fl">
+        <div style="flex:2"><label>수량 (라벨 한 장에)</label><input id="qty" inputmode="numeric" autocomplete="off"></div>
+        <div><label>장수</label><input id="cnt" type="number" min="1" value="1" style="text-align:right"></div>
+      </div>
+      <div class="fl">
+        <div><label>라벨지</label><select id="paper"></select></div>
+        <div><label>양식</label><select id="form"></select></div>
+      </div>
+      <button id="go" onclick="issue()">🏷 라벨 발행</button>
+      <button id="back" onclick="backToList()">← 다른 품번 찾기 (Esc)</button>
+    </div>
+  </div>
+</main>
+<div id="toast"></div>
+<!-- 라벨을 그리고 인쇄하는 것은 포털의 라벨 화면이 한다(보이지 않게 띄워 둔다).
+     ⚠ 그리는 코드를 여기 따로 두면 사무실 라벨과 모양·번호가 갈라진다. -->
+<iframe id="engine" src="/kiosk/label" tabindex="-1" aria-hidden="true"></iframe>
+<script>
+try{navigator.serviceWorker&&navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});}).catch(function(){});}catch(e){}
+function $(i){return document.getElementById(i);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+var ROWS=[], CUR=null;
+
+//  ── 포털 연결 ───────────────────────────────────────────
+async function api(u){
+  var r=await fetch(u,{cache:'no-store'});
+  if(r.status===401){ location.href='/?next=/label'; throw new Error('로그인이 필요합니다'); }
+  var d=null; try{ d=await r.json(); }catch(e){}
+  if(!r.ok || !d || d.ok===false) throw new Error((d&&d.error)||('서버 오류 '+r.status));
+  return d;
+}
+//  라벨 엔진(숨은 라벨 화면)
+function W(){ try{ var w=$('engine').contentWindow; return (w && typeof w.preview==='function' && typeof w.printHere==='function') ? w : null; }catch(e){ return null; } }
+function engReady(){ var w=W(); return !!(w && w.SHEETS && w.SHEETS.length && w.document.getElementById('form') && w.document.getElementById('form').options.length); }
+var engTries=0;
+function engWatch(){
+  if(engReady()){ $('eng').textContent='● 준비됨'; $('eng').style.color='var(--good)'; fillSel(); return; }
+  engTries++;
+  if(engTries===40){ $('eng').textContent='● 라벨 화면을 기다리는 중'; $('eng').style.color='var(--bad)'; }
+  setTimeout(engWatch, 250);
+}
+function store(k,v){ try{ if(v==null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function load(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+function fillSel(){
+  var w=W(); if(!w) return;
+  var sh=w.SHEETS||[], fo=w.document.getElementById('form');
+  var ps=$('paper'), fs=$('form'), pv=ps.value, fv=fs.value;
+  ps.innerHTML=sh.map(function(x){ return '<option value="'+esc(x.key)+'">'+esc(x.label||x.name||x.key)+'</option>'; }).join('');
+  fs.innerHTML=[].map.call(fo.options,function(o){ return '<option value="'+esc(o.value)+'">'+esc(o.textContent)+'</option>'; }).join('');
+  var last=load('hl_last')||{};
+  ps.value=pv||last.paper||w.document.getElementById('sheet').value||'';
+  fs.value=fv||last.form||fo.value||'';
+  if(!ps.value && ps.options.length) ps.selectedIndex=0;
+  if(!fs.value && fs.options.length) fs.selectedIndex=0;
+}
+
+//  ── 리더기 ───────────────────────────────────────────────
+//  ⚠ 키보드가 한글 상태면 리더기가 보낸 영문이 한글로 들어온다(HANIL → ㅗ뮤ㅑㅣ).
+//    한글 자판 자리를 영문 자판 자리로 되돌린다.
+var KO=(function(){
+  var cho='ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'.split('');
+  var jung=['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ','ㅙ','ㅚ','ㅛ','ㅜ','ㅝ','ㅞ','ㅟ','ㅠ','ㅡ','ㅢ','ㅣ'];
+  var jong=['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  var key={'ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p','ㅁ':'a','ㄴ':'s','ㅇ':'d',
+    'ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l','ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m',
+    'ㅃ':'Q','ㅉ':'W','ㄸ':'E','ㄲ':'R','ㅆ':'T','ㅒ':'O','ㅖ':'P',
+    'ㅘ':'hk','ㅙ':'ho','ㅚ':'hl','ㅝ':'nj','ㅞ':'np','ㅟ':'nl','ㅢ':'ml',
+    'ㄳ':'rt','ㄵ':'sw','ㄶ':'sg','ㄺ':'fr','ㄻ':'fa','ㄼ':'fq','ㄽ':'ft','ㄾ':'fx','ㄿ':'fv','ㅀ':'fg','ㅄ':'qt'};
+  function one(ch){
+    var c=ch.charCodeAt(0);
+    if(c>=0xAC00 && c<=0xD7A3){ var i=c-0xAC00; return (key[cho[Math.floor(i/588)]]||'')+(key[jung[Math.floor(i%588/28)]]||'')+(key[jong[i%28]]||''); }
+    return key[ch]!=null ? key[ch] : ch;
+  }
+  return function(s){ return String(s).split('').map(one).join('').toUpperCase(); };
+}());
+function hasKo(s){ return /[ㄱ-ㆎ가-힣]/.test(s); }
+//  라벨 QR 읽기 — HANIL|품번|수량|날짜|로트|고유번호  ·  HANIL-PVL|전표|id|품번|수량|고유번호  ·  HANIL-PL|파레트
+function parseQR(s){
+  var t=String(s||'').trim();
+  if(t.indexOf('|')<0) return null;
+  if(hasKo(t)) t=KO(t);
+  var f=t.split('|'), h=f[0].toUpperCase();
+  if(h==='HANIL') return {pn:f[1]||'', qty:f[2]||'', serial:f[5]||''};
+  if(h==='HANIL-PVL') return {pn:f[3]||'', qty:f[4]||'', serial:f[5]||''};
+  if(h==='HANIL-PL') return {bundle:f[1]||''};
+  return {unknown:t};
+}
+
+//  ── 찾기 ─────────────────────────────────────────────────
+function say(t, bad){ var m=$('msg'); m.textContent=t||''; m.className=bad?'bad':''; }
+async function search(raw){
+  raw=String(raw||'').trim();
+  if(!raw) return;
+  var qr=parseQR(raw);
+  if(qr){
+    $('q').value='';
+    if(qr.bundle){ say('📦 파레트 라벨('+qr.bundle+')입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요.', true); return; }
+    if(qr.unknown || !qr.pn){ say('이 코드는 라벨 QR 이 아닙니다: '+(qr.unknown||raw), true); return; }
+    return openFromQR(qr);
+  }
+  document.body.classList.add('found'); document.body.classList.remove('pick');
+  say('찾는 중…'); $('results').innerHTML='';
+  try{
+    var d=await api('/api/labels/find?src=item&q='+encodeURIComponent(raw));
+    var rows=d.rows||[];
+    //  ⚠ 한글 상태에서 찍힌 품번 바코드 — 못 찾으면 영문 자판으로 되돌려 한 번 더 본다
+    if(!rows.length && hasKo(raw)){
+      var alt=KO(raw);
+      var d2=await api('/api/labels/find?src=item&q='+encodeURIComponent(alt));
+      if((d2.rows||[]).length){ rows=d2.rows; raw=alt; $('q').value=alt; }
+    }
+    ROWS=rows;
+    var exact=rows.filter(function(r){ return String(r.part_no||'').toUpperCase()===raw.toUpperCase(); });
+    if(exact.length===1) return pick(exact[0]);
+    if(rows.length===1) return pick(rows[0]);
+    if(!rows.length){ say('「'+raw+'」 — 찾은 품목이 없습니다.', true); return; }
+    say(rows.length>=200 ? '200개까지 보여 줍니다 — 더 자세히 적어 주세요.' : rows.length+'개 찾았습니다.');
+    $('results').innerHTML=rows.map(function(r,i){
+      var img=Number(r.img_id)||0;
+      return '<button class="it" onclick="pick(ROWS['+i+'])">'
+        +'<div class="ph"'+(img?' style="background-image:url(/api/items/img/'+img+')"':'')+'>'+(img?'':'🏷')+'</div>'
+        +'<div class="tx"><div class="pn">'+esc(r.part_no)+'</div><div class="nm">'+esc(r.part_name||'')+'</div>'
+        +'<div class="cu">'+esc([r.customer,r.model].filter(Boolean).join(' · '))+'</div></div></button>';
+    }).join('');
+  }catch(e){ say(e.message, true); }
+}
+async function openFromQR(qr){
+  document.body.classList.add('found');
+  say('라벨을 읽었습니다 — '+qr.pn);
+  try{
+    var d=await api('/api/labels/find?src=item&q='+encodeURIComponent(qr.pn));
+    var row=(d.rows||[]).filter(function(r){ return String(r.part_no||'').toUpperCase()===qr.pn.toUpperCase(); })[0];
+    //  🆔 고유번호가 있으면 그 라벨에 찍혔던 거래처를 그대로 쓴다
+    var sv=null;
+    if(qr.serial){ try{ var s=await api('/api/labels/serial/'+encodeURIComponent(qr.serial)); if(s.found) sv=s; }catch(e){} }
+    if(!row){
+      if(!sv){ say('품목에 없는 품번입니다: '+qr.pn, true); return; }
+      row={part_no:sv.part_no, part_name:sv.part_name, customer:sv.customer, model:'', img_id:0};
+    }
+    row=Object.assign({}, row);
+    if(sv && sv.customer) row.customer=sv.customer;
+    pick(row, {qty:qr.qty, serial:qr.serial});
+  }catch(e){ say(e.message, true); }
+}
+
+//  ── 고르기 → 수량 → 발행 ─────────────────────────────────
+function pick(r, from){
+  CUR=r;
+  document.body.classList.add('found','pick');
+  say('');
+  var img=Number(r.img_id)||0;
+  $('dimg').style.backgroundImage=img?'url(/api/items/img/'+img+')':'';
+  $('dimg').innerHTML=img?'<a href="/api/items/img/'+img+'" target="_blank" title="크게 보기"></a>':'사진이 없습니다';
+  $('dpn').textContent=r.part_no||'';
+  $('dnm').textContent=r.part_name||'';
+  $('dcu').textContent=[r.customer,r.model,r.spec].filter(Boolean).join(' · ');
+  var fr=$('dfrom');
+  if(from){ fr.style.display='block'; fr.textContent='📷 라벨 샘플에서 불러왔습니다'+(from.serial?(' ('+from.serial+')'):'')+' — 수량을 확인하고 발행하세요'; }
+  else fr.style.display='none';
+  //  ⭐ 이 품번을 지난번에 뽑은 라벨지·양식을 되살린다(거래처마다 양식이 다르다)
+  fillSel();
+  var pref=load('hl_pn:'+String(r.part_no||'').toUpperCase());
+  if(pref){ if(pref.paper) $('paper').value=pref.paper; if(pref.form) $('form').value=pref.form; }
+  $('qty').value=(from && from.qty && Number(from.qty)) ? from.qty : '';
+  $('cnt').value=1;
+  setTimeout(function(){ $('qty').focus(); $('qty').select(); }, 30);
+}
+function backToList(){
+  document.body.classList.remove('pick'); CUR=null;
+  if(!$('results').innerHTML) home(); else $('q').focus();
+}
+function home(){
+  document.body.classList.remove('found','pick'); CUR=null;
+  $('results').innerHTML=''; say(''); $('q').value=''; $('q').focus();
+}
+function toast(t, kind){
+  var e=$('toast'); e.textContent=t; e.className=kind||''; e.style.display='block';
+  clearTimeout(e._t); e._t=setTimeout(function(){ e.style.display='none'; }, kind==='bad'?7000:4500);
+}
+var busy=false;
+async function issue(){
+  if(busy || !CUR) return;
+  var qty=String($('qty').value||'').replace(/[^0-9.]/g,'');
+  if(!qty || !(Number(qty)>0)){ toast('수량을 넣어 주세요', 'bad'); $('qty').focus(); return; }
+  var n=Math.max(1, Math.min(200, Math.floor(Number($('cnt').value)||1)));
+  var w=W();
+  if(!w || !engReady()){ toast('라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요', 'bad'); return; }
+  busy=true; $('go').disabled=true; $('go').textContent='만드는 중…';
+  try{
+    var doc=w.document;
+    //  라벨지·양식 — 사무실에서 맞춰 둔 모양(여백·글자·QR)은 라벨 화면이 양식별로 불러온다
+    var fo=doc.getElementById('form'), sh=doc.getElementById('sheet');
+    if($('form').value && fo.value!==$('form').value){
+      fo.value=$('form').value;
+      try{ w.formChanged(); }catch(e){}
+      try{ w.loadOrient(); }catch(e){}
+      try{ w.loadTune(); }catch(e){}
+    }
+    if($('paper').value) sh.value=$('paper').value;
+    var bc=doc.getElementById('bundleChk'); if(bc) bc.checked=false;
+    var pb=doc.getElementById('perBox'); if(pb) pb.value='';
+    w.CART=[{img_id:CUR.img_id||0, customer:CUR.customer||'', part_no:CUR.part_no||'', part_name:CUR.part_name||'',
+      model:CUR.model||'', spec:CUR.spec||'', due:'', qty:qty, unit:'EA', n:n}];
+    w.__lastHtml='';
+    await w.preview();
+    if(!w.__lastHtml) throw new Error('라벨을 만들지 못했습니다');
+    w.printHere();
+    var info=(doc.getElementById('msg')||{}).textContent||'';
+    var lot=(info.match(/로트\s+([0-9A-Za-z\-·\s]+)/)||[])[1]||'';
+    //  다음에 같은 품번을 찍으면 같은 라벨지·양식으로
+    var pref={paper:$('paper').value, form:$('form').value};
+    store('hl_pn:'+String(CUR.part_no||'').toUpperCase(), pref); store('hl_last', pref);
+    toast('🖨 '+CUR.part_no+' · '+Number(qty).toLocaleString('ko-KR')+'개 · '+n+'장 발행'+(lot?(' · 로트 '+lot.trim()):''), 'ok');
+    setTimeout(home, 1200);
+  }catch(e){
+    toast('⚠ '+e.message, 'bad');
+  }finally{
+    busy=false; $('go').disabled=false; $('go').textContent='🏷 라벨 발행';
+  }
+}
+
+//  ── 키보드 ───────────────────────────────────────────────
+$('qty').addEventListener('keydown', function(e){
+  if(e.key!=='Enter') return;
+  e.preventDefault();
+  //  ⚠ 수량 칸에 있을 때 다른 라벨을 찍으면 QR 글자가 여기로 들어온다 → 새로 찾는다
+  var v=this.value;
+  if(/[|A-Za-zㄱ-힣]/.test(v)){ this.value=''; search(v); return; }
+  issue();
+});
+$('cnt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); issue(); } });
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape'){ if(document.body.classList.contains('pick')) backToList(); else home(); return; }
+  //  아무 칸에도 없을 때 들어온 글자(리더기)는 찾기 칸으로
+  var a=document.activeElement, tag=a&&a.tagName;
+  if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+  if(e.key.length===1 && !e.ctrlKey && !e.altKey && !e.metaKey){ $('q').focus(); }
+});
+//  로그인이 풀렸는지 먼저 본다
+api('/api/labels/forms').catch(function(){});
+engWatch();
+$('q').focus();
+</script>
+</body></html>

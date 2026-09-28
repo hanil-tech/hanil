@@ -15,6 +15,7 @@ package main
 
 import (
 	"crypto/tls"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,9 @@ import (
 	"sync"
 	"time"
 )
+
+//go:embed page.html
+var pageHTML []byte
 
 const pingPath = "/__label/ping"
 const retryPath = "/__label/retry"
@@ -117,7 +121,7 @@ func rule(method, p string) verdict {
 	case strings.HasSuffix(p, "/sw.js"):
 		return gone
 	//  라벨 화면
-	case p == startPath && get:
+	case p == portalLabel && get:
 		return pass
 	//  로그인 · 2단계 인증 · 나가기
 	case p == "/" && get:
@@ -176,6 +180,13 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.offline(w, r)
 		return
 	}
+	//  🏷 간편 발행 화면 — 이 프로그램 안에 들어 있다(라벨 그리기·인쇄는 숨겨 둔 포털 라벨 화면이 한다)
+	if p == startPath && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(pageHTML)
+		return
+	}
 	switch rule(r.Method, p) {
 	case home:
 		http.Redirect(w, r, startPath, http.StatusFound)
@@ -210,13 +221,13 @@ func (g *gateway) proxy(up *url.URL) *httputil.ReverseProxy {
 			//  ⚠ X-Forwarded-For 를 붙이지 않는다 — 붙이면 포털 기록에 이 PC 가 아니라 127.0.0.1 이 남는다
 			pr.Out.Header.Del("X-Forwarded-For")
 			//  ⚠ 첫 화면(/)은 관문이 글을 읽어 고쳐야 한다 → 압축 없이 받는다(Go 가 알아서 풀어 준다)
-			if pr.In.URL.Path == "/" || pr.In.URL.Path == startPath {
+			if pr.In.URL.Path == "/" || pr.In.URL.Path == portalLabel {
 				pr.Out.Header.Del("Accept-Encoding")
 			}
 			//  ⭐ 라벨 화면은 «끼워 넣은 화면(embed=1)» 으로 받는다.
 			//    그러면 포털이 사무실용 장치(통합검색·알림·쪽지·점검 안내·앱 설치·자동 로그아웃)를
 			//    붙이지 않는다 — 그 장치들이 부르는 API 는 관문이 막으므로 붙어 있으면 오류만 난다.
-			if pr.In.URL.Path == startPath {
+			if pr.In.URL.Path == portalLabel {
 				q := pr.Out.URL.Query()
 				q.Set("embed", "1")
 				pr.Out.URL.RawQuery = q.Encode()
@@ -257,7 +268,7 @@ func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 		res.Header.Set("Location", g.fixLocation(loc, up))
 	}
 	//  ③ 라벨 화면 — 예전 판이 깔아 둔 서비스 워커를 지운다(한 번 지우면 다시 안 깔린다)
-	if req.URL.Path == startPath && req.Method == http.MethodGet && res.StatusCode == http.StatusOK {
+	if req.URL.Path == portalLabel && req.Method == http.MethodGet && res.StatusCode == http.StatusOK {
 		body, err := io.ReadAll(io.LimitReader(res.Body, 16<<20))
 		res.Body.Close()
 		if err != nil {

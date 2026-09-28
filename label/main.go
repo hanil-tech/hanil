@@ -37,13 +37,16 @@ import (
 	"time"
 )
 
-const VERSION = "1.1.1"
+const VERSION = "1.2.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
 
-// 가장 먼저 열 화면
-const startPath = "/kiosk/label"
+// 가장 먼저 열 화면 — 가운데 검색창 하나인 «간편 발행» 화면(page.html)
+const startPath = "/label"
+
+// 포털의 키오스크 라벨 화면 — 라벨을 그리고 인쇄하는 곳(간편 화면이 숨겨 두고 쓴다)
+const portalLabel = "/kiosk/label"
 
 // ⚠ 차례가 뜻이 있다: 사내 주소를 먼저 본다(더 빠르고, 바깥 인터넷이 끊겨도 된다).
 var defaultURLs = []string{
