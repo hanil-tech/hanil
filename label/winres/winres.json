@@ -1,0 +1,33 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": { "0000": "icon.png" }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": { "name": "Hanil.Label", "version": "1.1.0.0" },
+        "description": "한일 라벨 발행기",
+        "minimum-os": "win7",
+        "execution-level": "as invoker",
+        "dpi-awareness": "system"
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": { "file_version": "1.1.0.0", "product_version": "1.1.0.0" },
+        "info": {
+          "0412": {
+            "CompanyName": "한일특장",
+            "FileDescription": "한일 라벨 발행기",
+            "FileVersion": "1.1.0",
+            "OriginalFilename": "hanil-label.exe",
+            "ProductName": "한일 라벨 발행기",
+            "ProductVersion": "1.1.0"
+          }
+        }
+      }
+    }
+  }
+}

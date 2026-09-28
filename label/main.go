@@ -37,7 +37,10 @@ import (
 	"time"
 )
 
-const VERSION = "1.0.0"
+const VERSION = "1.1.0"
+
+// 바탕화면·시작 메뉴 아이콘 이름
+const shortcutName = "한일 라벨 발행기"
 
 // 가장 먼저 열 화면
 const startPath = "/kiosk/label"
@@ -57,16 +60,21 @@ type Conf struct {
 	Width      int
 	Height     int
 	Probe      int
+	Shortcut   bool //  바탕화면·시작 메뉴 아이콘을 만들까(기본 켜짐)
+	Autostart  bool //  윈도우가 켜지면 저절로 띄울까(기본 꺼짐)
 }
 
-var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3}
+var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3, Shortcut: true}
 
 const iniName = "hanil-label.ini"
 
 func main() {
-	exeDir := "."
+	exeDir, exePath := ".", ""
 	if p, err := os.Executable(); err == nil {
-		exeDir = filepath.Dir(p)
+		if r, err2 := filepath.EvalSymlinks(p); err2 == nil {
+			p = r
+		}
+		exeDir, exePath = filepath.Dir(p), p
 	}
 	conf.URLs = append([]string{}, defaultURLs...)
 	ini := filepath.Join(exeDir, iniName)
@@ -75,6 +83,21 @@ func main() {
 	}
 	readIni(ini)
 	readArgs()
+
+	//  🖥 바탕화면 아이콘 — 창을 띄우는 것과 따로 돈다(늦어도 창이 먼저 뜬다)
+	iconDone := make(chan struct{})
+	go func() {
+		defer close(iconDone)
+		if conf.Shortcut && exePath != "" {
+			ensureShortcuts(exePath, conf.Autostart)
+		}
+	}()
+	defer func() {
+		select {
+		case <-iconDone:
+		case <-time.After(15 * time.Second):
+		}
+	}()
 
 	//  ⚠ 이미 켜져 있으면(관문이 살아 있으면) 창만 하나 더 띄우고 끝낸다
 	if alreadyRunning(conf.Port) {
@@ -380,6 +403,10 @@ func setConf(k, v string) {
 		default:
 			conf.Print = "dialog"
 		}
+	case "SHORTCUT", "DESKTOP_ICON":
+		conf.Shortcut = yes(v)
+	case "AUTOSTART":
+		conf.Autostart = yes(v)
 	case "FULLSCREEN", "KIOSK":
 		conf.Fullscreen = yes(v)
 	case "PORT":
@@ -416,4 +443,10 @@ PRINT=dialog
 
 # 전체 화면(키오스크) — 1 이면 화면 전체를 씁니다. 끄기: Alt+F4
 FULLSCREEN=0
+
+# 바탕화면·시작 메뉴 아이콘 — 1 이면 켤 때마다 확인해 없으면 만듭니다
+SHORTCUT=1
+
+# 윈도우가 켜지면 저절로 띄우기 — 1 이면 켭니다
+AUTOSTART=0
 `
