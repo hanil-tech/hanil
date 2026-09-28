@@ -13,4 +13,14 @@ cd "$HERE"
 if command -v go-winres >/dev/null 2>&1; then go-winres make --arch amd64; fi
 #  -H windowsgui : 검은 명령창 없이 뜬다
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "$OUT" .
+#  ✍ 코드 서명 — SmartScreen 「게시자」 칸에 회사 이름이 나오게 하는 유일한 방법.
+#   인증서(.pfx)가 있을 때만 한다:  SIGN_PFX=인증서.pfx SIGN_PASS=암호 ./label/build.sh
+#   ⚠ 요즘 인증서는 USB 토큰·클라우드에 들어 있어 .pfx 로 못 꺼내는 경우가 많다 →
+#     그때는 윈도우에서: signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 /a hanil-label.exe
+if [ -n "${SIGN_PFX:-}" ]; then
+  osslsigncode sign -pkcs12 "$SIGN_PFX" ${SIGN_PASS:+-pass "$SIGN_PASS"} \
+    -n "한일 라벨 발행기" -h sha256 -t http://timestamp.digicert.com \
+    -in "$OUT" -out "$OUT.signed" && mv "$OUT.signed" "$OUT"
+  echo "서명했습니다"
+fi
 ls -l "$OUT"
