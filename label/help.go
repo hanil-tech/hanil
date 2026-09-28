@@ -32,6 +32,7 @@ const HELP = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
   </div>
 </div>
 <script>
+try{fetch('/__label/alive',{cache:'no-store'})}catch(e){}
 var busy=false;
 async function retry(){
   if(busy) return; busy=true;

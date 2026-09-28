@@ -572,6 +572,8 @@ document.addEventListener('keydown', function(e){
 //  로그인이 풀렸는지 먼저 본다
 api('/api/labels/forms').catch(function(){});
 drawLangs(); applyLang(); showLang(); idleReset();
+//  빈 창 지킴이에게 «그려졌다» 알림
+try{ fetch('/__label/alive',{cache:'no-store'}); }catch(e){}
 engWatch();
 </script>
 </body></html>

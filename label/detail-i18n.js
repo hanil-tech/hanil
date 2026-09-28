@@ -156,6 +156,7 @@
     [].forEach.call(a.options, function (o) { if (nm[o.value] && o.textContent !== nm[o.value]) o.textContent = nm[o.value]; });
   }
   function start() {
+    try { fetch('/__label/alive', { cache: 'no-store' }); } catch (e) {}
     homeBtn();
     paperNames(); setInterval(paperNames, 1500);
     if (IX == null) return;

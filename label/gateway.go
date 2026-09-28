@@ -39,12 +39,15 @@ var detailJS []byte
 const pingPath = "/__label/ping"
 const retryPath = "/__label/retry"
 const i18nPath = "/__label/detail-i18n.js"
+const alivePath = "/__label/alive"
+const statePath = "/__label/state"
 
 type gateway struct {
 	mu       sync.Mutex
 	upstream *url.URL
 	tried    []string
 	seen     time.Time
+	alive    time.Time
 	tr       map[string]*http.Transport
 }
 
@@ -171,6 +174,21 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch p {
 	case pingPath:
 		fmt.Fprint(w, "hanil-label "+VERSION)
+		return
+	case alivePath:
+		//  화면이 그려졌다는 소식(빈 창 지킴이가 본다)
+		g.mu.Lock()
+		g.alive = time.Now()
+		g.mu.Unlock()
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case statePath:
+		g.mu.Lock()
+		a := g.alive
+		g.mu.Unlock()
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprint(w, a.UnixMilli())
 		return
 	case i18nPath:
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -341,6 +359,7 @@ const swKill = `<script>try{if(window.top===window.self){var nf=function(){retur
 // 로그인 화면 아래에 붙이는 한 줄 — 이 창이 라벨 전용임을 알린다
 const loginNote = `<div style="position:fixed;left:0;right:0;bottom:0;background:#1b2a4a;color:#fff;` +
 	`font:15px/1.6 'Malgun Gothic',sans-serif;text-align:center;padding:10px">` +
+	`<script>try{fetch('/__label/alive',{cache:'no-store'})}catch(e){}</script>` +
 	`🏷 <b>한일 라벨 발행기 v` + VERSION + `</b> · 로그인하면 라벨 화면이 바로 열립니다 · 「로그인 유지」를 켜 두세요</div>`
 
 func localCookie(c string) string {

@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.5.1"
+const VERSION = "1.5.3"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -153,7 +153,7 @@ func main() {
 	gw.mu.Unlock()
 	go func() { _ = (&http.Server{Handler: gw}).Serve(ln) }()
 
-	cmd, err := launch(local(conf.Port) + startPath)
+	cmd, err := launchWatched(local(conf.Port) + startPath)
 	if err != nil {
 		logf("브라우저 못 띄움: %v", err)
 		msgBox("한일 라벨 발행기", "Edge 나 Chrome 을 찾지 못했습니다.\n"+
@@ -352,7 +352,7 @@ func browserArgs(url string) []string {
 	args := []string{
 		"--app=" + url,
 		//  ⚠ 이 프로그램만의 자리 — 직원이 쓰는 Edge 와 로그인·설정이 섞이지 않는다
-		"--user-data-dir=" + profileDir(),
+		"--user-data-dir=" + browserProfile(),
 		"--no-first-run", "--no-default-browser-check",
 		"--disable-session-crashed-bubble", "--overscroll-history-navigation=0",
 		"--disable-features=Translate", "--disable-background-mode",
@@ -379,7 +379,9 @@ func launch(url string) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("브라우저를 못 찾았습니다")
 	}
 	c := exec.Command(exe, browserArgs(url)...)
-	hideWindow(c)
+	//  ⚠⚠ 브라우저에는 «숨겨서 띄우기»(hideWindow)를 걸지 않는다. 그 표시가 넘어가면 Edge 가
+	//    창을 되살릴 때 **제목줄 없는 빈 창**으로 굳는 일이 있다(현장: 껐다 켜면 늘 빈 창).
+	//    Edge 는 원래 창이 있는 프로그램이라 검은 명령창도 뜨지 않는다.
 	if err := c.Start(); err != nil {
 		return nil, err
 	}
@@ -387,13 +389,82 @@ func launch(url string) (*exec.Cmd, error) {
 }
 
 func openApp(url string) error {
-	c, err := launch(url)
+	c, err := launchWatched(url)
 	if err != nil {
 		return err
 	}
 	go c.Wait()
-	time.Sleep(1500 * time.Millisecond)
 	return nil
+}
+
+// ── 창이 제대로 그려졌나 지켜보기 ───────────────────────────
+//
+//	⭐ 화면(간편 화면·로그인·상세·안내)은 그려지면 관문에 «살아 있음» 을 알린다(/__label/alive).
+//	  띄운 뒤 15초 안에 그 소식이 없으면 **빈 창**이다 → 이 프로그램 자리의 Edge 를 내리고
+//	  창 자리 기억을 지운 뒤 한 번 더 띄운다. 원인이 무엇이든 사람이 손대지 않아도 되게.
+func launchWatched(url string) (*exec.Cmd, error) {
+	since := time.Now()
+	c, err := launch(url)
+	if err != nil {
+		return nil, err
+	}
+	if waitAlive(conf.Port, since, 15*time.Second) {
+		logf("화면이 떴습니다")
+		return c, nil
+	}
+	logf("15초 안에 화면이 안 그려짐(빈 창) — Edge 를 내리고 다시 띄웁니다: %s", cleanupStale(profileDir(), os.Getpid(), false))
+	fixPrefs()
+	since = time.Now()
+	c2, err := launch(url)
+	if err != nil {
+		return c, nil
+	}
+	if waitAlive(conf.Port, since, 20*time.Second) {
+		logf("다시 띄워서 화면이 떴습니다")
+		return c2, nil
+	}
+	//  ⚠ 남은 Edge 를 못 내렸을 수 있다(PowerShell 이 막힌 PC 등) → 새 창이 또 그 Edge 에 넘어간다.
+	//    마지막 수: **따로 떨어진 새 자리(프로필)**로 띄운다 — 넘길 곳이 없으니 반드시 새로 뜬다.
+	//    (로그인은 한 번 더 해야 한다)
+	altProfile = !altProfile
+	logf("다시 띄워도 화면 소식이 없음 — 다른 자리(%s)로 띄웁니다", browserProfile())
+	since = time.Now()
+	c3, err := launch(url)
+	if err != nil {
+		return c2, nil
+	}
+	if waitAlive(conf.Port, since, 20*time.Second) {
+		logf("다른 자리로 띄워서 화면이 떴습니다")
+	} else {
+		logf("그래도 화면 소식이 없음")
+	}
+	return c3, nil
+}
+
+// 브라우저 자리(프로필) — 평소에는 HanilLabel, 빈 창이 굳었을 때만 HanilLabel\Edge2
+var altProfile = false
+
+func browserProfile() string {
+	if altProfile {
+		return filepath.Join(profileDir(), "Edge2")
+	}
+	return profileDir()
+}
+
+func waitAlive(port int, since time.Time, max time.Duration) bool {
+	cl := &http.Client{Timeout: 2 * time.Second}
+	end := time.Now().Add(max)
+	for time.Now().Before(end) {
+		if r, err := cl.Get(local(port) + statePath); err == nil {
+			b, _ := io.ReadAll(io.LimitReader(r.Body, 64))
+			r.Body.Close()
+			if ms, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && ms >= since.UnixMilli() {
+				return true
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
 }
 
 func profileDir() string {
