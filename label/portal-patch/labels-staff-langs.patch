@@ -1,0 +1,26 @@
+--- a/labels.js
++++ b/labels.js
+@@ -95,6 +95,23 @@
+       label: (nm[k] && String(nm[k]).trim()) || FORMS[k].label,
+       def_label: FORMS[k].label, renamed: !!(nm[k] && String(nm[k]).trim()) })) });
+   });
++  //  🗣⭐ **라벨 발행기 — 직원 국적별 인원(이름 없이)**
++  //   사용자 「자동으로 포털에 접속해서 국적에 따른 언어 나오게」
++  //   ⚠⚠ 현장 키오스크(라벨 권한만 있는 계정)가 부른다 — **이름·사번·연락처는 절대 안 준다.**
++  //     국적 글자와 그 인원 수만 준다. 키오스크는 이것으로 언어 고르기 화면에 **우리 직원들 말만** 띄운다.
++  //   ⚠ 재직자만(사용 안 함·퇴사자 제외). 국적이 빈 사람은 내국인으로 본다(인사 화면과 같은 규칙).
++  app.get('/api/labels/staff-langs', apiAuth, (req, res) => {
++    try {
++      const rows = DB.all(`SELECT IFNULL(TRIM(nationality),'') nat, COUNT(*) n FROM pay_employees
++        WHERE IFNULL(active,1)=1 AND IFNULL(resign_date,'')=''
++        GROUP BY IFNULL(TRIM(nationality),'')`) || [];
++      res.set('Cache-Control', 'no-store');
++      res.json({ ok: true, nats: rows.map((r) => ({ nat: S(r.nat, 40), n: Number(r.n) || 0 })) });
++    } catch (e) {
++      //  ⚠ 인사 표가 없거나 칸이 달라도 라벨은 뽑혀야 한다 — 빈 목록이면 키오스크가 모든 말을 보인다
++      res.json({ ok: true, nats: [], error: e.message });
++    }
++  });
+   app.post('/api/labels/form-names', apiAuth, requireAdmin, json(), (req, res) => {
+     try {
+       const b = req.body || {}; const nm = {};

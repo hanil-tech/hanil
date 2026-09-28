@@ -128,6 +128,7 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
     <h1>🌐</h1>
     <div id="lgTitle"></div>
     <div id="lgGrid"></div>
+    <div style="margin-top:18px"><button id="lgMore" class="hb" style="display:none;margin:0 auto" onclick="ALL_LANGS=true;drawLangs();applyLang()">🌐 +</button></div>
     <div id="lgVer"><span id="ver2" style="display:inline-block;background:var(--ink);color:#fff;border-radius:8px;padding:4px 12px;font-size:15px;font-weight:700">🏷 v{{VER}}</span></div>
   </div>
   <div id="hero">
@@ -333,12 +334,45 @@ function showLang(){
   document.body.classList.remove('found','pick');
   hideSug && hideSug();
 }
+//  👥 ── 우리 직원 국적에 맞춰 언어 고르기 ──────────────────────
+//  ⭐ 포털에서 **국적별 인원만**(이름 없이) 받아(/api/labels/staff-langs) 그 말들만 보인다.
+//    한국어는 늘 맨 앞, 나머지는 인원 많은 순, 영어는 모르는 나라를 위해 늘 끝에.
+//  ⚠ 포털에 그 길이 없거나(아직 안 고친 포털) 못 받으면 **모든 말**을 보인다 — 못 고르는 것보다 낫다.
+var NAT_RE=[[/한국|대한민국|korea|내국인|^kr$/i,'ko'],[/베트남|viet|^vn$/i,'vi'],[/미얀마|버마|myanmar|burm|^mm$/i,'my'],
+  [/태국|thai|^th$/i,'th'],[/우즈베|우즈벡|uzbek|^uz$/i,'uz'],[/키르기스|kyrgy|러시아|russia|카자흐|kazakh/i,'ru'],
+  [/중국|china|chinese|^cn$|조선족/i,'zh'],[/네팔|nepal|^np$/i,'ne'],[/캄보디아|cambod|khmer|^kh$/i,'km'],
+  [/인도네시아|indones|^id$/i,'id'],[/스리랑카|lanka|^lk$/i,'si'],[/필리핀|philip|^ph$/i,'en']];
+function natLang(n){ n=String(n||'').trim(); if(!n) return 'ko'; for(var i=0;i<NAT_RE.length;i++) if(NAT_RE[i][0].test(n)) return NAT_RE[i][1]; return 'en'; }
+var STAFF=load('hl_staff');          //  { vi: 12, ko: 30, ... } — 지난번 받은 것(포털이 잠깐 안 돼도 쓰게)
+var ALL_LANGS=false;
+function shownLangs(){
+  if(ALL_LANGS || !STAFF || !Object.keys(STAFF).length) return LANG_LIST;
+  var codes=Object.keys(STAFF).filter(function(c){ return c!=='ko' && c!=='en'; })
+    .sort(function(a,b){ return STAFF[b]-STAFF[a]; });
+  codes=['ko'].concat(codes).concat(['en']);
+  return codes.map(function(c){ return LANG_LIST.filter(function(x){ return x[0]===c; })[0]; }).filter(Boolean);
+}
+async function loadStaffLangs(){
+  try{
+    var r=await fetch('/api/labels/staff-langs',{cache:'no-store'});
+    if(!r.ok) return;                  //  ⚠ 아직 안 고친 포털(404) — 모든 말을 보인다
+    var d=await r.json();
+    var m={};
+    (d.nats||[]).forEach(function(x){ var l=natLang(x.nat); m[l]=(m[l]||0)+(Number(x.n)||0); });
+    if(!Object.keys(m).length) return;
+    STAFF=m; store('hl_staff', m);
+    drawLangs(); applyLang();
+  }catch(e){}
+}
 function drawLangs(){
-  $('lgGrid').innerHTML=LANG_LIST.map(function(x){
+  var LS=shownLangs();
+  $('lgGrid').innerHTML=LS.map(function(x){
     return '<button class="lgb" onclick="setLang(\''+x[0]+'\')"><span class="fl">'+flag(x[0],52)+'</span><span>'+x[2]+'</span></button>'; }).join('');
-  $('lgTitle').innerHTML=LANG_LIST.map(function(x){ return esc(L[x[0]].pick); }).join(' · ');
-  $('lgQuick').innerHTML=LANG_LIST.map(function(x){
+  $('lgTitle').innerHTML=LS.map(function(x){ return esc(L[x[0]].pick); }).join(' · ');
+  $('lgQuick').innerHTML=LS.map(function(x){
     return '<button type="button" class="lgq" data-l="'+x[0]+'" title="'+esc(x[2])+'" onclick="LG=\''+x[0]+'\';try{localStorage.setItem(\'hl_lang\',LG)}catch(e){};applyLang();$(\'q\').focus()">'+flag(x[0],26)+'</button>'; }).join('');
+  //  «모든 언어 보기» — 직원 목록에 없는 말이 필요할 때(새로 온 사람 등)
+  var more=$('lgMore'); if(more){ more.textContent='🌐 +'+(LANG_LIST.length-LS.length); more.style.display=(STAFF && Object.keys(STAFF).length && LS.length<LANG_LIST.length) ? '' : 'none'; }
 }
 var idleT=null;
 function idleReset(){
@@ -624,7 +658,7 @@ document.addEventListener('keydown', function(e){
 });
 //  로그인이 풀렸는지 먼저 본다
 api('/api/labels/forms').catch(function(){});
-drawLangs(); applyLang(); showLang(); idleReset();
+drawLangs(); applyLang(); showLang(); idleReset(); loadStaffLangs();
 //  빈 창 지킴이에게 «그려졌다» 알림
 try{ fetch('/__label/alive',{cache:'no-store'}); }catch(e){}
 engWatch();
