@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.7.0"
+const VERSION = "2.0.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -116,6 +116,11 @@ func main() {
 	killOld := false
 	if v, ok := runningVersion(conf.Port); ok {
 		if v == VERSION {
+			//  🪟 독자 창으로 떠 있으면 그 창을 앞으로 부르고 끝(새 창을 또 만들지 않는다)
+			if askFocus(conf.Port) {
+				logf("이미 떠 있는 창을 앞으로 불렀습니다")
+				return
+			}
 			//  ⚠⚠ 창을 닫아도 Edge 가 뒤에 남아(시작 부스트·백그라운드 실행) 이 프로그램도 살아 있다.
 			//    그 남은 Edge 에 새 창을 부탁하면 **제목줄 없는 빈 창**이 뜬다(현장 신고: 껐다 켜면 늘 빈 창).
 			//    → 이 프로그램 자리의 Edge 를 내리고, 창 자리 기억을 지운 뒤 새로 띄운다.
@@ -153,6 +158,12 @@ func main() {
 	gw.mu.Unlock()
 	go func() { _ = (&http.Server{Handler: gw}).Serve(ln) }()
 
+	//  🪟 먼저 **독자 창**으로 — 창을 닫으면 이 프로그램도 끝난다
+	if err := runWindow(local(conf.Port) + startPath); err == nil {
+		return
+	} else {
+		logf("독자 창을 못 띄움 — 브라우저 창으로 띄웁니다: %v", err)
+	}
 	cmd, err := launchWatched(local(conf.Port) + startPath)
 	if err != nil {
 		logf("브라우저 못 띄움: %v", err)
@@ -174,6 +185,17 @@ func main() {
 }
 
 func local(port int) string { return "http://127.0.0.1:" + strconv.Itoa(port) }
+
+func askFocus(port int) bool {
+	cl := &http.Client{Timeout: 1500 * time.Millisecond}
+	r, err := cl.Get(local(port) + focusPath)
+	if err != nil {
+		return false
+	}
+	defer r.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(r.Body, 16))
+	return r.StatusCode == http.StatusOK && strings.TrimSpace(string(b)) == "ok"
+}
 
 // 떠 있는 관문의 판 번호("hanil-label 1.2.2" 의 뒤)
 func runningVersion(port int) (string, bool) {

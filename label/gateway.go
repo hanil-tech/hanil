@@ -41,6 +41,7 @@ const retryPath = "/__label/retry"
 const i18nPath = "/__label/detail-i18n.js"
 const alivePath = "/__label/alive"
 const statePath = "/__label/state"
+const focusPath = "/__label/focus"
 
 type gateway struct {
 	mu       sync.Mutex
@@ -182,6 +183,14 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.mu.Unlock()
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
+		return
+	case focusPath:
+		//  바탕화면 아이콘을 또 눌렀다 — 떠 있는 독자 창을 앞으로
+		if focusWindow() {
+			fmt.Fprint(w, "ok")
+		} else {
+			http.NotFound(w, r)
+		}
 		return
 	case statePath:
 		g.mu.Lock()
