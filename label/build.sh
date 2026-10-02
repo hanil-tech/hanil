@@ -6,7 +6,11 @@
 # 결과: release/hanil-label.exe  (파일 하나 — 설치 없이 두 번 눌러 실행)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT="$HERE/../release/hanil-label.exe"
+#  📛 파일 이름에 판 번호를 넣는다(다운로드 폴더에서 어느 판인지 바로 보이게)
+VER="$(grep -oP '(?<=const VERSION = ")[^"]+' "$HERE/main.go")"
+REL="$HERE/../release"
+OUT="$REL/hanil-label-v$VER.exe"
+rm -f "$REL"/hanil-label*.exe
 cd "$HERE"
 #  아이콘·버전 정보(winres/) → rsrc_windows_amd64.syso. go-winres 가 없으면 저장소에 있는 것을 그대로 쓴다.
 #   (go install github.com/tc-hib/go-winres@latest)
@@ -23,4 +27,6 @@ if [ -n "${SIGN_PFX:-}" ]; then
     -in "$OUT" -out "$OUT.signed" && mv "$OUT.signed" "$OUT"
   echo "서명했습니다"
 fi
+#  안내 글의 내려받기 링크도 새 이름으로
+sed -i -E "s#hanil-label(-v[0-9.]+)?\.exe\)#hanil-label-v$VER.exe)#g" "$REL/README.md" "$HERE/README.md"
 ls -l "$OUT"

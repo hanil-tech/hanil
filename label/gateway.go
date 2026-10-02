@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httputil"
 	"net/url"
 	"path"
@@ -49,11 +50,18 @@ type gateway struct {
 	tried    []string
 	seen     time.Time
 	alive    time.Time
-	tr       map[string]*http.Transport
+	//  🔑 자동 로그인 — 포털 세션은 관문만 든다
+	jar       *cookiejar.Jar
+	loginMu   sync.Mutex
+	loggedIn  string //  로그인해 둔 포털 주소(주소가 바뀌면 다시 로그인)
+	lastLogin time.Time
+	acctErr   string //  로그인이 실패한 까닭 — 있으면 다시 두드리지 않고 계정 화면을 띄운다
+	tr        map[string]*http.Transport
 }
 
 func newGateway() *gateway {
-	return &gateway{seen: time.Now(), tr: map[string]*http.Transport{}}
+	j, _ := cookiejar.New(nil)
+	return &gateway{seen: time.Now(), tr: map[string]*http.Transport{}, jar: j}
 }
 
 func (g *gateway) lastSeen() time.Time {
@@ -213,9 +221,24 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": ok, "url": startPath, "tried": t})
 		return
 	}
+	//  🔑 계정 넣는 화면은 포털이 안 붙어 있어도 보여 준다(그 사유를 알려 준다)
+	if p == setupPath {
+		g.serveAccount(w, r, g.current())
+		return
+	}
 	up := g.current()
 	if up == nil {
 		g.offline(w, r)
+		return
+	}
+	//  🔑 포털 로그인 화면은 없다 — 관문이 대신 로그인한다(그 길들은 모두 라벨 화면으로)
+	if p == "/" || p == "/login" || p == "/logout" || strings.HasPrefix(p, "/2fa") {
+		if g.ensureLogin(w, r, up) {
+			http.Redirect(w, r, startPath, http.StatusFound)
+		}
+		return
+	}
+	if !g.ensureLogin(w, r, up) {
 		return
 	}
 	//  🏷 간편 발행 화면 — 이 프로그램 안에 들어 있다(라벨 그리기·인쇄는 숨겨 둔 포털 라벨 화면이 한다)
@@ -256,6 +279,11 @@ func (g *gateway) proxy(up *url.URL) *httputil.ReverseProxy {
 					pr.Out.Header.Set("Referer", ru.String())
 				}
 			}
+			//  🔑 브라우저 쿠키는 버리고 관문이 든 포털 세션을 붙인다
+			pr.Out.Header.Del("Cookie")
+			for _, c := range g.jar.Cookies(pr.Out.URL) {
+				pr.Out.AddCookie(c)
+			}
 			//  ⚠ X-Forwarded-For 를 붙이지 않는다 — 붙이면 포털 기록에 이 PC 가 아니라 127.0.0.1 이 남는다
 			pr.Out.Header.Del("X-Forwarded-For")
 			//  ⚠ 첫 화면(/)은 관문이 글을 읽어 고쳐야 한다 → 압축 없이 받는다(Go 가 알아서 풀어 준다)
@@ -294,12 +322,26 @@ func shortErr(err error) string {
 
 func (g *gateway) fixResponse(res *http.Response, up *url.URL) error {
 	req := res.Request
-	//  ① 쿠키 — 관문(127.0.0.1)에 붙도록 Domain·Secure 를 뗀다.
-	//     ⚠ 관문 ↔ 브라우저 사이는 이 PC 안이라 밖으로 나가지 않는다. 포털까지는 원래대로 https 다.
-	if cs := res.Header.Values("Set-Cookie"); len(cs) > 0 {
+	//  ① 쿠키 — 포털 세션은 **관문의 쿠키 상자**에만 둔다(화면에는 주지 않는다)
+	if cs := res.Cookies(); len(cs) > 0 {
+		g.jar.SetCookies(req.URL, cs)
 		res.Header.Del("Set-Cookie")
-		for _, c := range cs {
-			res.Header.Add("Set-Cookie", localCookie(c))
+	}
+	//  🔑 세션이 끊겼다(401 · 로그인 화면으로 보냄) → 표시해 두고 **같은 주소를 다시 부르게** 한다
+	//    (다시 부를 때 관문이 먼저 로그인한다)
+	if res.StatusCode == http.StatusUnauthorized {
+		g.loggedOut()
+	}
+	if loc := res.Header.Get("Location"); loc != "" {
+		if lu, err := url.Parse(loc); err == nil && (strings.HasPrefix(lu.Path, "/kiosk/login") ||
+			((lu.Path == "/" || lu.Path == "") && lu.Query().Get("err") == "" && req.URL.Path != "/")) {
+			g.loggedOut()
+			again := *req.URL
+			q := again.Query()
+			q.Del("embed")
+			again.RawQuery = q.Encode()
+			res.Header.Set("Location", again.RequestURI())
+			return nil
 		}
 	}
 	//  ② 옮겨 가는 주소 — 포털 주소를 관문 주소로, 라벨 밖으로 가는 곳은 라벨 화면으로

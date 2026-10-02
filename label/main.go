@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "2.0.0"
+const VERSION = "2.1.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -65,8 +65,10 @@ type Conf struct {
 	Width      int
 	Height     int
 	Probe      int
-	Shortcut   bool //  바탕화면·시작 메뉴 아이콘을 만들까(기본 켜짐)
-	Autostart  bool //  윈도우가 켜지면 저절로 띄울까(기본 꺼짐)
+	User       string //  자동 로그인 계정(설정 파일로 넣을 때)
+	Password   string //  ⚠ 읽자마자 암호화해 옮기고 설정 파일에서는 지운다
+	Shortcut   bool   //  바탕화면·시작 메뉴 아이콘을 만들까(기본 켜짐)
+	Autostart  bool   //  윈도우가 켜지면 저절로 띄울까(기본 꺼짐)
 }
 
 var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3, Shortcut: true}
@@ -93,6 +95,14 @@ func main() {
 	}
 	readIni(ini)
 	readArgs()
+	//  🔑 설정 파일로 계정을 넣었으면 암호화해 옮기고 파일에서는 비밀번호를 지운다
+	if conf.User != "" && conf.Password != "" {
+		if err := saveAccount(conf.User, conf.Password); err == nil {
+			logf("설정 파일의 계정(%s)을 저장했습니다", conf.User)
+		}
+		scrubIniPassword(ini)
+		conf.Password = ""
+	}
 
 	//  🖥 바탕화면 아이콘 — 창을 띄우는 것과 따로 돈다(늦어도 창이 먼저 뜬다)
 	iconDone := make(chan struct{})
@@ -609,6 +619,10 @@ func setConf(k, v string) {
 		default:
 			conf.Print = "dialog"
 		}
+	case "USER", "ID":
+		conf.User = v
+	case "PASSWORD", "PW":
+		conf.Password = v
 	case "SHORTCUT", "DESKTOP_ICON":
 		conf.Shortcut = yes(v)
 	case "AUTOSTART":
@@ -646,6 +660,11 @@ URL=http://192.168.1.30:8820, https://work.hanil-steel.com
 #   silent = 인쇄 창 없이 이 PC 의 «기본 프린터»로 바로 나갑니다.
 #            (라벨 프린터를 기본 프린터로 지정해 두세요)
 PRINT=dialog
+
+# 자동 로그인 계정 — 비워 두면 처음 켤 때 화면에서 물어봅니다.
+#   적어 두면 처음 켤 때 암호화해 옮기고 PASSWORD 줄은 저절로 지워집니다.
+USER=
+PASSWORD=
 
 # 전체 화면(키오스크) — 1 이면 화면 전체를 씁니다. 끄기: Alt+F4
 FULLSCREEN=0

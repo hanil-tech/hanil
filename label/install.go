@@ -96,6 +96,8 @@ func selfInstall(exePath string) bool {
 			}
 			if copyFile(filepath.Join(d, iniName), ini) == nil {
 				logf("설정 파일을 옮겨 옴: %s", d)
+				//  🔑 옮겨 온 쪽에 비밀번호가 적혀 있었으면 원래 자리에서는 지운다(설치된 쪽이 암호화해 둔다)
+				scrubIniPassword(filepath.Join(d, iniName))
 				break
 			}
 		}
