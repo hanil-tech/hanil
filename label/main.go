@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "2.1.0"
+const VERSION = "2.2.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -51,9 +51,9 @@ const startPath = "/label"
 const portalLabel = "/kiosk/label"
 
 // ⚠ 차례가 뜻이 있다: 사내 주소를 먼저 본다(더 빠르고, 바깥 인터넷이 끊겨도 된다).
+//  ⭐ 사용자 「외부에서 할 일이 없으니 192.168.1.30 접속 포트 고정」 — 사내 서버 하나만 본다
 var defaultURLs = []string{
 	"http://192.168.1.30:8820",
-	"https://work.hanil-steel.com",
 }
 
 type Conf struct {
@@ -652,8 +652,8 @@ func setConf(k, v string) {
 const SAMPLE_INI = `# 한일 라벨 발행기 설정
 # 고친 뒤에는 프로그램을 껐다 켜 주세요.
 
-# 포털 주소 — 앞의 것부터 붙어 봅니다(사내 주소 먼저, 안 되면 도메인).
-URL=http://192.168.1.30:8820, https://work.hanil-steel.com
+# 포털 주소 — 사내 서버(고정)
+URL=http://192.168.1.30:8820
 
 # 인쇄 방식
 #   dialog = 인쇄 창이 뜹니다. 바코드 프린터 / 레이저 프린터를 그때그때 고릅니다.
