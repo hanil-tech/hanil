@@ -3,12 +3,14 @@
 #
 #   ./label/build.sh
 #
-# 결과: release/hanil-label.exe  (파일 하나 — 설치 없이 두 번 눌러 실행)
+# 결과: release/hanil-label-v<판>.exe  (파일 하나 — 설치 없이 두 번 눌러 실행)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-#  📛 파일 이름은 늘 같게(사용자 「쉽게, 간단하게」) — 판 번호는 창 제목·파일 속성에서 본다
+#  📛 파일 이름에 판 번호를 넣는다(사용자 「화일에 버전도 표시해줘」) — 예: hanil-label-v2.2.0.exe
+#   ⚠ 이름이 판마다 바뀌어도 괜찮다 — 어느 이름이든 두 번 누르면 한 자리에 설치되고 아이콘이 그리로 간다
+VER="$(grep -oP '(?<=const VERSION = ")[^"]+' "$HERE/main.go")"
 REL="$HERE/../release"
-OUT="$REL/hanil-label.exe"
+OUT="$REL/hanil-label-v$VER.exe"
 rm -f "$REL"/hanil-label*.exe
 cd "$HERE"
 #  아이콘·버전 정보(winres/) → rsrc_windows_amd64.syso. go-winres 가 없으면 저장소에 있는 것을 그대로 쓴다.
@@ -26,5 +28,6 @@ if [ -n "${SIGN_PFX:-}" ]; then
     -in "$OUT" -out "$OUT.signed" && mv "$OUT.signed" "$OUT"
   echo "서명했습니다"
 fi
-sed -i -E "s#hanil-label(-v[0-9.]+)?\.exe\)#hanil-label.exe)#g" "$REL/README.md" "$HERE/README.md"
+#  안내 글의 내려받기 링크·글자도 새 이름으로
+sed -i -E "s#hanil-label(-v[0-9.]+)?\.exe\)#hanil-label-v$VER.exe)#g; s#\[hanil-label(-v[0-9.]+)?\.exe\]#[hanil-label-v$VER.exe]#g; s#⬇ hanil-label(-v[0-9.]+)?\.exe#⬇ hanil-label-v$VER.exe#g" "$REL/README.md" "$HERE/README.md"
 ls -l "$OUT"
