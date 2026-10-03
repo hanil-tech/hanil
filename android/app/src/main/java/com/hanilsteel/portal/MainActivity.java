@@ -208,6 +208,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 base = u;
                 web.loadUrl(u + "/m");      //  ⭐ 폰은 PC 첫 화면이 아니라 폰용 첫 화면(/m)으로
+                checkUpdate(u);
             });
         }).start();
     }
@@ -664,6 +665,47 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> Toast.makeText(MainActivity.this, "저장하지 못했습니다: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }
+    }
+
+    // ── 새 판 알림 ─────────────────────────────────────────────
+    //  ⭐ 포털 「앱 받기」 에 새 판(hanil-staff.apk + hanil-staff.json 의 code)이 올라오면 알려 준다.
+    //  ⚠ 켤 때 한 번만 묻는다. 「나중에」를 누르면 이번에는 다시 안 묻는다.
+    boolean updateAsked;
+
+    void checkUpdate(String u) {
+        if (updateAsked) return;
+        updateAsked = true;
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(u + "/api/app/version?app=staff").openConnection();
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(6000);
+                java.io.InputStream in = c.getInputStream();
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int r;
+                while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                org.json.JSONObject a = new org.json.JSONObject(out.toString("UTF-8")).optJSONObject("app");
+                if (a == null || !a.optBoolean("ok")) return;
+                int code = a.optInt("code", 0);
+                if (code <= BuildConfig.VERSION_CODE) return;
+                String ver = a.optString("version", "");
+                String notes = a.optString("notes", "");
+                String url = u + a.optString("url", "/app/staff.apk");
+                runOnUiThread(() -> new android.app.AlertDialog.Builder(this)
+                        .setTitle("새 판이 있습니다" + (ver.isEmpty() ? "" : " (v" + ver + ")"))
+                        .setMessage((notes.isEmpty() ? "" : notes + "\n\n") + "지금 쓰는 판: v" + BuildConfig.VERSION_NAME
+                                + "\n받아서 설치하면 로그인은 그대로 남습니다.")
+                        .setPositiveButton("받기", (d, w) -> openOutside(Uri.parse(url)))
+                        .setNegativeButton("나중에", null)
+                        .show());
+            } catch (Exception e) {
+                //  못 물어봐도 앱은 그대로 쓴다
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
     }
 
     // ── 아래 탭 ────────────────────────────────────────────────

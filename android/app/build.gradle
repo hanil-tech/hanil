@@ -7,7 +7,8 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.hanilsteel.portal'
+        //  ⭐ 포털의 「앱 받기(/app)」가 직원용 앱 자리로 정해 둔 이름 — 판 확인(/api/app/version?app=staff)과 짝
+        applicationId 'com.hanil.portal.staff'
         minSdk 24
         targetSdk 35
         versionCode 1

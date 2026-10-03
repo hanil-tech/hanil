@@ -32,6 +32,16 @@
 - 서명 열쇠: `keystore/hanil-portal.jks` (비밀번호 기본값 `hanil-portal`, 환경변수 `HANIL_KS_PASS` 로 바꿀 수 있음).
   ⚠ **이 열쇠를 잃어버리면 같은 앱으로 업데이트를 못 합니다** — 따로 백업해 두세요.
 
+## 포털에 올리기 (직원들이 받는 곳)
+
+포털의 「📱 앱 받기」(`/app`)가 이 앱을 나눠 줍니다(꾸러미 이름 `com.hanil.portal.staff`).
+
+1. 만든 APK 를 포털 서버의 `public/app/hanil-staff.apk` 로 둡니다.
+2. 같은 곳에 `dist/hanil-staff.json` 을 `public/app/hanil-staff.json` 으로 둡니다(`code` 는 앱의 versionCode).
+3. 직원들은 폰에서 포털 → 「📱 앱 받기」 → QR 또는 받기.
+4. 새 판을 낼 때는 `app/build.gradle` 의 `versionCode`·`versionName` 을 올리고, 위 두 파일을 바꿔 둡니다.
+   → 앱을 켜면 **「새 판이 있습니다」** 가 떠서 받기만 누르면 됩니다.
+
 ## 설치(폰)
 
 1. APK 파일을 폰으로 옮깁니다(메일·카카오톡·NAS).
