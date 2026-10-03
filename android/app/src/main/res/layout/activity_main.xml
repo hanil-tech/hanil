@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+<FrameLayout
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1">
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipe"
@@ -62,3 +68,17 @@
         android:progressTint="@color/acc"
         android:visibility="gone" />
 </FrameLayout>
+
+    <!-- 📱 아래 탭 — 엄지가 닿는 자리(홈·결재·메신저·할 일·메뉴). 단추는 MainActivity 가 채운다 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E3E8F0" />
+
+    <LinearLayout
+        android:id="@+id/tabs"
+        android:layout_width="match_parent"
+        android:layout_height="62dp"
+        android:background="#FFFFFF"
+        android:orientation="horizontal" />
+</LinearLayout>

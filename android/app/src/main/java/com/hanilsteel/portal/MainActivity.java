@@ -123,6 +123,20 @@ public class MainActivity extends AppCompatActivity {
     Dialog popup;
     long backAt;
 
+    //  📱 아래 탭 — {그림, 이름, 주소}. 주소가 null 이면 폰용 전체 메뉴를 연다
+    static final String[][] TABS = {
+            {"🏠", "홈", "/m"},
+            {"✅", "결재", "/appr"},
+            {"💬", "메신저", "/chat"},
+            {"🔔", "할 일", "/mywork"},
+            {"☰", "메뉴", null},
+    };
+    LinearLayout tabs;
+    final TextView[] tabIcon = new TextView[TABS.length];
+    final TextView[] tabLabel = new TextView[TABS.length];
+    final TextView[] tabBadge = new TextView[TABS.length];
+    String mobileJs = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -132,6 +146,9 @@ public class MainActivity extends AppCompatActivity {
         splash = findViewById(R.id.splash);
         splashMsg = findViewById(R.id.splashMsg);
         bar = findViewById(R.id.bar);
+        tabs = findViewById(R.id.tabs);
+        mobileJs = readAsset("mobile.js");
+        buildTabs();
 
         fileLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
             Uri[] out = null;
@@ -190,7 +207,7 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 base = u;
-                web.loadUrl(u + "/");
+                web.loadUrl(u + "/m");      //  ⭐ 폰은 PC 첫 화면이 아니라 폰용 첫 화면(/m)으로
             });
         }).start();
     }
@@ -313,12 +330,20 @@ public class MainActivity extends AppCompatActivity {
                 view.evaluateJavascript(PRINT_JS, null);
             }
             view.evaluateJavascript(REMEMBER_JS, null);
+            Uri pu = Uri.parse(url);
+            if (isPortalHost(pu.getHost()) && !mobileJs.isEmpty()) view.evaluateJavascript(mobileJs, null);
+            if (!isPopup) selectTab(pu.getPath());
             CookieManager.getInstance().flush();
             if (!isPopup) {
                 bar.setVisibility(View.GONE);
                 swipe.setRefreshing(false);
                 splash.setVisibility(View.GONE);
             }
+        }
+
+        @Override
+        public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+            if (!isPopup) selectTab(Uri.parse(url).getPath());
         }
 
         @Override
@@ -620,6 +645,15 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public void badges(int appr, int chat, int todo) {
+            runOnUiThread(() -> {
+                setBadge(1, appr);
+                setBadge(2, chat);
+                setBadge(3, todo);
+            });
+        }
+
+        @JavascriptInterface
         public void saveBase64(String name, String mime, String b64) {
             try {
                 byte[] data = Base64.decode(b64, Base64.DEFAULT);
@@ -629,6 +663,112 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> Toast.makeText(MainActivity.this, "저장하지 못했습니다: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
+        }
+    }
+
+    // ── 아래 탭 ────────────────────────────────────────────────
+    int dp(int v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    void buildTabs() {
+        for (int i = 0; i < TABS.length; i++) {
+            final int idx = i;
+            android.widget.FrameLayout cell = new android.widget.FrameLayout(this);
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setGravity(Gravity.CENTER);
+            TextView ic = new TextView(this);
+            ic.setText(TABS[i][0]);
+            ic.setTextSize(21);
+            ic.setGravity(Gravity.CENTER);
+            TextView lb = new TextView(this);
+            lb.setText(TABS[i][1]);
+            lb.setTextSize(12);
+            lb.setGravity(Gravity.CENTER);
+            col.addView(ic);
+            col.addView(lb);
+            cell.addView(col, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            TextView bd = new TextView(this);
+            bd.setTextColor(Color.WHITE);
+            bd.setTextSize(11);
+            bd.setGravity(Gravity.CENTER);
+            bd.setPadding(dp(5), 0, dp(5), 0);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor(Color.parseColor("#D93025"));
+            bg.setCornerRadius(dp(9));
+            bd.setBackground(bg);
+            bd.setMinWidth(dp(18));
+            bd.setVisibility(View.GONE);
+            android.widget.FrameLayout.LayoutParams bp = new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(18));
+            bp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            bp.topMargin = dp(4);
+            bp.leftMargin = dp(18);
+            cell.addView(bd, bp);
+            android.util.TypedValue tv = new android.util.TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true);
+            cell.setForeground(ContextCompat.getDrawable(this, tv.resourceId));
+            cell.setClickable(true);
+            cell.setOnClickListener(v -> onTab(idx));
+            tabs.addView(cell, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+            tabIcon[i] = ic;
+            tabLabel[i] = lb;
+            tabBadge[i] = bd;
+        }
+        selectTab("/m");
+    }
+
+    void onTab(int i) {
+        if (base == null) {           //  아직 못 붙었다 — 다시 붙어 본다
+            start();
+            return;
+        }
+        if (popup != null) popup.dismiss();
+        String path = TABS[i][2];
+        if (path == null) {
+            web.evaluateJavascript("window.__hanilMenu?window.__hanilMenu():(location.href='/m')", null);
+            return;
+        }
+        web.loadUrl(base + path);
+    }
+
+    void selectTab(String path) {
+        int sel = -1;
+        if (path != null) {
+            for (int i = 0; i < TABS.length; i++) {
+                String p = TABS[i][2];
+                if (p != null && (path.equals(p) || path.startsWith(p + "/"))) sel = i;
+            }
+        }
+        for (int i = 0; i < TABS.length; i++) {
+            if (tabLabel[i] == null) continue;
+            int c = (i == sel) ? Color.parseColor("#2954A5") : Color.parseColor("#6B7684");
+            tabLabel[i].setTextColor(c);
+            tabLabel[i].setTypeface(null, i == sel ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            tabIcon[i].setAlpha(i == sel ? 1f : 0.65f);
+        }
+    }
+
+    void setBadge(int i, int n) {
+        TextView b = tabBadge[i];
+        if (b == null) return;
+        if (n > 0) {
+            b.setText(n > 99 ? "99+" : String.valueOf(n));
+            b.setVisibility(View.VISIBLE);
+        } else {
+            b.setVisibility(View.GONE);
+        }
+    }
+
+    String readAsset(String name) {
+        try (java.io.InputStream in = getAssets().open(name)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            return "";
         }
     }
 
