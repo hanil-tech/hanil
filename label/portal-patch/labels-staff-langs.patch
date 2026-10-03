@@ -1,8 +1,8 @@
 --- a/labels.js
 +++ b/labels.js
-@@ -95,6 +95,23 @@
-       label: (nm[k] && String(nm[k]).trim()) || FORMS[k].label,
-       def_label: FORMS[k].label, renamed: !!(nm[k] && String(nm[k]).trim()) })) });
+@@ -127,6 +127,23 @@
+         msg: shown + ' 을(를) ' + (want ? '사용중지했습니다 — 고르는 자리에서 감춥니다.' : '다시 씁니다.') });
+     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
    });
 +  //  🗣⭐ **라벨 발행기 — 직원 국적별 인원(이름 없이)**
 +  //   사용자 「자동으로 포털에 접속해서 국적에 따른 언어 나오게」

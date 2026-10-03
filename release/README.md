@@ -24,7 +24,7 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-label-v2.2.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.2.0.exe)** | 라벨을 뽑을 현장 키오스크 | 6MB |
+| **[hanil-label-v2.2.1.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.2.1.exe)** | 라벨을 뽑을 현장 키오스크 | 6MB |
 
 TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면만 열어 바코드·레이저 프린터로 라벨을 뽑습니다.
 설치 없이 두 번 눌러 실행합니다. 자세한 안내는 [label/README.md](../label/README.md).

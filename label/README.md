@@ -4,7 +4,7 @@
 작업이 끝나면 바코드 리더기로 품번을 찍고, 담고, 인쇄합니다.
 바코드(라벨) 프린터와 레이저 프린터(A4 라벨지)를 모두 쓸 수 있습니다.
 
-**[⬇ hanil-label-v2.2.0.exe 내려받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.2.0.exe)** (약 6MB, 설치 없음)
+**[⬇ hanil-label-v2.2.1.exe 내려받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.2.1.exe)** (약 6MB, 설치 없음)
 
 ## 쓰는 법 (간편 발행 화면)
 

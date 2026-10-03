@@ -118,6 +118,8 @@ const (
 var staticOK = map[string]bool{
 	"/menulog.js": true, "/itempeek.js": true, "/hanil-logo.png": true,
 	"/favicon.ico": true, "/manifest.json": true,
+	//  포털 v13 부터 모든 화면에 붙는 워터마크 조각(인쇄할 때 회사 워터마크) — API 를 부르지 않는다
+	"/wm.js": true,
 }
 var staticPrefix = []string{"/css/", "/js/", "/fonts/", "/img/", "/app-icons/"}
 
