@@ -112,6 +112,15 @@ public sealed class DeviceClient
         return await _http.SendAsync(request);
     }
 
+    /// <summary>토큰을 달고 받아 오는 길. 새 판 나눠 주기(/api/update)가 이것을 쓴다.</summary>
+    public async Task<HttpResponseMessage> GetAsync(string route)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, route);
+
+        request.Headers.Add(ServerRoutes.TokenHeader, Token);
+        return await _http.SendAsync(request);
+    }
+
     public async Task<Core.Server.HeartbeatResponse> HeartbeatAsync(
         string state = "Allowed", string? policyStamp = null, string reason = "")
     {
