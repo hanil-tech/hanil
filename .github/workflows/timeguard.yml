@@ -1,0 +1,129 @@
+#  🛡💿 TimeGuard 설치 파일 굽기
+#
+#  ⚠⚠ 사무실 PC 에 개발 도구를 깔 까닭이 없다 — **깃허브가 대신 굽는다.**
+#    사람이 할 일은 [Actions] 에서 단추 한 번이다.
+#
+#  ⭐ 나오는 것
+#    dist/TimeGuard-Setup.exe         직원 PC 설치 파일
+#    dist/TimeGuard-Server-Setup.exe  관리 서버 설치 파일
+#    → 둘 다 이 실행의 「Artifacts」 에서 받을 수 있고, 저장소 `release/` 에도 넣어 둔다.
+#
+#  ✍ **서명(選)** — 저장소에 비밀값 두 개(SIGN_PFX_BASE64 · SIGN_PFX_PASSWORD)가 있으면
+#    윈도우 컴퓨터에서 **코드 서명**까지 한다. 서명하면 직원 PC 에서 「확인되지 않은 게시자」
+#    경고가 사라진다(그 인증서를 PC 가 믿도록 설치 프로그램이 등록해 주기 때문).
+#    비밀값이 없으면 **서명 없이** 그대로 굽는다 — 지금까지와 똑같이 쓸 수 있다.
+name: TimeGuard 설치 파일 굽기
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'build/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/timeguard.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET 8 준비
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      #  ⚠ 시험이 깨진 채로 설치 파일을 만들면 안 된다 — 굽기 전에 돌린다.
+      - name: 시험
+        run: dotnet test --nologo -v minimal
+
+      #  ⚠ 윈도우용이지만 **리눅스에서 구울 수 있다**(EnableWindowsTargeting).
+      #   publish.sh 가 쓰는 zip 도 리눅스 쪽에 이미 있다.
+      - name: 설치 파일 굽기
+        run: ./build/publish.sh
+
+      - name: 구워진 것 보기
+        run: ls -l dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timeguard-setup
+          path: |
+            dist/TimeGuard-Setup.exe
+            dist/TimeGuard-Server-Setup.exe
+          if-no-files-found: error
+
+  #  ✍ 서명 — 비밀값이 있을 때만 돈다. 없으면 통째로 건너뛴다(실패가 아니다).
+  sign:
+    needs: build
+    runs-on: windows-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: timeguard-setup
+          path: dist
+
+      - name: 서명
+        id: sign
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.SIGN_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PFX)) {
+            Write-Host "서명 인증서가 없습니다 — 서명 없이 그대로 둡니다."
+            "signed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:PFX))
+          $tool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+                  Sort-Object FullName -Descending | Select-Object -First 1
+          foreach ($exe in Get-ChildItem dist\*.exe) {
+            & $tool.FullName sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:PFX_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $exe.FullName
+            if ($LASTEXITCODE -ne 0) { throw "서명 실패: $($exe.Name)" }
+          }
+          Remove-Item "$env:RUNNER_TEMP\sign.pfx" -Force
+          "signed=true" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timeguard-setup-signed
+          path: dist/*.exe
+          if-no-files-found: error
+
+  #  📦 저장소에 넣어 둔다 — 포털이나 공유 폴더로 나눠 줄 때 여기서 가져간다.
+  #  ⚠ 넣는 자리를 `release/` 로 둔 것은 일부러다 — 위 `paths` 가 `src/**` 라서
+  #    이 넣기가 **또 굽기를 부르지 않는다**(끝없이 도는 것을 막는다).
+  store:
+    needs: sign
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: timeguard-setup-signed
+          path: dist
+
+      - name: 저장소에 넣기
+        run: |
+          set -e
+          cp dist/TimeGuard-Setup.exe        release/TimeGuard-Setup.exe
+          cp dist/TimeGuard-Server-Setup.exe release/TimeGuard-Server-Setup.exe
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f release/TimeGuard-Setup.exe release/TimeGuard-Server-Setup.exe
+          if git diff --cached --quiet; then
+            echo "바뀐 것이 없습니다."
+          else
+            git commit -m "TimeGuard 설치 파일 다시 구움 (${{ github.run_number }}) [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
