@@ -101,6 +101,15 @@ echo "=== 관리 서버 설치 파일 ==="
 stage server TimeGuard.Server
 cp "$ROOT/docs/서버설치안내.txt"       "$WORK/server/Server-Install-Guide.txt"
 cp "$ROOT/docs/직원계정_권한낮추기.md" "$WORK/server/Employee-Account-Guide.md"
+
+# 💿 직원 PC 설치 파일을 서버 설치 파일 안에 함께 넣는다.
+#
+# 이 한 줄이 "PC 열 대를 도는 일"을 없앤다.
+# 서버를 새로 설치하면 설치 프로그램이 이 파일을 '나눠 주는 자리'에 놓고,
+# 직원 PC 들이 서버에 물어보다가 그것을 보고 스스로 따라온다.
+#
+# 서버 설치 파일이 그만큼 커지지만(약 두 배), 서버는 한 대뿐이고 한 번만 받는다.
+cp "$DIST/TimeGuard-Setup.exe" "$WORK/server/TimeGuard-Setup.exe"
 build_setup TimeGuard.ServerSetup "TimeGuard-Server-Setup.exe" "$(pack server)"
 echo "완료: dist/TimeGuard-Server-Setup.exe  ($(du -h "$DIST/TimeGuard-Server-Setup.exe" | cut -f1))"
 

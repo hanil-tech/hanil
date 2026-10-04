@@ -42,6 +42,8 @@ builder.Services.AddSingleton<ServiceState>();
 builder.Services.AddHostedService<GuardWorker>();
 builder.Services.AddHostedService<ControlServer>();
 builder.Services.AddHostedService<ServerSync>();
+//  💿 v1.1 — 새 판을 서버에서 받아 스스로 바꾼다(조용할 때만). 단독 모드면 아무 일도 하지 않는다.
+builder.Services.AddHostedService<UpdateWorker>();
 
 if (WindowsServiceHelpers.IsWindowsService())
 {

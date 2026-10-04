@@ -287,7 +287,11 @@ public static class DeviceApi
     // ---- 공통 ----
 
     /// <summary>헤더의 장비 토큰으로 어느 PC 인지 알아낸다.</summary>
-    private static async Task<Device?> AuthenticateAsync(HttpContext context, GuardDbContext db, CancellationToken token)
+    /// <remarks>
+    /// ⚠ 새 판 나눠 주기(<see cref="UpdateApi"/>)도 **이 잣대를 그대로** 쓴다.
+    ///   두 벌로 만들면 한쪽만 고쳐져 언젠가 어긋난다.
+    /// </remarks>
+    internal static async Task<Device?> AuthenticateAsync(HttpContext context, GuardDbContext db, CancellationToken token)
     {
         if (!context.Request.Headers.TryGetValue(ServerRoutes.TokenHeader, out var values))
             return null;
@@ -303,12 +307,12 @@ public static class DeviceApi
             d => d.TokenHash != string.Empty && d.TokenHash == hash, token);
     }
 
-    private static IResult Unauthorized() =>
+    internal static IResult Unauthorized() =>
         Results.Json(ApiError.From("장비 인증에 실패했습니다. 다시 등록이 필요합니다."),
             statusCode: StatusCodes.Status401Unauthorized);
 
     /// <summary>승인되지 않은 PC 는 아무 정책도 받아 갈 수 없다.</summary>
-    private static IResult NotApproved() =>
+    internal static IResult NotApproved() =>
         Results.Json(ApiError.From("이 PC 는 아직 관리자의 승인을 받지 못했습니다."),
             statusCode: StatusCodes.Status403Forbidden);
 

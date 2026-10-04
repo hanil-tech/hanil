@@ -134,6 +134,38 @@ string BuildWelcomeText(bool installed)
 
 // ================= 설치 =================
 
+//  💿 직원 PC 용 설치 파일을 「나눠 주는 자리」에 둔다.
+//   ⚠⚠ 설치 프로그램 안에 **직원 PC 설치 파일이 통째로** 들어 있다(build/publish.sh 가 넣는다).
+//     그래서 서버 한 대만 새로 깔면 직원 PC 들이 받아 갈 것이 생긴다.
+//   ⚠ 판 번호를 글자로 함께 적어 둔다 — 실행 파일에서 읽어 내는 것보다 틀릴 구석이 없다.
+void PlaceClientSetup(ISetupProgress progress)
+{
+    try
+    {
+        var source = Path.Combine(installPath, "TimeGuard-Setup.exe");
+
+        if (!File.Exists(source))
+        {
+            progress.Warn("설치 파일이 들어 있지 않습니다 — 직원 PC 는 예전처럼 손으로 설치하셔야 합니다.");
+            return;
+        }
+
+        var folder = Path.Combine(dataPath, "updates");
+        Directory.CreateDirectory(folder);
+
+        File.Copy(source, Path.Combine(folder, "TimeGuard-Setup.exe"), overwrite: true);
+
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+        File.WriteAllText(Path.Combine(folder, "version.txt"), version);
+
+        progress.Done($"두었습니다. 직원 PC 들이 판 {version} 으로 알아서 따라옵니다.");
+    }
+    catch (Exception ex)
+    {
+        progress.Warn($"설치 파일을 두지 못했습니다: {ex.Message}");
+    }
+}
+
 SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
 {
     var embedded = Payload.IsEmbedded(Assembly.GetExecutingAssembly());
@@ -201,6 +233,13 @@ SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
         progress.Done("관리자만 접근할 수 있게 했습니다.");
     else
         progress.Warn($"폴더 권한을 설정하지 못했습니다: {dataError}");
+
+    // --- 직원 PC 에 나눠 줄 설치 파일 ---
+    //  💿⭐⭐⭐ 이 한 걸음이 **PC 열 대를 도는 일**을 없앤다.
+    //   직원 PC 들은 서버에 「새 판 있나요」를 물어보다가, 여기 놓인 파일을 보고 **스스로 따라온다.**
+    //  ⚠ 못 놓아도 설치는 계속한다 — 서버가 도는 것이 먼저다. 그때는 예전처럼 손으로 돌리면 된다.
+    progress.Step("직원 PC 에 나눠 줄 설치 파일을 둡니다");
+    PlaceClientSetup(progress);
 
     // --- 암호화 설정 ---
     var scheme = "http";

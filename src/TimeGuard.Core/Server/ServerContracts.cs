@@ -18,6 +18,12 @@ public static class ServerRoutes
     public const string ExtensionRequests = "/api/extension-requests";
     public const string MyRequests = "/api/extension-requests/mine";
 
+    /// <summary>서버가 가지고 있는 새 판이 있는지 묻는다.</summary>
+    public const string Update = "/api/update";
+
+    /// <summary>새 판 설치 파일을 받는다.</summary>
+    public const string UpdateFile = "/api/update/file";
+
     /// <summary>장비 토큰을 실어 보내는 헤더 이름.</summary>
     public const string TokenHeader = "X-TimeGuard-Token";
 }
@@ -195,4 +201,34 @@ public sealed class ApiError
     public string Message { get; set; } = string.Empty;
 
     public static ApiError From(string message) => new() { Message = message };
+}
+
+/// <summary>
+/// 서버가 나눠 주는 새 판 정보.
+///
+/// 왜 서버가 나눠 주는가:
+///   직원 PC 는 이미 서버와 이야기하고 있다. 새 판을 받는 길을 따로 만들 까닭이 없다.
+///   관리 서버 한 대만 새로 깔면 직원 PC 들이 그것을 보고 알아서 따라온다.
+/// </summary>
+public sealed class UpdateInfo
+{
+    /// <summary>서버가 나눠 줄 설치 파일을 가지고 있는지.</summary>
+    public bool Available { get; set; }
+
+    /// <summary>그 설치 파일의 판 번호. 예: 1.1.0</summary>
+    public string Version { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 파일 내용의 지문(SHA-256).
+    ///
+    /// ⚠ 받은 파일이 오는 길에 바뀌지 않았는지 보는 데 쓴다.
+    ///   이것을 확인하지 않으면, 중간에서 가로챈 누군가가 **엉뚱한 프로그램을
+    ///   관리자 권한으로 설치**하게 만들 수 있다.
+    /// </summary>
+    public string Sha256 { get; set; } = string.Empty;
+
+    public long Size { get; set; }
+
+    /// <summary>사람이 읽을 안내. 기록에 남긴다.</summary>
+    public string Message { get; set; } = string.Empty;
 }

@@ -62,7 +62,6 @@ jobs:
   sign:
     needs: build
     runs-on: windows-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     outputs:
       signed: ${{ steps.sign.outputs.signed }}
     steps:
@@ -100,10 +99,13 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-  #  📦 저장소에 넣어 둔다 — 포털이나 공유 폴더로 나눠 줄 때 여기서 가져간다.
-  #  ⚠ 넣는 자리를 `release/` 로 둔 것은 일부러다 — 위 `paths` 가 `src/**` 라서
-  #    이 넣기가 **또 굽기를 부르지 않는다**(끝없이 도는 것을 막는다).
-  store:
+  #  📦 **내려받는 자리에 올린다(Releases).**
+  #  ⚠⚠ 저장소 안에 exe 를 커밋하지 않는다 — 설치 파일 둘이 합쳐 200MB 가 넘어서
+  #    구울 때마다 커밋하면 저장소가 금세 수 GB 가 된다(한 번 들어간 것은 지워도 안 줄어든다).
+  #  ⭐ Releases 에 올리면 주소가 **늘 같다** — 받는 사람은 이 주소만 알면 된다:
+  #      https://github.com/hanil-tech/hanil/releases/latest/download/TimeGuard-Setup.exe
+  #      https://github.com/hanil-tech/hanil/releases/latest/download/TimeGuard-Server-Setup.exe
+  release:
     needs: sign
     runs-on: ubuntu-latest
     steps:
@@ -113,17 +115,25 @@ jobs:
           name: timeguard-setup-signed
           path: dist
 
-      - name: 저장소에 넣기
+      - name: 판 번호 읽기
+        id: ver
+        run: echo "v=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          cp dist/TimeGuard-Setup.exe        release/TimeGuard-Setup.exe
-          cp dist/TimeGuard-Server-Setup.exe release/TimeGuard-Server-Setup.exe
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f release/TimeGuard-Setup.exe release/TimeGuard-Server-Setup.exe
-          if git diff --cached --quiet; then
-            echo "바뀐 것이 없습니다."
+          TAG="v${{ steps.ver.outputs.v }}-${{ github.run_number }}"
+          SIGNED="${{ needs.sign.outputs.signed }}"
+          NOTE="설치 파일 두 개입니다. 서버 PC 한 대에 ①, 직원 PC 들에 ②."
+          if [ "$SIGNED" = "true" ]; then
+            NOTE="$NOTE  ✍ 코드 서명됨 — 「확인되지 않은 게시자」 경고가 뜨지 않습니다."
           else
-            git commit -m "TimeGuard 설치 파일 다시 구움 (${{ github.run_number }}) [skip ci]"
-            git push origin HEAD:${{ github.ref_name }}
+            NOTE="$NOTE  ⚠ 서명 없음 — 첫 설치 때 「Windows 의 PC 보호」가 한 번 뜹니다([추가 정보] → [실행])."
           fi
+          gh release create "$TAG" dist/*.exe \
+            --target "${{ github.ref_name }}" \
+            --title "한일 TimeGuard $TAG" \
+            --notes "$NOTE" \
+            --latest

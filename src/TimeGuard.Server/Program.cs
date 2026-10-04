@@ -31,6 +31,10 @@ var dataDirectory = builder.Configuration["DataDirectory"]
 Directory.CreateDirectory(dataDirectory);
 var databasePath = Path.Combine(dataDirectory, "timeguard.db");
 
+//  💿 v1.1 — 직원 PC 에 나눠 줄 설치 파일이 놓이는 자리.
+//   ⚠ 서버 설치 프로그램이 여기에 새 파일을 놓는다. 비어 있으면 그냥 안 나눠 준다(고장이 아니다).
+builder.Services.AddSingleton(new UpdatePackage(Path.Combine(dataDirectory, "updates")));
+
 builder.Services.AddDbContext<GuardDbContext>(options =>
     options.UseSqlite($"Data Source={databasePath}"));
 
@@ -109,6 +113,7 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 app.MapDeviceApi();
+app.MapUpdateApi();     // 💿 새 판 나눠 주기(승인된 PC 에게만)
 app.MapApprovalApi();
 
 // 서버가 살아 있는지 확인하는 용도. 로그인 없이 접근할 수 있다.

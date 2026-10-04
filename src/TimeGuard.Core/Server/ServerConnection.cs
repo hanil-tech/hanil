@@ -401,6 +401,96 @@ public sealed class ServerConnection : IDisposable
         }
     }
 
+    // ---- 새 판 받기 ----
+
+    /// <summary>서버가 나눠 줄 새 판을 가지고 있는지 묻는다.</summary>
+    /// <remarks>
+    /// 서버에 닿지 못하는 것은 흔한 일이므로 예외를 던지지 않고 null 을 준다.
+    /// 업데이트는 **못 해도 그만인 일**이다 — 감시가 멈추는 것보다 훨씬 낫다.
+    /// </remarks>
+    public async Task<UpdateInfo?> GetUpdateAsync(CancellationToken token = default)
+    {
+        if (!_settings.IsEnrolled) return null;
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, ServerRoutes.Update.TrimStart('/'));
+            request.Headers.Add(ServerRoutes.TokenHeader, _settings.Token);
+
+            using var response = await _http.SendAsync(request, token);
+            if (!response.IsSuccessStatusCode) return null;
+
+            return await response.Content.ReadFromJsonAsync<UpdateInfo>(IpcJson.Options, token);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 새 판 설치 파일을 받아 저장한다.
+    ///
+    /// ⚠⚠⚠ **받은 내용이 서버가 말한 것과 같은지 반드시 확인한다.**
+    ///   이 파일은 곧 **관리자 권한으로 실행**된다. 확인하지 않으면 중간에서 바꿔치기한
+    ///   프로그램을 우리 손으로 설치해 주는 꼴이 된다.
+    ///   그래서 ①임시 이름으로 받고 ②지문을 맞춰 보고 ③맞을 때만 제자리로 옮긴다.
+    /// </summary>
+    public async Task<(bool Ok, string Message)> DownloadUpdateAsync(
+        string targetPath, string expectedSha256, CancellationToken token = default)
+    {
+        if (!_settings.IsEnrolled) return (false, "이 PC 는 관리 서버에 등록되어 있지 않습니다.");
+        if (string.IsNullOrWhiteSpace(expectedSha256)) return (false, "서버가 파일 지문을 주지 않았습니다.");
+
+        var temporaryPath = targetPath + ".받는중";
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, ServerRoutes.UpdateFile.TrimStart('/'));
+            request.Headers.Add(ServerRoutes.TokenHeader, _settings.Token);
+
+            // ⚠ 설치 파일은 수십 MB 다. 다 받을 때까지 기다리지 말고 흘려 받는다.
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            if (!response.IsSuccessStatusCode)
+                return (false, await ReadErrorAsync(response, token));
+
+            string actual;
+
+            await using (var source = await response.Content.ReadAsStreamAsync(token))
+            await using (var destination = File.Create(temporaryPath))
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var buffer = new byte[64 * 1024];
+                int read;
+
+                while ((read = await source.ReadAsync(buffer, token)) > 0)
+                {
+                    sha.TransformBlock(buffer, 0, read, null, 0);
+                    await destination.WriteAsync(buffer.AsMemory(0, read), token);
+                }
+
+                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                actual = Convert.ToHexString(sha.Hash!);
+            }
+
+            if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(temporaryPath);
+                return (false, "받은 파일이 서버가 말한 것과 다릅니다. 받지 않았습니다.");
+            }
+
+            File.Move(temporaryPath, targetPath, overwrite: true);
+            return (true, "새 판을 받았습니다.");
+        }
+        catch (Exception ex)
+        {
+            try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch (Exception) { }
+            return (false, $"새 판을 받지 못했습니다: {ex.Message}");
+        }
+    }
+
     private static async Task<string> ReadErrorAsync(HttpResponseMessage response, CancellationToken token)
     {
         try
