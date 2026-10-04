@@ -89,8 +89,23 @@ wrap_zip() {
   echo "        $zip  ($(du -h "$DIST/$zip" | cut -f1))"
 }
 
+# ✍ 사내 인증서(공개용)를 설치 파일 안에 함께 담는다.
+#
+# 담아 두면 설치할 때 이 PC 가 우리 인증서를 믿도록 등록해 둔다.
+# 그러면 다음부터 "확인되지 않은 게시자" 경고가 뜨지 않는다(자동 업데이트도 조용하다).
+#
+# 없으면 그냥 넘어간다 - 예전과 똑같이 동작하고, 첫 설치 때 경고가 한 번 뜰 뿐이다.
+# 만드는 법: build/인증서-만들기.ps1 (윈도우에서 한 번)
+CERT="$ROOT/cert/hanil-code-signing.cer"
+
+add_cert() {
+  [ -f "$CERT" ] || return 0
+  cp "$CERT" "$WORK/$1/hanil-code-signing.cer"
+}
+
 echo "=== 직원 PC 설치 파일 ==="
 stage client TimeGuard.Service TimeGuard.Agent TimeGuard.Admin
+add_cert client
 cp "$ROOT/docs/설치안내.txt"          "$WORK/client/Install-Guide.txt"
 cp "$ROOT/docs/직원계정_권한낮추기.md" "$WORK/client/Employee-Account-Guide.md"
 build_setup TimeGuard.Setup "TimeGuard-Setup.exe" "$(pack client)"
@@ -110,6 +125,7 @@ cp "$ROOT/docs/직원계정_권한낮추기.md" "$WORK/server/Employee-Account-G
 #
 # 서버 설치 파일이 그만큼 커지지만(약 두 배), 서버는 한 대뿐이고 한 번만 받는다.
 cp "$DIST/TimeGuard-Setup.exe" "$WORK/server/TimeGuard-Setup.exe"
+add_cert server
 build_setup TimeGuard.ServerSetup "TimeGuard-Server-Setup.exe" "$(pack server)"
 echo "완료: dist/TimeGuard-Server-Setup.exe  ($(du -h "$DIST/TimeGuard-Server-Setup.exe" | cut -f1))"
 

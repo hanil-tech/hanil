@@ -4,3 +4,8 @@ dist/
 *.user
 *.suo
 .vs/
+
+# ✍ 서명 열쇠 — 절대 올리지 않는다(저장소는 누구나 볼 수 있다).
+#   올려도 되는 것은 공개용 cert/hanil-code-signing.cer 하나뿐이다.
+cert/*.pfx
+cert/깃허브에-넣을-값.txt

@@ -145,6 +145,23 @@ string BuildWelcomeText(bool installed)
 
 // ================= 설치 =================
 
+//  ✍ 설치 파일 안에 든 공개용 인증서를 이 PC 의 믿는 목록에 넣는다.
+//   ⚠⚠ 못 해도 설치는 계속한다 — 그때는 예전처럼 [추가 정보] → [실행] 을 한 번 누르면 된다.
+void TrustHanilCertificate(ISetupProgress progress)
+{
+    var certificatePath = Path.Combine(installPath, CertificateTrust.FileName);
+
+    //  ⚠ 인증서를 안 담고 구운 설치 파일이면 아무 말 없이 넘어간다(없는 것이 정상인 경우가 있다).
+    if (!File.Exists(certificatePath)) return;
+
+    progress.Step("사내 인증서를 이 PC 에 등록합니다");
+
+    if (CertificateTrust.Install(certificatePath, out var certificateError))
+        progress.Done("등록했습니다. 다음부터는 보안 경고가 뜨지 않습니다.");
+    else
+        progress.Warn($"등록하지 못했습니다: {certificateError} (설치는 그대로 계속합니다)");
+}
+
 SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
 {
     if (!embedded && !File.Exists(Path.Combine(sourcePath, "TimeGuard.Service.exe")))
@@ -197,6 +214,13 @@ SetupOutcome Install(ISetupProgress progress, SetupAnswers answers)
     }
 
     progress.Done($"설치했습니다: {installPath}");
+
+    // --- 사내 인증서 ---
+    //  ✍🛡 이 PC 가 **우리 인증서를 믿게** 해 둔다.
+    //   그러면 다음부터 「Windows 의 PC 보호 · 확인되지 않은 게시자」가 뜨지 않는다 —
+    //   새 판을 스스로 받아 설치할 때도 조용하다.
+    //  ⚠ 인증서를 함께 담지 않고 구운 설치 파일이면 이 걸음은 조용히 넘어간다.
+    TrustHanilCertificate(progress);
 
     // --- 자료 폴더 ---
     progress.Step("설정 폴더를 준비합니다");
