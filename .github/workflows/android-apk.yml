@@ -51,7 +51,7 @@ jobs:
         run: |
           mkdir -p out
           cp android/app/build/outputs/apk/release/app-release.apk out/hanil-staff.apk
-          NOTES=$(git log -1 --format=%s | sed 's/"/\\"/g')
+          NOTES='새 판입니다 — 「지금 설치」만 누르세요. 로그인은 그대로 남습니다.'
           printf '{"version":"%s","code":%s,"notes":"%s"}\n' "${{ steps.v.outputs.ver }}" "$code" "$NOTES" > out/hanil-staff.json
           cat out/hanil-staff.json
           ls -l out
