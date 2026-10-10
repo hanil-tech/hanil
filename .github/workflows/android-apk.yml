@@ -25,26 +25,35 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      #  ⚠ 깃허브 컴퓨터에는 안드로이드 SDK 가 이미 들어 있다(따로 깔면 오히려 깨진다)
 
       - uses: gradle/actions/setup-gradle@v4
+
+      #  🔁 판 번호 — 구울 때마다 올라간다(앱이 새 판을 알아보는 기준)
+      - name: 판 번호
+        id: v
+        run: |
+          CODE=$((100 + ${{ github.run_number }}))
+          echo "code=$CODE" >> "$GITHUB_ENV"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "ver=1.1.$CODE" >> "$GITHUB_OUTPUT"
 
       - name: APK 만들기
         working-directory: android
         env:
           HANIL_KS_PASS: ${{ secrets.HANIL_KS_PASS }}
+          APP_CODE: ${{ steps.v.outputs.code }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease
 
       - name: 이름 붙이기
-        id: v
         run: |
-          VER=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" android/app/build.gradle)
-          echo "ver=$VER" >> "$GITHUB_OUTPUT"
           mkdir -p out
           cp android/app/build/outputs/apk/release/app-release.apk out/hanil-staff.apk
-          cp android/dist/hanil-staff.json out/hanil-staff.json
+          NOTES=$(git log -1 --format=%s | sed 's/"/\\"/g')
+          printf '{"version":"%s","code":%s,"notes":"%s"}\n' "${{ steps.v.outputs.ver }}" "$code" "$NOTES" > out/hanil-staff.json
+          cat out/hanil-staff.json
           ls -l out
 
       - uses: actions/upload-artifact@v4

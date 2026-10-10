@@ -40,14 +40,23 @@
 
 확인한 포털 판: **v13.41.0** (`/m`·`/app`·`/api/app/version`·`/api/my-today`·`/api/chat/channels`·왼쪽 메뉴 모양 그대로).
 
+## 저절로 새 판 (포털이 바뀌면 앱도 따라감)
+
+- **포털 화면은 따로 깔 것이 없습니다.** 앱은 화면을 포털에서 그대로 받아 보여 주므로, 포털을 v13.42 로 올리면 앱에도 바로 v13.42 화면이 뜹니다.
+  앱이 켤 때·다시 돌아올 때 `/api/version` 을 보고, 판이 바뀌었으면 옛 화면(캐시)을 비우고 새로 받습니다(로그인은 그대로).
+- **앱 자체(APK)가 바뀌었을 때** — 포털 「앱 받기」에 더 높은 번호의 APK 가 올라오면, 앱이 스스로 받아 두고
+  「앱 새 판이 있습니다 → 지금 설치」를 띄웁니다. 직원은 **「설치」만 한 번** 누르면 됩니다.
+  (처음 한 번은 「이 출처 허용」을 켜라고 설정 화면이 뜹니다. 회사 관리 폰이 아니면 안드로이드가 「설치」 한 번은 꼭 묻습니다.)
+- 판 번호는 GitHub 가 구울 때마다 저절로 올라갑니다(`versionCode = 100 + 실행 번호`).
+
 ## 포털에 올리기 (직원들이 받는 곳)
 
 포털의 「📱 앱 받기」(`/app`)가 이 앱을 나눠 줍니다(꾸러미 이름 `com.hanil.portal.staff`).
 
-1. 만든 APK 를 포털 서버의 `public/app/hanil-staff.apk` 로 둡니다.
-2. 같은 곳에 `dist/hanil-staff.json` 을 `public/app/hanil-staff.json` 으로 둡니다(`code` 는 앱의 versionCode).
+1. GitHub **Releases** 의 `hanil-staff.apk` 를 포털 서버의 `public/app/hanil-staff.apk` 로 둡니다.
+2. 같은 Release 에 있는 `hanil-staff.json` 을 `public/app/hanil-staff.json` 으로 둡니다(`code` 는 앱의 versionCode).
 3. 직원들은 폰에서 포털 → 「📱 앱 받기」 → QR 또는 받기.
-4. 새 판을 낼 때는 `app/build.gradle` 의 `versionCode`·`versionName` 을 올리고, 위 두 파일을 바꿔 둡니다.
+4. 새 판은 위 두 파일만 바꿔 두면 됩니다(번호는 GitHub 가 올립니다).
    → 앱을 켜면 **「새 판이 있습니다」** 가 떠서 받기만 누르면 됩니다.
 
 ## 설치(폰)

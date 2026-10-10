@@ -11,6 +11,9 @@
     <!-- 내려받기(안드로이드 9 이하) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
+    <!-- 🔁 앱 새 판을 스스로 받아 설치 화면을 띄운다 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application

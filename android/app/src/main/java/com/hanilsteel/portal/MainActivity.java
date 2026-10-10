@@ -667,45 +667,154 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ── 새 판 알림 ─────────────────────────────────────────────
-    //  ⭐ 포털 「앱 받기」 에 새 판(hanil-staff.apk + hanil-staff.json 의 code)이 올라오면 알려 준다.
-    //  ⚠ 켤 때 한 번만 묻는다. 「나중에」를 누르면 이번에는 다시 안 묻는다.
-    boolean updateAsked;
+    // ── 저절로 새 판 ───────────────────────────────────────────
+    //  ⭐ 포털이 새 판으로 바뀌면 앱도 따라간다. 둘로 나눈다:
+    //    ① 포털 화면 — 앱은 화면을 포털에서 그대로 받으므로 새로 깔 것이 없다.
+    //       다만 WebView 가 옛 화면(js·css)을 쥐고 있을 수 있어 /api/version 이 바뀌면 캐시를 비우고 다시 연다.
+    //    ② 앱 자체(APK) — 포털 「앱 받기」에 더 높은 code 의 hanil-staff.apk 가 올라오면
+    //       앱이 스스로 받아서 바로 설치 화면을 띄운다(「설치」 한 번만 누르면 된다).
+    //  ⚠ 안드로이드는 사람이 「설치」를 누르지 않으면 앱을 바꿀 수 없다(회사 관리 폰이 아니면). 그 한 번은 남는다.
+    //  ⚠ 켤 때, 그리고 다시 앱으로 돌아올 때 묻는다(너무 자주 묻지 않게 5분에 한 번).
+    long lastCheck;
+    boolean apkBusy;
+    String apkAsked;    // 「나중에」를 누른 판 — 앱을 다시 켜기 전까지 또 안 묻는다
 
     void checkUpdate(String u) {
-        if (updateAsked) return;
-        updateAsked = true;
+        long now = System.currentTimeMillis();
+        if (now - lastCheck < 5 * 60 * 1000) return;
+        lastCheck = now;
         new Thread(() -> {
-            HttpURLConnection c = null;
-            try {
-                c = (HttpURLConnection) new URL(u + "/api/app/version?app=staff").openConnection();
-                c.setConnectTimeout(4000);
-                c.setReadTimeout(6000);
-                java.io.InputStream in = c.getInputStream();
-                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                byte[] buf = new byte[4096];
+            checkPortal(u);
+            checkApk(u);
+        }).start();
+    }
+
+    String httpGet(String url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(6000);
+            c.setUseCaches(false);
+            java.io.InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int r;
+            while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+            return out.toString("UTF-8");
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    //  ① 포털 판이 바뀌었으면 옛 화면을 버린다
+    void checkPortal(String u) {
+        try {
+            String v = new org.json.JSONObject(httpGet(u + "/api/version")).optString("version", "");
+            if (v.isEmpty()) return;
+            android.content.SharedPreferences sp = getSharedPreferences("hanil", MODE_PRIVATE);
+            String old = sp.getString("portalVer", "");
+            if (v.equals(old)) return;
+            sp.edit().putString("portalVer", v).apply();
+            if (old.isEmpty()) return;          //  처음 켠 것 — 비울 옛 화면이 없다
+            runOnUiThread(() -> {
+                web.clearCache(false);           //  ⚠ 로그인(쿠키)은 그대로 — 캐시만 비운다
+                String cur = web.getUrl();
+                if (cur == null || cur.startsWith("file:")) cur = u + "/m";
+                web.loadUrl(cur);
+                Toast.makeText(this, "포털이 새 판(v" + v + ")으로 바뀌어 화면을 새로 받았습니다", Toast.LENGTH_LONG).show();
+            });
+        } catch (Exception e) {
+            //  못 물어봐도 앱은 그대로 쓴다
+        }
+    }
+
+    //  ② 앱(APK) 새 판
+    void checkApk(String u) {
+        try {
+            org.json.JSONObject a = new org.json.JSONObject(httpGet(u + "/api/app/version?app=staff")).optJSONObject("app");
+            if (a == null || !a.optBoolean("ok")) return;
+            int code = a.optInt("code", 0);
+            if (code <= BuildConfig.VERSION_CODE) return;
+            String ver = a.optString("version", "");
+            String notes = a.optString("notes", "");
+            String url = u + a.optString("url", "/app/staff.apk");
+            String key = code + "";
+            if (key.equals(apkAsked) || apkBusy) return;
+            //  ⭐ 묻기 전에 먼저 받아 둔다 — 「설치」를 누르면 기다리지 않고 바로 뜬다
+            File f = downloadApk(url, code);
+            if (f == null) return;
+            runOnUiThread(() -> {
+                if (isFinishing()) return;
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle("앱 새 판이 있습니다" + (ver.isEmpty() ? "" : " (v" + ver + ")"))
+                        .setMessage((notes.isEmpty() ? "" : notes + "\n\n") + "지금 쓰는 판: v" + BuildConfig.VERSION_NAME
+                                + "\n설치해도 로그인은 그대로 남습니다.")
+                        .setPositiveButton("지금 설치", (d, w) -> installApk(f))
+                        .setNegativeButton("나중에", (d, w) -> apkAsked = key)
+                        .setCancelable(false)
+                        .show();
+            });
+        } catch (Exception e) {
+            //  못 물어봐도 앱은 그대로 쓴다
+        }
+    }
+
+    File downloadApk(String url, int code) {
+        apkBusy = true;
+        HttpURLConnection c = null;
+        try {
+            File dir = new File(getCacheDir(), "update");
+            dir.mkdirs();
+            File f = new File(dir, "hanil-staff-" + code + ".apk");
+            File[] olds = dir.listFiles();
+            if (olds != null) for (File o : olds) if (!o.equals(f)) o.delete();
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(30000);
+            int len = c.getContentLength();
+            if (f.exists() && len > 0 && f.length() == len) return f;   //  이미 받아 둔 것
+            File tmp = new File(dir, f.getName() + ".part");
+            try (java.io.InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[16384];
                 int r;
                 while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
-                org.json.JSONObject a = new org.json.JSONObject(out.toString("UTF-8")).optJSONObject("app");
-                if (a == null || !a.optBoolean("ok")) return;
-                int code = a.optInt("code", 0);
-                if (code <= BuildConfig.VERSION_CODE) return;
-                String ver = a.optString("version", "");
-                String notes = a.optString("notes", "");
-                String url = u + a.optString("url", "/app/staff.apk");
-                runOnUiThread(() -> new android.app.AlertDialog.Builder(this)
-                        .setTitle("새 판이 있습니다" + (ver.isEmpty() ? "" : " (v" + ver + ")"))
-                        .setMessage((notes.isEmpty() ? "" : notes + "\n\n") + "지금 쓰는 판: v" + BuildConfig.VERSION_NAME
-                                + "\n받아서 설치하면 로그인은 그대로 남습니다.")
-                        .setPositiveButton("받기", (d, w) -> openOutside(Uri.parse(url)))
-                        .setNegativeButton("나중에", null)
-                        .show());
-            } catch (Exception e) {
-                //  못 물어봐도 앱은 그대로 쓴다
-            } finally {
-                if (c != null) c.disconnect();
             }
-        }).start();
+            if (len > 0 && tmp.length() != len) { tmp.delete(); return null; }
+            if (!tmp.renameTo(f)) return null;
+            return f;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+            apkBusy = false;
+        }
+    }
+
+    File pendingApk;
+
+    void installApk(File f) {
+        //  ⚠ 안드로이드 8 이상은 「이 앱이 설치하는 것 허용」을 한 번 켜야 한다 — 꺼져 있으면 그 설정 화면으로 보낸다
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+            pendingApk = f;
+            Toast.makeText(this, "「이 출처 허용」을 켜고 뒤로 오면 설치가 이어집니다", Toast.LENGTH_LONG).show();
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception e) {
+                Toast.makeText(this, "설정을 열지 못했습니다", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        pendingApk = null;
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".files", f);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(uri, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            Toast.makeText(this, "설치 화면을 열지 못했습니다: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     // ── 아래 탭 ────────────────────────────────────────────────
@@ -833,5 +942,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         web.onResume();
+        //  설치 허용을 켜고 돌아왔으면 설치를 잇는다
+        if (pendingApk != null && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls())) {
+            installApk(pendingApk);
+        } else if (base != null) {
+            checkUpdate(base);      //  다시 앱으로 돌아올 때도 새 판을 본다(5분에 한 번)
+        }
     }
 }

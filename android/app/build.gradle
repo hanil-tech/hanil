@@ -11,8 +11,9 @@ android {
         applicationId 'com.hanil.portal.staff'
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName '1.0.0'
+        //  🔁 GitHub 가 구울 때마다 번호를 하나씩 올린다(APP_CODE) — 폰의 앱이 「더 새 판」으로 알아본다
+        versionCode((System.getenv('APP_CODE') ?: '2') as int)
+        versionName '1.1.' + (System.getenv('APP_CODE') ?: '2')
     }
 
     //  🔑 사내 배포용 서명 — 이 열쇠(keystore)를 잃어버리면 같은 앱으로 업데이트를 못 한다(꼭 보관)
