@@ -56,6 +56,17 @@ jobs:
           cat out/hanil-staff.json
           ls -l out
 
+      #  📦 저장소의 release/ 에도 넣는다 — 포털 zip 에 실어 「판 올리기」로 한 번에 올리기 위해
+      - name: release 폴더에 넣기
+        run: |
+          cp out/hanil-staff.apk out/hanil-staff.json release/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898315+github-actions[bot]@users.noreply.github.com"
+          git add release/hanil-staff.apk release/hanil-staff.json
+          git commit -m "한일 포털 앱 APK v${{ steps.v.outputs.ver }} (GitHub 가 구움)" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: hanil-staff-apk
