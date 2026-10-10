@@ -1,0 +1,67 @@
+#  📱 한일 포털 안드로이드 앱(APK) 만들기
+#   android/ 가 바뀌어 올라오면 GitHub 서버가 APK 를 만들어
+#   ① 실행 결과(Actions)의 「hanil-staff-apk」 ② 「Releases」의 android-v<판> 에 올려 둔다.
+#   ⚠ 손으로도 돌릴 수 있다: Actions → 「Android APK」 → Run workflow
+name: Android APK
+
+on:
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: APK 만들기
+        working-directory: android
+        env:
+          HANIL_KS_PASS: ${{ secrets.HANIL_KS_PASS }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+
+      - name: 이름 붙이기
+        id: v
+        run: |
+          VER=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" android/app/build.gradle)
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/hanil-staff.apk
+          cp android/dist/hanil-staff.json out/hanil-staff.json
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanil-staff-apk
+          path: out/
+
+      - name: Releases 에 올리기
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ steps.v.outputs.ver }}
+          name: 한일 포털 앱 v${{ steps.v.outputs.ver }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            직원용 한일 포털 안드로이드 앱입니다.
+            - 폰에서 hanil-staff.apk 를 받아 설치(「출처를 알 수 없는 앱」 허용)
+            - 포털에 올릴 때: hanil-staff.apk · hanil-staff.json 을 포털 서버의 public/app/ 에 둡니다
+          files: |
+            out/hanil-staff.apk
+            out/hanil-staff.json

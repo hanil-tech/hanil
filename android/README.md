@@ -24,6 +24,12 @@
 
 ## 만들기
 
+**가장 쉬운 길 — GitHub 가 만들어 줍니다.** `android/` 를 고쳐 올리면 GitHub Actions(「Android APK」)가 APK 를 만들어
+저장소의 **Releases → 「한일 포털 앱 v…」** 에 `hanil-staff.apk`·`hanil-staff.json` 을 올려 둡니다.
+(손으로 돌리기: Actions → Android APK → Run workflow)
+
+직접 만들 때:
+
     cd android
     ./gradlew assembleRelease
     # → app/build/outputs/apk/release/app-release.apk
@@ -31,6 +37,8 @@
 - 안드로이드 SDK(`ANDROID_HOME`)가 필요합니다. 처음 만들 때 Google 의 `dl.google.com` 에서 빌드 도구를 받습니다.
 - 서명 열쇠: `keystore/hanil-portal.jks` (비밀번호 기본값 `hanil-portal`, 환경변수 `HANIL_KS_PASS` 로 바꿀 수 있음).
   ⚠ **이 열쇠를 잃어버리면 같은 앱으로 업데이트를 못 합니다** — 따로 백업해 두세요.
+
+확인한 포털 판: **v13.41.0** (`/m`·`/app`·`/api/app/version`·`/api/my-today`·`/api/chat/channels`·왼쪽 메뉴 모양 그대로).
 
 ## 포털에 올리기 (직원들이 받는 곳)
 
