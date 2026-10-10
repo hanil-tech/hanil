@@ -11,6 +11,7 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 |---|---|---|
 | **[① 관리 서버 설치 파일](https://github.com/hanil-tech/hanil/raw/HEAD/release/TimeGuard-Server-Setup.exe)** | 서버로 쓸 PC **한 대** | 80MB |
 | **[② 직원 PC 설치 파일](https://github.com/hanil-tech/hanil/raw/HEAD/release/TimeGuard-Setup.exe)** | 시간을 제한할 **직원 PC 들** | 67MB |
+| **[③ 한일 포털 앱 (안드로이드)](https://github.com/hanil-tech/hanil/raw/claude/hopeful-bohr-gv88pn/release/hanil-staff.apk)** | 직원 **폰** | 2.5MB |
 
 ②번 파일은 메신저나 USB 로 직원 PC 에 그대로 보내시면 됩니다.
 
