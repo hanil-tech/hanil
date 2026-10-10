@@ -40,6 +40,8 @@ android {
 }
 
 dependencies {
+    //  ⚠ 라이브러리들이 서로 다른 판의 kotlin-stdlib(-jdk7/-jdk8)를 끌고 와서 같은 클래스가 겹친다 — 판을 하나로 맞춘다
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'androidx.webkit:webkit:1.12.1'
