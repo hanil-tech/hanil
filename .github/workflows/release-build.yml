@@ -1,0 +1,81 @@
+#  📦 직원용 윈도우 프로그램 + 한일 포털 안드로이드 앱 굽기
+#
+#  ⚠ 두 가지 모두 개발 도구(.NET SDK · 안드로이드 SDK)가 있어야 구울 수 있다 — 깃허브가 대신 굽는다.
+#
+#  ⭐ 나오는 것 (저장소 `release/` 에 넣고, 이 실행의 「Artifacts」 에도 올린다)
+#    release/TimeGuard-Setup.exe   직원 PC 설치 파일
+#    release/hanil-staff.apk       한일 포털 앱 (com.hanil.portal.staff)
+name: 배포 파일 굽기
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'build/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/release-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET 8 준비
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      #  ⚠ 시험이 깨진 채로 설치 파일을 만들면 안 된다.
+      - name: 시험
+        run: dotnet test --nologo -v minimal
+
+      - name: 직원 PC 설치 파일 굽기
+        run: ./build/publish.sh
+
+      - name: 자바 17 준비
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      #  ⚠ 깃허브 컴퓨터에는 안드로이드 SDK 가 이미 들어 있다(라이선스 동의까지).
+      - name: 포털 앱 굽기
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: release 폴더에 넣기
+        run: |
+          set -e
+          cp dist/TimeGuard-Setup.exe release/TimeGuard-Setup.exe
+          cp android/app/build/outputs/apk/release/app-release.apk release/hanil-staff.apk
+          ls -l release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            release/TimeGuard-Setup.exe
+            release/hanil-staff.apk
+          if-no-files-found: error
+
+      #  ⚠ 넣는 자리가 `release/` 라서 위 `paths` 에 걸리지 않는다 — 다시 굽기를 부르지 않는다.
+      - name: 저장소에 넣기
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f release/TimeGuard-Setup.exe release/hanil-staff.apk
+          if git diff --cached --quiet; then
+            echo "바뀐 것이 없습니다."
+          else
+            git commit -m "배포 파일 다시 구움: 직원 PC 설치 파일·포털 앱 (${{ github.run_number }}) [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
