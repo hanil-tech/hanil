@@ -11,6 +11,8 @@
     <!-- 내려받기(안드로이드 9 이하) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
+    <!-- 📳 바코드·QR 을 찍었을 때 진동(포털 화면의 navigator.vibrate) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 🔁 앱 새 판을 스스로 받아 설치 화면을 띄운다 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

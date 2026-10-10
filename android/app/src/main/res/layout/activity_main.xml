@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:background="@color/ink"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical">
@@ -32,7 +34,7 @@
         <ImageView
             android:layout_width="96dp"
             android:layout_height="96dp"
-            android:src="@drawable/ic_logo" />
+            android:src="@drawable/splash_logo" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -71,6 +73,7 @@
 
     <!-- 📱 아래 탭 — 엄지가 닿는 자리(홈·결재·메신저·할 일·메뉴). 단추는 MainActivity 가 채운다 -->
     <View
+        android:id="@+id/tabsLine"
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#E3E8F0" />

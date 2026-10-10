@@ -67,6 +67,11 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -149,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
         tabs = findViewById(R.id.tabs);
         mobileJs = readAsset("mobile.js");
         buildTabs();
+        fitBars();
 
         fileLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
             Uri[] out = null;
@@ -815,6 +821,39 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             Toast.makeText(this, "설치 화면을 열지 못했습니다: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
+    }
+
+    // ── 화면 가장자리(상태 표시줄·안드로이드 버튼·자판) ─────────────
+    //  ⚠ 안드로이드 15 부터는 앱이 화면 끝까지 그려져서, 그냥 두면 아래 탭이 안드로이드 버튼(◁ ○ □)에 가리고
+    //    맨 위 글자가 시계·배터리 줄에 겹친다. 모든 판에서 똑같이 끝까지 그리게 하고, 가리는 만큼 비켜 앉는다.
+    //  ⭐ 자판이 올라오면 아래 탭을 접고 그만큼 화면을 줄인다(입력 칸이 자판에 가리지 않게).
+    void fitBars() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        WindowInsetsControllerCompat wc = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        wc.setAppearanceLightStatusBars(false);            //  위: 남색 바탕에 흰 시계
+        if (Build.VERSION.SDK_INT >= 27) {
+            getWindow().setNavigationBarColor(Color.WHITE);  //  아래: 흰 바탕에 짙은 버튼(아래 탭과 한 몸처럼)
+            wc.setAppearanceLightNavigationBars(true);
+        }
+        View root = findViewById(R.id.root);
+        View line = findViewById(R.id.tabsLine);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, in) -> {
+            Insets sys = in.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets ime = in.getInsets(WindowInsetsCompat.Type.ime());
+            boolean kb = in.isVisible(WindowInsetsCompat.Type.ime()) && ime.bottom > sys.bottom;
+            v.setPadding(sys.left, sys.top, sys.right, kb ? ime.bottom : 0);
+            tabs.setVisibility(kb ? View.GONE : View.VISIBLE);
+            line.setVisibility(kb ? View.GONE : View.VISIBLE);
+            //  아래 탭은 제 높이(62dp) + 안드로이드 버튼 높이만큼 — 단추는 버튼 위에 앉는다
+            ViewGroup.LayoutParams lp = tabs.getLayoutParams();
+            int h = dp(62) + sys.bottom;
+            if (lp.height != h) {
+                lp.height = h;
+                tabs.setLayoutParams(lp);
+            }
+            tabs.setPadding(0, 0, 0, sys.bottom);
+            return WindowInsetsCompat.CONSUMED;
+        });
     }
 
     // ── 아래 탭 ────────────────────────────────────────────────
