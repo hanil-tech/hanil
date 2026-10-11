@@ -16,3 +16,11 @@
    다른 화면(업무지시·연락기록)과 같은 잣대로 `chatNopsName()` 한 곳에서 고른다. (`server.js`)
 
 시험: 두 계정으로 1:1·전체방 글을 보내 `/api/deskmsg`·`/api/chat/unread` 수가 맞는지, PC 화면에 쪽지가 뜨는지 확인함.
+
+## v13.41.0-apk-filename.diff (2026-10-11)
+
+사용자 「apk 파일이 버전이 안 나와 — 파일 이름에 버전 표시」
+
+- 포털 「📱 앱 받기」가 APK 를 내려줄 때 **받는 이름에 판 번호**를 붙인다: `hanil-staff-v1.1.113.apk`
+  (서버에 두는 이름 `public/app/hanil-staff.apk` 는 그대로 — 판 번호는 옆의 `hanil-staff.json` 에서 읽는다). (`appdist.js`)
+- 점검 도구도 새 이름에 맞춤(`tools/appdist-check.js`, ✅ 14 · ❌ 0).
