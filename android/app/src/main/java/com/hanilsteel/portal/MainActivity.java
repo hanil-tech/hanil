@@ -175,6 +175,7 @@ public class MainActivity extends AppCompatActivity {
             cameraUri = null;
         });
         permLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), this::onPerms);
+        notiLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), ok -> askBattery());
 
         CookieManager.getInstance().setAcceptCookie(true);
         setupWeb(web, false);
@@ -198,6 +199,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+        openFromIntent(getIntent());
         start();
     }
 
@@ -213,8 +215,15 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 base = u;
-                web.loadUrl(u + "/m");      //  ⭐ 폰은 PC 첫 화면이 아니라 폰용 첫 화면(/m)으로
+                getSharedPreferences("hanil", MODE_PRIVATE).edit().putString("base", u).apply();
+                if (pendingOpen != null) {          //  🔔 쪽지 알림을 눌러 켰으면 그 대화방으로
+                    web.loadUrl(u + pendingOpen);
+                    pendingOpen = null;
+                } else {
+                    web.loadUrl(u + "/m");      //  ⭐ 폰은 PC 첫 화면이 아니라 폰용 첫 화면(/m)으로
+                }
                 checkUpdate(u);
+                startChatNotify();
             });
         }).start();
     }
@@ -823,6 +832,69 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ── 🔔 메신저 새 쪽지 알림 ───────────────────────────────────
+    //  ⭐ 앱을 닫아 두어도 새 쪽지가 오면 폰 알림(ChatWatch). 처음 한 번 「알림 허용」과 「배터리 제한 풀기」를 묻는다.
+    //  ⚠ 배터리 제한을 풀어야 화면이 꺼져 있을 때도 제때 옵니다(안 풀면 몇 분씩 늦을 수 있다).
+    String pendingOpen;
+    ActivityResultLauncher<String> notiLauncher;
+
+    void startChatNotify() {
+        android.content.SharedPreferences sp = getSharedPreferences("hanil", MODE_PRIVATE);
+        if (!sp.getBoolean("chatNotify", true)) return;
+        ChatWatch.channels(this);
+        ChatWatch.start(this);
+        if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)
+                && !sp.getBoolean("askedNoti", false)) {
+            sp.edit().putBoolean("askedNoti", true).apply();
+            notiLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            return;
+        }
+        askBattery();
+    }
+
+    void askBattery() {
+        android.content.SharedPreferences sp = getSharedPreferences("hanil", MODE_PRIVATE);
+        if (sp.getBoolean("askedBattery", false)) return;
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        if (pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+        sp.edit().putBoolean("askedBattery", true).apply();
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("쪽지 알림을 제때 받으려면")
+                .setMessage("화면이 꺼져 있을 때도 새 쪽지 알림이 늦지 않게, 다음 화면에서 「허용」을 눌러 주세요.\n(배터리는 거의 쓰지 않습니다)")
+                .setPositiveButton("다음", (d, w) -> {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:" + getPackageName())));
+                    } catch (Exception e) {
+                        //  이 폰에 그 화면이 없으면 넘어간다
+                    }
+                })
+                .setNegativeButton("나중에", null)
+                .show();
+    }
+
+    //  알림을 눌러 들어왔을 때 — 메신저의 그 대화방으로
+    void openFromIntent(Intent i) {
+        if (i == null) return;
+        String path = i.getStringExtra("path");
+        if (path == null) return;
+        int cid = i.getIntExtra("cid", 0);
+        String p = path + (cid > 0 ? "#hanilc=" + cid : "");
+        i.removeExtra("path");
+        if (base == null) {
+            pendingOpen = p;
+        } else {
+            if (popup != null) popup.dismiss();
+            web.loadUrl(base + p);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        openFromIntent(intent);
+    }
+
     // ── 화면 가장자리(상태 표시줄·안드로이드 버튼·자판) ─────────────
     //  ⚠ 안드로이드 15 부터는 앱이 화면 끝까지 그려져서, 그냥 두면 아래 탭이 안드로이드 버튼(◁ ○ □)에 가리고
     //    맨 위 글자가 시계·배터리 줄에 겹친다. 모든 판에서 똑같이 끝까지 그리게 하고, 가리는 만큼 비켜 앉는다.
@@ -922,7 +994,12 @@ public class MainActivity extends AppCompatActivity {
         web.loadUrl(base + path);
     }
 
+    boolean resumed;
+    String chatPath = "";
+
     void selectTab(String path) {
+        chatPath = path == null ? "" : path;
+        ChatWatch.viewingChat = resumed && chatPath.startsWith("/chat");
         int sel = -1;
         if (path != null) {
             for (int i = 0; i < TABS.length; i++) {
@@ -973,6 +1050,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        resumed = false;
+        ChatWatch.viewingChat = false;
         CookieManager.getInstance().flush();
         web.onPause();
     }
@@ -981,6 +1060,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         web.onResume();
+        resumed = true;
+        ChatWatch.viewingChat = chatPath.startsWith("/chat");
         //  설치 허용을 켜고 돌아왔으면 설치를 잇는다
         if (pendingApk != null && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls())) {
             installApk(pendingApk);

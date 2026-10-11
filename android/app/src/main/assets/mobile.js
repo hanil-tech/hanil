@@ -105,6 +105,23 @@
     qi.oninput = function () { draw(qi.value); };
   };
 
+  //  🔔 쪽지 알림을 눌러 들어오면(/chat#hanilc=방번호) 그 대화방을 연다 — 메신저 화면이 방 목록을 다 받은 뒤에
+  var hc = /hanilc=(\d+)/.exec(location.hash || '');
+  if (path === '/chat' && hc) {
+    var cid = Number(hc[1]), tries = 0;
+    var t = setInterval(function () {
+      tries += 1;
+      try {
+        if (typeof selChan === 'function' && window.CHANS && CHANS.some(function (c) { return c.id === cid; })) {
+          clearInterval(t);
+          selChan(cid);
+          history.replaceState(null, '', location.pathname);
+        }
+      } catch (e) {}
+      if (tries > 40) clearInterval(t);
+    }, 250);
+  }
+
   //  ④ 아래 탭의 빨간 숫자 — /m 첫 화면이 세는 것과 같은 곳에서 센다(두 벌로 세면 어긋난다)
   async function badges() {
     if (!window.HanilApp || !HanilApp.badges) return;

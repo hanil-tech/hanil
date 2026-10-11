@@ -16,6 +16,14 @@
     <!-- 🔁 앱 새 판을 스스로 받아 설치 화면을 띄운다 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- 🔔 메신저 새 쪽지 알림(앱을 닫아 두어도) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -38,6 +46,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 🔔 메신저 새 쪽지를 지켜보는 일꾼 -->
+        <service
+            android:name=".ChatWatch"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="사내 포털 메신저의 새 쪽지를 받아 알림으로 보여 줍니다" />
+        </service>
+        <!-- ⏰ 5분마다 깨우기 · 폰을 켰을 때 · 앱을 새로 깔았을 때 다시 세운다 -->
+        <receiver
+            android:name=".ChatWatch$Wake"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 📷 카메라로 찍은 사진을 포털에 올릴 때 -->
         <provider
