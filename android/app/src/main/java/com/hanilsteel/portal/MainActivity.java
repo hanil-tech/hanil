@@ -150,6 +150,7 @@ public class MainActivity extends AppCompatActivity {
         swipe = findViewById(R.id.swipe);
         splash = findViewById(R.id.splash);
         splashMsg = findViewById(R.id.splashMsg);
+        ((TextView) findViewById(R.id.splashVer)).setText("v" + BuildConfig.VERSION_NAME);
         bar = findViewById(R.id.bar);
         tabs = findViewById(R.id.tabs);
         mobileJs = readAsset("mobile.js");
@@ -181,7 +182,10 @@ public class MainActivity extends AppCompatActivity {
         setupWeb(web, false);
         swipe.setColorSchemeColors(Color.parseColor("#2954A5"));
         swipe.setOnRefreshListener(() -> web.reload());
-        swipe.setOnChildScrollUpCallback((parent, child) -> web.getScrollY() > 0);
+        //  ⚠ 당겨서 새로 고침은 **화면이 맨 위일 때만**. 메일·메신저·결재 문서처럼 화면 안의 상자가 밀리는 곳은
+        //    화면 자체는 늘 맨 위라, 상자를 위로 되돌리려 끌면 새로 고침이 되어 「스크롤이 안 된다」였다.
+        //    → 손가락이 닿은 곳이 이미 밀려 내려간 상자 안이면 mobile.js 가 알려 준다(innerScrolled).
+        swipe.setOnChildScrollUpCallback((parent, child) -> web.getScrollY() > 0 || innerScrolled);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -643,6 +647,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ── 화면 ↔ 앱 ──────────────────────────────────────────────
+    volatile boolean innerScrolled;
+
     class Bridge {
         final WebView owner;
 
@@ -668,6 +674,12 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void printHtml(String html, String baseUrl) {
             runOnUiThread(() -> MainActivity.this.printHtml(html, baseUrl));
+        }
+
+        //  손가락이 닿은 곳이 위로 더 밀 수 있는 상자 안인가(당겨서 새로 고침을 막는다)
+        @JavascriptInterface
+        public void innerScroll(boolean v) {
+            innerScrolled = v;
         }
 
         @JavascriptInterface

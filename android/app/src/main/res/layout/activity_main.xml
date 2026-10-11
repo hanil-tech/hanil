@@ -58,6 +58,15 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:layout_marginTop="20dp" />
+
+        <!-- 🏷 앱 판 번호 -->
+        <TextView
+            android:id="@+id/splashVer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:textColor="#98a1b0"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <ProgressBar

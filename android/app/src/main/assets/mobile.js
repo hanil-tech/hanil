@@ -236,7 +236,12 @@
           return r.width > 0 && r.height > 0;
         });
         //  ② 메뉴 칸 — 누를 것이 대부분인 키 큰 목록(글 대부분이 누르는 글자)이 화면을 많이 차지하면 접는다
-        if (rc.height > vh * 0.3 && !el.querySelector('table,textarea')) {
+        //  ⚠ 접은 뒤 보일 다른 내용이 곁에 있을 때만 — 그 목록이 화면의 전부(메신저 방 목록·메일 편지함)면 접으면 빈 화면이 된다
+        var others = 0;
+        if (el.parentElement) [].forEach.call(el.parentElement.children, function (k) {
+          if (k !== el && !k.classList.contains('__hfoldbar')) others += k.getBoundingClientRect().height;
+        });
+        if (path !== '/chat' && others > 150 && rc.height > vh * 0.3 && !el.querySelector('table,textarea')) {
           var cl = [].filter.call(el.querySelectorAll('a[href],button,[onclick],[role=button],[role=tab]'), function (a) {
             return a.getBoundingClientRect().height > 0 && !a.parentElement.closest('a[href],button,[onclick]');
           });
@@ -596,6 +601,18 @@
     }
   }
 
+  //  🏷 판 번호 — 앱 판(HanilApp.version)과 포털 판(/api/version)을 함께 보인다
+  //   ⚠ 포털이 화면 구석에 띄우는 판 딱지(#__hanilVer)는 앱에서 단추를 가려 감췄다 — 대신 메뉴·첫 화면 아래에 적는다
+  var VER = { app: '', portal: '' };
+  try { if (window.HanilApp && HanilApp.version) VER.app = HanilApp.version(); } catch (e) {}
+  function verText() { return '앱 v' + (VER.app || '?') + ' · 포털 ' + (VER.portal ? 'v' + VER.portal : '…'); }
+  function verLoad(cb) {
+    if (VER.portal) { cb(); return; }
+    fetch('/api/version', { cache: 'no-store' }).then(function (r) { return r.json(); })
+      .then(function (d) { VER.portal = String((d && d.version) || ''); cb(); }).catch(function () { cb(); });
+  }
+  window.__hanilVerText = verText;
+
   //  ③ 폰용 전체 메뉴
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function readMenu(doc) {
@@ -664,10 +681,12 @@
       });
       if (!h) h = '<div style="padding:30px;text-align:center;color:#6b7684">'
         + (groups.length ? '찾은 메뉴가 없습니다' : '메뉴를 불러오지 못했습니다 — 로그인을 확인해 주세요') + '</div>';
-      h += '<div style="padding:18px 16px;text-align:center"><a href="/" style="color:#6b7684;font-size:14px">🖥 PC 화면으로 보기</a></div>';
+      h += '<div style="padding:18px 16px;text-align:center"><a href="/" style="color:#6b7684;font-size:14px">🖥 PC 화면으로 보기</a>'
+        + '<div id="__hmV" style="margin-top:12px;color:#98a1b0;font-size:12.5px">' + esc(verText()) + '</div></div>';
       document.getElementById('__hmL').innerHTML = h;
     }
     draw('');
+    verLoad(function () { var v = document.getElementById('__hmV'); if (v) v.textContent = verText(); });
     var qi = document.getElementById('__hmQ');
     qi.oninput = function () { draw(qi.value); };
   };
@@ -687,6 +706,45 @@
       } catch (e) {}
       if (tries > 40) clearInterval(t);
     }, 250);
+  }
+
+  //  👆 당겨서 새로 고침 지킴이 — 손가락이 닿은 곳에서 위로 더 밀 수 있는 상자(메일 본문·대화·결재 문서)가 있으면
+  //     앱에 알려 새로 고침 대신 그 상자가 밀리게 한다
+  if (window.top === window && window.HanilApp && HanilApp.innerScroll) {
+    document.addEventListener('touchstart', function (e) {
+      var up = false;
+      try {
+        for (var n = e.target; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+          if (n.scrollTop > 0) {
+            var oy = getComputedStyle(n).overflowY;
+            if (oy === 'auto' || oy === 'scroll') { up = true; break; }
+          }
+        }
+        //  틀(iframe) 안에서 닿은 것은 위 창에서 안 보인다 — 틀이 든 상자를 본다
+      } catch (x) {}
+      try { HanilApp.innerScroll(up); } catch (x) {}
+    }, { passive: true, capture: true });
+    //  메일 본문은 따로 떨어진 틀이라 닿는 것이 위로 안 올라온다 — 대신 **밀리는 것**을 지켜본다
+    document.addEventListener('scroll', function (e) {
+      var n = e.target;
+      if (!n || n === document || n === document.documentElement || n === document.body) return;
+      try { HanilApp.innerScroll(n.scrollTop > 0); } catch (x) {}
+    }, { passive: true, capture: true });
+  }
+
+  //  🏷 첫 화면(/m) 맨 아래에 판 번호
+  if (path === '/m' && window.top === window) {
+    var putVer = function () {
+      verLoad(function () {
+        if (!document.body || document.getElementById('__hanilVerLine')) return;
+        var d = document.createElement('div');
+        d.id = '__hanilVerLine';
+        d.style.cssText = 'text-align:center;color:#98a1b0;font-size:12.5px;padding:10px 0 18px';
+        d.textContent = '한일특장 포털 · ' + verText();
+        (document.querySelector('div.wrap') || document.body).appendChild(d);
+      });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', putVer); else putVer();
   }
 
   //  ④ 아래 탭의 빨간 숫자 — /m 첫 화면이 세는 것과 같은 곳에서 센다(두 벌로 세면 어긋난다)
