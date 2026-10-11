@@ -53,7 +53,25 @@
       + 'td,th,td *,th *{word-break:keep-all!important;overflow-wrap:normal!important}'
       + '.__hscroll{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}'
       + '.__hscroll>table{margin:0}'
-      + '.__hscroll th{white-space:nowrap}';
+      + '.__hscroll th{white-space:nowrap}'
+      //  ── 내용을 위로 올리기(밖에서 폰으로 일하기 쉽게) ──
+      //  위에 늘 떠 있는 알림 띠(백업·점검 예고)는 한 줄로 얇게
+      + '.hmt{padding:4px 10px!important;font-size:12px!important;line-height:1.35!important;gap:6px!important}'
+      + '.hmt button{padding:2px 8px!important;font-size:11.5px!important}'
+      //  앱에는 아래 탭(홈)이 있다 — 화면마다 있는 「포털로」·「로그보기」는 감춘다
+      + '#__logLink,.__hhide{display:none!important}'
+      //  여러 줄로 쌓인 단추 줄 → 한 줄로 옆으로 밀기
+      + '.__hrow{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:hidden!important;'
+      + '-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:6px!important;align-items:center!important;padding-bottom:2px!important}'
+      + '.__hrow::-webkit-scrollbar{display:none}'
+      + '.__hrow>*{flex:0 0 auto!important;width:auto!important;max-width:none!important;margin-top:0!important;margin-bottom:0!important;white-space:nowrap!important}'
+      //  메뉴 칸 → 「☰ 메뉴 ▾」 한 줄로 접기
+      + '.__hfold{display:none!important}'
+      + '.__hfoldbar{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:11px 14px;margin:6px 0;'
+      + 'background:#fff;border:1px solid #d0d7de;border-radius:10px;font:700 15px/1.2 inherit;color:#1b2a4a;text-align:left}'
+      + '.__hfoldbar span{flex:1}.__hfoldbar i{font-style:normal;color:#6b7684}'
+      //  찾기 줄의 입력칸 — 포털 모바일 모양이 모두 한 줄 가득(100%)으로 펴서 세로로 길게 쌓였다 → 두세 개씩
+      + '.__hin{width:auto!important;flex:1 1 130px!important;min-width:0!important}';
     try {
       var fst = document.createElement('style');
       fst.id = '__hanilFitCss';
@@ -77,12 +95,13 @@
         if (mv && mv.content !== want) mv.content = want;
         var vw = document.documentElement.clientWidth || window.innerWidth;
         stack(vw);
+        compact(vw);
         for (var pass = 0; pass < 4; pass++) {
           if (document.documentElement.scrollWidth <= vw + 1) break;
           var changed = 0;
           var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
             acceptNode: function (n) {
-              if (n.id === '__hanilMenuBox' || n.classList.contains('__hscroll')) return NodeFilter.FILTER_REJECT;
+              if (n.id === '__hanilMenuBox' || n.id === '__hd' || n.classList.contains('__hscroll')) return NodeFilter.FILTER_REJECT;
               return NodeFilter.FILTER_ACCEPT;
             }
           });
@@ -175,12 +194,147 @@
           k.style.setProperty('max-width', '100%', 'important');
           k.style.setProperty('min-width', '0', 'important');
           k.style.setProperty('height', 'auto', 'important');
-          if (j === 0 && k.getBoundingClientRect().height > 320 && cols.length > 1) {
-            k.style.setProperty('max-height', '38vh', 'important');
-            k.style.setProperty('overflow-y', 'auto', 'important');
-            k.style.setProperty('border-bottom', '2px solid #e3e8f0', 'important');
-          }
+
         });
+      }
+    }
+    //  ── 내용을 위로: 단추 줄·메뉴 칸·찾기 줄을 줄인다 ──
+    function clickable(e) {
+      var t = e.tagName;
+      if (t === 'BUTTON' || (t === 'A' && e.getAttribute('href') !== null) || (t === 'INPUT' && /^(button|submit)$/i.test(e.type))) return true;
+      if (e.hasAttribute('onclick') || e.getAttribute('role') === 'button' || e.getAttribute('role') === 'tab') return true;
+      return false;
+    }
+    //  ⚠ 포털 모양(body .row{flex-wrap:wrap!important} 등)이 더 세서 이름표(class)만으로는 진다 — 요소에 직접 박는다
+    function imp(el, css) {
+      css.split(';').forEach(function (d) {
+        var i = d.indexOf(':');
+        if (i > 0) el.style.setProperty(d.slice(0, i).trim(), d.slice(i + 1).trim(), 'important');
+      });
+    }
+    function rowify(el) {
+      el.classList.add('__hrow');
+      imp(el, 'display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;gap:6px;align-items:center;height:auto;grid-template-columns:none');
+      [].forEach.call(el.children, function (k) {
+        imp(k, 'flex:0 0 auto;width:auto;max-width:none;margin-top:0;margin-bottom:0;white-space:nowrap');
+      });
+    }
+    function compact(vw) {
+      var vh = window.innerHeight || 700;
+      //  ① 「포털로」 링크(앱에는 아래 탭 🏠 가 있다)
+      [].forEach.call(document.querySelectorAll('a[href="/"]'), function (a) {
+        if (/포털/.test(a.textContent) && !a.closest('#__hd,#__hanilMenuBox')) a.classList.add('__hhide');
+      });
+      var all = document.body.querySelectorAll('div,nav,ul,section,aside,header,p,form,td');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.__hc || el.closest('#__hd,#__hanilMenuBox,.__hfold,.__hrow,table table')) continue;
+        var rc = el.getBoundingClientRect();
+        if (!rc.width || !rc.height) continue;
+        var kids = [].filter.call(el.children, function (k) {
+          var r = k.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
+        //  ② 메뉴 칸 — 누를 것이 대부분인 키 큰 목록(글 대부분이 누르는 글자)이 화면을 많이 차지하면 접는다
+        if (rc.height > vh * 0.3 && !el.querySelector('table,textarea')) {
+          var cl = [].filter.call(el.querySelectorAll('a[href],button,[onclick],[role=button],[role=tab]'), function (a) {
+            return a.getBoundingClientRect().height > 0 && !a.parentElement.closest('a[href],button,[onclick]');
+          });
+          //  ⚠ 메뉴는 **세로 목록**이다(한 줄에 하나) — 단추가 여러 개씩 늘어선 판(전표 발행·엑셀…)은 접지 않고 ③ 에서 한 줄로 민다
+          var wide = cl.length ? cl.reduce(function (n, a) { return n + a.getBoundingClientRect().width; }, 0) / cl.length / rc.width : 0;
+          if (cl.length >= 6 && wide > 0.45) {
+            var ctext = cl.reduce(function (n, a) { return n + a.textContent.trim().length; }, 0);
+            var all2 = el.textContent.replace(/\s+/g, '').length || 1;
+            var tops = {};
+            cl.forEach(function (a) { tops[Math.round(a.getBoundingClientRect().top / 8)] = 1; });
+            var inputs = el.querySelectorAll('input:not([type=checkbox]):not([type=radio]),select').length;
+            if (ctext / all2 > 0.7 && ctext / cl.length < 18 && Object.keys(tops).length >= 5 && inputs <= 1) {
+              el.__hc = 1;
+              var on = el.querySelector('.on,.active,.sel,[aria-current]');
+              var bar2 = document.createElement('button');
+              bar2.type = 'button';
+              bar2.className = '__hfoldbar';
+              bar2.innerHTML = '☰ <span>' + esc((on && on.textContent.replace(/\s+/g, ' ').trim().slice(0, 30)) || '메뉴') + '</span><i>펼치기 ▾</i>';
+              el.parentNode.insertBefore(bar2, el);
+              el.classList.add('__hfold');
+              el.style.setProperty('display', 'none', 'important');
+              bar2.onclick = (function (box, b) {
+                return function () {
+                  var shut = box.classList.toggle('__hfold');
+                  if (shut) box.style.setProperty('display', 'none', 'important');
+                  else box.style.removeProperty('display');
+                  b.querySelector('i').textContent = shut ? '펼치기 ▾' : '접기 ▴';
+                };
+              })(el, bar2);
+              //  메뉴에서 하나를 누르면 다시 접는다
+              el.addEventListener('click', (function (box, b) {
+                return function (ev) {
+                  var a = ev.target.closest('a[href],button,[onclick],[role=button],[role=tab]');
+                  if (!a) return;
+                  setTimeout(function () {
+                    box.classList.add('__hfold');
+                    box.style.setProperty('display', 'none', 'important');
+                    b.querySelector('i').textContent = '펼치기 ▾';
+                    b.querySelector('span').textContent = a.textContent.replace(/\s+/g, ' ').trim().slice(0, 30) || '메뉴';
+                  }, 50);
+                };
+              })(el, bar2));
+              continue;
+            }
+          }
+        }
+        //  ③ 단추 줄 — 단추·링크뿐인 줄이 여러 줄로 쌓였으면 한 줄로 옆으로 민다
+        if (kids.length >= 3) {
+          var nb = 0, maxh = 0, bad = 0, small = 0;
+          kids.forEach(function (k) {
+            var h = k.getBoundingClientRect().height;
+            if (h > maxh) maxh = h;
+            var tx = k.textContent.trim();
+            if (clickable(k) || (k.tagName === 'LABEL' && k.querySelector('input[type=checkbox],input[type=radio]') && tx.length < 16)) nb++;
+            else if (k.tagName === 'SPAN' && !tx) { /* 빈 칸 메우개 */ }
+            else if (k.tagName === 'SELECT' || (/^(B|STRONG|SPAN|LABEL|H1|H2|H3)$/.test(k.tagName) && !k.querySelector('input:not([type=checkbox]):not([type=radio]),textarea'))) small++;
+            else bad++;
+          });
+          //  단추가 대부분(제목·고르기 칸 두세 개는 함께 밀려도 된다)
+          if (nb >= 4 && bad === 0 && small <= 3 && maxh < 64 && rc.height > maxh * 1.8) {
+            el.__hc = 1;
+            rowify(el);
+            continue;
+          }
+          //  단추 사이에 다른 칸이 섞인 큰 덩어리(급여 계산 등) — 단추가 4개 이상 이어진 토막만 따로 한 줄로 묶는다
+          if (nb >= 6 && rc.height > 160) {
+            var run = [], made = 0;
+            var flush = function () {
+              if (run.length >= 4) {
+                var box = document.createElement('div');
+                run[0].parentNode.insertBefore(box, run[0]);
+                run.forEach(function (k) { box.appendChild(k); });
+                box.__hc = 1;
+                rowify(box);
+                made++;
+              }
+              run = [];
+            };
+            [].slice.call(el.children).forEach(function (k) {
+              var r = k.getBoundingClientRect();
+              if (!r.width) return;
+              var isBtn = clickable(k) || (k.tagName === 'LABEL' && k.querySelector('input[type=checkbox],input[type=radio]') && k.textContent.trim().length < 20);
+              if (isBtn && r.height < 64) run.push(k); else flush();
+            });
+            flush();
+            if (made) { el.__hc = 1; continue; }
+          }
+        }
+        //  ④ 찾기 줄 — 나란해야 할 입력칸이 한 줄 가득씩 쌓였으면 두세 개씩
+        var cs = getComputedStyle(el);
+        if (/flex/.test(cs.display) && cs.flexDirection.indexOf('row') === 0) {
+          [].forEach.call(el.children, function (k) {
+            if (/^(INPUT|SELECT)$/.test(k.tagName) && !/^(checkbox|radio|hidden)$/i.test(k.type || '') && !k.__hin) {
+              k.__hin = 1;
+              imp(k, 'width:auto;flex:1 1 130px;min-width:0');
+            }
+          });
+        }
       }
     }
     var fitT = 0;
@@ -344,7 +498,8 @@
       var pp = document.getElementById('__hdP');
       var fr = document.createElement('iframe');
       fr.src = '/api/appr/' + id + '/print';
-      fr.style.width = '820px';
+      fr.style.setProperty('width', '820px', 'important');
+      fr.style.setProperty('max-width', 'none', 'important');
       fr.style.height = '1100px';
       fr.onload = function () {
         try {
@@ -353,7 +508,7 @@
           s3.textContent = '.noprint,.ppbar{display:none!important}html,body{margin:0!important;background:#fff!important}';
           fd.head.appendChild(s3);
           var w = Math.max(fd.documentElement.scrollWidth, 600);
-          fr.style.width = w + 'px';
+          fr.style.setProperty('width', w + 'px', 'important');
           var ht = fd.documentElement.scrollHeight;
           fr.style.height = ht + 'px';
           var k = pp.clientWidth / w;

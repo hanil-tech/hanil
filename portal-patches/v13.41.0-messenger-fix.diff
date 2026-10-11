@@ -1,0 +1,127 @@
+--- a/server.js	2026-10-10 06:16:52.000000000 +0000
++++ b/server.js	2026-10-11 05:45:03.511884495 +0000
+@@ -1609,12 +1609,37 @@
+   var off=this.checked;
+   fetch("/api/deskmsg/greet",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({on:!off})}).catch(function(){});
+ });
+-var FIRST=true;
++var FIRST=true, SEEN=null;
++function toast(x,n){
++  var t=document.getElementById('hdkToast');
++  if(!t){ t=document.createElement('div'); t.id='hdkToast';
++    t.style.cssText='position:fixed;right:80px;bottom:24px;z-index:2147483300;width:320px;max-width:calc(100vw - 36px);background:#1b2a41;color:#fff;'
++      +'border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:12px 14px;font:14px/1.45 system-ui,-apple-system,"Malgun Gothic",sans-serif;cursor:pointer';
++    document.body.appendChild(t); }
++  t.innerHTML='<div style="display:flex;align-items:center;gap:8px"><b style="flex:1">\u{1F4AC} '+esc(x.title||'새 쪽지')+(n>1?(' 외 '+(n-1)+'건'):'')+'</b>'
++    +'<span id="hdkToastX" style="opacity:.7;font-size:18px;padding:0 4px">×</span></div>'
++    +'<div style="margin-top:4px;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(x.text||'')+'</div>'
++    +'<div style="margin-top:8px;text-align:right"><span style="background:#2f81f7;border-radius:6px;padding:4px 12px;font-weight:700">열기</span></div>';
++  t.style.display='block';
++  t.onclick=function(ev){ t.style.display='none'; if(ev.target&&ev.target.id==='hdkToastX') return;
++    open=true; p.classList.add('on'); if(x.cid) chatOpen(x.cid, x.from||'대화'); else draw(); };
++  clearTimeout(window.__hdkToastT); window.__hdkToastT=setTimeout(function(){ t.style.display='none'; }, 12000);
++}
+ function load(){
+   fetch("/api/deskmsg"+(FIRST?"?greet=1":"")).then(function(r){return r.json();}).then(function(d){
+     if(!d||d.ok===false) return;
+     DATA=d.items||[];
+     ONLY_NOTICE=!!d.only_notice;
++    //  💬🔔 2026-10-11 — 사용자 「핸드폰에서 메신저를 보내면 컴퓨터 화면에 아무것도 안 떠」
++    //   ⚠ 여태 빨간 숫자만 바뀌었다 — 쪽지함을 닫아 두면 **온 줄을 모른다.** 새 쪽지가 오면 오른쪽 아래에 잠깐 띄운다.
++    //   ⚠ 처음 불러올 때(로그인 인사 창이 따로 있다)와 이미 본 쪽지는 안 띄운다.
++    try{
++      var nk={}, fresh=[];
++      DATA.forEach(function(x){ if(x.kind==='dm'){ nk[x.key]=1; if(SEEN&&!SEEN[x.key]) fresh.push(x); } });
++      var firstTime=!SEEN; SEEN=nk;
++      fresh.sort(function(a,b){ return (String(a.title).charAt(0)==='#')-(String(b.title).charAt(0)==='#'); });   //  1:1 쪽지를 앞에
++      if(!firstTime&&fresh.length) toast(fresh[0], fresh.length);
++    }catch(e){}
+     var n=Number(d.n||0);          //  ⚠ 서버가 **사람이 보낸 것만** 센 수다(알림은 🔔 가 맡는다)
+     B.textContent=n>99?"99+":n; B.className="hdk-b"+(n>0?" on":"");
+     if(FIRST){ FIRST=false;
+@@ -1646,7 +1671,8 @@
+   p.querySelectorAll(".hdk-t").forEach(function(o){o.className="hdk-t";}); b.className="hdk-t on"; FIL=b.getAttribute("data-f")||"";
+   if(FIL==="talk") TALK.got=0;        //  열 때마다 새로 받는다(새 쪽지가 와 있을 수 있다)
+   draw(); }); });
+-load(); setInterval(load, 60000);
++//  ⏱ 2026-10-11 — 60초 → 15초. 쪽지는 1분 늦으면 「안 왔다」로 보인다(물음 한 번은 가볍다)
++load(); setInterval(load, 15000);
+ })();<\/script>`;
+ //  🧲⭐⭐ **오른쪽 떠 있는 단추들을 한 줄로 모은다 (v13.17.42)**
+ //   사용자 스샷: 단추가 쌓이다 **맨 아래 것이 화면 밖으로 잘렸다**(「잘리잖아」).
+@@ -8539,8 +8565,8 @@
+   try {
+     if ((ch.kind || 'channel') === 'dm') {
+       const peer = DB.get('SELECT username FROM chat_members WHERE channel_id=? AND username<>?', [cid, req.session.user.username]);
+-      const pu = peer ? DB.get('SELECT IFNULL(name,username) name FROM users WHERE username=?', [peer.username]) : null;
+-      if (pu) nopsPush(pu.name, '[포털 메신저] ' + (req.session.user.name || req.session.user.username) + ': ' + (body || '(파일)').slice(0, 80)).catch(() => {});
++      const pu = peer ? { name: chatNopsName(peer.username) } : null;
++      if (pu && pu.name) nopsPush(pu.name, '[포털 메신저] ' + (req.session.user.name || req.session.user.username) + ': ' + (body || '(파일)').slice(0, 80)).catch(() => {});
+     }
+   } catch (e) { /* */ }
+   try { chatWake(Number(req.params.cid) || 0); } catch (e) { /* */ }   //  ⏰ v12.25.0 — 기다리던 사람들을 그 자리에서 깨운다
+@@ -8549,6 +8575,18 @@
+ //  💬⭐ v13.17.41 — **쪽지 보내기를 한 군데로.** 업무 쪽지함(deskmsg)이 여기서 바로 답장한다.
+ //   ⚠⚠ 보내는 길을 두 벌로 두면 **한쪽만 NOPS 알림을 보내거나, 한쪽만 상대를 깨운다** —
+ //     「보냈는데 상대는 못 받았다」가 그렇게 생긴다. 그래서 **이 함수 하나**만 쓴다.
++//  🔔🐞 2026-10-11 — 사용자 「핸드폰에서 메신저를 보내면 컴퓨터 화면에 아무것도 안 떠」
++//   ⚠⚠ NOPS 로 알릴 이름을 **두 길이 서로 다르게** 골랐다: 화면(폰·메신저 화면)은 NOPS 수신자명을 아예 안 보고 이름만,
++//     쪽지함 답장은 IFNULL(nops_name, name) — 그런데 수신자명을 지우면 빈 글자('')가 남아 IFNULL 을 그냥 지나가
++//     **빈 이름으로** 보냈다. ⭐ 다른 곳(업무지시·연락기록)과 같은 잣대로 **한 곳**에서 고른다: 수신자명이 있으면 그것, 없으면 이름.
++function chatNopsName(username) {
++  try {
++    const u = DB.get('SELECT username, name, nops_name FROM users WHERE username=?', [username]);
++    if (!u) return '';
++    const nn = String(u.nops_name || '').trim();
++    return nn || String(u.name || u.username || '').trim();
++  } catch (e) { return ''; }
++}
+ global.__chatSendText = (req, cid, body) => {
+   try {
+     if (!req.session || !req.session.user) return { ok: false, code: 401, error: '로그인이 필요합니다.' };
+@@ -8563,8 +8601,8 @@
+     try {
+       if (String(ch.kind || '') === 'dm') {
+         const peer = DB.get('SELECT username FROM chat_members WHERE channel_id=? AND username<>?', [Number(cid), u.username]);
+-        const pu = peer && DB.get('SELECT IFNULL(nops_name, name) name FROM users WHERE username=?', [peer.username]);
+-        if (pu) nopsPush(pu.name, '[포털 메신저] ' + (u.name || u.username) + ': ' + txt.slice(0, 80)).catch(() => {});
++        const pu = peer && { name: chatNopsName(peer.username) };
++        if (pu && pu.name) nopsPush(pu.name, '[포털 메신저] ' + (u.name || u.username) + ': ' + txt.slice(0, 80)).catch(() => {});
+       }
+     } catch (e) { /* 알림이 실패해도 글은 이미 저장됐다 */ }
+     try { chatWake(Number(cid) || 0); } catch (e) { /* */ }
+@@ -8616,10 +8654,13 @@
+   try {
+     if (!req.session || !req.session.user) return res.json({ ok: true, n: 0 });
+     const me = req.session.user.username;
++    //  🐞 2026-10-11 — **전체 채널은 회원 줄이 없다**(누구나 보는 방) → 회원 줄로만 세면 전체방 글은 영영 0 이었다
+     const r = DB.get(`SELECT COUNT(*) n FROM chat_messages m
+-      JOIN chat_members c ON c.channel_id=m.channel_id AND c.username=?
++      JOIN chat_channels ch ON ch.id=m.channel_id
++      LEFT JOIN chat_members c ON c.channel_id=m.channel_id AND c.username=?
+       LEFT JOIN chat_read d ON d.channel_id=m.channel_id AND d.username=?
+-      WHERE m.id > IFNULL(d.last_id,0) AND m.author<>?`, [me, me, me]);
++      WHERE m.id > IFNULL(d.last_id,0) AND m.author<>?
++        AND (c.username IS NOT NULL OR IFNULL(ch.is_general,0)=1)`, [me, me, me]);
+     res.json({ ok: true, n: Number((r && r.n) || 0) });
+   } catch (e) { res.json({ ok: true, n: 0 }); }
+ });
+--- a/deskmsg.js	2026-10-03 06:06:17.000000000 +0000
++++ b/deskmsg.js	2026-10-11 05:43:18.069676011 +0000
+@@ -64,11 +64,15 @@
+   function dmItems(req) {
+     const me = S(meOf(req).username, 60);
+     if (!me || !tableOk('chat_messages') || !tableOk('chat_members')) return [];
++    //  🐞 2026-10-11 — 사용자 「핸드폰에서 메신저를 보내면 컴퓨터 화면에 아무것도 안 떠」
++    //   ⚠ **전체 채널은 회원 줄이 없다** — 회원 줄로만 고르면 전체방 글은 쪽지함에 영영 안 왔다.
+     const rows = T(() => DB.all(`SELECT m.channel_id cid, COUNT(*) n, MAX(m.id) last_id
+       FROM chat_messages m
+-      JOIN chat_members c ON c.channel_id=m.channel_id AND c.username=?
++      JOIN chat_channels ch ON ch.id=m.channel_id
++      LEFT JOIN chat_members c ON c.channel_id=m.channel_id AND c.username=?
+       LEFT JOIN chat_read d ON d.channel_id=m.channel_id AND d.username=?
+       WHERE m.id > IFNULL(d.last_id,0) AND m.author<>?
++        AND (c.username IS NOT NULL OR IFNULL(ch.is_general,0)=1)
+       GROUP BY m.channel_id ORDER BY last_id DESC LIMIT 20`, [me, me, me]), []) || [];
+     return rows.map((r) => {
+       const last = T(() => DB.get('SELECT * FROM chat_messages WHERE id=?', [r.last_id]), null) || {};
