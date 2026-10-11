@@ -292,7 +292,7 @@
             var tx = k.textContent.trim();
             if (clickable(k) || (k.tagName === 'LABEL' && k.querySelector('input[type=checkbox],input[type=radio]') && tx.length < 16)) nb++;
             else if (k.tagName === 'SPAN' && !tx) { /* 빈 칸 메우개 */ }
-            else if (k.tagName === 'SELECT' || (/^(B|STRONG|SPAN|LABEL|H1|H2|H3)$/.test(k.tagName) && !k.querySelector('input:not([type=checkbox]):not([type=radio]),textarea'))) small++;
+            else if (k.tagName === 'SELECT' || (/^(B|STRONG|SPAN|LABEL)$/.test(k.tagName) && tx.length <= 12 && !k.querySelector('input:not([type=checkbox]):not([type=radio]),textarea'))) small++;
             else bad++;
           });
           //  단추가 대부분(제목·고르기 칸 두세 개는 함께 밀려도 된다)
@@ -302,7 +302,7 @@
             continue;
           }
           //  단추 사이에 다른 칸이 섞인 큰 덩어리(급여 계산 등) — 단추가 4개 이상 이어진 토막만 따로 한 줄로 묶는다
-          if (nb >= 6 && rc.height > 160) {
+          if (nb >= 4 && rc.height > maxh * 1.8) {
             var run = [], made = 0;
             var flush = function () {
               if (run.length >= 4) {
