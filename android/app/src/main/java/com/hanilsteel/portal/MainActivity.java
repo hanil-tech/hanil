@@ -291,6 +291,13 @@ public class MainActivity extends AppCompatActivity {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             //  ⭐ 모든 틀(iframe)의 맨 앞에서 window.print 를 잇는다(라벨 인쇄는 틀 안에서 한다)
             WebViewCompat.addDocumentStartJavaScript(w, PRINT_JS, Collections.singleton("*"));
+            //  📱 폰 화면 손보기(assets/mobile.js)를 **화면이 그려지기 전에** 끼운다 — 다 그린 뒤에 끼우면
+            //     PC 모양이 먼저 깜빡 보이고, 포털의 「화면 전체 줄이기」가 먼저 돌아 버린다.
+            //     ⚠ 포털 주소에서만. 새 창(인쇄 미리보기)은 종이 모양 그대로 두라고 표시를 먼저 한다.
+            if (!mobileJs.isEmpty()) {
+                java.util.Set<String> portal = new java.util.HashSet<>(java.util.Arrays.asList(LAN, WAN));
+                WebViewCompat.addDocumentStartJavaScript(w, (isPopup ? "window.__hanilPopup=1;" : "") + mobileJs, portal);
+            }
         }
         w.setWebViewClient(new Client(isPopup));
         w.setWebChromeClient(new Chrome());
@@ -347,7 +354,10 @@ public class MainActivity extends AppCompatActivity {
             }
             view.evaluateJavascript(REMEMBER_JS, null);
             Uri pu = Uri.parse(url);
-            if (isPortalHost(pu.getHost()) && !mobileJs.isEmpty()) view.evaluateJavascript(mobileJs, null);
+            //  (문서 맨 앞에 끼우지 못하는 옛 WebView 를 위한 예비 — 두 번 돌지 않게 mobile.js 가 막는다)
+            if (isPortalHost(pu.getHost()) && !mobileJs.isEmpty()) {
+                view.evaluateJavascript((isPopup ? "window.__hanilPopup=1;" : "") + mobileJs, null);
+            }
             if (!isPopup) selectTab(pu.getPath());
             CookieManager.getInstance().flush();
             if (!isPopup) {
