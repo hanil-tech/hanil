@@ -691,6 +691,27 @@
     qi.oninput = function () { draw(qi.value); };
   };
 
+  //  💬 메신저 — 보낸 글·파일이 화면에 두 번 붙던 것(서버에는 한 번)
+  //   ⚠ 보내면 화면이 새 글을 받고, 같은 순간 서버가 깨운 「기다리던 길(wait)」도 새 글을 받는다.
+  //     둘이 같은 자리(LAST)부터 물어 같은 글을 **둘 다 붙였다**. 폰은 올리기가 느려 더 잘 겹쳤다.
+  //   ⭐ 포털 화면은 그대로 두고, 앱 안에서만 새 글 받기(loadMsgs)를 **한 번에 하나씩** 줄 세운다 —
+  //     뒤의 것은 앞의 것이 LAST 를 올린 뒤에 물으므로 겹치지 않는다. (포털이 고쳐져 있어도 해가 없다)
+  if (path === '/chat') {
+    var lineUp = function () {
+      try {
+        if (typeof window.loadMsgs !== 'function' || window.loadMsgs.__hq) return;
+        var orig = window.loadMsgs, q = Promise.resolve();
+        window.loadMsgs = function () {
+          var args = arguments;
+          q = q.then(function () { return orig.apply(window, args); }).catch(function () {});
+          return q;
+        };
+        window.loadMsgs.__hq = 1;
+      } catch (e) {}
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', lineUp); else lineUp();
+  }
+
   //  🔔 쪽지 알림을 눌러 들어오면(/chat#hanilc=방번호) 그 대화방을 연다 — 메신저 화면이 방 목록을 다 받은 뒤에
   var hc = /hanilc=(\d+)/.exec(location.hash || '');
   if (path === '/chat' && hc) {
