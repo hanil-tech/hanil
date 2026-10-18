@@ -6,8 +6,10 @@ STEP·IGES(3D)와 DWG·DXF(2D) 도면을 **설치 없이 브라우저에서** �
 |---|---|---|
 | `.stp` `.step` `.igs` `.iges` | 3D — 돌리기·맞춤·정면/윗면/옆면·크기(mm)·📏 두 점 거리·부품 켜고 끄기·투명·📷 그림 | OpenCASCADE (`occt-import-js`, WASM) + three.js |
 | `.dwg` `.dxf` | 2D — 끌기·확대(손가락 두 개·바퀴)·맞춤·📏 거리·검은/흰 바탕·📷 그림 | LibreDWG (`@mlightcad/libredwg-web`, WASM) → SVG |
+| `.CATPart` `.CATProduct` `.CATDrawing` `.cgr` | **미리보기 그림**(v1.2.0) — CATIA 가 저장할 때 파일 안에 넣어 두는 그림을 꺼내 보임 · 📷 그림 | 직접(JPEG·PNG·BMP 를 찾아 실제로 열리는 가장 큰 것) |
 
-⚠ **CATIA 원본(.CATPart·.CATProduct)은 열 수 없습니다**(다쏘 독점 형식). CATIA 에서 STEP 으로 내보내 여세요.
+⚠ CATIA 원본은 다쏘 전용 형식이라 **3D 로 돌려 보지는 못합니다** — 들어 있는 미리보기 그림만 보입니다(CATIA 「열기」 창의 그 그림).
+  미리보기 없이 저장된 파일은 「미리보기 그림이 없습니다」라고 알려 줍니다. 3D 로 보려면 CATIA 에서 STEP 으로 내보내 여세요.
 ⚠ DWG 는 AutoCAD 전용 형식이라 특수 객체(표 등)는 일부 안 그려질 수 있습니다 — 그 수를 화면에 「그리지 못한 것 n개」로 알려 줍니다.
 
 ## 세 군데에서 같은 뷰어를 씁니다
@@ -36,7 +38,7 @@ GitHub 가 APK 를 만들 때 함께 만들어 **Releases** 에 올립니다(`ha
 - 첨부를 바로 열기: `/viewer3d/view?src=<파일 주소(인코딩)>&name=<파일 이름(인코딩)>`
   - 메신저 첨부: `/viewer3d/view?src=%2Fapi%2Fchat%2Ffile%2F123&name=bracket.stp`
   - 결재 첨부: `/viewer3d/view?src=%2Fapi%2Fappr%2Ffile%2Fabc.dwg&name=%EB%8F%84%EB%A9%B4.dwg`
-  - 화면에 단추를 달 때(예): 파일 이름이 `.stp/.step/.igs/.iges/.dwg/.dxf` 이면 옆에 `🧊 미리보기` 링크를
+  - 화면에 단추를 달 때(예): 파일 이름이 `.stp/.step/.igs/.iges/.dwg/.dxf/.catpart/.catproduct` 이면 옆에 `🧊 미리보기` 링크를
     `'/viewer3d/view?src=' + encodeURIComponent(파일주소) + '&name=' + encodeURIComponent(파일이름)` 로.
 
 **안 보일 때 — 먼저 점검 화면**: `/viewer3d/view?check=1`

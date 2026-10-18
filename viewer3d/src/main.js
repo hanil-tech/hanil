@@ -196,12 +196,14 @@ function kindOf(name, u8) {
   if (ext === 'igs' || ext === 'iges') return 'iges';
   if (ext === 'brep' || ext === 'brp') return 'brep';
   if (ext === 'dwg') return 'dwg';
+  if (/^(catpart|catproduct|catdrawing|catshape|catsystem|catmaterial|cgr|catanalysis|catprocess)$/.test(ext)) return 'catia';
   if (ext === 'dxf') return 'dxf';
   //  이름으로 모르면 앞머리를 본다
   const head = new TextDecoder('latin1').decode(u8.slice(0, 400));
   if (/ISO-10303-21/.test(head)) return 'step';
   if (/^.{72}S\s*1\s*$/m.test(head)) return 'iges';
   if (/^AC10\d\d/.test(head)) return 'dwg';
+  if (/^V5_CFV2/.test(head)) return 'catia';
   if (/^\s*0\s*[\r\n]+\s*SECTION/.test(head)) return 'dxf';
   return '';
 }
@@ -209,8 +211,7 @@ function kindOf(name, u8) {
 async function openBytes(name, u8) {
   const kind = kindOf(name, u8);
   if (!kind) {
-    if (/\.catpart$|\.catproduct$/i.test(name)) toast('CATIA 원본 파일은 열 수 없습니다 — CATIA 에서 STEP(.stp)으로 내보내 주세요', 6000);
-    else toast('STEP(.stp)·IGES(.igs)·DWG·DXF 파일만 열 수 있습니다', 4000);
+    toast('STEP(.stp)·IGES(.igs)·DWG·DXF·CATIA 파일만 열 수 있습니다', 4000);
     return;
   }
   fileBytes = u8;
@@ -218,6 +219,8 @@ async function openBytes(name, u8) {
   $('fname').textContent = fileName;
   document.title = fileName + ' — 도면 보기';
   if (kind === 'dwg' || kind === 'dxf') { await open2d(u8, kind); return; }
+  if (kind === 'catia') { await openCatia(u8); return; }
+  document.body.classList.remove('modeimg');
   document.body.classList.remove('mode2d');
   busy(true, '3D 엔진을 준비하는 중…');
   await new Promise((r) => setTimeout(r, 30));            //  글자가 먼저 보이게
@@ -241,13 +244,14 @@ async function openBytes(name, u8) {
 
 //  ⚠ 못 열었으면 **까닭을 화면 가운데 남긴다**(잠깐 뜨고 사라지는 알림만으로는 무엇이 틀렸는지 모른다)
 function fail(title, detail) {
+  document.body.classList.remove('modeimg');
   busy(false);
   const d = $('drop');
   d.style.display = 'flex';
   d.querySelector('.card').innerHTML = '<b style="color:#b3261e">⚠ ' + esc0(title) + '</b>'
     + '<p style="text-align:left;word-break:break-all">' + esc0(detail) + '</p>'
     + '<p style="font-size:12.5px">이 PC: 그래픽 가속 ' + (glOk ? '켜짐' : '꺼짐(간이 미리보기)') + ' · WebAssembly ' + (typeof WebAssembly === 'object' ? '됨' : '<b>안 됨 — 브라우저가 너무 옛것</b>') + '</p>'
-    + '<label>📂 다른 파일 고르기<input id="file3" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf"></label>';
+    + '<label>📂 다른 파일 고르기<input id="file3" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.catpart,.catproduct,.catdrawing,.cgr"></label>';
   const f3 = $('file3');
   if (f3) f3.onchange = function () { fromInput(this); };
 }
@@ -396,6 +400,92 @@ if (glOk) renderer.domElement.addEventListener('pointerup', (e) => {
   } else toast('두 번째 점을 누르세요', 2000);
 });
 
+// ── CATIA 원본(.CATPart 등) — 들어 있는 미리보기 그림 ─────────
+//   ⚠ CATIA 원본은 다쏘 전용 형식이라 3D 모양을 읽는 공개 엔진이 없다.
+//   ⭐ 대신 CATIA 가 저장할 때 파일 안에 넣어 두는 **미리보기 그림**(CATIA 「열기」 창에 보이는 그것)을 꺼내 보인다.
+//     JPEG(FF D8 FF … FF D9)·PNG·BMP 를 훑어, **실제로 그림으로 열리는 것 중 가장 큰 것**을 고른다
+//     (그냥 FF D8~FF D9 를 자르면 압축 자료 속 우연한 표식에 속는다 — 열어 보고 확인한다).
+async function decodeImg(bytes, mime) {
+  const blob = new Blob([bytes], { type: mime });
+  if (window.createImageBitmap) {
+    const bm = await createImageBitmap(blob);
+    const r = { w: bm.width, h: bm.height, blob };
+    if (bm.close) bm.close();
+    return r;
+  }
+  return await new Promise((ok, no) => {
+    const im = new Image(); const u = URL.createObjectURL(blob);
+    im.onload = () => { ok({ w: im.naturalWidth, h: im.naturalHeight, blob }); URL.revokeObjectURL(u); };
+    im.onerror = () => { no(new Error('bad')); URL.revokeObjectURL(u); };
+    im.src = u;
+  });
+}
+async function findPreviews(u8) {
+  const found = [];
+  const n = u8.length;
+  //  JPEG
+  for (let i = 0; i < n - 3 && found.length < 20; i++) {
+    if (u8[i] !== 0xFF || u8[i + 1] !== 0xD8 || u8[i + 2] !== 0xFF) continue;
+    let tries = 0;
+    for (let e = i + 4; e < n - 1 && e < i + 8e6 && tries < 60; e++) {
+      if (u8[e] !== 0xFF || u8[e + 1] !== 0xD9) continue;
+      tries++;
+      try { const r = await decodeImg(u8.subarray(i, e + 2), 'image/jpeg'); if (r.w > 8 && r.h > 8) { found.push(r); i = e + 1; break; } } catch (x) { /* 다음 FF D9 */ }
+    }
+  }
+  //  PNG
+  for (let i = 0; i < n - 8; i++) {
+    if (u8[i] !== 0x89 || u8[i + 1] !== 0x50 || u8[i + 2] !== 0x4E || u8[i + 3] !== 0x47) continue;
+    for (let e = i + 8; e < n - 8 && e < i + 8e6; e++) {
+      if (u8[e] === 0x49 && u8[e + 1] === 0x45 && u8[e + 2] === 0x4E && u8[e + 3] === 0x44) {   //  IEND
+        try { const r = await decodeImg(u8.subarray(i, e + 8), 'image/png'); found.push(r); } catch (x) { /* */ }
+        i = e; break;
+      }
+    }
+  }
+  //  BMP — 'BM' + 크기 + 40바이트 머리(BITMAPINFOHEADER)
+  for (let i = 0; i < n - 54; i++) {
+    if (u8[i] !== 0x42 || u8[i + 1] !== 0x4D) continue;
+    const size = u8[i + 2] | (u8[i + 3] << 8) | (u8[i + 4] << 16) | (u8[i + 5] << 24);
+    const hdr = u8[i + 14] | (u8[i + 15] << 8);
+    if (hdr !== 40 || size < 200 || i + size > n) continue;
+    try { const r = await decodeImg(u8.subarray(i, i + size), 'image/bmp'); found.push(r); i += size - 1; } catch (x) { /* */ }
+  }
+  found.sort((a, b) => b.w * b.h - a.w * a.h);
+  return found;
+}
+async function openCatia(u8) {
+  busy(true, 'CATIA 파일에서 미리보기 그림을 찾는 중…');
+  await new Promise((r) => setTimeout(r, 30));
+  let list = [];
+  try { list = await findPreviews(u8); } catch (e) { list = []; }
+  busy(false);
+  if (!list.length) {
+    fail('이 CATIA 파일에는 미리보기 그림이 없습니다',
+      'CATIA 원본은 다쏘 전용 형식이라 3D 모양은 직접 읽을 수 없고, 파일 안의 미리보기 그림만 보여 드립니다. '
+      + '이 파일은 미리보기 없이 저장되었습니다. 3D 로 보려면 CATIA 에서 「다른 이름으로 저장 → STEP(.stp)」으로 내보내 열어 주세요.');
+    return;
+  }
+  const best = list[0];
+  if (model) { scene.remove(model); model = null; }
+  parts = []; box = null; clearMeasure();
+  document.body.classList.remove('mode2d');
+  document.body.classList.add('modeimg');
+  let host = $('vimg');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'vimg';
+    view.appendChild(host);
+  }
+  const url = URL.createObjectURL(best.blob);
+  host.innerHTML = '<img alt="CATIA 미리보기" src="' + url + '">';
+  host.dataset.url = url;
+  $('info').innerHTML = '<b>CATIA 원본</b> — 저장할 때 들어간 <b>미리보기 그림</b>입니다 (' + best.w + '×' + best.h + 'px)'
+    + '<br><span style="color:#6b7684">3D 로 돌려 보려면 CATIA 에서 STEP(.stp)으로 내보내 주세요</span>';
+  $('drop').style.display = 'none';
+  $('tools').style.display = 'flex';
+}
+
 // ── 2D 도면(DWG·DXF) ────────────────────────────────────────
 //   ⭐ LibreDWG 가 도면을 SVG 로 바꾸고, 여기서 맞춤·확대·끌기·재기를 한다.
 //   ⚠ 바꾼 SVG 를 그대로 쓰면 안 된다: ① 멀리 떨어진 선 하나(보조선 등)가 범위를 수백만으로 늘려 도면이 점이 되고
@@ -413,6 +503,7 @@ function loadDwgEngine() {
   });
 }
 async function open2d(u8, kind) {
+  document.body.classList.remove('modeimg');
   busy(true, '도면 엔진을 준비하는 중…');
   await new Promise((r) => setTimeout(r, 30));
   try {
@@ -628,6 +719,12 @@ function bytesToB64(u8) {
 }
 $('tShot').onclick = () => {
   if (document.body.classList.contains('mode2d')) { shot2d(); return; }
+  if (document.body.classList.contains('modeimg')) {
+    const im = document.querySelector('#vimg img');
+    if (im) { const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; c.getContext('2d').drawImage(im, 0, 0);
+      saveFile(fileName.replace(/\.[^.]+$/, '') + '_미리보기.png', 'image/png', c.toDataURL('image/png')); }
+    return;
+  }
   if (!glOk) { saveFile(fileName.replace(/\.[^.]+$/, '') + '_3D.png', 'image/png', soft.cv.toDataURL('image/png')); return; }
   renderer.render(scene, camera);
   saveFile(fileName.replace(/\.[^.]+$/, '') + '_3D.png', 'image/png', renderer.domElement.toDataURL('image/png'));

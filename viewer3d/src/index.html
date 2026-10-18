@@ -23,6 +23,11 @@
   body.mode2d #v2d{display:block}
   body.mode2d .only3d{display:none!important}
   body:not(.mode2d) .only2d{display:none!important}
+  #vimg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#fff;padding:70px 16px 70px}
+  #vimg img{max-width:100%;max-height:100%;width:min(100%,640px);height:auto;object-fit:contain;image-rendering:auto;box-shadow:0 2px 12px rgba(0,0,0,.12);border-radius:6px}
+  body.modeimg #vimg{display:flex}
+  body.modeimg canvas,body.modeimg #v2d{display:none!important}
+  body.modeimg #tools button:not(#tShot){display:none!important}
   body.nogl:not(.mode2d) #tMeasure,body.nogl #tGlass,body.nogl #tEdge{display:none!important}
   #tools{position:absolute;left:8px;right:8px;bottom:10px;display:flex;gap:6px;overflow-x:auto;z-index:4;padding-bottom:2px;scrollbar-width:none}
   #tools::-webkit-scrollbar{display:none}
@@ -57,16 +62,16 @@
 </head>
 <body>
 <div id="top">
-  <b>🧊 도면 보기</b><span id="fname">STEP · IGES · DWG · DXF</span>
-  <label title="파일 열기">📂 열기<input id="file" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.STP,.STEP,.IGS,.IGES,.DWG,.DXF"></label>
+  <b>🧊 도면 보기</b><span id="fname">STEP · IGES · DWG · DXF · CATIA</span>
+  <label title="파일 열기">📂 열기<input id="file" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.catpart,.catproduct,.catdrawing,.cgr,.STP,.STEP,.IGS,.IGES,.DWG,.DXF,.CATPart,.CATProduct,.CATDrawing"></label>
   <button id="bSave" style="display:none" title="다운로드 폴더에 저장">⬇ 저장</button>
 </div>
 <div id="view"><div id="v2d"></div></div>
 <div id="info"></div>
 <div id="drop"><div class="card">
   <b>도면 파일을 여기에 끌어다 놓으세요</b>
-  <p><b>3D</b> — CATIA·SolidWorks·Inventor 의 <b>.stp / .step / .igs</b><br><b>2D</b> — AutoCAD 의 <b>.dwg / .dxf</b><br>설치 없이 바로 봅니다. 파일은 이 기기 밖으로 나가지 않습니다.</p>
-  <label>📂 파일 고르기<input id="file2" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.STP,.STEP,.IGS,.IGES,.DWG,.DXF"></label>
+  <p><b>3D</b> — CATIA·SolidWorks·Inventor 의 <b>.stp / .step / .igs</b><br><b>2D</b> — AutoCAD 의 <b>.dwg / .dxf</b><br><b>CATIA</b> — <b>.CATPart / .CATProduct</b> 는 들어 있는 미리보기 그림<br>설치 없이 바로 봅니다. 파일은 이 기기 밖으로 나가지 않습니다.</p>
+  <label>📂 파일 고르기<input id="file2" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.catpart,.catproduct,.catdrawing,.cgr,.STP,.STEP,.IGS,.IGES,.DWG,.DXF,.CATPart,.CATProduct,.CATDrawing"></label>
 </div></div>
 <div id="tools" style="display:none">
   <button id="tFit">⟲ 맞춤</button>

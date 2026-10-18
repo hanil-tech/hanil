@@ -36,13 +36,13 @@ import java.net.URLEncoder;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-//  🧊 도면 보기 — 3D: STEP(.stp/.step) · IGES(.igs/.iges) · 2D: DWG · DXF
+//  🧊 도면 보기 — 3D: STEP(.stp/.step) · IGES(.igs/.iges) · 2D: DWG · DXF · CATIA 원본: 들어 있는 미리보기 그림
 //   ⭐ 포털에서 도면 파일을 누르면 내려받는 대신 여기서 바로 본다(설치·서버 없이 — 앱 안의 viewer3d).
 //   ⚠ 파일은 로그인(쿠키)을 붙여 앱 안 임시 칸(cache/view3d)에 받고, 화면은 그 파일을 읽는다. 밖으로 안 나간다.
 //   ⚠ 뷰어는 assets/viewer3d (viewer3d/ 에서 만든 것 — 포털에 올리는 것과 같은 뷰어).
 public class Viewer3dActivity extends Activity {
 
-    static final Pattern EXT = Pattern.compile("\\.(stp|step|igs|iges|dwg|dxf)(\\?|#|$)", Pattern.CASE_INSENSITIVE);
+    static final Pattern EXT = Pattern.compile("\\.(stp|step|igs|iges|dwg|dxf|catpart|catproduct|catdrawing|cgr)(\\?|#|$)", Pattern.CASE_INSENSITIVE);
 
     static boolean is3d(String s) {
         return s != null && EXT.matcher(s).find();
