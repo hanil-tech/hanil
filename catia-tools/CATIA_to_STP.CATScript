@@ -1,0 +1,66 @@
+' =====================================================================
+'  한일특장 - CATIA 파일을 STP 로 한꺼번에 바꾸기 (CATIA V5 매크로)
+'
+'  쓰는 법: CATIA 에서 「도구 -> 매크로 -> 매크로(Alt+F8)」 -> 이 파일 선택 -> 실행
+'           -> 폴더를 고르면 그 안의 .CATPart · .CATProduct 를 모두 STP 로 바꿔
+'             같은 폴더 안 「STP」 폴더에 저장합니다.
+'  ※ 이미 바꾼 것(STP 가 원본보다 새것)은 건너뜁니다 -> 몇 번 돌려도 됩니다.
+'  ※ CATIA 가 깔린 PC 에서만 됩니다(CATIA 형식은 CATIA 만 제대로 읽습니다).
+' =====================================================================
+Sub CATMain()
+    Dim fso, sh, picked, src, outDir, f, ext, outPath, doc, ok, bad, skip, log
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set sh = CreateObject("Shell.Application")
+
+    Set picked = sh.BrowseForFolder(0, "STP 로 바꿀 CATIA 파일이 있는 폴더를 고르세요", 0)
+    If picked Is Nothing Then Exit Sub
+    src = picked.Self.Path
+
+    outDir = src & "\STP"
+    If Not fso.FolderExists(outDir) Then fso.CreateFolder outDir
+
+    CATIA.DisplayFileAlerts = False
+    ok = 0 : bad = 0 : skip = 0 : log = ""
+
+    For Each f In fso.GetFolder(src).Files
+        ext = LCase(fso.GetExtensionName(f.Name))
+        If ext = "catpart" Or ext = "catproduct" Then
+            outPath = outDir & "\" & fso.GetBaseName(f.Name) & ".stp"
+            If fso.FileExists(outPath) Then
+                If fso.GetFile(outPath).DateLastModified >= f.DateLastModified Then
+                    skip = skip + 1
+                Else
+                    fso.DeleteFile outPath, True
+                End If
+            End If
+            If Not fso.FileExists(outPath) Then
+                On Error Resume Next
+                Err.Clear
+                Set doc = Nothing
+                Set doc = CATIA.Documents.Open(f.Path)
+                If Err.Number = 0 Then doc.ExportData outPath, "stp"
+                If Err.Number = 0 And fso.FileExists(outPath) Then
+                    ok = ok + 1
+                Else
+                    bad = bad + 1
+                    log = log & f.Name & " : " & Err.Description & vbCrLf
+                End If
+                If Not doc Is Nothing Then doc.Close
+                Set doc = Nothing
+                Err.Clear
+                On Error GoTo 0
+            End If
+        End If
+    Next
+
+    CATIA.DisplayFileAlerts = True
+    If log <> "" Then
+        Dim lf : Set lf = fso.CreateTextFile(outDir & "\실패목록.txt", True)
+        lf.Write log : lf.Close
+    End If
+    MsgBox "STP 바꾸기 끝" & vbCrLf & vbCrLf & _
+           "바꿈: " & ok & "개" & vbCrLf & _
+           "건너뜀(이미 있음): " & skip & "개" & vbCrLf & _
+           "실패: " & bad & "개" & vbCrLf & vbCrLf & _
+           "저장한 곳: " & outDir, vbInformation, "한일특장"
+End Sub
