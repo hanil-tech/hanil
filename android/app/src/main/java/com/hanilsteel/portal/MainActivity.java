@@ -566,6 +566,12 @@ public class MainActivity extends AppCompatActivity {
             w.evaluateJavascript(js, null);
             return;
         }
+        //  🧊 도면(3D STEP·IGES · 2D DWG·DXF)은 내려받지 않고 앱 안 도면 보기로 연다(저장은 그 화면의 「⬇ 저장」)
+        String n3 = Viewer3dActivity.fileName(url, cd);
+        if (Viewer3dActivity.is3d(n3) || Viewer3dActivity.is3d(url)) {
+            Viewer3dActivity.open(this, url, n3, ua);
+            return;
+        }
         try {
             String name = URLUtil.guessFileName(url, cd, mime);
             DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
@@ -595,6 +601,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void saveFile(String name, String mime, byte[] data) throws Exception {
+        saveToDownloads(this, name, mime, data);
+    }
+
+    //  다운로드 폴더에 저장(3D 보기 화면도 같이 쓴다)
+    static void saveToDownloads(Context ctx, String name, String mime, byte[] data) throws Exception {
         if (mime == null || mime.isEmpty()) {
             String ext = MimeTypeMap.getFileExtensionFromUrl(name);
             mime = ext == null ? null : MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
@@ -604,15 +615,15 @@ public class MainActivity extends AppCompatActivity {
             ContentValues v = new ContentValues();
             v.put(MediaStore.Downloads.DISPLAY_NAME, name);
             v.put(MediaStore.Downloads.MIME_TYPE, mime);
-            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            Uri uri = ctx.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
             if (uri == null) throw new Exception("저장할 곳을 만들지 못했습니다");
-            try (OutputStream o = getContentResolver().openOutputStream(uri)) {
+            try (OutputStream o = ctx.getContentResolver().openOutputStream(uri)) {
                 if (o == null) throw new Exception("저장하지 못했습니다");
                 o.write(data);
             }
         } else {
             File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (!dir.exists() || !dir.canWrite()) dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (!dir.exists() || !dir.canWrite()) dir = ctx.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
             try (FileOutputStream o = new FileOutputStream(new File(dir, name))) {
                 o.write(data);
             }

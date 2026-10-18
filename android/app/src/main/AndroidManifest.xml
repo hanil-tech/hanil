@@ -47,6 +47,13 @@
             </intent-filter>
         </activity>
 
+        <!-- 🧊 도면 보기(3D STEP·IGES · 2D DWG·DXF) — 돌려도 다시 읽지 않게 -->
+        <activity
+            android:name=".Viewer3dActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
+            android:theme="@style/AppTheme" />
+
         <!-- 🔔 메신저 새 쪽지를 지켜보는 일꾼 -->
         <service
             android:name=".ChatWatch"

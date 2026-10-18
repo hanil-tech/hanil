@@ -3,3 +3,5 @@ build/
 app/build/
 local.properties
 *.apk
+#  도면 보기(viewer3d/ 에서 만든다 — GitHub 가 APK 만들 때 함께 만든다)
+app/src/main/assets/viewer3d/

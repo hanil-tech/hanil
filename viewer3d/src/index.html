@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko" data-notheme="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>한일특장 도면 보기</title>
+<style>
+  :root{--navy:#1b2a4a;--acc:#2954A5;--bg:#eef1f6;--line:#d0d7de;--ink:#1f2328;--muted:#6b7684}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;overflow:hidden}
+  #top{position:absolute;left:0;right:0;top:0;height:52px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:8px;padding:0 10px;z-index:5}
+  #top b{font-size:16px;white-space:nowrap}
+  #fname{flex:1;min-width:0;font-size:14px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #top button,#top label{border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:8px;padding:7px 11px;font-size:14px;cursor:pointer;white-space:nowrap;font-family:inherit}
+  #view{position:absolute;left:0;right:0;top:52px;bottom:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  #v2d{position:absolute;inset:0;display:none;background:#1e232b;touch-action:none;overflow:hidden}
+  #v2d.white{background:#fff}
+  #v2d svg{width:100%;height:100%;display:block}
+  #v2d svg *{vector-effect:non-scaling-stroke}
+  body.mode2d canvas{display:none}
+  body.mode2d #v2d{display:block}
+  body.mode2d .only3d{display:none!important}
+  body:not(.mode2d) .only2d{display:none!important}
+  #tools{position:absolute;left:8px;right:8px;bottom:10px;display:flex;gap:6px;overflow-x:auto;z-index:4;padding-bottom:2px;scrollbar-width:none}
+  #tools::-webkit-scrollbar{display:none}
+  #tools button{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:10px;padding:9px 12px;font-size:14px;font-weight:600;font-family:inherit;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  #tools button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+  #info{position:absolute;left:10px;top:62px;z-index:4;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.55;max-width:calc(100% - 20px)}
+  #info:empty{display:none}
+  #info b{color:var(--acc)}
+  #parts{position:absolute;right:8px;top:62px;bottom:64px;width:min(300px,calc(100% - 16px));background:#fff;border:1px solid var(--line);border-radius:12px;z-index:6;display:none;flex-direction:column;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+  #parts.on{display:flex}
+  #parts .hd{display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:700}
+  #parts .hd span{flex:1}
+  #parts .hd button{border:0;background:none;font-size:18px;cursor:pointer}
+  #plist{overflow:auto;flex:1;padding:4px 0}
+  #plist label{display:flex;align-items:center;gap:8px;padding:9px 12px;font-size:14px;border-bottom:1px solid #f0f2f6;cursor:pointer}
+  #plist label i{width:14px;height:14px;border-radius:3px;flex:0 0 14px;border:1px solid rgba(0,0,0,.2)}
+  #plist label span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #drop{position:absolute;inset:52px 0 0 0;display:flex;align-items:center;justify-content:center;z-index:3;pointer-events:none}
+  #drop .card{pointer-events:auto;background:#fff;border:2px dashed #9fb3d1;border-radius:16px;padding:28px 24px;text-align:center;max-width:420px;margin:16px}
+  #drop .card b{font-size:18px;color:var(--navy)}
+  #drop .card p{color:var(--muted);font-size:14px;line-height:1.6;margin:10px 0 16px}
+  #drop .card label{display:inline-block;background:var(--acc);color:#fff;border-radius:10px;padding:11px 20px;font-weight:700;cursor:pointer}
+  body.drag #drop .card{border-color:var(--acc);background:#f2f6ff}
+  #busy{position:absolute;inset:52px 0 0 0;background:rgba(238,241,246,.85);display:none;align-items:center;justify-content:center;z-index:8;font-size:16px;color:var(--navy);text-align:center;line-height:1.7}
+  #busy.on{display:flex}
+  #busy .sp{width:38px;height:38px;border:4px solid #c9d4e6;border-top-color:var(--acc);border-radius:50%;animation:r 1s linear infinite;margin:0 auto 12px}
+  @keyframes r{to{transform:rotate(360deg)}}
+  #msg{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);background:rgba(27,42,74,.92);color:#fff;border-radius:10px;padding:9px 14px;font-size:14px;z-index:9;display:none;max-width:90%;text-align:center}
+  input[type=file]{display:none}
+  @media(max-width:520px){ #top b{display:none} }
+</style>
+</head>
+<body>
+<div id="top">
+  <b>🧊 도면 보기</b><span id="fname">STEP · IGES · DWG · DXF</span>
+  <label title="파일 열기">📂 열기<input id="file" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.STP,.STEP,.IGS,.IGES,.DWG,.DXF"></label>
+  <button id="bSave" style="display:none" title="다운로드 폴더에 저장">⬇ 저장</button>
+</div>
+<div id="view"><div id="v2d"></div></div>
+<div id="info"></div>
+<div id="drop"><div class="card">
+  <b>도면 파일을 여기에 끌어다 놓으세요</b>
+  <p><b>3D</b> — CATIA·SolidWorks·Inventor 의 <b>.stp / .step / .igs</b><br><b>2D</b> — AutoCAD 의 <b>.dwg / .dxf</b><br>설치 없이 바로 봅니다. 파일은 이 기기 밖으로 나가지 않습니다.</p>
+  <label>📂 파일 고르기<input id="file2" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf,.STP,.STEP,.IGS,.IGES,.DWG,.DXF"></label>
+</div></div>
+<div id="tools" style="display:none">
+  <button id="tFit">⟲ 맞춤</button>
+  <button id="tIn" class="only2d">＋ 확대</button>
+  <button id="tOut" class="only2d">－ 축소</button>
+  <button id="tIso" class="only3d">3D</button>
+  <button id="tFront" class="only3d">정면</button>
+  <button id="tTop" class="only3d">윗면</button>
+  <button id="tSide" class="only3d">옆면</button>
+  <button id="tMeasure">📏 재기</button>
+  <button id="tParts" class="only3d">🧩 부품</button>
+  <button id="tEdge" class="on only3d">선</button>
+  <button id="tGlass" class="only3d">투명</button>
+  <button id="tBg" class="only2d">◐ 바탕</button>
+  <button id="tShot">📷 그림</button>
+</div>
+<div id="parts"><div class="hd"><span>🧩 부품</span><button id="pAll" title="모두 보이기" style="font-size:13px;margin-right:6px">모두</button><button id="pX">✕</button></div><div id="plist"></div></div>
+<div id="busy"><div><div class="sp"></div><span id="busyT">불러오는 중…</span></div></div>
+<div id="msg"></div>
+<!--OCCT-->
+<!--VIEWER-->
+</body>
+</html>
