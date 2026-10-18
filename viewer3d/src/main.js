@@ -7,15 +7,28 @@
 //     · PC 단독 HTML 한 장 — 끌어다 놓기·파일 고르기 (WASM 을 글자로 품고 있어 인터넷 없이도 열린다)
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { SAMPLE_STEP } from './sample.js';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
 
 // ── 그리기 판 ───────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setClearColor(0xeef1f6, 1);
-view.appendChild(renderer.domElement);
+//   ⚠⚠ 그래픽 가속(WebGL)이 안 되는 PC 가 있다(원격 데스크톱·옛 그래픽 드라이버·막아 둔 브라우저).
+//     그때 WebGL 을 만들다 터지면 **스크립트 전체가 멈춰** 3D 는 물론 DWG 까지 아무것도 안 떴다(포털 쪽 신고).
+//   ⭐ 그래서 WebGL 은 되면 쓰고, 안 되면 **간이 미리보기**(2D 그림판에 직접 그림 — 돌려 보기는 됨)로 넘어간다.
+let renderer = null, glOk = false, glWhy = '';
+try {
+  const t = document.createElement('canvas');
+  if (!(t.getContext('webgl2') || t.getContext('webgl'))) throw new Error('WebGL 없음');
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0xeef1f6, 1);
+  view.appendChild(renderer.domElement);
+  glOk = true;
+} catch (e) {
+  glWhy = String(e && e.message || e);
+  renderer = null;
+}
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100000);
@@ -26,10 +39,12 @@ camera.add(head);
 head.position.set(0.5, 1, 1);
 scene.add(camera);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.12;
-controls.screenSpacePanning = true;
+const controls = glOk ? new OrbitControls(camera, renderer.domElement) : null;
+if (controls) {
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.12;
+  controls.screenSpacePanning = true;
+}
 
 let model = null;          //  지금 그린 것(THREE.Group)
 let parts = [];            //  { name, mesh, edges, color }
@@ -39,17 +54,106 @@ let edgesOn = true, glass = false, measuring = false;
 
 function resize() {
   const w = view.clientWidth, h = view.clientHeight;
-  renderer.setSize(w, h, false);
+  if (glOk) renderer.setSize(w, h, false);
   camera.aspect = w / Math.max(h, 1);
   camera.updateProjectionMatrix();
+  if (!glOk) soft.draw();
 }
 window.addEventListener('resize', resize);
-resize();
 (function loop() {
+  if (!glOk) return;
   requestAnimationFrame(loop);
   controls.update();
   renderer.render(scene, camera);
 })();
+
+// ── 간이 미리보기(WebGL 없을 때) ────────────────────────────
+//   삼각형을 깊이 순으로 칠한다(먼 것부터). 끌면 돈다·바퀴로 확대. 크기·부품 수·그림 저장은 그대로.
+const soft = {
+  cv: null, tris: null, rot: { yaw: -0.8, pitch: 0.55 }, zoom: 1, c: null, r: 1,
+  init() {
+    if (this.cv) return;
+    this.cv = document.createElement('canvas');
+    this.cv.style.cssText = 'display:block;width:100%;height:100%;touch-action:none';
+    view.appendChild(this.cv);
+    let d = null;
+    this.cv.addEventListener('pointerdown', (e) => { d = { x: e.clientX, y: e.clientY }; this.cv.setPointerCapture(e.pointerId); });
+    this.cv.addEventListener('pointermove', (e) => {
+      if (!d) return;
+      this.rot.yaw += (e.clientX - d.x) * 0.01; this.rot.pitch = Math.max(-1.55, Math.min(1.55, this.rot.pitch + (e.clientY - d.y) * 0.01));
+      d = { x: e.clientX, y: e.clientY }; this.draw();
+    });
+    this.cv.addEventListener('pointerup', () => { d = null; });
+    this.cv.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom *= e.deltaY > 0 ? 0.88 : 1.14; this.draw(); }, { passive: false });
+  },
+  load(res, colors) {
+    this.init();
+    const T = [];
+    const b = new THREE.Box3();
+    res.meshes.forEach((m, i) => {
+      const P = m.attributes.position.array, I = m.index ? m.index.array : null;
+      const n = I ? I.length : P.length / 3;
+      const col = new THREE.Color(colors[i]);
+      for (let k = 0; k < n; k += 3) {
+        const a = (I ? I[k] : k) * 3, bb = (I ? I[k + 1] : k + 1) * 3, cc = (I ? I[k + 2] : k + 2) * 3;
+        T.push([P[a], P[a + 1], P[a + 2], P[bb], P[bb + 1], P[bb + 2], P[cc], P[cc + 1], P[cc + 2], col.r, col.g, col.b, i]);
+      }
+      for (let k = 0; k < P.length; k += 3) b.expandByPoint(new THREE.Vector3(P[k], P[k + 1], P[k + 2]));
+    });
+    this.tris = T;
+    this.c = b.getCenter(new THREE.Vector3());
+    this.r = Math.max(b.getSize(new THREE.Vector3()).length() / 2, 1e-6);
+    this.zoom = 1;
+    this.draw();
+  },
+  view(dir) {
+    const V = { iso: [-0.8, 0.55], front: [0, 0], top: [0, 1.55], side: [-Math.PI / 2, 0] }[dir || 'iso'];
+    this.rot.yaw = V[0]; this.rot.pitch = V[1]; this.zoom = 1; this.draw();
+  },
+  draw() {
+    if (!this.cv || !this.tris) return;
+    const k = Math.min(window.devicePixelRatio || 1, 2), W = view.clientWidth, H = view.clientHeight;
+    this.cv.width = W * k; this.cv.height = H * k;
+    const g = this.cv.getContext('2d');
+    g.setTransform(k, 0, 0, k, 0, 0);
+    g.fillStyle = '#eef1f6'; g.fillRect(0, 0, W, H);
+    const cy = Math.cos(this.rot.yaw), sy = Math.sin(this.rot.yaw), cp = Math.cos(this.rot.pitch), sp = Math.sin(this.rot.pitch);
+    const sc = Math.min(W, H) / 2 / this.r * 0.9 * this.zoom, ox = W / 2, oy = H / 2, C = this.c;
+    //  Z 가 위: 먼저 Z 축으로 돌리고(yaw), 그다음 앞뒤로 숙인다(pitch). 화면 x=오른쪽, y=아래, 깊이=화면 안쪽
+    const pr = (x, y, z) => {
+      x -= C.x; y -= C.y; z -= C.z;
+      const x1 = x * cy - y * sy, y1 = x * sy + y * cy;
+      const zz = z * cp - y1 * sp, dd = y1 * cp + z * sp;
+      return [ox + x1 * sc, oy - zz * sc, dd];
+    };
+    const vis = parts.length ? parts.map((p) => p.mesh.visible) : null;
+    const L = [];
+    for (const t of this.tris) {
+      if (vis && vis[t[12]] === false) continue;
+      const a = pr(t[0], t[1], t[2]), b = pr(t[3], t[4], t[5]), c = pr(t[6], t[7], t[8]);
+      //  빛 — 화면 쪽을 향한 정도(면의 기울기)
+      const ux = b[0] - a[0], uy = b[1] - a[1], vx = c[0] - a[0], vy = c[1] - a[1];
+      const ar = ux * vy - uy * vx;
+      const nx = (t[4] - t[1]) * (t[8] - t[2]) - (t[5] - t[2]) * (t[7] - t[1]);
+      const ny = (t[5] - t[2]) * (t[6] - t[0]) - (t[3] - t[0]) * (t[8] - t[2]);
+      const nz = (t[3] - t[0]) * (t[7] - t[1]) - (t[4] - t[1]) * (t[6] - t[0]);
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      //  보는 방향(화면 안쪽) 벡터를 원래 좌표로
+      const vxw = sy * cp, vyw = cy * cp * -1, vzw = sp;
+      const lam = Math.abs((nx * -vxw + ny * -vyw + nz * vzw) / nl);
+      L.push([(a[2] + b[2] + c[2]) / 3, a, b, c, t[9], t[10], t[11], 0.45 + 0.55 * lam, ar]);
+    }
+    L.sort((p, q) => q[0] - p[0]);
+    for (const q of L) {
+      const sh = q[7];
+      const col = 'rgb(' + Math.round(q[4] * 255 * sh) + ',' + Math.round(q[5] * 255 * sh) + ',' + Math.round(q[6] * 255 * sh) + ')';
+      g.fillStyle = col; g.strokeStyle = col; g.lineWidth = 0.6;
+      g.beginPath(); g.moveTo(q[1][0], q[1][1]); g.lineTo(q[2][0], q[2][1]); g.lineTo(q[3][0], q[3][1]); g.closePath();
+      g.fill(); g.stroke();
+    }
+  },
+};
+resize();
 
 // ── 알림 ────────────────────────────────────────────────────
 let msgT = 0;
@@ -130,10 +234,24 @@ async function openBytes(name, u8) {
     const ms = Math.round(performance.now() - t0);
     console.log('[3D] ' + fileName + ' ' + ms + 'ms');
   } catch (e) {
-    toast('열지 못했습니다: ' + (e && e.message || e), 6000);
+    fail('도면을 열지 못했습니다', (e && e.message || e));
   }
   busy(false);
 }
+
+//  ⚠ 못 열었으면 **까닭을 화면 가운데 남긴다**(잠깐 뜨고 사라지는 알림만으로는 무엇이 틀렸는지 모른다)
+function fail(title, detail) {
+  busy(false);
+  const d = $('drop');
+  d.style.display = 'flex';
+  d.querySelector('.card').innerHTML = '<b style="color:#b3261e">⚠ ' + esc0(title) + '</b>'
+    + '<p style="text-align:left;word-break:break-all">' + esc0(detail) + '</p>'
+    + '<p style="font-size:12.5px">이 PC: 그래픽 가속 ' + (glOk ? '켜짐' : '꺼짐(간이 미리보기)') + ' · WebAssembly ' + (typeof WebAssembly === 'object' ? '됨' : '<b>안 됨 — 브라우저가 너무 옛것</b>') + '</p>'
+    + '<label>📂 다른 파일 고르기<input id="file3" type="file" accept=".stp,.step,.igs,.iges,.brep,.dwg,.dxf"></label>';
+  const f3 = $('file3');
+  if (f3) f3.onchange = function () { fromInput(this); };
+}
+function esc0(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 // ── 장면 만들기 ─────────────────────────────────────────────
 const PALETTE = [0x8fa3bf, 0xc7a46b, 0x7fb08a, 0xb98aa8, 0x6fa6c9, 0xc98a6f, 0x9a93c9, 0xa9b56f];
@@ -178,12 +296,15 @@ function build(res) {
   scene.add(model);
   box = new THREE.Box3().setFromObject(model);
   applyLook();
+  if (!glOk) soft.load(res, parts.map((p) => p.color));
   fit('iso');
   drawParts();
   const s = box.getSize(new THREE.Vector3());
   const f = (v) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString('ko-KR');
   $('info').innerHTML = '크기 <b>' + f(s.x) + ' × ' + f(s.y) + ' × ' + f(s.z) + '</b> mm'
-    + '<br>부품 ' + parts.length + '개 · 삼각형 ' + Math.round(tris).toLocaleString('ko-KR') + '개';
+    + '<br>부품 ' + parts.length + '개 · 삼각형 ' + Math.round(tris).toLocaleString('ko-KR') + '개'
+    + (glOk ? '' : '<br><span style="color:#9a6700">간이 미리보기 — 이 PC 는 그래픽 가속(WebGL)이 꺼져 있습니다</span>');
+  document.body.classList.toggle('nogl', !glOk);
   $('drop').style.display = 'none';
   $('tools').style.display = 'flex';
 }
@@ -203,6 +324,7 @@ function applyLook() {
 // ── 보는 방향 ───────────────────────────────────────────────
 function fit(dir) {
   if (!box) return;
+  if (!glOk) { soft.view(dir); return; }
   const vis = new THREE.Box3();
   parts.forEach((p) => { if (p.mesh.visible) vis.expandByObject(p.mesh); });
   const b = vis.isEmpty() ? box : vis;
@@ -232,7 +354,7 @@ function drawParts() {
     const lb = document.createElement('label');
     lb.innerHTML = '<input type="checkbox" checked><i style="background:#' + new THREE.Color(p.color).getHexString() + '"></i><span></span>';
     lb.querySelector('span').textContent = p.name;
-    lb.querySelector('input').onchange = (e) => { p.mesh.visible = e.target.checked; };
+    lb.querySelector('input').onchange = (e) => { p.mesh.visible = e.target.checked; if (!glOk) soft.draw(); };
     L.appendChild(lb);
   });
   $('tParts').style.display = parts.length > 1 ? '' : 'none';
@@ -248,8 +370,8 @@ function clearMeasure() {
 }
 const ray = new THREE.Raycaster();
 let downAt = null;
-renderer.domElement.addEventListener('pointerdown', (e) => { downAt = { x: e.clientX, y: e.clientY }; });
-renderer.domElement.addEventListener('pointerup', (e) => {
+if (glOk) renderer.domElement.addEventListener('pointerdown', (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+if (glOk) renderer.domElement.addEventListener('pointerup', (e) => {
   if (!measuring || !downAt || !model) return;
   if (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6) return;     //  돌린 것이지 누른 것이 아니다
   const rc = renderer.domElement.getBoundingClientRect();
@@ -303,7 +425,7 @@ async function open2d(u8, kind) {
     console.log('[2D] ' + fileName + ' ' + Math.round(performance.now() - t0) + 'ms');
     render2d(r);
   } catch (e) {
-    toast('열지 못했습니다: ' + (e && e.message || e), 6000);
+    fail('도면(DWG·DXF)을 열지 못했습니다', (e && e.message || e));
   }
   busy(false);
 }
@@ -486,7 +608,7 @@ $('tMeasure').onclick = () => {
 };
 $('tParts').onclick = () => $('parts').classList.toggle('on');
 $('pX').onclick = () => $('parts').classList.remove('on');
-$('pAll').onclick = () => { parts.forEach((p) => { p.mesh.visible = true; }); [].forEach.call($('plist').querySelectorAll('input'), (c) => { c.checked = true; }); };
+$('pAll').onclick = () => { parts.forEach((p) => { p.mesh.visible = true; }); [].forEach.call($('plist').querySelectorAll('input'), (c) => { c.checked = true; }); if (!glOk) soft.draw(); };
 
 function saveFile(name, mime, dataUrlOrBytes) {
   //  앱 안이면 앱이 다운로드 폴더에 저장한다(HanilApp.saveBase64)
@@ -506,6 +628,7 @@ function bytesToB64(u8) {
 }
 $('tShot').onclick = () => {
   if (document.body.classList.contains('mode2d')) { shot2d(); return; }
+  if (!glOk) { saveFile(fileName.replace(/\.[^.]+$/, '') + '_3D.png', 'image/png', soft.cv.toDataURL('image/png')); return; }
   renderer.render(scene, camera);
   saveFile(fileName.replace(/\.[^.]+$/, '') + '_3D.png', 'image/png', renderer.domElement.toDataURL('image/png'));
 };
@@ -532,12 +655,51 @@ const q = new URLSearchParams(location.search);
 if (q.get('src')) {
   const name = q.get('name') || decodeURIComponent(q.get('src').split('/').pop().split('?')[0]);
   busy(true, '파일을 받는 중…');
-  fetch(q.get('src')).then((r) => {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.arrayBuffer();
-  }).then((b) => openBytes(name, new Uint8Array(b)))
-    .catch((e) => { busy(false); toast('파일을 받지 못했습니다: ' + e.message, 6000); });
+  const src = q.get('src');
+  fetch(src, { credentials: 'same-origin' }).then(async (r) => {
+    const ct = r.headers.get('content-type') || '';
+    if (!r.ok) throw new Error('서버가 ' + r.status + ' 로 답했습니다' + (r.status === 401 || r.status === 403 ? ' — 로그인·권한을 확인하세요' : r.status === 404 ? ' — 파일 주소가 틀렸거나 지워진 파일' : '') + '\n주소: ' + src);
+    const b = new Uint8Array(await r.arrayBuffer());
+    //  ⚠ 도면 대신 화면(HTML)이 오면 — 로그인 화면·오류 화면·다른 미리보기 화면의 주소를 준 것
+    const head = new TextDecoder('latin1').decode(b.slice(0, 200)).trim().toLowerCase();
+    if (/text\/html/.test(ct) && (head.startsWith('<!doctype') || head.startsWith('<html') || head.indexOf('<head') >= 0)) {
+      throw new Error('파일 대신 화면(HTML)이 왔습니다 — 로그인 화면이거나, 내려받기 주소가 아니라 다른 화면 주소입니다.\n주소: ' + src + '\n(첨부를 「내려받는」 주소를 src 에 주세요)');
+    }
+    if (!b.length) throw new Error('빈 파일이 왔습니다\n주소: ' + src);
+    return b;
+  }).then((b) => openBytes(name, b))
+    .catch((e) => fail('파일을 받지 못했습니다', e.message));
+} else if (q.get('check')) {
+  selfCheck();
 } else {
   occt().catch(() => {});            //  고르는 동안 엔진을 미리 데워 둔다
+}
+
+//  🩺 점검 — /viewer3d/view?check=1 : 이 PC·브라우저에서 무엇이 되고 안 되는지 한 화면에
+async function selfCheck() {
+  const rows = [];
+  const show = () => {
+    const d = $('drop');
+    d.style.display = 'flex';
+    d.querySelector('.card').innerHTML = '<b>🩺 도면 보기 점검</b><div style="text-align:left;font-size:14px;line-height:1.9;margin-top:10px">'
+      + rows.map((r) => (r[1] === true ? '✅ ' : r[1] === false ? '❌ ' : r[1] === 'warn' ? '⚠️ ' : r[1] === 'info' ? 'ℹ️ ' : '⏳ ') + esc0(r[0]) + (r[2] ? ' <span style="color:#6b7684">— ' + esc0(r[2]) + '</span>' : '')).join('<br>') + '</div>';
+  };
+  rows.push(['그래픽 가속(WebGL)', glOk ? true : 'warn', glOk ? '3D 를 부드럽게 돌립니다' : '꺼짐 → 간이 미리보기로 보입니다 (' + glWhy + ')']);
+  rows.push(['WebAssembly', typeof WebAssembly === 'object', typeof WebAssembly === 'object' ? '' : '브라우저를 새것(크롬·엣지)으로']);
+  show();
+  let t0 = performance.now();
+  try { await occt(); rows.push(['3D 엔진(occt-import-js.wasm)', true, Math.round(performance.now() - t0) + 'ms']); } catch (e) { rows.push(['3D 엔진(occt-import-js.wasm)', false, e.message]); }
+  show();
+  t0 = performance.now();
+  try { await loadDwgEngine(); rows.push(['2D 엔진(dwg.js)', true, Math.round(performance.now() - t0) + 'ms']); } catch (e) { rows.push(['2D 엔진(dwg.js)', false, e.message]); }
+  show();
+  try {
+    const oc = await occt();
+    const r = oc.ReadStepFile(new TextEncoder().encode(SAMPLE_STEP), null);
+    rows.push(['예시 STEP 읽기', !!(r && r.success && r.meshes.length), r && r.meshes ? ('삼각형 ' + r.meshes.reduce((n, m) => n + m.index.array.length / 3, 0) + '개') : '']);
+  } catch (e) { rows.push(['예시 STEP 읽기', false, e.message]); }
+  show();
+  rows.push(['', 'info', '❌ 가 없으면 이 PC 에서 도면 보기가 됩니다(⚠️ 는 간이 미리보기로 대신). ❌ 가 있으면 이 화면을 찍어 보내 주세요.']);
+  show();
 }
 window.__hanil3d = { openBytes };
