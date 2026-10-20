@@ -1,13 +1,17 @@
 //  🧊 한일특장 3D 도면 보기 — STEP(.stp/.step) · IGES(.igs/.iges) · BREP
 //   ⭐ 브라우저 안에서 다 한다: OpenCASCADE(occt-import-js, WASM)가 곡면을 삼각형으로 깎고 three.js 가 그린다.
 //      서버에 아무것도 안 깔아도 되고, 파일이 이 기기 밖으로 나가지 않는다.
-//   ⚠ CATIA 원본(.CATPart·.CATProduct)은 열 수 없다(다쏘 독점 형식) — CATIA 에서 STEP 으로 내보내 연다.
+//   ⚠ CATIA 원본(.CATPart·.CATProduct)은 3D 로는 못 연다(다쏘 독점 형식) — 파일 안의 미리보기 그림을 보인다.
+//   ⭐ 큰 파일(100MB 급): 포털에서는 **포털 변환기**(viewer3d-route.js)가 한 번 가볍게 바꿔 두고 그것을 받는다.
+//      직접 읽을 때도 엔진은 **일꾼(Web Worker)** 에서 돌아 화면이 멈추지 않는다.
 //   쓰는 곳 두 군데(같은 코드):
 //     · 폰 앱 안 — 앱이 첨부(.stp)를 받아 ?src= 로 넘긴다
 //     · PC 단독 HTML 한 장 — 끌어다 놓기·파일 고르기 (WASM 을 글자로 품고 있어 인터넷 없이도 열린다)
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { SAMPLE_STEP } from './sample.js';
+import { WORKER_BODY } from './occt-worker-body.mjs';
 
 const $ = (id) => document.getElementById(id);
 const view = $('view');
@@ -90,15 +94,19 @@ const soft = {
     this.init();
     const T = [];
     const b = new THREE.Box3();
+    //  ⚠ 2D 그림판은 느리다 — 삼각형이 많으면 고르게 솎아 30만 개 안쪽만 그린다(미리보기니까)
+    let all = 0;
+    res.meshes.forEach((m) => { all += (m.index ? m.index.array.length : m.attributes.position.array.length / 3) / 3; });
+    const step = Math.max(1, Math.ceil(all / 300000)) * 3;
     res.meshes.forEach((m, i) => {
       const P = m.attributes.position.array, I = m.index ? m.index.array : null;
       const n = I ? I.length : P.length / 3;
       const col = new THREE.Color(colors[i]);
-      for (let k = 0; k < n; k += 3) {
+      for (let k = 0; k < n; k += step) {
         const a = (I ? I[k] : k) * 3, bb = (I ? I[k + 1] : k + 1) * 3, cc = (I ? I[k + 2] : k + 2) * 3;
         T.push([P[a], P[a + 1], P[a + 2], P[bb], P[bb + 1], P[bb + 2], P[cc], P[cc + 1], P[cc + 2], col.r, col.g, col.b, i]);
       }
-      for (let k = 0; k < P.length; k += 3) b.expandByPoint(new THREE.Vector3(P[k], P[k + 1], P[k + 2]));
+      for (let k = 0; k < P.length; k += 3 * Math.max(1, step / 3)) b.expandByPoint(new THREE.Vector3(P[k], P[k + 1], P[k + 2]));
     });
     this.tris = T;
     this.c = b.getCenter(new THREE.Vector3());
@@ -169,24 +177,95 @@ function busy(on, t) {
   if (t) $('busyT').textContent = t;
 }
 
-// ── OpenCASCADE 불러오기(한 번만) ───────────────────────────
-let occtP = null;
-function occt() {
-  if (occtP) return occtP;
-  if (typeof window.occtimportjs !== 'function') return Promise.reject(new Error('3D 엔진(occt-import-js)이 없습니다'));
-  const opt = {};
-  if (window.OCCT_WASM_B64) {
-    //  PC 단독판 — 엔진을 글자(base64)로 품고 있다(file:// 에서는 따로 받아올 수 없다)
-    const bin = atob(window.OCCT_WASM_B64);
-    const u8 = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    opt.wasmBinary = u8;
-    window.OCCT_WASM_B64 = null;
+// ── OpenCASCADE — 일꾼(Web Worker) 안에서 돈다 ─────────────────
+//   ⚠ 큰 STEP 은 읽는 데 몇 분 걸린다 — 화면 쪽에서 돌리면 그동안 브라우저가 「응답 없음」이 된다.
+//     일꾼에서 돌리면 화면은 살아 있고 「n초째」를 보여 줄 수 있다.
+//   일꾼 만들기: 포털·앱은 occt-worker.js 파일, PC 단독판은 품고 있는 엔진 글(<script id="occtjs">)로.
+//  일꾼 글은 occt-worker-body.mjs 에(build.mjs 가 occt-worker.js 파일로도 쓴다)
+let wk = null, wkWait = null, wasmSent = false;
+function worker() {
+  if (wk) return wk;
+  wasmSent = false;
+  const src = document.getElementById('occtjs');
+  if (src) {
+    //  PC 단독판 — 엔진 글과 일꾼 글을 합쳐 일꾼을 만든다(file:// 은 따로 받아올 수 없다)
+    wk = new Worker(URL.createObjectURL(new Blob([src.textContent + '\n' + WORKER_BODY], { type: 'text/javascript' })));
   } else {
-    opt.locateFile = (f) => f;            //  앱 — 같은 자리의 occt-import-js.wasm
+    wk = new Worker('occt-worker.js?v=' + (document.querySelector('meta[name=hanil-viewer3d]') || {}).content);
   }
-  occtP = window.occtimportjs(opt);
-  return occtP;
+  wk.onmessage = (e) => { const w = wkWait; wkWait = null; if (w) (e.data.ok ? w.ok(e.data) : w.no(new Error(e.data.err))); };
+  wk.onerror = (e) => {
+    e.preventDefault && e.preventDefault();
+    const w = wkWait; wkWait = null; wk.terminate(); wk = null;
+    if (w) w.no(new Error(String(e.message || '3D 엔진이 멈췄습니다') + ' — 이 기기 메모리로는 벅찬 큰 파일일 수 있습니다'));
+  };
+  return wk;
+}
+let wasmB = null;
+function engineMsg(msg) {
+  const w = worker();
+  if (window.OCCT_WASM_B64 && !wasmB) {
+    const bin = atob(window.OCCT_WASM_B64);
+    wasmB = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) wasmB[i] = bin.charCodeAt(i);
+    window.OCCT_WASM_B64 = null;
+  }
+  msg.wasm = wasmSent ? null : wasmB;            //  엔진(7MB)은 일꾼에 한 번만 넘긴다
+  wasmSent = true;
+  msg.base = new URL('.', location.href).href;
+  return new Promise((ok, no) => { wkWait = { ok, no }; w.postMessage(msg); });
+}
+let warmP = null;
+function occtWarm() { return warmP || (warmP = engineMsg({ cmd: 'warm' }).catch((e) => { warmP = null; throw e; })); }
+async function parse3d(kind, u8) {
+  await occtWarm();
+  const r = await engineMsg({ kind, u8, params: quality(u8.length) });
+  return r.res;
+}
+//  큰 파일일수록 덜 곱게 깎는다(미리보기니까) — 포털 변환기(viewer3d-convert.js quality)와 같게
+function quality(bytes) {
+  const mb = bytes / 1048576;
+  if (mb < 10) return { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.001, angularDeflection: 0.5 };
+  if (mb < 40) return { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.002, angularDeflection: 0.8 };
+  return { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.004, angularDeflection: 1.2 };
+}
+//  「n초째」 시계 — 오래 걸리는 일 동안 멈춘 게 아님을 보인다
+function ticker(label, est) {
+  const t0 = Date.now();
+  const f = () => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    busy(true, label + '\n' + clock(sec) + (est ? ' / 어림 ' + clock(est) : ''));
+  };
+  f();
+  const id = setInterval(f, 1000);
+  return () => clearInterval(id);
+}
+function clock(sec) { return sec >= 60 ? Math.floor(sec / 60) + '분 ' + (sec % 60) + '초' : sec + '초'; }
+const MB = (n) => (n / 1048576 >= 10 ? Math.round(n / 1048576) : Math.round(n / 104857.6) / 10) + 'MB';
+
+// ── .hm3 — 포털 변환기가 만든 가벼운 미리보기 묶음 읽기 ───────────────
+//   'HM3' 1 | 머리글 길이 | 머리글 JSON | (부품마다) 꼭짓점 Uint16×3 · 삼각형 번호 Uint16/Uint32  (viewer3d-convert.js packHM3)
+function loadHM3(ab) {
+  const dv = new DataView(ab);
+  if (dv.getUint8(0) !== 0x48 || dv.getUint8(1) !== 0x4D || dv.getUint8(2) !== 0x33) throw new Error('변환 결과가 깨졌습니다');
+  const hl = dv.getUint32(4, true);
+  const head = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 8, hl)));
+  let p = 8 + hl;
+  const meshes = head.meshes.map((m) => {
+    const nq = m.n * 3 + ((m.n * 3) & 1);
+    const q = new Uint16Array(ab, p, nq); p += nq * 2;
+    const pos = new Float32Array(m.n * 3);
+    const sc = [0, 1, 2].map((a) => (m.max[a] - m.min[a]) / 65535);
+    for (let i = 0; i < m.n * 3; i += 3) {
+      pos[i] = m.min[0] + q[i] * sc[0]; pos[i + 1] = m.min[1] + q[i + 1] * sc[1]; pos[i + 2] = m.min[2] + q[i + 2] * sc[2];
+    }
+    let idx = null;
+    if (m.i) {
+      if (m.i16) { const ni = m.i + (m.i & 1); idx = new Uint16Array(ab, p, m.i); p += ni * 2; } else { idx = new Uint32Array(ab, p, m.i); p += m.i * 4; }
+    }
+    return { name: m.name, color: m.color, attributes: { position: { array: pos } }, index: idx ? { array: idx } : null };
+  });
+  return { success: true, root: null, meshes, head };
 }
 
 // ── 파일 읽기 ───────────────────────────────────────────────
@@ -221,23 +300,29 @@ async function openBytes(name, u8) {
   if (kind === 'dwg' || kind === 'dxf') { await open2d(u8, kind); return; }
   if (kind === 'catia') { await openCatia(u8); return; }
   document.body.classList.remove('modeimg');
+  if ($('vimg')) $('vimg').innerHTML = '';
   document.body.classList.remove('mode2d');
   busy(true, '3D 엔진을 준비하는 중…');
-  await new Promise((r) => setTimeout(r, 30));            //  글자가 먼저 보이게
+  let stop = null;
   try {
-    const oc = await occt();
-    busy(true, '모양을 읽는 중… (큰 파일은 시간이 걸립니다)');
-    await new Promise((r) => setTimeout(r, 30));
+    await occtWarm();
+    //  어림 — 이 엔진은 대략 1MB 에 2~3초(PC). 폰은 더 걸린다.
+    const est = Math.round(2 + u8.length / 1048576 * (isSmall() ? 6 : 2.5));
+    //  ⚠ 부품이 많으면 이 엔진은 부품 수의 제곱으로 느려진다 — 20MB 넘으면 어림을 안 보인다(틀리니까)
+    const big = u8.length > 20 * 1048576;
+    stop = ticker('모양을 읽는 중… (' + MB(u8.length) + ')' + (big ? '\n큰 파일이라 여기서는 수십 분 걸릴 수 있습니다\n포털의 도면 보기로 열면 서버가 1~2분에 바꿔 줍니다' : ''), !big && est > 8 ? est : 0);
     const t0 = performance.now();
-    const params = { linearUnit: 'millimeter', linearDeflectionType: 'bounding_box_ratio', linearDeflection: 0.001, angularDeflection: 0.5 };
-    const res = kind === 'step' ? oc.ReadStepFile(u8, params)
-      : kind === 'iges' ? oc.ReadIgesFile(u8, params) : oc.ReadBrepFile(u8, params);
+    const res = await parse3d(kind, u8.slice());
+    stop(); stop = null;
     if (!res || !res.success || !res.meshes || !res.meshes.length) throw new Error('모양을 찾지 못했습니다(파일이 깨졌거나 빈 파일)');
+    busy(true, '그리는 중…');
+    await new Promise((r) => setTimeout(r, 30));
     build(res);
     const ms = Math.round(performance.now() - t0);
     console.log('[3D] ' + fileName + ' ' + ms + 'ms');
   } catch (e) {
-    fail('도면을 열지 못했습니다', (e && e.message || e));
+    if (stop) stop();
+    fail('도면을 열지 못했습니다', (e && e.message || e) + (u8.length > 30 * 1048576 ? '\n큰 파일은 포털의 도면 보기로 여세요 — 포털 서버가 한 번 가볍게 바꿔 둡니다.' : ''));
   }
   busy(false);
 }
@@ -277,20 +362,26 @@ function build(res) {
   })(res.root, '');
   let tris = 0;
   const many = res.meshes.length > 1;
+  //  ⚠ 아주 큰 모델(삼각형 150만 개 넘음)은 모서리 선 계산이 오래 걸려 끈다 — 「선」 단추도 숨긴다
+  let allTri = 0;
+  res.meshes.forEach((m) => { allTri += (m.index ? m.index.array.length : m.attributes.position.array.length / 3) / 3; });
+  const noEdge = allTri > 800000;
   res.meshes.forEach((m, i) => {
-    const g = new THREE.BufferGeometry();
+    let g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(m.attributes.position.array, 3));
     if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3));
-    if (m.index) g.setIndex(new THREE.Uint32BufferAttribute(Uint32Array.from(m.index.array), 1));
-    if (!m.attributes.normal) g.computeVertexNormals();
+    if (m.index) g.setIndex(new THREE.BufferAttribute(m.index.array instanceof Uint16Array || m.index.array instanceof Uint32Array ? m.index.array : Uint32Array.from(m.index.array), 1));
+    //  서버 OpenCASCADE 로 바꾼 것(STL 꼴)은 면 경계를 모른다 — 30° 넘게 꺾인 곳은 날카롭게(상자 모서리가 뭉개지지 않게)
+    if (res.head && res.head.crease) g = toCreasedNormals(g, Math.PI / 6);
+    else if (!m.attributes.normal) g.computeVertexNormals();
     tris += (m.index ? m.index.array.length : m.attributes.position.array.length / 3) / 3;
     let color = many ? PALETTE[i % PALETTE.length] : 0xb4c3d8;
     if (m.color && m.color.length === 3) color = new THREE.Color(m.color[0], m.color[1], m.color[2]).getHex();
     const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.45, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const mesh = new THREE.Mesh(g, mat);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), new THREE.LineBasicMaterial({ color: 0x1f2733, transparent: true, opacity: 0.7 }));
-    mesh.add(edges);
+    const edges = noEdge ? null : new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), new THREE.LineBasicMaterial({ color: 0x1f2733, transparent: true, opacity: 0.7 }));
+    if (edges) mesh.add(edges);
     model.add(mesh);
     //  ⚠ 이름 없이 내보낸 파일은 「Open CASCADE STEP translator 7.7 2.1」 같은 프로그램 이름이 붙는다 — 그때는 「부품 n」
     let nm = String(m.name || names[i] || '').trim();
@@ -307,15 +398,17 @@ function build(res) {
   const f = (v) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString('ko-KR');
   $('info').innerHTML = '크기 <b>' + f(s.x) + ' × ' + f(s.y) + ' × ' + f(s.z) + '</b> mm'
     + '<br>부품 ' + parts.length + '개 · 삼각형 ' + Math.round(tris).toLocaleString('ko-KR') + '개'
+    + (res.head ? '<br><span style="color:#6b7684">포털에서 가볍게 바꿔 둔 미리보기' + (res.head.bytes ? ' (원본 ' + MB(res.head.bytes) + ')' : '') + '</span>' : '')
     + (glOk ? '' : '<br><span style="color:#9a6700">간이 미리보기 — 이 PC 는 그래픽 가속(WebGL)이 꺼져 있습니다</span>');
   document.body.classList.toggle('nogl', !glOk);
+  $('tEdge').style.display = noEdge ? 'none' : '';
   $('drop').style.display = 'none';
   $('tools').style.display = 'flex';
 }
 
 function applyLook() {
   parts.forEach((p) => {
-    p.edges.visible = edgesOn;
+    if (p.edges) p.edges.visible = edgesOn;
     p.mesh.material.transparent = glass;
     p.mesh.material.opacity = glass ? 0.35 : 1;
     p.mesh.material.depthWrite = !glass;
@@ -420,42 +513,65 @@ async function decodeImg(bytes, mime) {
     im.src = u;
   });
 }
-async function findPreviews(u8) {
-  const found = [];
+//  JPEG 를 표식(FF D8 … 조각 길이 … FF D9) 그대로 따라가 끝을 정확히 찾는다 — 100MB 도 몇 초면 훑는다
+//   (viewer3d-convert.js 의 jpegAt·pngAt 와 같은 방법)
+function jpegAt(u8, i) {
   const n = u8.length;
-  //  JPEG
-  for (let i = 0; i < n - 3 && found.length < 20; i++) {
-    if (u8[i] !== 0xFF || u8[i + 1] !== 0xD8 || u8[i + 2] !== 0xFF) continue;
-    let tries = 0;
-    for (let e = i + 4; e < n - 1 && e < i + 8e6 && tries < 60; e++) {
-      if (u8[e] !== 0xFF || u8[e + 1] !== 0xD9) continue;
-      tries++;
-      try { const r = await decodeImg(u8.subarray(i, e + 2), 'image/jpeg'); if (r.w > 8 && r.h > 8) { found.push(r); i = e + 1; break; } } catch (x) { /* 다음 FF D9 */ }
+  let p = i + 2, w = 0, h = 0, sos = false, segs = 0;
+  while (p < n - 3 && segs++ < 400) {
+    if (u8[p] !== 0xFF) return null;
+    while (u8[p + 1] === 0xFF && p < n - 2) p++;
+    const m = u8[p + 1];
+    if (m === 0xD9) return (w && h && sos) ? { start: i, end: p + 2, w, h, mime: 'image/jpeg' } : null;
+    if ((m >= 0xD0 && m <= 0xD7) || m === 0x01) { p += 2; continue; }
+    const len = (u8[p + 2] << 8) | u8[p + 3];
+    if (len < 2) return null;
+    if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) { h = (u8[p + 5] << 8) | u8[p + 6]; w = (u8[p + 7] << 8) | u8[p + 8]; }
+    p += 2 + len;
+    if (m === 0xDA) {
+      sos = true;
+      while (p < n - 1) { if (u8[p] === 0xFF) { const x = u8[p + 1]; if (x !== 0 && !(x >= 0xD0 && x <= 0xD7) && x !== 0xFF) break; } p++; }
     }
   }
-  //  PNG
+  return null;
+}
+function pngAt(u8, i) {
+  const n = u8.length;
+  const be = (p) => ((u8[p] << 24) | (u8[p + 1] << 16) | (u8[p + 2] << 8) | u8[p + 3]) >>> 0;
+  if (be(i + 12) !== 0x49484452) return null;
+  const w = be(i + 16), h = be(i + 20);
+  let p = i + 8;
+  for (let k = 0; k < 100000 && p < n - 12; k++) {
+    const len = be(p), type = be(p + 4);
+    if (len > n) return null;
+    p += 12 + len;
+    if (type === 0x49454E44) return { start: i, end: p, w, h, mime: 'image/png' };
+  }
+  return null;
+}
+async function findPreviews(u8) {
+  const cand = [];
+  const n = u8.length;
   for (let i = 0; i < n - 8; i++) {
-    if (u8[i] !== 0x89 || u8[i + 1] !== 0x50 || u8[i + 2] !== 0x4E || u8[i + 3] !== 0x47) continue;
-    for (let e = i + 8; e < n - 8 && e < i + 8e6; e++) {
-      if (u8[e] === 0x49 && u8[e + 1] === 0x45 && u8[e + 2] === 0x4E && u8[e + 3] === 0x44) {   //  IEND
-        try { const r = await decodeImg(u8.subarray(i, e + 8), 'image/png'); found.push(r); } catch (x) { /* */ }
-        i = e; break;
-      }
+    const b = u8[i];
+    let r = null;
+    if (b === 0xFF && u8[i + 1] === 0xD8 && u8[i + 2] === 0xFF) r = jpegAt(u8, i);
+    else if (b === 0x89 && u8[i + 1] === 0x50 && u8[i + 2] === 0x4E && u8[i + 3] === 0x47) r = pngAt(u8, i);
+    else if (b === 0x42 && u8[i + 1] === 0x4D && (u8[i + 14] | (u8[i + 15] << 8)) === 40) {          //  BMP
+      const size = (u8[i + 2] | (u8[i + 3] << 8) | (u8[i + 4] << 16) | (u8[i + 5] << 24)) >>> 0;
+      if (size > 200 && i + size <= n) r = { start: i, end: i + size, w: (u8[i + 18] | (u8[i + 19] << 8)), h: Math.abs((u8[i + 22] | (u8[i + 23] << 8) | (u8[i + 24] << 16) | (u8[i + 25] << 24))), mime: 'image/bmp' };
     }
+    if (r && r.w >= 16 && r.h >= 16 && r.w <= 10000 && r.h <= 10000) { cand.push(r); i = r.end - 1; }
   }
-  //  BMP — 'BM' + 크기 + 40바이트 머리(BITMAPINFOHEADER)
-  for (let i = 0; i < n - 54; i++) {
-    if (u8[i] !== 0x42 || u8[i + 1] !== 0x4D) continue;
-    const size = u8[i + 2] | (u8[i + 3] << 8) | (u8[i + 4] << 16) | (u8[i + 5] << 24);
-    const hdr = u8[i + 14] | (u8[i + 15] << 8);
-    if (hdr !== 40 || size < 200 || i + size > n) continue;
-    try { const r = await decodeImg(u8.subarray(i, i + size), 'image/bmp'); found.push(r); i += size - 1; } catch (x) { /* */ }
+  cand.sort((a, b) => b.w * b.h - a.w * a.h);
+  //  정말 그림으로 열리는지 확인(큰 것부터)
+  for (const r of cand.slice(0, 8)) {
+    try { const d = await decodeImg(u8.subarray(r.start, r.end), r.mime); if (d.w > 8 && d.h > 8) return [d]; } catch (x) { /* 다음 */ }
   }
-  found.sort((a, b) => b.w * b.h - a.w * a.h);
-  return found;
+  return [];
 }
 async function openCatia(u8) {
-  busy(true, 'CATIA 파일에서 미리보기 그림을 찾는 중…');
+  busy(true, 'CATIA 파일에서 미리보기 그림을 찾는 중… (' + MB(u8.length) + ')');
   await new Promise((r) => setTimeout(r, 30));
   let list = [];
   try { list = await findPreviews(u8); } catch (e) { list = []; }
@@ -466,7 +582,10 @@ async function openCatia(u8) {
       + '이 파일은 미리보기 없이 저장되었습니다. 3D 로 보려면 CATIA 에서 「다른 이름으로 저장 → STEP(.stp)」으로 내보내 열어 주세요.');
     return;
   }
-  const best = list[0];
+  showImage(list[0].blob, list[0].w, list[0].h);
+}
+function showImage(blob, w, h) {
+  const best = { blob, w, h };
   if (model) { scene.remove(model); model = null; }
   parts = []; box = null; clearMeasure();
   document.body.classList.remove('mode2d');
@@ -748,28 +867,104 @@ document.addEventListener('drop', (e) => {
   if (f) f.arrayBuffer().then((b) => openBytes(f.name, new Uint8Array(b)));
 });
 
-const q = new URLSearchParams(location.search);
-if (q.get('src')) {
-  const name = q.get('name') || decodeURIComponent(q.get('src').split('/').pop().split('?')[0]);
-  busy(true, '파일을 받는 중…');
-  const src = q.get('src');
-  fetch(src, { credentials: 'same-origin' }).then(async (r) => {
-    const ct = r.headers.get('content-type') || '';
-    if (!r.ok) throw new Error('서버가 ' + r.status + ' 로 답했습니다' + (r.status === 401 || r.status === 403 ? ' — 로그인·권한을 확인하세요' : r.status === 404 ? ' — 파일 주소가 틀렸거나 지워진 파일' : '') + '\n주소: ' + src);
-    const b = new Uint8Array(await r.arrayBuffer());
+//  폰·약한 기기 — 직접 읽을 크기를 작게 잡는다
+function isSmall() { return /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || (navigator.deviceMemory && navigator.deviceMemory <= 4); }
+
+//  받으면서 「n MB / 전체」를 보인다
+async function download(url, label) {
+  const r = await fetch(url, { credentials: 'same-origin' });
+  const ct = r.headers.get('content-type') || '';
+  if (!r.ok) throw new Error('서버가 ' + r.status + ' 로 답했습니다' + (r.status === 401 || r.status === 403 ? ' — 로그인·권한을 확인하세요' : r.status === 404 ? ' — 파일 주소가 틀렸거나 지워진 파일' : '') + '\n주소: ' + url);
+  const total = +(r.headers.get('content-length') || 0);
+  let b;
+  if (r.body && r.body.getReader) {
+    const rd = r.body.getReader(), chunks = [];
+    let got = 0, last = 0;
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (done) break;
+      chunks.push(value); got += value.length;
+      if (Date.now() - last > 250) { last = Date.now(); busy(true, label + '\n' + MB(got) + (total && !r.headers.get('content-encoding') ? ' / ' + MB(total) : '')); }
+    }
+    b = new Uint8Array(got);
+    let o = 0;
+    for (const c of chunks) { b.set(c, o); o += c.length; }
+  } else b = new Uint8Array(await r.arrayBuffer());
+  return { b, ct };
+}
+
+//  ?src= 로 열기 — 포털이면 먼저 **포털 변환기**에 묻는다(큰 3D·CATIA 는 서버가 가볍게 바꿔 둔다)
+async function fromSrc(src, name) {
+  try {
+    if (/^https?:$/.test(location.protocol) && /^\/viewer3d\//.test(location.pathname) && /^\/(?!\/)/.test(src)) {
+      const done = await viaConverter(src, name);
+      if (done) return;
+    }
+    busy(true, '파일을 받는 중…');
+    const { b, ct } = await download(src, '파일을 받는 중…');
     //  ⚠ 도면 대신 화면(HTML)이 오면 — 로그인 화면·오류 화면·다른 미리보기 화면의 주소를 준 것
     const head = new TextDecoder('latin1').decode(b.slice(0, 200)).trim().toLowerCase();
     if (/text\/html/.test(ct) && (head.startsWith('<!doctype') || head.startsWith('<html') || head.indexOf('<head') >= 0)) {
       throw new Error('파일 대신 화면(HTML)이 왔습니다 — 로그인 화면이거나, 내려받기 주소가 아니라 다른 화면 주소입니다.\n주소: ' + src + '\n(첨부를 「내려받는」 주소를 src 에 주세요)');
     }
     if (!b.length) throw new Error('빈 파일이 왔습니다\n주소: ' + src);
-    return b;
-  }).then((b) => openBytes(name, b))
-    .catch((e) => fail('파일을 받지 못했습니다', e.message));
+    await openBytes(name, b);
+  } catch (e) { fail('파일을 받지 못했습니다', e.message); }
+}
+const PHASE = { wait: '차례를 기다리는 중', start: '변환을 시작하는 중', engine: '3D 엔진을 준비하는 중', read: '모양을 읽고 깎는 중', pack: '가볍게 묶는 중', scan: '미리보기 그림을 찾는 중',
+  nread: '모양을 읽는 중', nmesh: '삼각형으로 깎는 중', nwrite: '부품별로 나누는 중' };
+//  true: 다 했음 · false: 변환기 없음/작은 파일 → 직접 받아 연다
+async function viaConverter(src, name) {
+  busy(true, '포털에 묻는 중…');
+  let st;
+  try {
+    const r = await fetch('/viewer3d/api/prep?src=' + encodeURIComponent(src) + '&name=' + encodeURIComponent(name) + (isSmall() ? '&small=1' : ''), { credentials: 'same-origin' });
+    if (r.status === 404 || !/json/.test(r.headers.get('content-type') || '')) return false;      //  변환기 없는 포털(옛 판)
+    st = await r.json();
+  } catch (e) { return false; }
+  if (st.state === 'raw') return false;
+  fileName = name;
+  $('fname').textContent = name;
+  document.title = name + ' — 도면 보기';
+  while (st.state === 'work') {
+    const ph = PHASE[st.phase] || '변환하는 중';
+    busy(true, '포털 서버가 가볍게 바꾸는 중 — 처음 한 번만 걸립니다\n' + ph + (st.wait > 1 ? ' (앞에 ' + (st.wait - 1) + '개)' : '')
+      + '\n' + clock(st.sec || 0) + (st.est ? ' / 어림 ' + clock(st.est) : '') + (st.mb ? ' · 원본 ' + st.mb + 'MB' : '')
+      + '\n(창을 닫아도 서버는 계속 바꿉니다 — 나중에 다시 열면 바로 보입니다)');
+    await new Promise((ok) => setTimeout(ok, 2000));
+    try { st = await (await fetch('/viewer3d/api/job/' + st.key, { credentials: 'same-origin', cache: 'no-store' })).json(); } catch (e) { /* 다시 */ }
+  }
+  if (st.state === 'gone') { const again = await viaConverter(src, name); return again; }
+  if (st.state === 'fail') {
+    if (/CATIA|미리보기 그림/.test(st.msg || '')) { fail('이 CATIA 파일에는 미리보기 그림이 없습니다', st.msg); return true; }
+    fail('포털에서 변환하지 못했습니다', st.msg || '');
+    return true;
+  }
+  //  done
+  const { b } = await download(st.out, st.type === 'image' ? '미리보기 그림을 받는 중…' : '가볍게 바꾼 미리보기를 받는 중…');
+  fileBytes = null;
+  $('bSave').style.display = 'none';
+  if (st.type === 'image') {
+    showImage(new Blob([b], { type: st.mime || 'image/jpeg' }), st.w, st.h);
+    busy(false);
+    return true;
+  }
+  busy(true, '그리는 중…');
+  await new Promise((r) => setTimeout(r, 30));
+  document.body.classList.remove('modeimg', 'mode2d');
+  build(loadHM3(b.buffer));
+  busy(false);
+  return true;
+}
+
+const q = new URLSearchParams(location.search);
+if (q.get('src')) {
+  const name = q.get('name') || decodeURIComponent(q.get('src').split('/').pop().split('?')[0]);
+  fromSrc(q.get('src'), name);
 } else if (q.get('check')) {
   selfCheck();
 } else {
-  occt().catch(() => {});            //  고르는 동안 엔진을 미리 데워 둔다
+  occtWarm().catch(() => {});            //  고르는 동안 엔진을 미리 데워 둔다
 }
 
 //  🩺 점검 — /viewer3d/view?check=1 : 이 PC·브라우저에서 무엇이 되고 안 되는지 한 화면에
@@ -785,17 +980,27 @@ async function selfCheck() {
   rows.push(['WebAssembly', typeof WebAssembly === 'object', typeof WebAssembly === 'object' ? '' : '브라우저를 새것(크롬·엣지)으로']);
   show();
   let t0 = performance.now();
-  try { await occt(); rows.push(['3D 엔진(occt-import-js.wasm)', true, Math.round(performance.now() - t0) + 'ms']); } catch (e) { rows.push(['3D 엔진(occt-import-js.wasm)', false, e.message]); }
+  try { await occtWarm(); rows.push(['3D 엔진(occt-import-js.wasm)', true, Math.round(performance.now() - t0) + 'ms']); } catch (e) { rows.push(['3D 엔진(occt-import-js.wasm)', false, e.message]); }
   show();
   t0 = performance.now();
   try { await loadDwgEngine(); rows.push(['2D 엔진(dwg.js)', true, Math.round(performance.now() - t0) + 'ms']); } catch (e) { rows.push(['2D 엔진(dwg.js)', false, e.message]); }
   show();
   try {
-    const oc = await occt();
-    const r = oc.ReadStepFile(new TextEncoder().encode(SAMPLE_STEP), null);
+    const r = await parse3d('step', new TextEncoder().encode(SAMPLE_STEP));
     rows.push(['예시 STEP 읽기', !!(r && r.success && r.meshes.length), r && r.meshes ? ('삼각형 ' + r.meshes.reduce((n, m) => n + m.index.array.length / 3, 0) + '개') : '']);
   } catch (e) { rows.push(['예시 STEP 읽기', false, e.message]); }
   show();
+  if (/^\/viewer3d\//.test(location.pathname)) {
+    try {
+      const r = await fetch('/viewer3d/api/ping', { credentials: 'same-origin' });
+      const j = r.ok ? await r.json() : null;
+      rows.push(['포털 변환기(큰 도면)', j ? (j.native ? true : 'warn') : 'warn',
+        !j ? 'viewer3d-route.js 가 옛 판 — 큰 파일은 브라우저가 직접 읽습니다'
+          : j.native ? '서버 OpenCASCADE 로 빠르게 바꿉니다(100MB 급 1~2분)'
+            : '서버에 OpenCASCADE 가 없어 느린 엔진으로 바꿉니다 — sudo apt install -y occt-draw libocct-draw-dev']);
+    } catch (e) { rows.push(['포털 변환기(큰 도면)', 'warn', e.message]); }
+    show();
+  }
   rows.push(['', 'info', '❌ 가 없으면 이 PC 에서 도면 보기가 됩니다(⚠️ 는 간이 미리보기로 대신). ❌ 가 있으면 이 화면을 찍어 보내 주세요.']);
   show();
 }

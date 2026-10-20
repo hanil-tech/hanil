@@ -40,6 +40,8 @@ import java.util.regex.Pattern;
 //   ⭐ 포털에서 도면 파일을 누르면 내려받는 대신 여기서 바로 본다(설치·서버 없이 — 앱 안의 viewer3d).
 //   ⚠ 파일은 로그인(쿠키)을 붙여 앱 안 임시 칸(cache/view3d)에 받고, 화면은 그 파일을 읽는다. 밖으로 안 나간다.
 //   ⚠ 뷰어는 assets/viewer3d (viewer3d/ 에서 만든 것 — 포털에 올리는 것과 같은 뷰어).
+//   ⭐ 포털에 도면 보기 변환기(viewer3d-route.js v1.3+)가 있으면 **포털의 도면 보기 화면을 연다** — 폰이 100MB 를
+//      받지 않고, 포털 서버가 가볍게 바꿔 둔 미리보기(또는 CATIA 그림)만 받는다. 없으면 예전처럼 받아서 앱 안에서.
 public class Viewer3dActivity extends Activity {
 
     static final Pattern EXT = Pattern.compile("\\.(stp|step|igs|iges|dwg|dxf|catpart|catproduct|catdrawing|cgr)(\\?|#|$)", Pattern.CASE_INSENSITIVE);
@@ -70,6 +72,11 @@ public class Viewer3dActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection c = null;
             try {
+                String portal = portalViewer(url, name, ua);
+                if (portal != null) {
+                    from.runOnUiThread(() -> from.startActivity(new Intent(from, Viewer3dActivity.class).putExtra("name", name).putExtra("portal", portal)));
+                    return;
+                }
                 File dir = new File(from.getCacheDir(), "view3d");
                 dir.mkdirs();
                 File[] old = dir.listFiles();
@@ -99,13 +106,45 @@ public class Viewer3dActivity extends Activity {
         }).start();
     }
 
+    //  포털에 변환기가 있나 — /viewer3d/api/ping 이 JSON(convert) 으로 답하면 그 화면 주소를 준다
+    static String portalViewer(String url, String name, String ua) {
+        HttpURLConnection c = null;
+        try {
+            Uri u = Uri.parse(url);
+            if (u.getScheme() == null || !u.getScheme().startsWith("http") || u.getHost() == null) return null;
+            String origin = u.getScheme() + "://" + u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
+            c = (HttpURLConnection) new URL(origin + "/viewer3d/api/ping").openConnection();
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(6000);
+            String ck = CookieManager.getInstance().getCookie(url);
+            if (ck != null) c.setRequestProperty("Cookie", ck);
+            if (ua != null) c.setRequestProperty("User-Agent", ua);
+            if (c.getResponseCode() != 200) return null;
+            byte[] buf = new byte[512];
+            int n;
+            StringBuilder sb = new StringBuilder();
+            try (InputStream in = c.getInputStream()) { while ((n = in.read(buf)) > 0 && sb.length() < 2000) sb.append(new String(buf, 0, n, "UTF-8")); }
+            if (!sb.toString().contains("\"convert\":true")) return null;
+            String path = u.getEncodedPath() + (u.getEncodedQuery() != null ? "?" + u.getEncodedQuery() : "");
+            return origin + "/viewer3d/view?src=" + URLEncoder.encode(path, "UTF-8") + "&name=" + URLEncoder.encode(name, "UTF-8");
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
     WebView web;
+    String portalHost;
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         String name = getIntent().getStringExtra("name");
+        String portal = getIntent().getStringExtra("portal");
         if (name == null) { finish(); return; }
+        if (portal != null) portalHost = Uri.parse(portal).getHost();
 
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#eef1f6"));
@@ -140,10 +179,12 @@ public class Viewer3dActivity extends Activity {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
-                return !"appassets.androidplatform.net".equals(req.getUrl().getHost());   //  밖으로는 안 나간다
+                String h = req.getUrl().getHost();
+                return !("appassets.androidplatform.net".equals(h) || (portalHost != null && portalHost.equals(h)));   //  밖으로는 안 나간다
             }
         });
         web.addJavascriptInterface(new Bridge(), "HanilApp");
+        if (portal != null) { web.loadUrl(portal); return; }
         try {
             web.loadUrl("https://appassets.androidplatform.net/assets/viewer3d/index.html?src="
                     + URLEncoder.encode("/files/" + URLEncoder.encode(name, "UTF-8").replace("+", "%20"), "UTF-8")

@@ -57,8 +57,11 @@ const html = fs.readFileSync(path.join(here, 'src', 'index.html'), 'utf8').repla
 fs.writeFileSync(path.join(portal, 'viewer.js'), js);
 fs.writeFileSync(path.join(portal, 'occt-import-js.js'), occtJs);
 fs.writeFileSync(path.join(portal, 'occt-import-js.wasm'), wasm);
+//  ⭐ 3D 엔진은 일꾼(occt-worker.js)이 불러 쓴다 — 화면 쪽은 엔진을 안 싣는다(큰 파일을 읽는 동안에도 화면이 산다)
+const { WORKER_BODY } = await import('./src/occt-worker-body.mjs');
+fs.writeFileSync(path.join(portal, 'occt-worker.js'), "importScripts('occt-import-js.js');\n" + WORKER_BODY);
 fs.writeFileSync(path.join(portal, 'index.html'), html
-  .replace('<!--OCCT-->', () => '<script src="occt-import-js.js"></script>')
+  .replace('<!--OCCT-->', () => '')
   .replace('<!--VIEWER-->', () => '<script src="viewer.js?v=' + ver + '"></script>'));
 for (const f of ['license.occt-import-js.txt', 'license.occt.txt']) fs.copyFileSync(path.join(occtDir, f), path.join(portal, f));
 fs.writeFileSync(path.join(portal, 'dwg.js'), dwgJs);
@@ -69,7 +72,7 @@ fs.writeFileSync(path.join(portal, 'license.libredwg.txt'), 'DWG·DXF 읽기: Li
 //     ⚠ replace 에 글을 그대로 주면 $' $& 같은 글자를 특수 기호로 먹는다(three.js 안에 있다) → 함수로 넘긴다
 const safe = (s) => s.replace(/<\/script/gi, '<\\/script');
 fs.writeFileSync(path.join(out, 'hanil-3d-viewer.html'), html
-  .replace('<!--OCCT-->', () => '<script>' + safe(occtJs) + '</script>\n<script>window.OCCT_WASM_B64="' + wasm.toString('base64') + '";</script>')
+  .replace('<!--OCCT-->', () => '<script id="occtjs" type="text/plain">' + safe(occtJs) + '</script>\n<script>window.OCCT_WASM_B64="' + wasm.toString('base64') + '";</script>')
   .replace('<!--VIEWER-->', () => '<script>window.DWG_WASM_B64="' + dwgWasm.toString('base64') + '";</script>\n<script>' + safe(dwgJs) + '</script>\n<script>' + safe(js) + '</script>'));
 
 //  ③ 폰 앱 안 — 포털용 폴더와 같다
