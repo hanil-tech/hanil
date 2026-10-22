@@ -49,6 +49,8 @@ jobs:
                                  "samples\freeform_panel_t1.step", "--report", "pdf,xlsx", "-o", $out) `
                  -Wait -PassThru
           Get-ChildItem $out
+          $log = Join-Path $out "convert_errors.log"
+          if (Test-Path $log) { Get-Content $log -Encoding utf8 }
           if ($p.ExitCode -ne 0) { throw "실행 파일 전개 실패 (종료 코드 $($p.ExitCode))" }
           if ((Get-ChildItem $out -Filter *.dxf).Count -ne 3) { throw "DXF 가 만들어지지 않았습니다" }
           if ((Get-ChildItem $out -Filter *.pdf).Count -ne 3) { throw "PDF 보고서가 만들어지지 않았습니다" }

@@ -8,6 +8,7 @@
 import argparse
 import os
 import sys
+import traceback
 
 
 def cli(argv):
@@ -39,6 +40,14 @@ def cli(argv):
         die_v=args.die_v, shop_table=bc.ShopTable.load(args.shop_table or bc.default_shop_table_path()))
 
     kinds = {k.strip() for k in args.report.split(",") if k.strip()}
+    log_dir = args.output if args.output and os.path.isdir(args.output) else os.getcwd()
+    log_path = os.path.join(log_dir, "convert_errors.log")
+
+    def log_error(where):
+        # 화면 없는 exe 는 오류를 볼 곳이 없으므로 파일로 남긴다.
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{where}]\n{traceback.format_exc()}\n")
+
     items = []
     status = 0
     for path in args.files:
@@ -47,6 +56,7 @@ def cli(argv):
             model = loader.load(path)
         except Exception as e:
             print(f"[실패] {path}\n{e}", file=sys.stderr)
+            log_error(path)
             status = 1
             continue
         for i, solid in enumerate(model.solids, 1):
@@ -62,6 +72,7 @@ def cli(argv):
                 r = unfold(solid, thickness=args.thickness, settings=settings, mode=args.mode)
             except Exception as e:
                 print(f"[실패] {path}{suffix}: {e}", file=sys.stderr)
+                log_error(f"{path}{suffix}")
                 status = 1
                 continue
             dxf_export.save(r, out, part_name=name, notes=not args.no_notes)
