@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBo
 from . import __version__, dxf_export, loader
 from . import report
 from .bend_panel import BendPanel
+from .history import History
+from .history_dialog import HistoryDialog
 from .drawing import DARK, FlatTransform, paint_flat, paint_legend, solid_polylines, view_rotation
 from .unfolder import AUTO, MODE_NAMES, UnfoldError, unfold
 
@@ -201,6 +203,8 @@ class MainWindow(QMainWindow):
 
         self.model = None
         self.result = None
+        self.record_id = None
+        self.history = History(self.settings.value("history_dir") or None)
 
         self._build_toolbar()
 
@@ -254,11 +258,13 @@ class MainWindow(QMainWindow):
         self.act_help = QAction("도움말", self, triggered=self.show_help)
         self.act_pdf = QAction("보고서 PDF", self, triggered=lambda: self.save_report("pdf"))
         self.act_xlsx = QAction("보고서 엑셀", self, triggered=lambda: self.save_report("xlsx"))
+        self.act_history = QAction("전개 기록", self, shortcut="Ctrl+H", triggered=self.show_history)
         tb.addAction(self.act_open)
         tb.addAction(self.act_save)
         tb.addAction(self.act_pdf)
         tb.addAction(self.act_xlsx)
         tb.addAction(self.act_batch)
+        tb.addAction(self.act_history)
         tb.addSeparator()
 
         tb.addWidget(QLabel(" 전개 방식 "))
@@ -293,8 +299,15 @@ class MainWindow(QMainWindow):
 
         self.notes_box = QCheckBox("DXF 에 절곡 글씨 넣기")
         self.notes_box.setChecked(self.settings.value("notes", "true") == "true")
+        self.history_box = QCheckBox("전개 기록 남기기")
+        self.history_box.setToolTip("전개한 부품의 수치와 DXF 사본을 자동으로 쌓아 둡니다.\n"
+                                    "같은 날 같은 부품을 다시 전개하면 최신 값으로 갱신합니다.")
+        self.history_box.setChecked(self.settings.value("history_on", "true") == "true")
+        self.history_box.toggled.connect(
+            lambda on: self.settings.setValue("history_on", "true" if on else "false"))
         tb.addSeparator()
         tb.addWidget(self.notes_box)
+        tb.addWidget(self.history_box)
         tb.addSeparator()
         tb.addAction(self.act_help)
 
@@ -380,6 +393,14 @@ class MainWindow(QMainWindow):
         self.flat_view.set_result(self.result)
         self._fill_table()
         self._update_actions()
+        self.record_id = None
+        if self.result is not None and self.history_box.isChecked():
+            try:
+                self.record_id = self.history.record(
+                    self.model.path, self.result, self.bend_panel.settings(),
+                    part_index=self.solid_box.currentIndex() + 1, part_count=len(self.model.solids))
+            except Exception:
+                traceback.print_exc()
         if self.result is not None:
             r = self.result
             if self.t_auto.isChecked():
@@ -445,7 +466,30 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "저장 실패", str(e))
             return
+        self._note_export(path)
         self.statusBar().showMessage(f"저장했습니다: {path}", 8000)
+
+    def _note_export(self, path):
+        if self.record_id is not None:
+            try:
+                self.history.add_export(self.record_id, path)
+            except Exception:
+                traceback.print_exc()
+
+    def show_history(self):
+        HistoryDialog(self.history, open_source=self._open_part,
+                      change_folder=self._change_history_folder, parent=self).exec()
+
+    def _change_history_folder(self, folder):
+        self.history.close()
+        self.history = History(folder)
+        self.settings.setValue("history_dir", folder)
+        return self.history
+
+    def _open_part(self, path, part_index):
+        self.open_file(path)
+        if self.model is not None and 1 <= part_index <= len(self.model.solids):
+            self.solid_box.setCurrentIndex(part_index - 1)
 
     def _report_data(self):
         name = os.path.splitext(os.path.basename(self.model.path))[0]
@@ -471,6 +515,7 @@ class MainWindow(QMainWindow):
             return
         finally:
             QApplication.restoreOverrideCursor()
+        self._note_export(path)
         self.statusBar().showMessage(f"보고서를 저장했습니다: {path}", 8000)
         if QMessageBox.question(self, "보고서", "저장했습니다. 지금 열어 볼까요?") == QMessageBox.Yes:
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
@@ -492,6 +537,7 @@ class MainWindow(QMainWindow):
             text = batch_convert(paths, out_dir, self.bend_panel.settings(), thickness,
                                  self.notes_box.isChecked(), mode=self.mode_box.currentData(),
                                  reports=with_reports,
+                                 history=self.history if self.history_box.isChecked() else None,
                                  progress=lambda: QApplication.processEvents())
         finally:
             QApplication.restoreOverrideCursor()
@@ -521,7 +567,7 @@ def _num(x):
 
 
 def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports=False,
-                  progress=None):
+                  progress=None, history=None):
     ok, failed, items = 0, [], []
     for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
@@ -532,6 +578,9 @@ def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports
                 suffix = f"_{i}" if len(model.solids) > 1 else ""
                 base = os.path.join(out_dir, f"{name}{suffix}")
                 dxf_export.save(r, base + "_flat.dxf", part_name=name, notes=notes)
+                if history is not None:
+                    rid = history.record(path, r, settings, i, len(model.solids))
+                    history.add_export(rid, base + "_flat.dxf")
                 if reports:
                     d = report.ReportData(name, path, r, settings, solid, i, len(model.solids))
                     report.save_pdf(d, base + "_report.pdf")
@@ -567,6 +616,8 @@ HELP_TEXT = """\
    그 값이 먼저 쓰입니다.
 3. 두께는 자동으로 잽니다. 다르면 [자동] 을 끄고 직접 넣으세요.
 4. [DXF 저장] 을 누르면 레이저 가공용 DXF 가 만들어집니다.
+   전개한 부품은 [전개 기록] 에 자동으로 쌓입니다 (수치 + DXF 사본).
+   기록 창에서 찾기, 메모, 엑셀로 내보내기, 원본 다시 열기를 할 수 있습니다.
    [보고서 PDF] · [보고서 엑셀] 은 전개도·치수·무게·절단 길이·절곡 표를 담은 보고서를 만듭니다.
      CUT  레이어 : 절단선 (외곽, 구멍)
      BEND 레이어 : 절곡선

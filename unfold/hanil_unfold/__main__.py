@@ -31,6 +31,8 @@ def cli(argv):
     ap.add_argument("--no-notes", action="store_true", help="절곡 글씨 빼기")
     ap.add_argument("--mode", choices=list(MODE_NAMES), default="auto",
                     help="auto=판금이면 정확·곡면이면 근사, sheet=판금, forming=성형품 근사")
+    ap.add_argument("--no-history", action="store_true", help="전개 기록에 남기지 않기")
+    ap.add_argument("--history-dir", help="전개 기록 폴더 (없으면 기본 위치)")
     ap.add_argument("--report", default="", help="보고서 형식: pdf, xlsx, pdf,xlsx  (여러 부품이면 parts_list.xlsx 도)")
     args = ap.parse_args(argv)
 
@@ -40,6 +42,10 @@ def cli(argv):
         die_v=args.die_v, shop_table=bc.ShopTable.load(args.shop_table or bc.default_shop_table_path()))
 
     kinds = {k.strip() for k in args.report.split(",") if k.strip()}
+    history = None
+    if not args.no_history:
+        from .history import History
+        history = History(args.history_dir)
     log_dir = args.output if args.output and os.path.isdir(args.output) else os.getcwd()
     log_path = os.path.join(log_dir, "convert_errors.log")
 
@@ -76,6 +82,9 @@ def cli(argv):
                 status = 1
                 continue
             dxf_export.save(r, out, part_name=name, notes=not args.no_notes)
+            if history is not None:
+                rid = history.record(path, r, settings, i, len(model.solids))
+                history.add_export(rid, out)
             if kinds:
                 d = report.ReportData(name, path, r, settings, solid, i, len(model.solids))
                 base = os.path.splitext(out)[0].removesuffix("_flat")

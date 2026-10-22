@@ -150,6 +150,30 @@ DXF 를 화면에 놓고 위에서 본다고 할 때
 엑셀에는 숫자 값도 따로 넣어 두어 견적 계산에 바로 쓸 수 있습니다.
 **[여러 파일 한꺼번에]** 에서 보고서를 함께 만들면 `parts_list.xlsx` (부품마다 한 줄, 무게 합계)도 생깁니다.
 
+## 전개 기록 (누적 저장)
+
+전개한 부품은 **자동으로 기록이 쌓입니다** (툴바 [전개 기록 남기기], 기본 켜짐).
+
+- 남는 것: 전개 일시, 파일·부품, 재질, 두께, 가로·세로, 블랭크 넓이·무게·수율, 절단 길이, 절곡(각도·R 묶음), 계산 조건, 주의 사항,
+  그리고 **전개도 DXF 사본** (월별 보관함 폴더).
+- 같은 날 같은 부품을 다시 전개하면(K 계수를 바꿔 보는 등) 새 줄 대신 최신 값으로 **갱신**합니다. 다른 날 다시 전개하면 새 줄이 생겨 이력이 남습니다.
+- 사용자가 따로 저장한 DXF·보고서 경로도 그 기록에 붙습니다. [여러 파일 한꺼번에] 와 명령줄 변환도 기록됩니다 (`--no-history` 로 끔).
+
+**[전개 기록]** (Ctrl+H) 창에서
+
+| 기능 | 내용 |
+|---|---|
+| 찾기 | 파일 이름·재질·메모, 기간 |
+| 합계 | 찾은 기록의 블랭크 무게·절단 길이 합계 |
+| 보관 DXF 열기 / 원본 다시 열기 | 두 번 누르면 보관 DXF 가 열립니다 |
+| 메모 | 주문처·수량·도면 번호 등 |
+| 엑셀로 내보내기 | 찾은 기록 전체(여러 줄을 고르면 그 줄만), 무게 합계 포함 |
+| 보관 위치 바꾸기 | **공유 폴더**로 지정하면 여러 PC 의 기록을 한곳에 모을 수 있습니다 |
+
+기본 위치: `%APPDATA%\HanilUnfold\기록\` (`history.sqlite` + `보관함\2026-10\00001_부품_flat.dxf` …)
+
+![전개 기록](docs/history.png)
+
 ## 전개할 수 있는 형상
 
 - 두께가 일정한 판금 부품 (솔리드)
@@ -191,6 +215,7 @@ python -m hanil_unfold convert 부품.step -k 0.44 -o 결과폴더
 python -m hanil_unfold convert 부품.step --method material --material SUS304 --punch-r 1 -o 결과폴더
 python -m hanil_unfold convert *.step --report pdf,xlsx -o 결과폴더      (부품 목록 parts_list.xlsx 포함)
 python -m hanil_unfold convert 패널.step --mode forming -o 결과폴더
+python -m hanil_unfold convert 부품.step --history-dir \\서버\공유\전개기록     (공유 폴더에 기록)
 HanilUnfold.exe convert 부품.step --method din -o 결과폴더
 ```
 
@@ -206,6 +231,7 @@ HanilUnfold.exe convert 부품.step --method din -o 결과폴더
 | `hanil_unfold/forming.py` | 성형품 근사 전개 (메시, LSCM, ARAP, 두께 변화) |
 | `hanil_unfold/metrics.py` | 블랭크 넓이·무게·절단 길이 |
 | `hanil_unfold/report.py` | PDF·엑셀 보고서, 부품 목록 |
+| `hanil_unfold/history.py` · `history_dialog.py` | 전개 기록 (SQLite + DXF 보관함), 기록 창 |
 | `hanil_unfold/drawing.py` | 전개도·3D 그리기 (화면·보고서 공용) |
 | `hanil_unfold/dxf_export.py` | DXF 저장 |
 | `hanil_unfold/app.py` | 화면 |
