@@ -12,6 +12,10 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # 로그에 한글을 찍을 때 cp1252 로 깨져 멈추지 않게
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     defaults:
       run:
         working-directory: unfold
