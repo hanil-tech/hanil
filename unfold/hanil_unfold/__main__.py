@@ -12,8 +12,8 @@ import sys
 
 def cli(argv):
     from . import bendcalc as bc
-    from . import dxf_export, loader
-    from .unfolder import unfold
+    from . import dxf_export, loader, report
+    from .unfolder import MODE_NAMES, unfold
 
     ap = argparse.ArgumentParser(prog="HanilUnfold", description="판금 STEP → 전개 DXF")
     ap.add_argument("files", nargs="+", help="STEP 파일")
@@ -28,6 +28,9 @@ def cli(argv):
     ap.add_argument("--shop-table", help="회사 연신 표 JSON (없으면 기본 위치)")
     ap.add_argument("-t", "--thickness", type=float, help="두께 (없으면 자동 측정)")
     ap.add_argument("--no-notes", action="store_true", help="절곡 글씨 빼기")
+    ap.add_argument("--mode", choices=list(MODE_NAMES), default="auto",
+                    help="auto=판금이면 정확·곡면이면 근사, sheet=판금, forming=성형품 근사")
+    ap.add_argument("--report", default="", help="보고서 형식: pdf, xlsx, pdf,xlsx  (여러 부품이면 parts_list.xlsx 도)")
     args = ap.parse_args(argv)
 
     settings = bc.BendSettings(
@@ -35,6 +38,8 @@ def cli(argv):
         use_process_radius=args.punch_r is not None, punch_r=args.punch_r or 0.0,
         die_v=args.die_v, shop_table=bc.ShopTable.load(args.shop_table or bc.default_shop_table_path()))
 
+    kinds = {k.strip() for k in args.report.split(",") if k.strip()}
+    items = []
     status = 0
     for path in args.files:
         name = os.path.splitext(os.path.basename(path))[0]
@@ -54,16 +59,29 @@ def cli(argv):
                     else os.path.dirname(os.path.abspath(path))
                 out = os.path.join(folder, f"{name}{suffix}_flat.dxf")
             try:
-                r = unfold(solid, thickness=args.thickness, settings=settings)
+                r = unfold(solid, thickness=args.thickness, settings=settings, mode=args.mode)
             except Exception as e:
                 print(f"[실패] {path}{suffix}: {e}", file=sys.stderr)
                 status = 1
                 continue
             dxf_export.save(r, out, part_name=name, notes=not args.no_notes)
+            if kinds:
+                d = report.ReportData(name, path, r, settings, solid, i, len(model.solids))
+                base = os.path.splitext(out)[0].removesuffix("_flat")
+                if "pdf" in kinds:
+                    report.save_pdf(d, base + "_report.pdf")
+                if "xlsx" in kinds:
+                    report.save_xlsx(d, base + "_report.xlsx")
+                items.append(d)
             w, h = r.size
             print(f"[완료] {out}  {w:.2f} x {h:.2f} mm, 두께 {r.thickness:.3f}, 절곡 {len(r.bends)}")
             for wmsg in r.warnings:
                 print(f"       주의: {wmsg}")
+    if len(items) > 1:
+        folder = os.path.dirname(os.path.splitext(items[0].source_path)[0])
+        if args.output and os.path.isdir(args.output):
+            folder = args.output
+        report.save_parts_list(items, os.path.join(folder, "parts_list.xlsx"))
     return status
 
 

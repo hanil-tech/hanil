@@ -11,16 +11,19 @@ import sys
 import traceback
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, QSettings, Qt
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QUrl
+from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath,
+                           QPen)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QMainWindow, QMessageBox,
                                QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout,
                                QWidget)
 
 from . import __version__, dxf_export, loader
+from . import report
 from .bend_panel import BendPanel
-from .unfolder import Arc, Line, Polyline, UnfoldError, unfold
+from .drawing import DARK, FlatTransform, paint_flat, paint_legend, solid_polylines, view_rotation
+from .unfolder import AUTO, MODE_NAMES, UnfoldError, unfold
 
 APP_NAME = "한일 판금 전개"
 OPEN_FILTER = "3D 도면 (*.stp *.step *.igs *.iges *.brep);;STEP (*.stp *.step);;모든 파일 (*.*)"
@@ -33,37 +36,6 @@ EDGE3D = QColor(150, 200, 255)
 
 
 # ---------------------------------------------------------------- 3D 보기
-
-def _solid_polylines(solid, samples=24):
-    from OCP.BRepAdaptor import BRepAdaptor_Curve
-    from OCP.GeomAbs import GeomAbs_Line
-    from OCP.TopAbs import TopAbs_EDGE
-    from OCP.TopExp import TopExp_Explorer
-    from OCP.TopoDS import TopoDS
-
-    seen = set()
-    out = []
-    exp = TopExp_Explorer(solid, TopAbs_EDGE)
-    while exp.More():
-        e = TopoDS.Edge(exp.Current())
-        exp.Next()
-        h = hash(e)
-        if h in seen:
-            continue
-        seen.add(h)
-        try:
-            c = BRepAdaptor_Curve(e)
-        except Exception:
-            continue
-        a, b = c.FirstParameter(), c.LastParameter()
-        n = 1 if c.GetType() == GeomAbs_Line else samples
-        pts = []
-        for i in range(n + 1):
-            p = c.Value(a + (b - a) * i / n)
-            pts.append((p.X(), p.Y(), p.Z()))
-        out.append(np.array(pts))
-    return out
-
 
 class ModelView(QWidget):
     """마우스로 돌려 보는 선 모델."""
@@ -79,7 +51,7 @@ class ModelView(QWidget):
         self.setMinimumSize(300, 300)
 
     def set_solid(self, solid):
-        self.lines = _solid_polylines(solid) if solid is not None else []
+        self.lines = solid_polylines(solid) if solid is not None else []
         if self.lines:
             allp = np.vstack(self.lines)
             lo, hi = allp.min(0), allp.max(0)
@@ -89,13 +61,7 @@ class ModelView(QWidget):
         self.update()
 
     def _rot(self):
-        cy, sy = math.cos(self.yaw), math.sin(self.yaw)
-        cp, sp = math.cos(self.pitch), math.sin(self.pitch)
-        rz = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]])
-        rx = np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]])
-        # 화면 x = 오른쪽, 화면 y = 위, z 축이 위로 오게
-        view = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
-        return rx @ view @ rz
+        return view_rotation(self.yaw, self.pitch)
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -184,34 +150,13 @@ class FlatView(QWidget):
                        "STEP 파일을 열거나 이 창에 끌어다 놓으세요")
             return
 
-        cut = QPen(CUT, 1.4)
-        bend = QPen(BEND, 1.2, Qt.DashLine)
-        for e in r.entities:
-            p.setPen(bend if e.layer == "BEND" else cut)
-            if isinstance(e, Line):
-                p.drawLine(self._pt(e.p1), self._pt(e.p2))
-            elif isinstance(e, Polyline):
-                path = QPainterPath(self._pt(e.points[0]))
-                for q in e.points[1:]:
-                    path.lineTo(self._pt(q))
-                p.drawPath(path)
-            elif isinstance(e, Arc):
-                c = self._pt(e.center)
-                rr = e.radius * self.scale
-                rect = QRectF(c.x() - rr, c.y() - rr, 2 * rr, 2 * rr)
-                if e.full:
-                    p.drawEllipse(rect)
-                else:
-                    span = (e.end_deg - e.start_deg) % 360
-                    p.drawArc(rect, int(e.start_deg * 16), int(span * 16))
-
-        p.setPen(NOTE)
+        tf = FlatTransform(self.scale, self.offset.x(), self.offset.y())
         f = QFont(self.font())
         f.setPointSize(9)
         p.setFont(f)
-        for b in r.bends:
-            m = self._pt(((b.line[0][0] + b.line[1][0]) / 2, (b.line[0][1] + b.line[1][1]) / 2))
-            p.drawText(m + QPointF(4, -4), f"B{b.number}")
+        paint_flat(p, r, tf, DARK)
+        if r.forming is not None:
+            paint_legend(p, QRectF(self.width() - 280, self.height() - 50, 260, 12), DARK)
 
         w, h = r.size
         p.setPen(QColor(200, 200, 200))
@@ -307,10 +252,25 @@ class MainWindow(QMainWindow):
         self.act_save = QAction("DXF 저장", self, shortcut="Ctrl+S", triggered=self.save_dxf)
         self.act_batch = QAction("여러 파일 한꺼번에", self, triggered=self.batch)
         self.act_help = QAction("도움말", self, triggered=self.show_help)
+        self.act_pdf = QAction("보고서 PDF", self, triggered=lambda: self.save_report("pdf"))
+        self.act_xlsx = QAction("보고서 엑셀", self, triggered=lambda: self.save_report("xlsx"))
         tb.addAction(self.act_open)
         tb.addAction(self.act_save)
+        tb.addAction(self.act_pdf)
+        tb.addAction(self.act_xlsx)
         tb.addAction(self.act_batch)
         tb.addSeparator()
+
+        tb.addWidget(QLabel(" 전개 방식 "))
+        self.mode_box = QComboBox()
+        for key, name in MODE_NAMES.items():
+            self.mode_box.addItem(name, key)
+        i = self.mode_box.findData(self.settings.value("mode", AUTO))
+        self.mode_box.setCurrentIndex(max(0, i))
+        self.mode_box.setToolTip("자동: 평면·원통·원뿔로만 된 판금은 정확 전개,\n"
+                                 "자동차 부품처럼 자유곡면이 있으면 성형품 근사 전개")
+        self.mode_box.currentIndexChanged.connect(self._mode_changed)
+        tb.addWidget(self.mode_box)
 
         tb.addWidget(QLabel(" 부품 "))
         self.solid_box = QComboBox()
@@ -338,12 +298,17 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction(self.act_help)
 
+    def _mode_changed(self, _):
+        self.settings.setValue("mode", self.mode_box.currentData())
+        self.run_unfold()
+
     def _thickness_mode(self, auto):
         self.t_spin.setEnabled(not auto)
         self.run_unfold()
 
     def _update_actions(self):
-        self.act_save.setEnabled(self.result is not None)
+        for act in (self.act_save, self.act_pdf, self.act_xlsx):
+            act.setEnabled(self.result is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
 
     def _set_info(self, text, error=False):
@@ -399,7 +364,8 @@ class MainWindow(QMainWindow):
 
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            self.result = unfold(solid, thickness=thickness, settings=self.bend_panel.settings())
+            self.result = unfold(solid, thickness=thickness, settings=self.bend_panel.settings(),
+                                 mode=self.mode_box.currentData())
         except UnfoldError as e:
             self.result = None
             self._set_info(f"전개하지 못했습니다.<br>{e}", error=True)
@@ -421,8 +387,11 @@ class MainWindow(QMainWindow):
                 self.t_spin.setValue(r.thickness)
                 self.t_spin.blockSignals(False)
             w, h = r.size
+            m = report.ReportData("", self.model.path, r, self.bend_panel.settings()).metrics
             lines = [
+                "<b>성형품 근사 전개</b>" if r.mode == "forming" else "<b>판금 정확 전개</b>",
                 f"<b>전개 크기</b> {w:.2f} × {h:.2f} mm",
+                f"<b>블랭크</b> {m.blank_area:,.0f} mm² · {m.weight_kg:.3f} kg · 수율 {m.yield_ratio:.0%}",
                 f"<b>두께</b> {r.thickness:.3f} mm" + (" (자동 측정)" if thickness is None else ""),
                 f"<b>절곡 조건</b> {r.settings_text}",
                 f"<b>절곡</b> {len(r.bends)}곳",
@@ -473,6 +442,34 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"저장했습니다: {path}", 8000)
 
+    def _report_data(self):
+        name = os.path.splitext(os.path.basename(self.model.path))[0]
+        return report.ReportData(
+            name, self.model.path, self.result, self.bend_panel.settings(), self.current_solid(),
+            solid_index=self.solid_box.currentIndex() + 1, solid_count=len(self.model.solids))
+
+    def save_report(self, kind):
+        if self.result is None:
+            return
+        base = self._default_dxf_name().replace("_flat.dxf", "_report")
+        filt = "PDF (*.pdf)" if kind == "pdf" else "엑셀 (*.xlsx)"
+        path, _ = QFileDialog.getSaveFileName(self, "보고서 저장", f"{base}.{kind}", filt)
+        if not path:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            d = self._report_data()
+            (report.save_pdf if kind == "pdf" else report.save_xlsx)(d, path)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "보고서 저장 실패", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"보고서를 저장했습니다: {path}", 8000)
+        if QMessageBox.question(self, "보고서", "저장했습니다. 지금 열어 볼까요?") == QMessageBox.Yes:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
     def batch(self):
         start = self.settings.value("last_dir", "")
         paths, _ = QFileDialog.getOpenFileNames(self, "전개할 파일 고르기", start, OPEN_FILTER)
@@ -482,10 +479,18 @@ class MainWindow(QMainWindow):
         if not out_dir:
             return
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
-        report = batch_convert(paths, out_dir, self.bend_panel.settings(), thickness,
-                               self.notes_box.isChecked(),
-                               progress=lambda: QApplication.processEvents())
-        QMessageBox.information(self, "한꺼번에 전개 결과", report)
+        with_reports = QMessageBox.question(
+            self, "보고서", "DXF 와 함께 부품별 보고서(PDF·엑셀)와\n"
+                           "전체 부품 목록(엑셀)도 만들까요?") == QMessageBox.Yes
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            text = batch_convert(paths, out_dir, self.bend_panel.settings(), thickness,
+                                 self.notes_box.isChecked(), mode=self.mode_box.currentData(),
+                                 reports=with_reports,
+                                 progress=lambda: QApplication.processEvents())
+        finally:
+            QApplication.restoreOverrideCursor()
+        QMessageBox.information(self, "한꺼번에 전개 결과", text)
 
     def show_help(self):
         QMessageBox.information(self, "도움말", HELP_TEXT.format(version=__version__))
@@ -510,23 +515,33 @@ def _num(x):
     return "-" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.3f}"
 
 
-def batch_convert(paths, out_dir, settings, thickness, notes, progress=None):
-    ok, failed = 0, []
+def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports=False,
+                  progress=None):
+    ok, failed, items = 0, [], []
     for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
         try:
             model = loader.load(path)
             for i, solid in enumerate(model.solids, 1):
-                r = unfold(solid, thickness=thickness, settings=settings)
+                r = unfold(solid, thickness=thickness, settings=settings, mode=mode)
                 suffix = f"_{i}" if len(model.solids) > 1 else ""
-                dxf_export.save(r, os.path.join(out_dir, f"{name}{suffix}_flat.dxf"),
-                                part_name=name, notes=notes)
+                base = os.path.join(out_dir, f"{name}{suffix}")
+                dxf_export.save(r, base + "_flat.dxf", part_name=name, notes=notes)
+                if reports:
+                    d = report.ReportData(name, path, r, settings, solid, i, len(model.solids))
+                    report.save_pdf(d, base + "_report.pdf")
+                    report.save_xlsx(d, base + "_report.xlsx")
+                    items.append(d)
                 ok += 1
         except Exception as e:
             failed.append(f"{os.path.basename(path)}: {str(e).splitlines()[0]}")
         if progress:
             progress()
     text = f"DXF {ok}개를 만들었습니다.\n저장 위치: {out_dir}"
+    if items:
+        list_path = os.path.join(out_dir, "parts_list.xlsx")
+        report.save_parts_list(items, list_path)
+        text += f"\n보고서 {len(items)}건과 부품 목록(parts_list.xlsx)도 만들었습니다."
     if failed:
         text += "\n\n실패한 파일:\n" + "\n".join(failed)
     return text
@@ -547,6 +562,7 @@ HELP_TEXT = """\
    그 값이 먼저 쓰입니다.
 3. 두께는 자동으로 잽니다. 다르면 [자동] 을 끄고 직접 넣으세요.
 4. [DXF 저장] 을 누르면 레이저 가공용 DXF 가 만들어집니다.
+   [보고서 PDF] · [보고서 엑셀] 은 전개도·치수·무게·절단 길이·절곡 표를 담은 보고서를 만듭니다.
      CUT  레이어 : 절단선 (외곽, 구멍)
      BEND 레이어 : 절곡선
      NOTE 레이어 : 절곡 번호·방향·각도 (가공기로 보낼 때 끄세요)
@@ -557,7 +573,12 @@ HELP_TEXT = """\
 전개할 수 있는 형상: 두께가 일정한 판금 부품.
   · 어떤 각도의 절곡이든 (30°, 45°, 120°, 헤밍), 비스듬한 절곡선
   · 원통 절곡, 말아 만든 관, 원뿔(깔때기)·원뿔 절곡
-자유곡면 성형품(엠보·루버)과 용접으로 붙인 조립품은 전개하지 않습니다.
+
+자동차 부품처럼 자유곡면이 있는 성형품은 [전개 방식: 자동] 에서 저절로
+"성형품 근사 전개" 로 바뀝니다. 블랭크 모양·크기·무게와 두께 변화 색 지도를
+보여 줍니다 (파랑 = 두꺼워짐·주름, 빨강 = 얇아짐·터짐). 근사값이므로
+금형 블랭크는 트라이아웃이나 성형 해석으로 확정하세요.
+용접으로 붙인 조립품은 부품마다 따로 저장해서 여세요.
 """
 
 

@@ -168,3 +168,39 @@ def test_funnel_unrolls_to_sector():
     arcs = sorted(e.radius for e in r.entities if isinstance(e, Arc))
     assert arcs == pytest.approx(expect, abs=1e-6)
     assert r.rolled and "원뿔" in r.rolled[0]
+
+
+# ---------------------------------------------------------------- 성형품 (자유곡면)
+
+def test_dish_blank_area_matches_product():
+    from models import dish
+    r = unfold(solid(dish(150, 40, 1.2)))
+    assert r.mode == "forming"
+    fi = r.forming
+    assert fi.blank_area == pytest.approx(fi.product_area, rel=0.01)
+    # 구면 캡 가운데 면 넓이 2πRh 와 비교 (R=149.4, 높이는 두께만큼 조금 줄어듦)
+    assert fi.product_area == pytest.approx(2 * math.pi * 149.4 * 39.84, rel=0.01)
+    # 둥근 블랭크: 가로세로가 거의 같다
+    w, h = r.size
+    assert w == pytest.approx(h, rel=0.01)
+    assert abs(fi.thinning).max() < 0.15
+
+
+def test_freeform_panel_goes_forming_automatically():
+    from models import bspline_panel
+    r = unfold(solid(bspline_panel()))
+    assert r.mode == "forming"
+    assert r.forming.blank_area == pytest.approx(r.forming.product_area, rel=0.01)
+    assert any("근사" in w for w in r.warnings)
+
+
+def test_forming_mode_on_sheet_part_matches_exact_mid_layer():
+    """판금을 성형품 방식으로 펴도, 두께 가운데(K=0.5) 정확 전개와 거의 같아야 한다."""
+    r = unfold(solid(profile_part(STEPS, T, 40)), mode="forming")
+    assert max(r.size) == pytest.approx(flat_length(STEPS, T, 0.5), abs=0.01)
+    assert min(r.size) == pytest.approx(40, abs=0.01)
+
+
+def test_sheet_part_stays_exact_in_auto_mode():
+    r = unfold(solid(profile_part(STEPS, T, 40)))
+    assert r.mode == "sheet" and r.forming is None

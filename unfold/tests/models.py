@@ -199,3 +199,46 @@ def oblique_bracket(t=2.0, r=2.0, l1=60.0, l2=30.0, width=50.0, skew_deg=25.0):
         box = BRepBuilderAPI_Transform(box, mv.Multiplied(tr), True).Shape()
         part = BRepAlgoAPI_Cut(part, box).Shape()
     return part
+
+
+def dish(sphere_r=150.0, depth=40.0, t=1.2):
+    """구면 접시 (자유곡면 성형품 대용): 구를 잘라 두께 t 의 껍질로."""
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeSphere
+    from OCP.collections import List_TopoDS_Shape
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Plane
+
+    a1 = math.asin((sphere_r - depth) / sphere_r)
+    solid = BRepPrimAPI_MakeSphere(sphere_r, a1, math.pi / 2).Shape()
+    caps = List_TopoDS_Shape()
+    exp = TopExp_Explorer(solid, TopAbs_FACE)
+    while exp.More():
+        if BRepAdaptor_Surface(TopoDS.Face(exp.Current())).GetType() == GeomAbs_Plane:
+            caps.Append(exp.Current())
+        exp.Next()
+    mk = BRepOffsetAPI_MakeThickSolid()
+    mk.MakeThickSolidByJoin(solid, caps, -t, 1e-4)
+    return mk.Shape()
+
+
+def bspline_panel(t=1.0):
+    """자동차 패널처럼 두 방향으로 휜 자유곡면(B-스플라인) 판."""
+    from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
+    from OCP.collections import Array2_gp_Pnt as TColgp_Array2OfPnt
+    n = 6
+    arr = TColgp_Array2OfPnt(1, n, 1, n)
+    for i in range(n):
+        for j in range(n):
+            x, y = i * 40.0, j * 30.0
+            z = 25 * math.sin(math.pi * i / (n - 1)) * math.sin(math.pi * j / (n - 1)) + 0.1 * x
+            arr.SetValue(i + 1, j + 1, gp_Pnt(x, y, z))
+    surf = GeomAPI_PointsToBSplineSurface(arr).Surface()
+    face = BRepBuilderAPI_MakeFace(surf, 1e-6).Face()
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    mk = BRepOffsetAPI_MakeThickSolid()
+    mk.MakeThickSolidBySimple(face, t)
+    return mk.Shape()

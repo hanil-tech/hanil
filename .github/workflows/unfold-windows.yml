@@ -45,11 +45,14 @@ jobs:
           $out = Join-Path $PWD "smoke"
           New-Item -ItemType Directory -Force $out | Out-Null
           $p = Start-Process -FilePath "dist\HanilUnfold\HanilUnfold.exe" `
-                 -ArgumentList @("convert", "samples\bracket_t2.step", "samples\tray_t1.6.step", "-o", $out) `
+                 -ArgumentList @("convert", "samples\bracket_t2.step", "samples\tray_t1.6.step",
+                                 "samples\freeform_panel_t1.step", "--report", "pdf,xlsx", "-o", $out) `
                  -Wait -PassThru
           Get-ChildItem $out
           if ($p.ExitCode -ne 0) { throw "실행 파일 전개 실패 (종료 코드 $($p.ExitCode))" }
-          if ((Get-ChildItem $out -Filter *.dxf).Count -ne 2) { throw "DXF 가 만들어지지 않았습니다" }
+          if ((Get-ChildItem $out -Filter *.dxf).Count -ne 3) { throw "DXF 가 만들어지지 않았습니다" }
+          if ((Get-ChildItem $out -Filter *.pdf).Count -ne 3) { throw "PDF 보고서가 만들어지지 않았습니다" }
+          if (-not (Test-Path (Join-Path $out "parts_list.xlsx"))) { throw "부품 목록 엑셀이 없습니다" }
 
       - name: 설치 파일 만들기
         shell: pwsh

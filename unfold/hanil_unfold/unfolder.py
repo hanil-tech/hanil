@@ -43,6 +43,14 @@ from OCP.TopoDS import TopoDS
 
 from .bendcalc import BendCalc, BendSettings
 
+# 전개 방식
+AUTO, SHEET, FORMING = "auto", "sheet", "forming"
+MODE_NAMES = {
+    AUTO: "자동 (판금이면 정확, 곡면이면 근사)",
+    SHEET: "판금 (정확 전개)",
+    FORMING: "성형품 (곡면 근사 전개)",
+}
+
 # 두 면의 법선이 이 각도 안이면 매끄럽게 이어진 것으로 본다.
 TANGENT_COS = math.cos(math.radians(3.0))
 # 면 안쪽을 확인할 때 모서리에서 떨어뜨리는 거리(mm)
@@ -98,6 +106,23 @@ class Bend:
 
 
 @dataclass
+class FormingInfo:
+    """성형품 근사 전개의 메시와 변형 (펼친 좌표 U 는 전개도와 같은 좌표계)."""
+    U: np.ndarray            # 펼친 꼭짓점 (n, 2)
+    F: np.ndarray            # 삼각형 (m, 3)
+    ratio: np.ndarray        # 삼각형별 넓이 비 = 제품 / 블랭크
+    major: np.ndarray        # 주 진변형률
+    minor: np.ndarray
+    product_area: float      # 두께 가운데 면 넓이
+    blank_area: float
+
+    @property
+    def thinning(self):
+        """삼각형별 두께 감소율 (+ 얇아짐, − 두꺼워짐)."""
+        return 1.0 - 1.0 / self.ratio
+
+
+@dataclass
 class UnfoldResult:
     thickness: float
     k_factor: float
@@ -107,6 +132,8 @@ class UnfoldResult:
     face_count: int = 0
     settings_text: str = ""
     rolled: list = field(default_factory=list)   # 말아 만든 원통·원뿔 설명
+    mode: str = SHEET                             # 실제로 쓴 전개 방식
+    forming: FormingInfo | None = None
 
     @property
     def bbox(self):
@@ -276,10 +303,12 @@ def _axis_radial(ax, p):
 # ---------------------------------------------------------------- 본체
 
 class SheetMetalUnfolder:
-    def __init__(self, solid, settings: BendSettings | None = None, thickness: float | None = None):
+    def __init__(self, solid, settings: BendSettings | None = None, thickness: float | None = None,
+                 mode: str = AUTO):
         self.solid = solid
         self.settings = settings or BendSettings()
         self.user_thickness = thickness
+        self.mode = mode
         self.warnings: list = []
 
         self.faces = _ShapeIndex()
@@ -311,23 +340,26 @@ class SheetMetalUnfolder:
     # ---- 단계 1: 기준면과 두께
 
     def _pick_root(self) -> _Face:
-        # 판금의 겉면은 옆면(두께 면)보다 훨씬 넓다. 말아 만든 관·깔때기면 곡면이 가장 넓다.
-        pool = [f for f in self.info if f.kind != "other"]
-        if not pool:
-            raise UnfoldError("평면·원통·원뿔 면이 없어 판금으로 볼 수 없습니다.")
-        return max(pool, key=lambda f: f.area)
+        # 판금·성형품의 겉면은 옆면(두께 면)보다 훨씬 넓다.
+        if not self.info:
+            raise UnfoldError("면이 없습니다.")
+        return max(self.info, key=lambda f: f.area)
 
     def _measure_thickness(self, root: _Face) -> float:
         u, v = _interior_uv(root.face)
         p = BRepAdaptor_Surface(root.face).Value(u, v)
         n = _surface_normal(root.face, u, v)
         # 바깥 법선 반대쪽(재료 안쪽)으로 빛을 쏴 반대편 면까지 거리를 잰다.
-        line = gp_Lin(p, gp_Dir(-n[0], -n[1], -n[2]))
+        # 면 방향이 뒤집혀 저장된 파일도 있어, 안쪽에서 못 찾으면 반대쪽도 본다.
         hit = IntCurvesFace_ShapeIntersector()
         hit.Load(self.solid, 1e-6)
-        hit.Perform(line, 1e-4, 1e7)
-        dists = [hit.WParameter(i) for i in range(1, hit.NbPnt() + 1)]
-        dists = [d for d in dists if d > 1e-4]
+        dists = []
+        for sign in (-1.0, 1.0):
+            hit.Perform(gp_Lin(p, gp_Dir(*(sign * n))), 1e-4, 1e7)
+            dists = [hit.WParameter(i) for i in range(1, hit.NbPnt() + 1)]
+            dists = [d for d in dists if d > 1e-4]
+            if dists:
+                break
         if not dists:
             raise UnfoldError("두께를 잴 수 없습니다. 두께를 직접 입력해 주세요.")
         return min(dists)
@@ -479,6 +511,8 @@ class SheetMetalUnfolder:
 
         skin = self._collect_skin(root)
         unsupported = [fi for fi in skin if self.info[fi].kind == "other"]
+        if self.mode == FORMING or (self.mode == AUTO and unsupported):
+            return self._unfold_forming(skin, t, len(unsupported))
         if unsupported:
             self.warnings.append(
                 f"평면·원통·원뿔이 아닌 면 {len(unsupported)}개는 전개에서 뺐습니다 "
@@ -537,6 +571,40 @@ class SheetMetalUnfolder:
             settings_text=self.settings.describe(), rolled=rolled)
         result.entities = _normalize_origin(result)
         _check_overlap(result)
+        return result
+
+    def _unfold_forming(self, skin, t, n_free) -> UnfoldResult:
+        from . import forming
+
+        faces = [self.info[fi].face for fi in sorted(skin)]
+        V, F = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
+        Vm, F, U = forming.flatten(V, F, t)
+        major, minor, ratio = forming.strains(Vm, F, U)
+
+        entities = []
+        for loop in forming.boundary_loops(F):
+            pts = [tuple(float(x) for x in U[i]) for i in loop]
+            entities.append(Polyline(_simplify(pts + [pts[0]])))
+
+        area3d = float(_tri_areas3(Vm, F).sum())
+        area2d = float(_tri_areas2(U, F).sum())
+        fi = FormingInfo(U=U, F=F, ratio=ratio, major=major, minor=minor,
+                         product_area=area3d, blank_area=area2d)
+        notes = []
+        if n_free:
+            notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")
+        notes.append("성형품 근사 전개: 블랭크 크기·재료비 추정용입니다. "
+                     "금형 블랭크는 트라이아웃이나 성형 해석으로 확정하세요.")
+        th = fi.thinning
+        if th.max() > 0.25:
+            notes.append(f"두께가 최대 {th.max():.0%} 얇아지는 곳이 있습니다 (터짐 주의).")
+        if th.min() < -0.15:
+            notes.append(f"두께가 최대 {-th.min():.0%} 두꺼워지는 곳이 있습니다 (주름 주의).")
+        result = UnfoldResult(
+            thickness=t, k_factor=0.5, entities=entities, bends=[],
+            warnings=self.warnings + notes, face_count=len(skin),
+            settings_text="성형품 근사 (두께 가운데 면, ARAP)", mode=FORMING, forming=fi)
+        result.entities = _normalize_origin(result)
         return result
 
     def _is_straight(self, ei: int) -> bool:
@@ -651,6 +719,39 @@ class SheetMetalUnfolder:
         return lo, hi
 
 
+def _diagonal(shape):
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    box = Bnd_Box()
+    BRepBndLib.Add_s(shape, box)
+    return float(np.linalg.norm(_pnt(box.CornerMax()) - _pnt(box.CornerMin())))
+
+
+def _tri_areas3(V, F):
+    return 0.5 * np.linalg.norm(np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]]), axis=1)
+
+
+def _tri_areas2(U, F):
+    a, b = U[F[:, 1]] - U[F[:, 0]], U[F[:, 2]] - U[F[:, 0]]
+    return 0.5 * np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0])
+
+
+def _simplify(pts, tol=1e-4):
+    """한 직선 위에 있는 가운데 점을 뺀다 (평평한 경계의 점이 줄어 DXF 가 가벼워진다)."""
+    if len(pts) < 3:
+        return pts
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        a, b, c = np.array(out[-1]), np.array(pts[i]), np.array(pts[i + 1])
+        ab, ac = b - a, c - a
+        L = np.linalg.norm(ac)
+        if L > 0 and abs(ab[0] * ac[1] - ab[1] * ac[0]) / L < tol and 0 <= ab @ ac <= L * L:
+            continue
+        out.append(pts[i])
+    out.append(pts[-1])
+    return out
+
+
 def _arc_through(center, r, p0, pm, p1):
     """p0 → pm → p1 을 지나는 반시계 호."""
     ang = lambda p: math.degrees(math.atan2(p[1] - center[1], p[0] - center[0])) % 360
@@ -761,6 +862,8 @@ def _normalize_origin(result: UnfoldResult):
             out.append(Polyline([sh(p) for p in e.points], e.layer))
     for b in result.bends:
         b.line = (sh(b.line[0]), sh(b.line[1]))
+    if result.forming is not None:
+        result.forming.U = result.forming.U - np.array(off)
     return out
 
 
@@ -796,8 +899,8 @@ def _segments_cross(a, b, c, d):
 
 
 def unfold(solid, k_factor: float = 0.44, thickness: float | None = None,
-           settings: BendSettings | None = None) -> UnfoldResult:
+           settings: BendSettings | None = None, mode: str = AUTO) -> UnfoldResult:
     """settings 가 없으면 K 계수 직접 입력 방식으로 계산한다."""
     if settings is None:
         settings = BendSettings(k=k_factor)
-    return SheetMetalUnfolder(solid, settings, thickness).unfold()
+    return SheetMetalUnfolder(solid, settings, thickness, mode).unfold()

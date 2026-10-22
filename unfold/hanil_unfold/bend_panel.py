@@ -62,6 +62,7 @@ class BendPanel(QGroupBox):
         form.setVerticalSpacing(3)
         form.addRow("계산 방법", self.method)
         form.addRow("재질", self.material)
+        self.material.setToolTip("연신 계산과 블랭크 무게(비중)에 쓰입니다")
         form.addRow("가공 방식", self.process)
         form.addRow("K 계수", self.k)
         form.addRow(self.use_r)
@@ -114,7 +115,7 @@ class BendPanel(QGroupBox):
     def _enable(self):
         direct = self.method.currentData() == bc.K_DIRECT
         self.k.setEnabled(direct)
-        self.material.setEnabled(not direct or self.use_r.isChecked())
+        # 재질은 무게 계산에도 쓰므로 늘 고를 수 있다.
         self.use_shop.setEnabled(not direct)
         self.punch.setEnabled(self.use_r.isChecked())
         self.die.setEnabled(self.use_r.isChecked() and self.process.currentData() == bc.AIR)

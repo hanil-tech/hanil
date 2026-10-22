@@ -62,6 +62,7 @@ class Material:
     tensile_mpa: float    # 대표 인장강도 (자연 반지름 어림에 사용)
     air_ratio: float      # 에어 벤딩 자연 반지름 / V 폭  [3]
     note: str = ""
+    density: float = 7.85  # g/cm³ (무게 계산용)
 
 
 def _ratio(tensile_mpa):
@@ -75,13 +76,17 @@ MATERIALS = [
     Material("SECC", "전기아연도금강판 SECC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판"),
     Material("SGCC", "용융아연도금강판 SGCC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판으로 어림"),
     Material("SS275", "일반구조용 SS275 (구 SS400)", MEDIUM, 450, _ratio(450), "[3] 인장강도 비례 어림"),
-    Material("SUS304", "스테인리스 SUS304", HARD, 600, 0.21, "[3] 20~22%"),
-    Material("SUS430", "스테인리스 SUS430", HARD, 480, _ratio(480), "[3] 인장강도 비례 어림"),
-    Material("AL5052", "알루미늄 AL5052-H32", MEDIUM, 230, 0.12, "[3] 11~13%"),
-    Material("AL1050", "알루미늄 AL1050-H24 (연질)", SOFT, 120, _ratio(120), "[3] 인장강도 비례 어림"),
-    Material("AL6061", "알루미늄 AL6061-T6", HARD, 310, _ratio(310), "T6 는 균열 주의, R 을 크게"),
-    Material("C1100", "동판 C1100 (1/2H)", SOFT, 270, _ratio(270), "[3] 인장강도 비례 어림"),
-    Material("C2600", "황동 C2600", MEDIUM, 350, _ratio(350), "[3] 인장강도 비례 어림"),
+    Material("SAPH440", "자동차 열연 SAPH440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림"),
+    Material("SGARC440", "자동차 합금화용융아연 SGARC440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림"),
+    Material("SPFC590", "자동차 고장력 냉연 SPFC590", HARD, 590, _ratio(590), "고장력강, 스프링백 큼"),
+    Material("SPFC980", "자동차 초고장력 냉연 SPFC980", HARD, 980, _ratio(980), "초고장력강, R 을 크게·스프링백 큼"),
+    Material("SUS304", "스테인리스 SUS304", HARD, 600, 0.21, "[3] 20~22%", density=7.93),
+    Material("SUS430", "스테인리스 SUS430", HARD, 480, _ratio(480), "[3] 인장강도 비례 어림", density=7.7),
+    Material("AL5052", "알루미늄 AL5052-H32", MEDIUM, 230, 0.12, "[3] 11~13%", density=2.68),
+    Material("AL1050", "알루미늄 AL1050-H24 (연질)", SOFT, 120, _ratio(120), "[3] 인장강도 비례 어림", density=2.71),
+    Material("AL6061", "알루미늄 AL6061-T6", HARD, 310, _ratio(310), "T6 는 균열 주의, R 을 크게", density=2.7),
+    Material("C1100", "동판 C1100 (1/2H)", SOFT, 270, _ratio(270), "[3] 인장강도 비례 어림", density=8.94),
+    Material("C2600", "황동 C2600", MEDIUM, 350, _ratio(350), "[3] 인장강도 비례 어림", density=8.53),
 ]
 MATERIAL_BY_CODE = {m.code: m for m in MATERIALS}
 
