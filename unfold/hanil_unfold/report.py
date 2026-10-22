@@ -30,6 +30,7 @@ class ReportData:
     solid: object = None
     solid_index: int = 1
     solid_count: int = 1
+    part_title: str = ""         # 조립품 안의 부품 이름 (조립도 번호와 같은 순서)
     created: _dt.datetime = field(default_factory=_dt.datetime.now)
 
     @property
@@ -48,6 +49,8 @@ class ReportData:
 
     @property
     def display_name(self):
+        if self.part_title and self.solid_count > 1:
+            return f"{self.part_name} — {self.solid_index}. {self.part_title}"
         if self.solid_count > 1:
             return f"{self.part_name} ({self.solid_index}/{self.solid_count})"
         return self.part_name
@@ -510,3 +513,113 @@ def save_parts_list(items, path: str):
         c.number_format = "#,##0.000"
     ws.freeze_panes = "A2"
     wb.save(path)
+
+
+# ---------------------------------------------------------------- 조립도 (번호 풍선 + 부품표)
+
+def _bbox_size(solid):
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    b = Bnd_Box()
+    BRepBndLib.Add_s(solid, b)
+    lo, hi = b.CornerMin(), b.CornerMax()
+    return (hi.X() - lo.X(), hi.Y() - lo.Y(), hi.Z() - lo.Z())
+
+
+def save_assembly_pdf(model, path: str, parts=None, yaw=None, pitch=None, highlight=None):
+    """조립품 전체 그림에 부품 번호 풍선을 달고, 다음 쪽부터 번호·부품명·크기 표를 붙인다.
+    번호는 화면의 [부품] 목록, 전개 기록, 보고서의 번호와 같다."""
+    from PySide6.QtCore import QMarginsF, QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
+
+    from .drawing import LIGHT, assembly_polylines, paint_assembly
+
+    ensure_gui()
+    parts = parts if parts is not None else assembly_polylines(model.raw_solids)
+    kw = {}
+    if yaw is not None:
+        kw["yaw"] = yaw
+    if pitch is not None:
+        kw["pitch"] = pitch
+
+    pdf = QPdfWriter(path)
+    pdf.setResolution(300)
+    pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A3), QPageLayout.Landscape,
+                                  QMarginsF(0, 0, 0, 0)))
+    name = os.path.basename(model.path)
+    pdf.setTitle(f"조립도 - {name}")
+    pdf.setCreator(f"한일 판금 전개 {__version__}")
+    k = 300 / 25.4
+    page_w, page_h, margin = 420.0, 297.0, 12.0
+
+    def R(x, y, w, h):
+        return QRectF(x * k, y * k, w * k, h * k)
+
+    p = QPainter(pdf)
+    gray = QColor(110, 110, 110)
+
+    def header(y, sub=""):
+        p.setPen(QColor(20, 20, 20))
+        p.setFont(_font(16, True))
+        p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignLeft | Qt.AlignVCenter,
+                   f"조립도  {name}" + (f"  ({sub})" if sub else ""))
+        p.setFont(_font(8))
+        p.setPen(gray)
+        p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignRight | Qt.AlignVCenter,
+                   f"부품 {len(model.solids)}개  ·  {_dt.datetime.now():%Y-%m-%d %H:%M}  ·  "
+                   f"한일 판금 전개 {__version__}")
+        p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
+        p.drawLine(QPointF(margin * k, (y + 10) * k), QPointF((page_w - margin) * k, (y + 10) * k))
+        return y + 13
+
+    y = header(margin)
+    box = R(margin, y, page_w - 2 * margin, page_h - y - margin)
+    p.setPen(QPen(QColor(180, 180, 180), 0.2 * k))
+    p.drawRect(box)
+    inner = R(margin + 4, y + 4, page_w - 2 * margin - 8, page_h - y - margin - 8)
+    font_px = int(3.2 * k) if len(parts) <= 60 else int(2.6 * k)
+    paint_assembly(p, parts, inner, LIGHT, highlight=highlight, font_px=font_px,
+                   line_width=0.18 * k, **kw)
+
+    # 부품표: 쪽마다 3 단
+    rows = []
+    for i in range(len(model.solids)):
+        sx, sy, sz = _bbox_size(model.raw_solids[i])
+        rows.append((str(i + 1), model.names[i] if model.names else f"부품 {i + 1}",
+                     f"{sx:.0f} × {sy:.0f} × {sz:.0f}"))
+    row_h, cols = 6.0, 3
+    col_w = (page_w - 2 * margin - (cols - 1) * 6) / cols
+    widths = [12, col_w - 12 - 40, 40]
+    start = 0
+    page = 1
+    while start < len(rows):
+        pdf.newPage()
+        page += 1
+        y0 = header(margin, f"부품표 {page - 1}")
+        per_col = int((page_h - y0 - margin - row_h) / row_h)
+        for c in range(cols):
+            x0 = margin + c * (col_w + 6)
+            chunk = rows[start:start + per_col]
+            if not chunk:
+                break
+            p.fillRect(R(x0, y0, col_w, row_h), QColor(40, 60, 90))
+            p.setPen(QColor(255, 255, 255))
+            p.setFont(_font(8, True))
+            x = x0
+            for h, w in zip(("번호", "부품명", "크기 (mm)"), widths):
+                p.drawText(R(x + 1, y0, w - 2, row_h), Qt.AlignCenter, h)
+                x += w
+            p.setFont(_font(8))
+            for i, row in enumerate(chunk):
+                ry = y0 + row_h * (i + 1)
+                if i % 2:
+                    p.fillRect(R(x0, ry, col_w, row_h), QColor(244, 246, 249))
+                p.setPen(QColor(20, 20, 20))
+                x = x0
+                for j, (v, w) in enumerate(zip(row, widths)):
+                    align = (Qt.AlignLeft if j == 1 else Qt.AlignCenter) | Qt.AlignVCenter
+                    p.drawText(R(x + 1.5, ry, w - 3, row_h), align,
+                               p.fontMetrics().elidedText(v, Qt.ElideRight, int((w - 3) * k)))
+                    x += w
+            start += len(chunk)
+    p.end()

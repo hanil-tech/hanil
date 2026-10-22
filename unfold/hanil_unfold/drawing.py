@@ -170,7 +170,7 @@ def _arrow_line(p, a: QPointF, b: QPointF):
 
 # ---------------------------------------------------------------- 3D 선 모델
 
-def solid_polylines(solid, samples=24):
+def solid_polylines(solid, samples=24, iso=True):
     from OCP.BRepAdaptor import BRepAdaptor_Curve
     from OCP.GeomAbs import GeomAbs_Line
     from OCP.TopAbs import TopAbs_EDGE
@@ -198,7 +198,8 @@ def solid_polylines(solid, samples=24):
             q = c.Value(a + (b - a) * i / n)
             pts.append((q.X(), q.Y(), q.Z()))
         out.append(np.array(pts))
-    out += _iso_lines(solid)
+    if iso:
+        out += _iso_lines(solid)
     return out
 
 
@@ -274,3 +275,121 @@ def paint_model(p: QPainter, lines, rect: QRectF, theme: Theme, yaw=math.radians
         for x, y, _z in qq[1:]:
             path.lineTo(cx + s * x, cy - s * y)
         p.drawPath(path)
+
+
+# ---------------------------------------------------------------- 조립품 전체 + 번호 풍선
+
+def assembly_polylines(solids, samples=10):
+    """부품마다 선 목록. 곡면 등매개변수선은 빼서 부품이 많아도 빠르게."""
+    return [solid_polylines(s, samples=samples, iso=False) for s in solids]
+
+
+def paint_assembly(p: QPainter, parts, rect: QRectF, theme: Theme, highlight=None,
+                   yaw=math.radians(-35), pitch=math.radians(25), zoom=1.0, pan=(0.0, 0.0),
+                   balloons=True, font_px=None, line_width=1.0):
+    """조립품 전체를 그리고 부품 번호 풍선을 붙인다.
+
+    parts: assembly_polylines() 결과. highlight: 강조할 부품 번호(0부터).
+    돌려주는 값: [(부품 번호, 풍선 중심 QPointF, 반지름)] — 눌러서 고를 때 쓴다.
+    """
+    p.setRenderHint(QPainter.Antialiasing)
+    allp = [pts for lines in parts for pts in lines]
+    if not allp:
+        return []
+    stack = np.vstack(allp)
+    lo, hi = stack.min(0), stack.max(0)
+    center = (lo + hi) / 2
+    R = view_rotation(yaw, pitch)
+    q = (stack - center) @ R.T
+    span = np.maximum(q.max(0) - q.min(0), 1e-9)
+    margin = 0.80 if balloons else 0.92
+    s = margin * min(rect.width() / span[0], rect.height() / span[1]) * zoom
+    mid = (q.max(0) + q.min(0)) / 2
+    cx = rect.center().x() - s * mid[0] + pan[0]
+    cy = rect.center().y() + s * mid[1] + pan[1]
+
+    def scr(v):
+        return cx + s * v[0], cy - s * v[1]
+
+    dim = QColor(theme.edge3d)
+    dim.setAlpha(110 if highlight is not None else 200)
+    hot = QColor(255, 140, 0) if theme is DARK else QColor(220, 90, 0)
+    anchors = []
+    for idx, lines in enumerate(parts):
+        is_hot = idx == highlight
+        p.setPen(QPen(hot if is_hot else dim, line_width * (2.0 if is_hot else 1.0)))
+        pts2 = []
+        for pts in lines:
+            qq = (pts - center) @ R.T
+            path = QPainterPath(QPointF(*scr(qq[0])))
+            for v in qq[1:]:
+                path.lineTo(*scr(v))
+            p.drawPath(path)
+            pts2.append(qq[:, :2])
+        if pts2:
+            P = np.vstack(pts2)
+            c = (P.min(0) + P.max(0)) / 2
+            # 풍선 끈은 부품 위의 점에 붙인다 (ㄱ자 부품은 상자 가운데가 허공일 수 있다)
+            a = P[np.argmin(np.linalg.norm(P - c, axis=1))]
+            anchors.append((idx, np.array(scr(a))))
+
+    if not balloons:
+        return []
+    fpx = font_px or max(9, min(14, int(rect.height() / 45)))
+    f = QFont(p.font())
+    f.setPixelSize(fpx)
+    f.setBold(True)
+    p.setFont(f)
+    r = fpx * 0.95
+    pos = _spread_balloons([a for _, a in anchors], r, rect)
+    out = []
+    for (idx, a), b in zip(anchors, pos):
+        is_hot = idx == highlight
+        col = hot if is_hot else theme.text
+        p.setPen(QPen(col, 0.8))
+        if np.linalg.norm(b - a) > r:
+            d = (a - b) / np.linalg.norm(a - b)
+            p.drawLine(QPointF(*(b + d * r)), QPointF(*a))
+            p.drawEllipse(QPointF(*a), 1.5, 1.5)
+        p.setBrush(QColor(255, 236, 200) if is_hot else theme.bg)
+        p.drawEllipse(QPointF(*b), r, r)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QColor(150, 60, 0) if is_hot else col)
+        txt = str(idx + 1)
+        fm = p.fontMetrics()
+        p.drawText(QPointF(b[0] - fm.horizontalAdvance(txt) / 2, b[1] + fm.ascent() / 2 - 1), txt)
+        out.append((idx, QPointF(*b), r))
+    return out
+
+
+def _spread_balloons(anchors, r, rect: QRectF, iterations=80):
+    """겹치는 풍선을 서로 밀어 낸다. 처음 자리는 부품 위(끈 없음)."""
+    if not anchors:
+        return []
+    P = np.array(anchors, float).copy()
+    A = P.copy()
+    gap = 2.3 * r
+    lo = np.array([rect.left() + r, rect.top() + r])
+    hi = np.array([rect.right() - r, rect.bottom() - r])
+    for _ in range(iterations):
+        moved = False
+        D = P[:, None, :] - P[None, :, :]
+        dist = np.linalg.norm(D, axis=2) + np.eye(len(P)) * 1e9
+        close = dist < gap
+        if close.any():
+            push = np.zeros_like(P)
+            ii, jj = np.nonzero(close)
+            for i, j in zip(ii, jj):
+                d = D[i, j]
+                n = np.linalg.norm(d)
+                if n < 1e-6:
+                    d, n = np.array([1.0, 0.3]) * (1 if i < j else -1), 1.0
+                push[i] += d / n * (gap - dist[i, j]) * 0.5
+            P += push
+            moved = True
+        # 원래 자리로 조금씩 당긴다 (끈이 너무 길어지지 않게)
+        P += (A - P) * 0.02
+        P = np.clip(P, lo, hi)
+        if not moved:
+            break
+    return list(P)

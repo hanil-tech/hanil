@@ -87,3 +87,56 @@ def test_parts_list(reports):
     assert ws.cell(3, 3).value == "성형품(근사)"
     assert ws.cell(2, 9).value == pytest.approx(items[0].metrics.weight_kg, rel=1e-3)
     assert ws.cell(4, 9).value == "=SUM(I2:I3)"
+
+
+def test_assembly_names_and_numbered_pdf(tmp_path):
+    """조립 구조가 있는 STEP 은 부품 이름을 읽고, 번호 풍선 조립도와 부품표를 만든다."""
+    from OCP.gp import gp_Trsf, gp_Vec
+    from OCP.STEPCAFControl import STEPCAFControl_Writer
+    from OCP.STEPControl import STEPControl_AsIs
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+    doc = TDocStd_Document(TCollection_ExtendedString("MDTV-XCAF"))
+    st = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    assy = st.NewShape()
+    TDataStd_Name.Set_s(assy, TCollection_ExtendedString("TAILGATE ASSY"))
+    a = st.AddShape(profile_part([("L", 50), ("B", 90, 2), ("L", 30)], 2, 40), False)
+    TDataStd_Name.Set_s(a, TCollection_ExtendedString("61900-BRACKET LH"))
+    b = st.AddShape(tray(), False)
+    TDataStd_Name.Set_s(b, TCollection_ExtendedString("61910-TRAY"))
+    for lab, x in ((a, 0), (b, 200), (a, 400)):
+        t = gp_Trsf()
+        t.SetTranslation(gp_Vec(x, 0, 0))
+        st.AddComponent(assy, lab, TopLoc_Location(t))
+    st.UpdateAssemblies()
+    path = str(tmp_path / "assy.step")
+    w = STEPCAFControl_Writer()
+    w.SetNameMode(True)
+    w.Transfer(doc, STEPControl_AsIs)
+    w.Write(path)
+
+    model = loader.load(path)
+    assert model.names == ["61900-BRACKET LH", "61910-TRAY", "61900-BRACKET LH #2"]
+    assert model.label(1) == "2. 61910-TRAY"
+    # 같은 부품을 옮겨 놓은 세 번째도 따로 전개된다
+    r = unfold(model.solids[2], k_factor=0.44)
+    assert len(r.bends) == 1
+
+    out = tmp_path / "assy.pdf"
+    report.save_assembly_pdf(model, str(out))
+    data = out.read_bytes()
+    assert data.startswith(b"%PDF") and data.count(b"/Type /Page") >= 2
+
+
+def test_single_product_file_gets_numbered_names(tmp_path):
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+    path = str(tmp_path / "one.step")
+    w = STEPControl_Writer()
+    w.Transfer(profile_part([("L", 50), ("B", 90, 2), ("L", 30)], 2, 40), STEPControl_AsIs)
+    w.Write(path)
+    model = loader.load(path)
+    assert len(model.solids) == 1 and model.label(0).startswith("1. ")

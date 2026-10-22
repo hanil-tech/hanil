@@ -11,20 +11,21 @@ import sys
 import traceback
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QUrl
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QUrl, Signal
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath,
                            QPen)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QMainWindow, QMessageBox,
                                QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout,
-                               QWidget)
+                               QWidget, QListWidget, QTabWidget)
 
 from . import __version__, dxf_export, loader
 from . import report
 from .bend_panel import BendPanel
 from .history import History
 from .history_dialog import HistoryDialog
-from .drawing import DARK, FlatTransform, paint_flat, paint_legend, solid_polylines, view_rotation
+from .drawing import (DARK, FlatTransform, assembly_polylines, paint_assembly, paint_flat,
+                      paint_legend, solid_polylines, view_rotation)
 from .unfolder import AUTO, MODE_NAMES, UnfoldError, unfold
 
 APP_NAME = "한일 판금 전개"
@@ -107,6 +108,80 @@ class ModelView(QWidget):
 
 
 # ---------------------------------------------------------------- 전개도 보기
+
+class AssemblyView(QWidget):
+    """조립품 전체. 부품마다 번호 풍선이 붙고, 풍선(또는 부품 목록)을 누르면 그 부품을 고른다."""
+
+    partClicked = Signal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.highlight = None
+        self.yaw, self.pitch = math.radians(-35), math.radians(25)
+        self.zoom = 1.0
+        self.pan = QPointF(0, 0)
+        self._drag = None
+        self._moved = False
+        self._hits = []
+        self.setMinimumSize(300, 300)
+
+    def set_parts(self, parts):
+        self.parts = parts
+        self.zoom, self.pan = 1.0, QPointF(0, 0)
+        self.update()
+
+    def set_highlight(self, idx):
+        self.highlight = idx
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.fillRect(self.rect(), DARK.bg)
+        if not self.parts:
+            p.setPen(QColor(150, 150, 150))
+            p.drawText(self.rect(), Qt.AlignCenter, "조립품 전체")
+            return
+        self._hits = paint_assembly(p, self.parts, QRectF(self.rect()), DARK, self.highlight,
+                                    self.yaw, self.pitch, self.zoom, (self.pan.x(), self.pan.y()))
+        p.setPen(QColor(150, 150, 150))
+        p.setFont(QFont(self.font()))
+        p.drawText(8, self.height() - 8, "번호를 누르면 그 부품 · 왼쪽 끌기 돌리기 · 오른쪽 끌기 이동 · 휠 확대")
+
+    def mousePressEvent(self, ev):
+        self._drag = (ev.position(), ev.button())
+        self._moved = False
+
+    def mouseMoveEvent(self, ev):
+        if self._drag is None:
+            return
+        d = ev.position() - self._drag[0]
+        if abs(d.x()) + abs(d.y()) > 2:
+            self._moved = True
+        self._drag = (ev.position(), self._drag[1])
+        if self._drag[1] == Qt.RightButton or ev.modifiers() & Qt.ShiftModifier:
+            self.pan += d
+        else:
+            self.yaw += d.x() * 0.01
+            self.pitch = max(-1.55, min(1.55, self.pitch + d.y() * 0.01))
+        self.update()
+
+    def mouseReleaseEvent(self, ev):
+        if self._drag is not None and not self._moved:
+            pos = ev.position()
+            best = None
+            for idx, c, r in self._hits:
+                d = math.hypot(pos.x() - c.x(), pos.y() - c.y())
+                if d <= r * 1.3 and (best is None or d < best[0]):
+                    best = (d, idx)
+            if best:
+                self.partClicked.emit(best[1])
+        self._drag = None
+
+    def wheelEvent(self, ev):
+        self.zoom *= 1.15 ** (ev.angleDelta().y() / 120)
+        self.update()
+
 
 class FlatView(QWidget):
     """전개도. 휠로 확대, 끌어서 이동, 두 번 눌러 맞춤."""
@@ -209,11 +284,24 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
 
         self.model_view = ModelView()
+        self.assembly_view = AssemblyView()
+        self.assembly_view.partClicked.connect(self.select_part)
+        self.part_list = QListWidget()
+        self.part_list.setMaximumWidth(260)
+        self.part_list.currentRowChanged.connect(
+            lambda row: row >= 0 and row != self.solid_box.currentIndex() and self.select_part(row))
+        assy = QSplitter(Qt.Horizontal)
+        assy.addWidget(self.assembly_view)
+        assy.addWidget(self.part_list)
+        assy.setSizes([520, 200])
+        self.left_tabs = QTabWidget()
+        self.left_tabs.addTab(self.model_view, "부품 3D")
+        self.left_tabs.addTab(assy, "조립품 전체 (번호)")
         self.flat_view = FlatView()
         views = QSplitter(Qt.Horizontal)
-        views.addWidget(self.model_view)
+        views.addWidget(self.left_tabs)
         views.addWidget(self.flat_view)
-        views.setSizes([500, 800])
+        views.setSizes([620, 700])
 
         self.table = QTableWidget(0, len(TABLE_COLUMNS))
         self.table.setHorizontalHeaderLabels(TABLE_COLUMNS)
@@ -259,10 +347,12 @@ class MainWindow(QMainWindow):
         self.act_pdf = QAction("보고서 PDF", self, triggered=lambda: self.save_report("pdf"))
         self.act_xlsx = QAction("보고서 엑셀", self, triggered=lambda: self.save_report("xlsx"))
         self.act_history = QAction("전개 기록", self, shortcut="Ctrl+H", triggered=self.show_history)
+        self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
         tb.addAction(self.act_open)
         tb.addAction(self.act_save)
         tb.addAction(self.act_pdf)
         tb.addAction(self.act_xlsx)
+        tb.addAction(self.act_assy)
         tb.addAction(self.act_batch)
         tb.addAction(self.act_history)
         tb.addSeparator()
@@ -280,7 +370,8 @@ class MainWindow(QMainWindow):
 
         tb.addWidget(QLabel(" 부품 "))
         self.solid_box = QComboBox()
-        self.solid_box.setMinimumWidth(110)
+        self.solid_box.setMinimumWidth(240)
+        self.solid_box.setMaxVisibleItems(25)
         self.solid_box.currentIndexChanged.connect(lambda _: self.run_unfold())
         tb.addWidget(self.solid_box)
 
@@ -322,6 +413,7 @@ class MainWindow(QMainWindow):
     def _update_actions(self):
         for act in (self.act_save, self.act_pdf, self.act_xlsx):
             act.setEnabled(self.result is not None)
+        self.act_assy.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
 
     def _set_info(self, text, error=False):
@@ -354,12 +446,29 @@ class MainWindow(QMainWindow):
         self.model = model
         self.setWindowTitle(f"{APP_NAME} — {os.path.basename(path)}")
         self.solid_box.blockSignals(True)
+        self.part_list.blockSignals(True)
         self.solid_box.clear()
+        self.part_list.clear()
         for i in range(len(model.solids)):
-            self.solid_box.addItem(f"{i + 1} / {len(model.solids)}")
+            self.solid_box.addItem(model.label(i))
+            self.part_list.addItem(model.label(i))
         self.solid_box.blockSignals(False)
+        self.part_list.blockSignals(False)
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.assembly_parts = assembly_polylines(model.raw_solids)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.assembly_view.set_parts(self.assembly_parts)
+        # 부품이 여럿이면 조립품 전체부터 보여 준다
+        self.left_tabs.setCurrentIndex(1 if len(model.solids) > 1 else 0)
         self.t_auto.setChecked(True)
         self.run_unfold()
+
+    def select_part(self, idx):
+        if self.model is not None and 0 <= idx < len(self.model.solids):
+            self.solid_box.setCurrentIndex(idx)
 
     def current_solid(self):
         if self.model is None:
@@ -372,6 +481,11 @@ class MainWindow(QMainWindow):
         solid = self.current_solid()
         if solid is None:
             return
+        idx = max(0, self.solid_box.currentIndex())
+        self.assembly_view.set_highlight(idx)
+        self.part_list.blockSignals(True)
+        self.part_list.setCurrentRow(idx)
+        self.part_list.blockSignals(False)
         self.model_view.set_solid(solid)
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
 
@@ -398,7 +512,8 @@ class MainWindow(QMainWindow):
             try:
                 self.record_id = self.history.record(
                     self.model.path, self.result, self.bend_panel.settings(),
-                    part_index=self.solid_box.currentIndex() + 1, part_count=len(self.model.solids))
+                    part_index=self.solid_box.currentIndex() + 1, part_count=len(self.model.solids),
+                    part_name=self.model.names[self.solid_box.currentIndex()])
             except Exception:
                 traceback.print_exc()
         if self.result is not None:
@@ -419,10 +534,10 @@ class MainWindow(QMainWindow):
                 "<span style='color:#999'>UP = 전개도를 보는 쪽으로 세움, "
                 "DOWN = 반대쪽으로 세움</span>",
             ]
-            rec = (self.model.recognized or [])
-            idx = max(0, self.solid_box.currentIndex())
-            if idx < len(rec) and rec[idx][0]:
-                lines.append(f"<span style='color:#999'>자유곡면으로 저장된 면 {rec[idx][0]}개를 "
+            rec = self.model.recognized.get(idx, (0, 0))
+            lines.insert(0, f"<b>{self.model.label(idx)}</b>")
+            if rec[0]:
+                lines.append(f"<span style='color:#999'>자유곡면으로 저장된 면 {rec[0]}개를 "
                              "평면·원통·원뿔로 되돌려 계산했습니다.</span>")
             for txt in r.rolled:
                 lines.append(txt)
@@ -495,7 +610,29 @@ class MainWindow(QMainWindow):
         name = os.path.splitext(os.path.basename(self.model.path))[0]
         return report.ReportData(
             name, self.model.path, self.result, self.bend_panel.settings(), self.current_solid(),
-            solid_index=self.solid_box.currentIndex() + 1, solid_count=len(self.model.solids))
+            solid_index=self.solid_box.currentIndex() + 1, solid_count=len(self.model.solids),
+            part_title=self.model.names[self.solid_box.currentIndex()])
+
+    def save_assembly_pdf(self):
+        if self.model is None:
+            return
+        base = os.path.splitext(self.model.path)[0] + "_assembly.pdf"
+        path, _ = QFileDialog.getSaveFileName(self, "조립도 PDF 저장", base, "PDF (*.pdf)")
+        if not path:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            report.save_assembly_pdf(self.model, path, parts=self.assembly_parts,
+                                     yaw=self.assembly_view.yaw, pitch=self.assembly_view.pitch)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "조립도 저장 실패", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"조립도를 저장했습니다: {path}", 8000)
+        if QMessageBox.question(self, "조립도", "저장했습니다. 지금 열어 볼까요?") == QMessageBox.Yes:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def save_report(self, kind):
         if self.result is None:
@@ -579,10 +716,12 @@ def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports
                 base = os.path.join(out_dir, f"{name}{suffix}")
                 dxf_export.save(r, base + "_flat.dxf", part_name=name, notes=notes)
                 if history is not None:
-                    rid = history.record(path, r, settings, i, len(model.solids))
+                    rid = history.record(path, r, settings, i, len(model.solids),
+                                         part_name=model.names[i - 1])
                     history.add_export(rid, base + "_flat.dxf")
                 if reports:
-                    d = report.ReportData(name, path, r, settings, solid, i, len(model.solids))
+                    d = report.ReportData(name, path, r, settings, solid, i, len(model.solids),
+                                          part_title=model.names[i - 1])
                     report.save_pdf(d, base + "_report.pdf")
                     report.save_xlsx(d, base + "_report.xlsx")
                     items.append(d)
@@ -592,6 +731,16 @@ def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports
         if progress:
             progress()
     text = f"DXF {ok}개를 만들었습니다.\n저장 위치: {out_dir}"
+    if reports:
+        # 조립품이면 번호 풍선이 달린 조립도도 함께
+        for path in paths:
+            try:
+                model = loader.load(path)
+                if len(model.solids) > 1:
+                    name = os.path.splitext(os.path.basename(path))[0]
+                    report.save_assembly_pdf(model, os.path.join(out_dir, f"{name}_assembly.pdf"))
+            except Exception:
+                pass
     if items:
         list_path = os.path.join(out_dir, "parts_list.xlsx")
         report.save_parts_list(items, list_path)

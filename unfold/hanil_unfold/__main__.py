@@ -65,6 +65,13 @@ def cli(argv):
             log_error(path)
             status = 1
             continue
+        if "pdf" in kinds and len(model.solids) > 1:
+            folder = args.output if args.output and os.path.isdir(args.output) \
+                else os.path.dirname(os.path.abspath(path))
+            try:
+                report.save_assembly_pdf(model, os.path.join(folder, f"{name}_assembly.pdf"))
+            except Exception:
+                log_error(f"{path} 조립도")
         for i, solid in enumerate(model.solids, 1):
             suffix = f"_{i}" if len(model.solids) > 1 else ""
             if args.output and len(args.files) == 1 and len(model.solids) == 1 \
@@ -83,10 +90,12 @@ def cli(argv):
                 continue
             dxf_export.save(r, out, part_name=name, notes=not args.no_notes)
             if history is not None:
-                rid = history.record(path, r, settings, i, len(model.solids))
+                rid = history.record(path, r, settings, i, len(model.solids),
+                                     part_name=model.names[i - 1])
                 history.add_export(rid, out)
             if kinds:
-                d = report.ReportData(name, path, r, settings, solid, i, len(model.solids))
+                d = report.ReportData(name, path, r, settings, solid, i, len(model.solids),
+                                      part_title=model.names[i - 1])
                 base = os.path.splitext(out)[0].removesuffix("_flat")
                 if "pdf" in kinds:
                     report.save_pdf(d, base + "_report.pdf")
