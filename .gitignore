@@ -4,3 +4,7 @@ dist/
 *.user
 *.suo
 .vs/
+__pycache__/
+.pytest_cache/
+unfold/build/
+unfold/smoke/
