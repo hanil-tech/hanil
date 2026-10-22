@@ -39,7 +39,7 @@ def mesh_faces(solid, faces, size_hint):
     lin = max(size_hint / 600.0, 0.02)
     BRepMesh_IncrementalMesh(solid, lin, False, 0.15, True)
 
-    verts, tris = [], []
+    verts, tris, normals = [], [], []
     keymap = {}
     tol = max(size_hint * 1e-7, 1e-7)
 
@@ -49,6 +49,7 @@ def mesh_faces(solid, faces, size_hint):
         if i is None:
             i = len(verts)
             verts.append(p)
+            normals.append(np.zeros(3))
             keymap[key] = i
         return i
 
@@ -59,9 +60,17 @@ def mesh_faces(solid, faces, size_hint):
             raise FormingError("면을 삼각형으로 나누지 못했습니다.")
         trsf = loc.Transformation()
         ids = []
+        has_uv = tri.HasUVNodes()
         for i in range(1, tri.NbNodes() + 1):
             p = tri.Node(i).Transformed(trsf)
-            ids.append(vid((p.X(), p.Y(), p.Z())))
+            k = vid((p.X(), p.Y(), p.Z()))
+            ids.append(k)
+            if has_uv:
+                # 메시 평균이 아니라 실제 곡면의 바깥 법선 (절곡 R 처럼 휜 곳에서 정확)
+                uv = tri.UVNode(i)
+                n = _face_normal(face, uv.X(), uv.Y())
+                if n is not None:
+                    normals[k] = normals[k] + n
         flip = face.Orientation() == TopAbs_REVERSED
         for i in range(1, tri.NbTriangles() + 1):
             a, b, c = tri.Triangle(i).Get()
@@ -69,7 +78,24 @@ def mesh_faces(solid, faces, size_hint):
             if len(set(t)) < 3:
                 continue
             tris.append((t[0], t[2], t[1]) if flip else t)
-    return np.array(verts, float), np.array(tris, int)
+    N = np.array(normals)
+    L = np.linalg.norm(N, axis=1)
+    N[L > 0] /= L[L > 0, None]
+    return np.array(verts, float), np.array(tris, int), N
+
+
+def _face_normal(face, u, v):
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.gp import gp_Pnt, gp_Vec
+    s = BRepAdaptor_Surface(face)
+    p, du, dv = gp_Pnt(), gp_Vec(), gp_Vec()
+    s.D1(u, v, p, du, dv)
+    n = du.Crossed(dv)
+    m = n.Magnitude()
+    if m < 1e-12:
+        return None
+    n = np.array([n.X(), n.Y(), n.Z()]) / m
+    return -n if face.Orientation() == TopAbs_REVERSED else n
 
 
 def subdivide(V, F, target=6000):
@@ -95,7 +121,20 @@ def subdivide(V, F, target=6000):
     return V, F
 
 
-def _keep_largest_component(V, F):
+def quality(V, F):
+    """삼각형마다 가장 작은 각(도). CAD 메시의 바늘 같은 조각은 변형률을 믿을 수 없다."""
+    q = _local_frames(V, F)
+    angs = []
+    for k in range(3):
+        a, b, c = q[:, k], q[:, (k + 1) % 3], q[:, (k + 2) % 3]
+        u, v = b - a, c - a
+        cos = np.einsum("ij,ij->i", u, v) / np.maximum(
+            np.linalg.norm(u, axis=1) * np.linalg.norm(v, axis=1), 1e-30)
+        angs.append(np.degrees(np.arccos(np.clip(cos, -1, 1))))
+    return np.min(angs, axis=0)
+
+
+def _keep_largest_component(V, F, N=None):
     n = len(V)
     parent = list(range(n))
 
@@ -116,6 +155,8 @@ def _keep_largest_component(V, F):
     used = np.unique(keep)
     remap = -np.ones(n, int)
     remap[used] = np.arange(len(used))
+    if N is not None:
+        return V[used], remap[keep], N[used]
     return V[used], remap[keep]
 
 
@@ -293,10 +334,14 @@ def boundary_loops(F):
     return loops
 
 
-def flatten(V, F, thickness, iterations=60):
-    """제품 겉면 메시 → (가운데 면 메시, 펼친 좌표 U)."""
-    V, F = _keep_largest_component(V, F)
-    N = vertex_normals(V, F)        # 나누기 전 (곡면 위의 점) 법선
+def flatten(V, F, thickness, iterations=60, N=None):
+    """제품 겉면 메시 → (가운데 면 메시, 펼친 좌표 U). N: 꼭짓점별 실제 곡면 법선."""
+    if N is None:
+        N = vertex_normals(V, F)
+    V, F, N = _keep_largest_component(V, F, N)
+    bad = np.linalg.norm(N, axis=1) < 0.5          # 곡면 법선을 못 구한 점은 메시 법선으로
+    if bad.any():
+        N[bad] = vertex_normals(V, F)[bad]
     Vm = V - 0.5 * thickness * N
     Vm, F = subdivide(Vm, F)
     U = lscm(Vm, F)

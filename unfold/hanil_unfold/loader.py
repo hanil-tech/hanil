@@ -59,6 +59,8 @@ class LoadedModel:
     path: str
     shape: TopoDS_Shape
     solids: list
+    # 솔리드마다 (자유곡면에서 평면·원통·원뿔로 되돌린 면 수, 자유곡면으로 남은 면 수)
+    recognized: list = None
 
 
 def load(path: str) -> LoadedModel:
@@ -91,7 +93,13 @@ def load(path: str) -> LoadedModel:
             "파일 안에 솔리드(두께가 있는 3D 형상)가 없습니다.\n"
             "곡면(서피스)만 들어 있는 파일이면 CAD 에서 솔리드로 저장해 주세요."
         )
-    return LoadedModel(path=path, shape=shape, solids=solids)
+    # 평면·절곡 R 까지 자유곡면으로 저장된 파일이면 원래 모양으로 되돌린다.
+    from .canonical import canonicalize
+    recognized = []
+    for i, s in enumerate(solids):
+        solids[i], changed, kept = canonicalize(s)
+        recognized.append((changed, kept))
+    return LoadedModel(path=path, shape=shape, solids=solids, recognized=recognized)
 
 
 def list_solids(shape: TopoDS_Shape) -> list:

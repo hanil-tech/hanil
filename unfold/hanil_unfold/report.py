@@ -76,12 +76,12 @@ def summary_rows(d: ReportData):
     ]
     if r.mode == "forming":
         fi = r.forming
-        th = fi.thinning
+        lo, hi = fi.thinning_range
         rows += [
             ("제품 면적 (두께 가운데)", f"{fi.product_area:,.1f} mm²"),
             ("블랭크 / 제품 면적", f"{fi.blank_area / fi.product_area:.3f}"),
-            ("최대 얇아짐", f"{max(th.max(), 0):.1%}  (두께 약 {r.thickness * (1 - max(th.max(), 0)):.2f} mm)"),
-            ("최대 두꺼워짐", f"{max(-th.min(), 0):.1%}"),
+            ("최대 얇아짐", f"{max(hi, 0):.1%}  (두께 약 {r.thickness * (1 - max(hi, 0)):.2f} mm)"),
+            ("최대 두꺼워짐", f"{max(-lo, 0):.1%}"),
         ]
     else:
         rows.append(("절곡 수", f"{len(r.bends)}곳"))
@@ -462,10 +462,12 @@ def _thinning_sheet(wb, d, st):
         ws.cell(4 + i, 3, a / total if total else 0).number_format = "0.0%"
         ws.cell(4 + i, 4, verdict[i])
     r = 4 + len(names) + 1
+    lo, hi = fi.thinning_range
     ws.cell(r, 1, "최대 얇아짐")
-    ws.cell(r, 2, float(max(th.max(), 0))).number_format = "0.0%"
+    ws.cell(r, 2, float(max(hi, 0))).number_format = "0.0%"
     ws.cell(r + 1, 1, "최대 두꺼워짐")
-    ws.cell(r + 1, 2, float(max(-th.min(), 0))).number_format = "0.0%"
+    ws.cell(r + 1, 2, float(max(-lo, 0))).number_format = "0.0%"
+    ws.cell(r + 2, 1, "(메시 조각 삼각형과 넓이 기준 위아래 0.5 % 는 뺀 값)")
 
 
 def save_parts_list(items, path: str):

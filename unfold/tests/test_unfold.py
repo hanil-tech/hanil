@@ -159,7 +159,7 @@ def test_tray_with_four_flanges():
     t, r_in = 1.6, 1.6
     r = unfold(solid(tray(100, 80, 30, t, r_in)), k_factor=K)
     allowance = math.pi / 2 * (r_in + K * t)
-    w, h = r.size
+    h, w = sorted(r.size)
     assert w == pytest.approx(100 + 2 * (allowance + 30), abs=1e-4)
     assert h == pytest.approx(80 + 2 * (allowance + 30), abs=1e-4)
     assert len(r.bends) == 4

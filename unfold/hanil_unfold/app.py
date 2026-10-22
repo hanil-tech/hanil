@@ -398,6 +398,11 @@ class MainWindow(QMainWindow):
                 "<span style='color:#999'>UP = 전개도를 보는 쪽으로 세움, "
                 "DOWN = 반대쪽으로 세움</span>",
             ]
+            rec = (self.model.recognized or [])
+            idx = max(0, self.solid_box.currentIndex())
+            if idx < len(rec) and rec[idx][0]:
+                lines.append(f"<span style='color:#999'>자유곡면으로 저장된 면 {rec[idx][0]}개를 "
+                             "평면·원통·원뿔로 되돌려 계산했습니다.</span>")
             for txt in r.rolled:
                 lines.append(txt)
             for wmsg in r.warnings:

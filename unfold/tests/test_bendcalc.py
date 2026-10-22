@@ -204,3 +204,29 @@ def test_forming_mode_on_sheet_part_matches_exact_mid_layer():
 def test_sheet_part_stays_exact_in_auto_mode():
     r = unfold(solid(profile_part(STEPS, T, 40)))
     assert r.mode == "sheet" and r.forming is None
+
+
+# ---------------------------------------------------------------- 자유곡면으로 저장된 판금
+
+def test_bspline_saved_sheet_metal_is_recognized():
+    """HOOPS 등으로 변환해 평면·절곡 R 까지 B-스플라인이 된 파일도 정확 전개해야 한다."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_NurbsConvert
+
+    from hanil_unfold import canonical
+    from models import drill
+
+    part = drill(profile_part([("L", 50), ("B", 90, 2), ("L", 30), ("B", -60, 3), ("L", 20)], T, 40),
+                 20, 0, 15, 8)
+    nurbs = solid(BRepBuilderAPI_NurbsConvert(part, True).Shape())
+    assert canonical.has_freeform(nurbs)
+    fixed, changed, kept = canonical.canonicalize(nurbs)
+    assert changed > 0 and kept == 0
+    r = unfold(fixed, k_factor=0.44)
+    assert r.mode == "sheet"
+    steps = [("L", 50), ("B", 90, 2), ("L", 30), ("B", -60, 3), ("L", 20)]
+    assert max(r.size) == pytest.approx(flat_length(steps, T, 0.44), abs=1e-3)
+    assert sorted(round(b.angle_deg, 3) for b in r.bends) == [60.0, 90.0]
+    # 구멍은 원으로, 바깥선은 직선으로 다시 맞춰져야 한다 (가공용 DXF)
+    assert any(isinstance(e, Arc) and e.full and e.radius == pytest.approx(4, abs=1e-3)
+               for e in r.entities)
+    assert not any(isinstance(e, Polyline) for e in r.entities if e.layer == "CUT")

@@ -115,11 +115,26 @@ class FormingInfo:
     minor: np.ndarray
     product_area: float      # 두께 가운데 면 넓이
     blank_area: float
+    reliable: np.ndarray | None = None   # 모양이 괜찮은 삼각형 (가장 작은 각 > 5°)
 
     @property
     def thinning(self):
         """삼각형별 두께 감소율 (+ 얇아짐, − 두꺼워짐)."""
         return 1.0 - 1.0 / self.ratio
+
+    @property
+    def thinning_range(self):
+        """(가장 많이 두꺼워짐, 가장 많이 얇아짐). 바늘 같은 조각 삼각형과
+        넓이 기준 위아래 0.5 % 는 빼서, 메시 탓에 튀는 값이 판정을 흔들지 않게 한다."""
+        th = self.thinning
+        w = _tri_areas2(self.U, self.F)
+        if self.reliable is not None and self.reliable.any():
+            th, w = th[self.reliable], w[self.reliable]
+        order = np.argsort(th)
+        cw = np.cumsum(w[order]) / w.sum()
+        lo = th[order][np.searchsorted(cw, 0.005)]
+        hi = th[order][min(np.searchsorted(cw, 0.995), len(th) - 1)]
+        return float(lo), float(hi)
 
 
 @dataclass
@@ -332,6 +347,7 @@ class SheetMetalUnfolder:
                 if idx not in lst:
                     lst.append(idx)
 
+        self._straight: dict[int, bool] = {}
         self._fe = {f.index: [] for f in self.info}
         for ei, fs in self.edge_faces.items():
             for fi in fs:
@@ -560,10 +576,11 @@ class SheetMetalUnfolder:
                     continue
                 entities.extend(self._map_edge(edge, f))
 
-        entities = _join_collinear(_merge_duplicates(entities))
+        entities = _join_collinear(_merge_duplicates(_fit_primitives(entities)))
         bends, rolled = self._bends(placed, t)
         for b in bends:
             entities.append(Line(*b.line, layer="BEND"))
+        entities = _align_entities(entities, bends)
 
         result = UnfoldResult(
             thickness=t, k_factor=self.settings.k, entities=entities, bends=bends,
@@ -577,8 +594,8 @@ class SheetMetalUnfolder:
         from . import forming
 
         faces = [self.info[fi].face for fi in sorted(skin)]
-        V, F = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
-        Vm, F, U = forming.flatten(V, F, t)
+        V, F, N = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
+        Vm, F, U = forming.flatten(V, F, t, N=N)
         major, minor, ratio = forming.strains(Vm, F, U)
 
         entities = []
@@ -588,18 +605,24 @@ class SheetMetalUnfolder:
 
         area3d = float(_tri_areas3(Vm, F).sum())
         area2d = float(_tri_areas2(U, F).sum())
+        if not 0.8 < area2d / area3d < 1.25:
+            raise UnfoldError(
+                "펼칠 수 없는 모양입니다 (펼친 넓이가 제품과 크게 다름).\n"
+                "관·파이프처럼 둘레가 닫힌 부품이면 펼치는 대상이 아닙니다 "
+                "(굽힌 관은 중심선 길이로 재단합니다).")
         fi = FormingInfo(U=U, F=F, ratio=ratio, major=major, minor=minor,
-                         product_area=area3d, blank_area=area2d)
+                         product_area=area3d, blank_area=area2d,
+                         reliable=forming.quality(Vm, F) > 5.0)
         notes = []
         if n_free:
             notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")
         notes.append("성형품 근사 전개: 블랭크 크기·재료비 추정용입니다. "
                      "금형 블랭크는 트라이아웃이나 성형 해석으로 확정하세요.")
-        th = fi.thinning
-        if th.max() > 0.25:
-            notes.append(f"두께가 최대 {th.max():.0%} 얇아지는 곳이 있습니다 (터짐 주의).")
-        if th.min() < -0.15:
-            notes.append(f"두께가 최대 {-th.min():.0%} 두꺼워지는 곳이 있습니다 (주름 주의).")
+        lo, hi = fi.thinning_range
+        if hi > 0.25:
+            notes.append(f"두께가 최대 {hi:.0%} 얇아지는 곳이 있습니다 (터짐 주의).")
+        if lo < -0.15:
+            notes.append(f"두께가 최대 {-lo:.0%} 두꺼워지는 곳이 있습니다 (주름 주의).")
         result = UnfoldResult(
             thickness=t, k_factor=0.5, entities=entities, bends=[],
             warnings=self.warnings + notes, face_count=len(skin),
@@ -608,7 +631,9 @@ class SheetMetalUnfolder:
         return result
 
     def _is_straight(self, ei: int) -> bool:
-        return BRepAdaptor_Curve(self.edges.items[ei]).GetType() == GeomAbs_Line
+        if ei not in self._straight:
+            self._straight[ei] = _curve_is_straight(BRepAdaptor_Curve(self.edges.items[ei]))
+        return self._straight[ei]
 
     # ---- 단계 4: 모서리 그리기
 
@@ -717,6 +742,140 @@ class SheetMetalUnfolder:
         lo = _boundary(f, u, vs[i0], vs[i0 - 1]) if i0 > 0 else v0
         hi = _boundary(f, u, vs[i1], vs[i1 + 1]) if i1 < n else v1
         return lo, hi
+
+
+def _fit_primitives(entities, tol=2e-3):
+    """자유곡선을 잘게 나눈 폴리라인 가운데 사실상 직선·원호인 것을 LINE·ARC 로 바꾼다.
+    (평면·원통이 B-스플라인으로 저장된 파일에서 나온 모서리. 가공기는 LINE·ARC 를 좋아한다.)"""
+    out = []
+    for e in entities:
+        if not isinstance(e, Polyline) or len(e.points) < 3:
+            out.append(e)
+            continue
+        P = np.array(e.points)
+        a, b = P[0], P[-1]
+        d = b - a
+        L = float(np.linalg.norm(d))
+        if L > 1e-9:
+            n = np.array([-d[1], d[0]]) / L
+            if np.abs((P - a) @ n).max() < tol:
+                out.append(Line(tuple(a), tuple(b), e.layer))
+                continue
+        c = _circle_through(P[0], P[len(P) // 2], P[-1]) if L > 1e-9 else \
+            _circle_through(P[0], P[len(P) // 3], P[2 * len(P) // 3])
+        if c is not None:
+            ctr, r = c
+            if np.abs(np.linalg.norm(P - ctr, axis=1) - r).max() < tol:
+                center = (float(ctr[0]), float(ctr[1]))
+                if L < tol:
+                    out.append(Arc(center, float(r), full=True, layer=e.layer))
+                else:
+                    arc = _arc_through(center, float(r), tuple(P[0]), tuple(P[len(P) // 2]), tuple(P[-1]))
+                    arc.layer = e.layer
+                    out.append(arc)
+                continue
+        out.append(e)
+    return out
+
+
+def _circle_through(p1, p2, p3):
+    ax, ay = p1
+    bx, by = p2
+    cx, cy = p3
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-12:
+        return None
+    ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
+    uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
+    ctr = np.array([ux, uy])
+    return ctr, float(np.linalg.norm(np.asarray(p1) - ctr))
+
+
+def _align_entities(entities, bends):
+    """바깥 사각형이 가장 작아지게 전개도를 돌린다. 원래 좌표축이 비스듬한 파일도
+    전개도가 반듯하게 나와 철판 크기가 바로 보인다."""
+    from scipy.spatial import ConvexHull
+
+    if bends:
+        # 절곡이 있으면 가장 긴 절곡선을 세로로 (프레스 브레이크에 넣는 방향)
+        b = max(bends, key=lambda b: b.length)
+        (x1, y1), (x2, y2) = b.line
+        ang = math.pi / 2 - math.atan2(y2 - y1, x2 - x1)
+        # 세로 방향이 이미 맞으면(180° 차이 포함) 돌리지 않는다
+        if abs(math.remainder(ang, math.pi)) < 1e-9:
+            return entities
+        return _rotate_entities(entities, bends, ang)
+    pts = []
+    for e in entities:
+        if isinstance(e, Arc):
+            span = 360.0 if e.full else (e.end_deg - e.start_deg) % 360
+            a0 = 0.0 if e.full else e.start_deg
+            n = max(2, int(span / 5))
+            pts += [(e.center[0] + e.radius * math.cos(math.radians(a0 + span * i / n)),
+                     e.center[1] + e.radius * math.sin(math.radians(a0 + span * i / n)))
+                    for i in range(n + 1)]
+        else:
+            pts += list(_entity_points([e]))
+    pts = np.array(pts)
+    if len(pts) < 3:
+        return entities
+    try:
+        hull = pts[ConvexHull(pts).vertices]
+    except Exception:
+        return entities
+    best = None
+    for i in range(len(hull)):
+        d = hull[(i + 1) % len(hull)] - hull[i]
+        ang = -math.atan2(d[1], d[0])
+        R = np.array([[math.cos(ang), -math.sin(ang)], [math.sin(ang), math.cos(ang)]])
+        q = hull @ R.T
+        w, h = q.max(0) - q.min(0)
+        key = (round(w * h, 6), -w)
+        if best is None or key < best[0]:
+            best = (key, ang, w < h)
+    ang = best[1] + (math.pi / 2 if best[2] else 0.0)
+    if abs(math.remainder(ang, math.pi / 2)) < 1e-9:
+        return entities
+    return _rotate_entities(entities, bends, ang)
+
+
+def _rotate_entities(entities, bends, ang):
+    c, s_ = math.cos(ang), math.sin(ang)
+
+    def rot(p):
+        return (c * p[0] - s_ * p[1], s_ * p[0] + c * p[1])
+
+    deg = math.degrees(ang)
+    out = []
+    for e in entities:
+        if isinstance(e, Line):
+            out.append(Line(rot(e.p1), rot(e.p2), e.layer))
+        elif isinstance(e, Arc):
+            out.append(Arc(rot(e.center), e.radius, (e.start_deg + deg) % 360,
+                           (e.end_deg + deg) % 360, e.full, e.layer))
+        else:
+            out.append(Polyline([rot(p) for p in e.points], e.layer))
+    for b in bends:
+        b.line = (rot(b.line[0]), rot(b.line[1]))
+    return out
+
+
+def _curve_is_straight(c, tol=1e-4) -> bool:
+    """직선이거나, 자유곡선으로 저장됐어도 점들이 한 직선 위에 있으면 True."""
+    if c.GetType() == GeomAbs_Line:
+        return True
+    a, b = c.FirstParameter(), c.LastParameter()
+    p0, p1 = _pnt(c.Value(a)), _pnt(c.Value(b))
+    d = p1 - p0
+    L = float(np.linalg.norm(d))
+    if L < 1e-9:
+        return False
+    d /= L
+    for i in range(1, 16):
+        q = _pnt(c.Value(a + (b - a) * i / 16)) - p0
+        if np.linalg.norm(q - (q @ d) * d) > max(tol, 1e-6 * L):
+            return False
+    return True
 
 
 def _diagonal(shape):

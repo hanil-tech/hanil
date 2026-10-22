@@ -24,6 +24,12 @@
 | CATIA (`.CATPart`) | STEP 으로 저장 후 | File → Save As → **stp** |
 | AutoCAD 3D (`.dwg`) | STEP 으로 저장 후 | 3D 솔리드를 STEP 으로 내보내기 |
 
+> **다른 CAD 에서 변환한 STEP** (예: HOOPS Exchange 로 만든 파일)은 평면과 절곡 R 까지 모두 자유곡면(B-스플라인)으로
+> 저장된 경우가 많습니다. 열 때 면마다 실제 모양(평면·원통·원뿔)을 알아내 되돌리므로, 판금 부품은 그대로 정확 전개되고
+> 절곡 표도 나옵니다. 정말 곡면인 부분(성형 모서리 등)이 남으면 성형품 근사 전개로 갑니다.
+> 여러 부품이 든 조립품 파일은 [부품] 에서 하나씩 고르거나, [여러 파일 한꺼번에] 로 모두 처리합니다.
+> 굽힌 파이프처럼 둘레가 닫힌 부품은 펼치는 대상이 아니라고 알려 줍니다.
+
 솔리드웍스·NX·CATIA·DWG 파일은 각 회사 고유 형식이라, 무료로 쓸 수 있는 3D 엔진(OpenCASCADE)으로는
 직접 읽을 수 없습니다. 이런 파일을 열면 프로그램이 **어디서 어떻게 STEP 으로 저장하는지** 안내합니다.
 STEP 은 세 CAD 모두 기본으로 지원하고, 판금 형상이 그대로 담깁니다.
@@ -193,6 +199,7 @@ HanilUnfold.exe convert 부품.step --method din -o 결과폴더
 | 경로 | 내용 |
 |---|---|
 | `hanil_unfold/loader.py` | STEP·IGES 읽기, 고유 형식 안내 |
+| `hanil_unfold/canonical.py` | 자유곡면으로 저장된 평면·원통·원뿔 되돌리기 |
 | `hanil_unfold/unfolder.py` | 전개 계산 (평면·원통·원뿔) |
 | `hanil_unfold/bendcalc.py` | 재질·K 표·DIN 6935·자연 R·연신 표 |
 | `hanil_unfold/bend_panel.py` | 절곡 조건 패널, 연신 표 창 |
