@@ -153,3 +153,49 @@ def tray(length=100.0, width=80.0, height=30.0, t=1.6, r=1.6, relief=5.0):
     unify = ShapeUpgrade_UnifySameDomain(fused, True, True, True)
     unify.Build()
     return unify.Shape()
+
+
+def funnel(r_bottom=40.0, r_top=80.0, height=60.0, t=2.0):
+    """원뿔대 깔때기 (바깥면 기준 반지름). 안쪽은 법선 방향으로 t 만큼 들어간 원뿔."""
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCone
+    from OCP.collections import List_TopoDS_Shape as TopTools_ListOfShape
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Plane
+    from OCP.TopoDS import TopoDS
+
+    solid = BRepPrimAPI_MakeCone(r_bottom, r_top, height).Shape()
+    caps = TopTools_ListOfShape()
+    exp = TopExp_Explorer(solid, TopAbs_FACE)
+    while exp.More():
+        if BRepAdaptor_Surface(TopoDS.Face(exp.Current())).GetType() == GeomAbs_Plane:
+            caps.Append(exp.Current())
+        exp.Next()
+    mk = BRepOffsetAPI_MakeThickSolid()
+    mk.MakeThickSolidByJoin(solid, caps, -t, 1e-4)
+    return mk.Shape()
+
+
+def oblique_bracket(t=2.0, r=2.0, l1=60.0, l2=30.0, width=50.0, skew_deg=25.0):
+    """절곡선이 판 바깥선과 비스듬한 ㄱ자: 밀어낸 뒤 양 끝을 기울어진 평면으로 잘라 낸다."""
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    part = profile_part([("L", l1), ("B", 90, r), ("L", l2)], t, width + 200)
+    part = _place(part, ((1, 0, 0), (0, 1, 0), (0, 0, 1)), (0, 0, -100))
+    big = 1000.0
+    sk = math.radians(skew_deg)
+    for side, z0 in ((-1, 0.0), (1, width)):
+        box = BRepPrimAPI_MakeBox(gp_Pnt(-big / 2, -big / 2, 0), big, big, big).Shape()
+        tr = gp_Trsf()
+        # 기울어진 자르기 면: x 방향으로 skew 만큼 돌린 평면
+        tr.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0)), sk)
+        if side < 0:
+            mirror = gp_Trsf()
+            mirror.SetMirror(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)))
+            tr = tr.Multiplied(mirror)
+        mv = gp_Trsf()
+        mv.SetTranslation(gp_Vec(0, 0, z0))
+        box = BRepBuilderAPI_Transform(box, mv.Multiplied(tr), True).Shape()
+        part = BRepAlgoAPI_Cut(part, box).Shape()
+    return part

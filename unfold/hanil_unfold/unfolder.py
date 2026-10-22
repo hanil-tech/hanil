@@ -3,21 +3,24 @@
 원리
 ----
 판금은 두께가 일정한 판을 접은 것이라, 한쪽 겉면(스킨)만 보면
-평면(플랜지)과 원통면(절곡부)이 매끄럽게 이어진 한 장의 면이다.
+평면(플랜지)과 원통·원뿔면(절곡부)이 매끄럽게 이어진 한 장의 면이다.
 
-1. 가장 넓은 평면을 기준면으로 잡는다.
+1. 가장 넓은 면을 기준면으로 잡는다.
 2. 기준면에서 출발해 매끄럽게(접선으로) 이어진 면만 따라가며 스킨을 모은다.
    두께 방향 옆면이나 구멍 벽은 스킨과 직각으로 만나므로 자연히 빠진다.
-3. 각 면의 (u, v) 매개변수 공간을 평면 좌표로 옮기는 변환을 정한다.
-   - 평면: 그대로 회전·이동만 한다.
-   - 원통(절곡부): 둘레 방향 길이를 중립축 반지름으로 다시 잰다.
-       중립축 반지름 = 안쪽 반지름 + K 계수 × 두께
-   이웃한 면끼리는 공유 모서리에서 정확히 맞물리도록 이어 붙인다.
+3. 면마다 (u, v) 매개변수를 펼친 좌표("기본 전개")로 옮기는 식을 둔다.
+   - 평면: 그대로.
+   - 원통(절곡부): 둘레 방향 길이를 중립축 기준으로 다시 잰다.
+       펼친 폭 = 절곡각 × (안쪽 R + K × 두께)   (bendcalc 에서 재질·상형 R 로 계산)
+   - 원뿔(깔때기·경사 절곡): 꼭짓점을 중심으로 한 부채꼴로 편다.
+       반지름 = 꼭짓점에서 모선 방향 거리 (중립면 기준),  각도 = u × sin(반각)
+   기본 전개를 회전·이동해 이웃한 면과 공유 모서리에서 정확히 맞물리게 이어 붙인다.
+   그래서 직각이 아닌 절곡(45°, 120°, 비스듬한 절곡선)과 원뿔도 같은 방법으로 펼친다.
 4. 스킨 면들의 바깥 모서리를 옮겨 그리면 전개도의 절단선이 된다.
    절곡부 가운데에는 절곡선을 그린다.
 
-변환이 모두 (u, v) 에 대해 일차식이라 직선은 직선으로, 평면 위의 원은 원으로 남는다.
-그래서 구멍과 라운드가 레이저 가공용 DXF 에 원·호로 정확히 나온다.
+평면·원통은 변환이 (u, v) 의 일차식이라 직선은 직선으로, 평면 위의 원은 원으로 남는다.
+원뿔의 둘레 방향 모서리는 꼭짓점을 중심으로 한 호가 된다.
 """
 from __future__ import annotations
 
@@ -28,15 +31,17 @@ from dataclasses import dataclass, field
 import numpy as np
 from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Curve2d, BRepAdaptor_Surface
-from OCP.BRepGProp import BRepGProp
 from OCP.BRepClass import BRepClass_FaceClassifier
-from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Line, GeomAbs_Plane
+from OCP.BRepGProp import BRepGProp
+from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Line, GeomAbs_Plane
 from OCP.GProp import GProp_GProps
-from OCP.gp import gp_Dir, gp_Lin, gp_Pnt, gp_Pnt2d, gp_Vec
+from OCP.gp import gp_Dir, gp_Lin, gp_Pnt, gp_Pnt2d, gp_Vec, gp_Vec2d
 from OCP.IntCurvesFace import IntCurvesFace_ShapeIntersector
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_IN, TopAbs_REVERSED
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS
+
+from .bendcalc import BendCalc, BendSettings
 
 # 두 면의 법선이 이 각도 안이면 매끄럽게 이어진 것으로 본다.
 TANGENT_COS = math.cos(math.radians(3.0))
@@ -77,12 +82,19 @@ class Polyline:
 @dataclass
 class Bend:
     number: int
-    angle_deg: float
-    inner_radius: float
+    kind: str               # "원통" / "원뿔"
+    angle_deg: float        # 접은 각도 (두 플랜지 법선 사이 각)
+    inner_radius: float     # 계산에 쓴 안쪽 R (원뿔은 평균)
+    model_radius: float     # 3D 모델의 안쪽 R
+    k: float
     direction: str          # "UP" / "DOWN"  (전개도를 앞에서 본 기준)
     length: float           # 절곡선 길이
-    allowance: float        # 펼친 길이 (절곡 여유)
+    allowance: float        # 펼친 절곡부 길이 (BA)
+    deduction: float        # 이 각도의 연신 (BD)
+    deduction90: float      # 같은 조건 90° 연신
+    source: str             # 값의 출처
     line: tuple             # ((x1, y1), (x2, y2))
+    radius_text: str = ""
 
 
 @dataclass
@@ -93,6 +105,8 @@ class UnfoldResult:
     bends: list
     warnings: list = field(default_factory=list)
     face_count: int = 0
+    settings_text: str = ""
+    rolled: list = field(default_factory=list)   # 말아 만든 원통·원뿔 설명
 
     @property
     def bbox(self):
@@ -166,24 +180,43 @@ def _explore(shape, kind):
 
 # ---------------------------------------------------------------- 면 정보
 
+_KINDS = {GeomAbs_Plane: "plane", GeomAbs_Cylinder: "cylinder", GeomAbs_Cone: "cone"}
+
+
 @dataclass
 class _Face:
     index: int
     face: object
-    kind: str                     # "plane" / "cylinder" / "other"
+    kind: str                     # "plane" / "cylinder" / "cone" / "other"
     area: float
-    su: float = 1.0               # u 를 길이로 바꾸는 배율 (원통은 중립 반지름)
-    # 평면 좌표 = C + A @ (su*u, v)
+    # 펼친 좌표 = C + A @ canon(u, v)   (A 는 회전 또는 대칭)
     A: np.ndarray | None = None
     C: np.ndarray | None = None
+    convex: bool = False          # 바깥쪽(재료 반대편)으로 볼록한 면
+    # 원통
     radius: float = 0.0
-    convex: bool = False
     inner_radius: float = 0.0
+    su: float = 1.0               # 둘레 1 라디안이 펼친 길이로 몇 mm 인가
+    calc: BendCalc | None = None
+    # 원뿔
+    ref_radius: float = 0.0
+    sin_a: float = 0.0
+    s_shift: float = 0.0          # 중립면으로 옮길 때 꼭짓점 거리 보정
+    k: float = 0.0
     parent: int | None = None
-    parent_edge: int | None = None
+
+    def canon(self, u, v):
+        if self.kind == "cylinder":
+            return np.array([self.su * u, v])
+        if self.kind == "cone":
+            sa = abs(self.sin_a)
+            s = (self.ref_radius + v * self.sin_a) / sa + self.s_shift
+            phi = u * sa
+            return np.array([s * math.cos(phi), s * math.sin(phi)])
+        return np.array([u, v])
 
     def to_flat(self, u, v):
-        return self.C + self.A @ np.array([self.su * u, v])
+        return self.C + self.A @ self.canon(u, v)
 
 
 def _surface_normal(face, u, v) -> np.ndarray:
@@ -232,12 +265,20 @@ def _pnt(p) -> np.ndarray:
     return np.array([p.X(), p.Y(), p.Z()])
 
 
+def _axis_radial(ax, p):
+    """축에서 점 p 로 향하는 수직 벡터."""
+    o = _pnt(ax.Location())
+    d = np.array([ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z()])
+    w = p - o
+    return w - (w @ d) * d
+
+
 # ---------------------------------------------------------------- 본체
 
 class SheetMetalUnfolder:
-    def __init__(self, solid, k_factor: float = 0.44, thickness: float | None = None):
+    def __init__(self, solid, settings: BendSettings | None = None, thickness: float | None = None):
         self.solid = solid
-        self.k = float(k_factor)
+        self.settings = settings or BendSettings()
         self.user_thickness = thickness
         self.warnings: list = []
 
@@ -251,8 +292,7 @@ class SheetMetalUnfolder:
             if self.faces.find(face) is not None:
                 continue
             idx = self.faces.add(face)
-            kind = {GeomAbs_Plane: "plane", GeomAbs_Cylinder: "cylinder"}.get(
-                BRepAdaptor_Surface(face).GetType(), "other")
+            kind = _KINDS.get(BRepAdaptor_Surface(face).GetType(), "other")
             self.info.append(_Face(idx, face, kind, _face_area(face)))
             for e in _explore(face, TopAbs_EDGE):
                 edge = TopoDS.Edge(e)
@@ -263,13 +303,18 @@ class SheetMetalUnfolder:
                 if idx not in lst:
                     lst.append(idx)
 
+        self._fe = {f.index: [] for f in self.info}
+        for ei, fs in self.edge_faces.items():
+            for fi in fs:
+                self._fe[fi].append(ei)
+
     # ---- 단계 1: 기준면과 두께
 
     def _pick_root(self) -> _Face:
-        # 판금의 겉면은 옆면(두께 면)보다 훨씬 넓다. 말아 만든 관이면 원통면이 가장 넓다.
-        pool = [f for f in self.info if f.kind in ("plane", "cylinder")]
+        # 판금의 겉면은 옆면(두께 면)보다 훨씬 넓다. 말아 만든 관·깔때기면 곡면이 가장 넓다.
+        pool = [f for f in self.info if f.kind != "other"]
         if not pool:
-            raise UnfoldError("평면이나 원통면이 없어 판금으로 볼 수 없습니다.")
+            raise UnfoldError("평면·원통·원뿔 면이 없어 판금으로 볼 수 없습니다.")
         return max(pool, key=lambda f: f.area)
 
     def _measure_thickness(self, root: _Face) -> float:
@@ -289,31 +334,28 @@ class SheetMetalUnfolder:
 
     # ---- 단계 2: 스킨 모으기
 
-    def _edge_param_mid(self, edge, face):
+    @staticmethod
+    def _edge_uv_mid(edge, face):
         c = BRepAdaptor_Curve2d(edge, face)
-        t = 0.5 * (c.FirstParameter() + c.LastParameter())
-        p = c.Value(t)
+        p = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()))
         return p.X(), p.Y()
 
     def _tangent(self, ei: int, fa: int, fb: int) -> bool:
         edge = self.edges.items[ei]
         A, B = self.info[fa], self.info[fb]
         try:
-            ua, va = self._edge_param_mid(edge, A.face)
-            ub, vb = self._edge_param_mid(edge, B.face)
+            na = _surface_normal(A.face, *self._edge_uv_mid(edge, A.face))
+            nb = _surface_normal(B.face, *self._edge_uv_mid(edge, B.face))
         except Exception:
             return False
-        na = _surface_normal(A.face, ua, va)
-        nb = _surface_normal(B.face, ub, vb)
         return float(na @ nb) > TANGENT_COS
 
     def _collect_skin(self, root: _Face) -> set:
         skin = {root.index}
         queue = deque([root.index])
-        face_edges = self._face_edge_indices()
         while queue:
             fi = queue.popleft()
-            for ei in face_edges[fi]:
+            for ei in self._fe[fi]:
                 for fj in self.edge_faces[ei]:
                     if fj in skin or fj == fi:
                         continue
@@ -322,76 +364,102 @@ class SheetMetalUnfolder:
                         queue.append(fj)
         return skin
 
-    def _face_edge_indices(self):
-        if not hasattr(self, "_fe"):
-            self._fe = {f.index: [] for f in self.info}
-            for ei, fs in self.edge_faces.items():
-                for fi in fs:
-                    self._fe[fi].append(ei)
-        return self._fe
+    # ---- 단계 3: 면마다 기본 전개 정하기
 
-    # ---- 단계 3: 펼치기
+    def _convex(self, f: _Face, ax, u, v) -> bool:
+        p = _pnt(BRepAdaptor_Surface(f.face).Value(u, v))
+        return float(_surface_normal(f.face, u, v) @ _axis_radial(ax, p)) > 0
 
     def _setup_cylinder(self, f: _Face, t: float):
-        surf = BRepAdaptor_Surface(f.face)
-        cyl = surf.Cylinder()
+        cyl = BRepAdaptor_Surface(f.face).Cylinder()
         f.radius = cyl.Radius()
         u0, u1, v0, v1 = _uv_bounds(f.face)
-        um, vm = 0.5 * (u0 + u1), 0.5 * (v0 + v1)
-        p = _pnt(surf.Value(um, vm))
-        ax = cyl.Axis()
-        o = _pnt(ax.Location())
-        d = np.array([ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z()])
-        radial = (p - o) - ((p - o) @ d) * d
-        n = _surface_normal(f.face, um, vm)
-        f.convex = float(n @ radial) > 0
+        f.convex = self._convex(f, cyl.Axis(), 0.5 * (u0 + u1), 0.5 * (v0 + v1))
         f.inner_radius = f.radius - t if f.convex else f.radius
         if f.inner_radius < -1e-3:
             self.warnings.append(
                 f"절곡 반지름이 두께보다 작습니다 (R{f.radius:.2f}, 두께 {t:.2f}).")
-            f.inner_radius = 0.0
-        f.su = f.inner_radius + self.k * t
+        f.inner_radius = max(0.0, f.inner_radius)
 
-    def _inward_dir(self, f: _Face, edge, S1, S2):
-        """모서리(S1→S2, 배율 적용 uv)에서 면 안쪽을 향하는 수직 방향."""
-        d = S2 - S1
+        theta = u1 - u0
+        if theta >= 2 * math.pi - 1e-6:
+            # 한 바퀴 도는 관: 절곡이 아니라 말아 만든 것. 중립 반지름으로 둘레를 잰다.
+            k, src = self.settings.k_for(f.inner_radius, t)
+            f.su = f.inner_radius + k * t
+            f.k = k
+            return
+        f.calc = self.settings.resolve(theta, f.inner_radius, t)
+        f.k = f.calc.k
+        f.su = f.calc.flat_width / theta
+        if f.su <= 0:
+            raise UnfoldError(f"절곡 R{f.inner_radius:.2f} 의 펼친 폭이 0 이하입니다. 절곡 조건을 확인해 주세요.")
+
+    def _setup_cone(self, f: _Face, t: float):
+        cone = BRepAdaptor_Surface(f.face).Cone()
+        f.ref_radius = cone.RefRadius()
+        f.sin_a = math.sin(cone.SemiAngle())
+        u0, u1, v0, v1 = _uv_bounds(f.face)
+        f.convex = self._convex(f, cone.Axis(), 0.5 * (u0 + u1), 0.5 * (v0 + v1))
+        # 평균 안쪽 반지름 (축에 수직으로 잰 반지름이 아니라 법선 방향 곡률 반지름)
+        rho = f.ref_radius + 0.5 * (v0 + v1) * f.sin_a
+        curv_r = abs(rho / math.cos(cone.SemiAngle()))
+        inner = curv_r - t if f.convex else curv_r
+        k, _ = self.settings.k_for(max(inner, 0.0), t)
+        f.k = k
+        f.inner_radius = max(inner, 0.0)
+        # 중립면까지 법선 방향 거리 (축에서 멀어지는 쪽이 +)
+        delta = -(1 - k) * t if f.convex else k * t
+        f.s_shift = delta / math.tan(abs(cone.SemiAngle()))
+
+    def _edge_canon(self, f: _Face, edge):
+        c = BRepAdaptor_Curve2d(edge, f.face)
+        p1, p2 = c.Value(c.FirstParameter()), c.Value(c.LastParameter())
+        return f.canon(p1.X(), p1.Y()), f.canon(p2.X(), p2.Y())
+
+    def _inward(self, f: _Face, edge, K1, K2):
+        """공유 모서리(K1→K2, 기본 전개 좌표)의 방향과, 면 안쪽을 향하는 수직 방향."""
+        d = K2 - K1
         d = d / np.linalg.norm(d)
-        perp = np.array([-d[1], d[0]])
-        Sm = 0.5 * (S1 + S2)
+        c = BRepAdaptor_Curve2d(edge, f.face)
+        tm = 0.5 * (c.FirstParameter() + c.LastParameter())
+        p, tv = gp_Pnt2d(), gp_Vec2d()
+        c.D1(tm, p, tv)
+        um, vm = p.X(), p.Y()
+        perp = np.array([-tv.Y(), tv.X()])
+        perp /= np.linalg.norm(perp)
+        Km = f.canon(um, vm)
         for sign in (1.0, -1.0):
-            q = Sm + sign * _PROBE * perp
-            if _classify_in(f.face, q[0] / f.su, q[1]):
-                return d, sign * perp
-        # 아주 좁은 면이면 탐침을 더 짧게
-        for sign in (1.0, -1.0):
-            q = Sm + sign * _PROBE * 0.05 * perp
-            if _classify_in(f.face, q[0] / f.su, q[1]):
-                return d, sign * perp
+            h = 1e-6
+            step = np.linalg.norm(f.canon(um + sign * h * perp[0], vm + sign * h * perp[1]) - Km)
+            if step < 1e-15:
+                continue
+            for target in (_PROBE, _PROBE * 0.05):
+                hh = h * target / step
+                uu, vv = um + sign * hh * perp[0], vm + sign * hh * perp[1]
+                if _classify_in(f.face, uu, vv):
+                    n = f.canon(uu, vv) - Km
+                    n -= (n @ d) * d
+                    return d, n / np.linalg.norm(n)
         raise UnfoldError("면의 안쪽 방향을 판단하지 못했습니다.")
 
-    def _edge_points(self, edge, f: _Face):
-        c = BRepAdaptor_Curve2d(edge, f.face)
-        a, b = c.FirstParameter(), c.LastParameter()
-        p1, p2 = c.Value(a), c.Value(b)
-        S1 = np.array([f.su * p1.X(), p1.Y()])
-        S2 = np.array([f.su * p2.X(), p2.Y()])
-        return S1, S2
-
     def _place_root(self, root: _Face):
-        root.A = np.eye(2)
-        if root.face.Orientation() == TopAbs_REVERSED:
-            # 바깥쪽에서 바라본 모습이 되도록 뒤집는다.
-            root.A = np.diag([1.0, -1.0])
+        # 바깥쪽에서 바라본 모습이 되도록, 기본 전개의 방향이 뒤집혀 있으면 대칭시킨다.
+        u, v = _interior_uv(root.face)
+        h = 1e-4
+        k0 = root.canon(u, v)
+        J = np.column_stack([root.canon(u + h, v) - k0, root.canon(u, v + h) - k0])
+        sign = np.sign(np.linalg.det(J)) * (-1 if root.face.Orientation() == TopAbs_REVERSED else 1)
+        root.A = np.eye(2) if sign >= 0 else np.diag([1.0, -1.0])
         root.C = np.zeros(2)
 
     def _place_child(self, parent: _Face, child: _Face, ei: int):
         edge = self.edges.items[ei]
-        P1, P2 = self._edge_points(edge, parent)
-        S1, S2 = self._edge_points(edge, child)
+        P1, P2 = self._edge_canon(parent, edge)
+        S1, S2 = self._edge_canon(child, edge)
         F1, F2 = parent.C + parent.A @ P1, parent.C + parent.A @ P2
 
-        dp, np_in = self._inward_dir(parent, edge, P1, P2)
-        dc, nc_in = self._inward_dir(child, edge, S1, S2)
+        _, np_in = self._inward(parent, edge, P1, P2)
+        dc, nc_in = self._inward(child, edge, S1, S2)
 
         df = F2 - F1
         df /= np.linalg.norm(df)
@@ -400,9 +468,7 @@ class SheetMetalUnfolder:
         nf /= np.linalg.norm(nf)
 
         # 자식 면은 공유 모서리를 기준으로 부모 반대편에 놓인다.
-        Mf = np.column_stack([df, -nf])
-        Mc = np.column_stack([dc, nc_in])
-        child.A = Mf @ Mc.T
+        child.A = np.column_stack([df, -nf]) @ np.column_stack([dc, nc_in]).T
         child.C = F1 - child.A @ S1
 
     def unfold(self) -> UnfoldResult:
@@ -415,25 +481,25 @@ class SheetMetalUnfolder:
         unsupported = [fi for fi in skin if self.info[fi].kind == "other"]
         if unsupported:
             self.warnings.append(
-                f"평면·원통이 아닌 면 {len(unsupported)}개는 전개에서 뺐습니다 "
-                "(원뿔·자유곡면 절곡은 지원하지 않습니다).")
+                f"평면·원통·원뿔이 아닌 면 {len(unsupported)}개는 전개에서 뺐습니다 "
+                "(프레스 성형 같은 자유곡면은 지원하지 않습니다).")
             skin -= set(unsupported)
 
         for fi in skin:
-            if self.info[fi].kind == "cylinder":
-                self._setup_cylinder(self.info[fi], t)
-        if root.kind == "cylinder" and root.su <= 0:
-            raise UnfoldError("원통 반지름을 판단하지 못했습니다.")
+            f = self.info[fi]
+            if f.kind == "cylinder":
+                self._setup_cylinder(f, t)
+            elif f.kind == "cone":
+                self._setup_cone(f, t)
 
         # 기준면부터 넓이 우선으로 이어 붙인다.
         self._place_root(root)
         placed = {root.index}
         tree_edges = set()
         queue = deque([root.index])
-        face_edges = self._face_edge_indices()
         while queue:
             fi = queue.popleft()
-            for ei in face_edges[fi]:
+            for ei in self._fe[fi]:
                 for fj in self.edge_faces[ei]:
                     if fj not in skin or fj in placed:
                         continue
@@ -441,7 +507,6 @@ class SheetMetalUnfolder:
                         continue
                     self._place_child(self.info[fi], self.info[fj], ei)
                     self.info[fj].parent = fi
-                    self.info[fj].parent_edge = ei
                     placed.add(fj)
                     tree_edges.add(ei)
                     queue.append(fj)
@@ -462,14 +527,16 @@ class SheetMetalUnfolder:
                 entities.extend(self._map_edge(edge, f))
 
         entities = _join_collinear(_merge_duplicates(entities))
-        bends = self._bends(placed, t)
+        bends, rolled = self._bends(placed, t)
         for b in bends:
             entities.append(Line(*b.line, layer="BEND"))
 
         result = UnfoldResult(
-            thickness=t, k_factor=self.k, entities=entities, bends=bends,
-            warnings=self.warnings, face_count=len(placed))
+            thickness=t, k_factor=self.settings.k, entities=entities, bends=bends,
+            warnings=self.warnings, face_count=len(placed),
+            settings_text=self.settings.describe(), rolled=rolled)
         result.entities = _normalize_origin(result)
+        _check_overlap(result)
         return result
 
     def _is_straight(self, ei: int) -> bool:
@@ -487,7 +554,19 @@ class SheetMetalUnfolder:
 
         kind = c.GetType()
         if kind == GeomAbs_Line:
-            return [Line(flat(a), flat(b))]
+            if f.kind != "cone":
+                return [Line(flat(a), flat(b))]
+            d = c.Line().Direction()
+            if abs(d.X()) < 1e-9:
+                return [Line(flat(a), flat(b))]          # 모선: 꼭짓점을 지나는 직선
+            if abs(d.Y()) < 1e-9:
+                # 둘레 방향: 꼭짓점을 중심으로 한 호
+                center = tuple(float(x) for x in f.C)
+                p = c.Value(a)
+                radius = float(np.linalg.norm(f.canon(p.X(), p.Y())))
+                if abs(abs(b - a) * abs(f.sin_a) - 2 * math.pi) < 1e-7:
+                    return [Arc(center, radius, full=True)]
+                return [_arc_through(center, radius, flat(a), flat(0.5 * (a + b)), flat(b))]
 
         if kind == GeomAbs_Circle and f.kind == "plane":
             circ = c.Circle()
@@ -496,13 +575,7 @@ class SheetMetalUnfolder:
             r = circ.Radius()
             if abs(abs(b - a) - 2 * math.pi) < 1e-7:
                 return [Arc(center, r, full=True)]
-            p0, pm, p1 = flat(a), flat(0.5 * (a + b)), flat(b)
-            ang = lambda p: math.degrees(math.atan2(p[1] - center[1], p[0] - center[0])) % 360
-            s, m, e = ang(p0), ang(pm), ang(p1)
-            # 반시계로 s→e 사이에 m 이 있으면 그대로, 아니면 뒤집는다.
-            if (m - s) % 360 > (e - s) % 360:
-                s, e = e, s
-            return [Arc(center, r, s, e)]
+            return [_arc_through(center, r, flat(a), flat(0.5 * (a + b)), flat(b))]
 
         # 그 밖의 곡선은 잘게 나눠 폴리라인으로
         length = _curve_length_estimate(c, a, b, f)
@@ -510,34 +583,60 @@ class SheetMetalUnfolder:
         pts = [flat(a + (b - a) * i / n) for i in range(n + 1)]
         return [Polyline(pts)]
 
+    def _fold_angle(self, f: _Face, u0, u1, vm):
+        n0 = _surface_normal(f.face, u0, vm)
+        n1 = _surface_normal(f.face, u1, vm)
+        return math.acos(max(-1.0, min(1.0, float(n0 @ n1))))
+
     def _bends(self, placed, t):
-        bends = []
+        bends, rolled = [], []
         for fi in sorted(placed):
             f = self.info[fi]
-            if f.kind != "cylinder":
+            if f.kind not in ("cylinder", "cone"):
                 continue
             u0, u1, v0, v1 = _uv_bounds(f.face)
-            angle = u1 - u0
-            if angle >= 2 * math.pi - 1e-6:
-                # 둥근 관처럼 한 바퀴 도는 면은 절곡이 아니라 말아 붙인 것
+            full = (u1 - u0) >= 2 * math.pi - 1e-6
+            if full:
+                if f.kind == "cylinder":
+                    rolled.append(f"원통 말기: 안쪽 R{f.inner_radius:.2f}, "
+                                  f"펼친 둘레 {2 * math.pi * f.su:.2f} mm (K {f.k:.3f})")
+                else:
+                    a = math.degrees(math.asin(abs(f.sin_a)))
+                    rolled.append(f"원뿔 말기: 반각 {a:.1f}°, 부채꼴 각 "
+                                  f"{math.degrees(2 * math.pi * abs(f.sin_a)):.1f}° (K {f.k:.3f})")
                 continue
-            um = 0.5 * (u0 + u1)
+
+            um, vm = 0.5 * (u0 + u1), 0.5 * (v0 + v1)
             vs = self._v_range_at(f, um, v0, v1)
             p1 = tuple(float(x) for x in f.to_flat(um, vs[0]))
             p2 = tuple(float(x) for x in f.to_flat(um, vs[1]))
-            bends.append(Bend(
-                number=0,
-                angle_deg=math.degrees(angle),
-                inner_radius=f.inner_radius,
-                direction="DOWN" if f.convex else "UP",
-                length=abs(vs[1] - vs[0]),
-                allowance=angle * f.su,
-                line=(p1, p2),
-            ))
+            direction = "DOWN" if f.convex else "UP"
+
+            if f.kind == "cylinder":
+                c = f.calc
+                angle = u1 - u0
+                bends.append(Bend(
+                    number=0, kind="원통", angle_deg=math.degrees(angle),
+                    inner_radius=c.r, model_radius=c.model_r, k=c.k, direction=direction,
+                    length=abs(vs[1] - vs[0]), allowance=c.allowance, deduction=c.deduction,
+                    deduction90=c.deduction90, source=c.source, line=(p1, p2),
+                    radius_text=f"{c.r:.2f}"))
+            else:
+                angle = self._fold_angle(f, u0, u1, vm)
+                cos_a = math.sqrt(1 - f.sin_a ** 2)
+                rs = [abs((f.ref_radius + v * f.sin_a) / cos_a) - (t if f.convex else 0) for v in vs]
+                width = float(np.linalg.norm(f.to_flat(u1, vm) - f.to_flat(u0, vm)))
+                bends.append(Bend(
+                    number=0, kind="원뿔", angle_deg=math.degrees(angle),
+                    inner_radius=f.inner_radius, model_radius=f.inner_radius, k=f.k,
+                    direction=direction, length=float(np.linalg.norm(np.subtract(p2, p1))),
+                    allowance=width, deduction=float("nan"), deduction90=float("nan"),
+                    source="원뿔 (R 이 위치마다 다름)", line=(p1, p2),
+                    radius_text=f"{min(rs):.2f}~{max(rs):.2f}"))
         bends.sort(key=lambda b: (round(b.line[0][1], 3), round(b.line[0][0], 3)))
         for i, b in enumerate(bends, 1):
             b.number = i
-        return bends
+        return bends, rolled
 
     def _v_range_at(self, f: _Face, u, v0, v1):
         """u 위치에서 면 안에 들어가는 v 범위 (절곡선 길이)."""
@@ -550,6 +649,15 @@ class SheetMetalUnfolder:
         lo = _boundary(f, u, vs[i0], vs[i0 - 1]) if i0 > 0 else v0
         hi = _boundary(f, u, vs[i1], vs[i1 + 1]) if i1 < n else v1
         return lo, hi
+
+
+def _arc_through(center, r, p0, pm, p1):
+    """p0 → pm → p1 을 지나는 반시계 호."""
+    ang = lambda p: math.degrees(math.atan2(p[1] - center[1], p[0] - center[0])) % 360
+    s, m, e = ang(p0), ang(pm), ang(p1)
+    if (m - s) % 360 > (e - s) % 360:
+        s, e = e, s
+    return Arc(center, r, s, e)
 
 
 def _boundary(f, u, v_in, v_out):
@@ -565,8 +673,10 @@ def _boundary(f, u, v_in, v_out):
 
 
 def _curve_length_estimate(c, a, b, f):
-    pts = [f.to_flat(c.Value(a + (b - a) * i / 16).X(), c.Value(a + (b - a) * i / 16).Y())
-           for i in range(17)]
+    pts = []
+    for i in range(17):
+        p = c.Value(a + (b - a) * i / 16)
+        pts.append(f.to_flat(p.X(), p.Y()))
     return sum(float(np.linalg.norm(pts[i + 1] - pts[i])) for i in range(16))
 
 
@@ -654,5 +764,40 @@ def _normalize_origin(result: UnfoldResult):
     return out
 
 
-def unfold(solid, k_factor: float = 0.44, thickness: float | None = None) -> UnfoldResult:
-    return SheetMetalUnfolder(solid, k_factor, thickness).unfold()
+def _check_overlap(result: UnfoldResult):
+    """절단선끼리 서로 가로지르면 펼친 플랜지가 겹친 것이다 (모서리 릴리프 부족 등)."""
+    segs = []
+    for e in result.entities:
+        if e.layer != "CUT":
+            continue
+        if isinstance(e, Line):
+            segs.append((e.p1, e.p2))
+        elif isinstance(e, Polyline):
+            segs.extend(zip(e.points[:-1], e.points[1:]))
+    if len(segs) > 3000:
+        return
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            if _segments_cross(*segs[i], *segs[j]):
+                result.warnings.append(
+                    "펼친 모양이 서로 겹칩니다. 모서리 릴리프(따내기)가 필요한지 확인해 주세요.")
+                return
+
+
+def _segments_cross(a, b, c, d):
+    """끝점 공유는 빼고, 두 선분이 안쪽에서 엇갈리는지."""
+    def orient(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    eps = 1e-6
+    d1, d2 = orient(c, d, a), orient(c, d, b)
+    d3, d4 = orient(a, b, c), orient(a, b, d)
+    return ((d1 > eps and d2 < -eps) or (d1 < -eps and d2 > eps)) and \
+           ((d3 > eps and d4 < -eps) or (d3 < -eps and d4 > eps))
+
+
+def unfold(solid, k_factor: float = 0.44, thickness: float | None = None,
+           settings: BendSettings | None = None) -> UnfoldResult:
+    """settings 가 없으면 K 계수 직접 입력 방식으로 계산한다."""
+    if settings is None:
+        settings = BendSettings(k=k_factor)
+    return SheetMetalUnfolder(solid, settings, thickness).unfold()

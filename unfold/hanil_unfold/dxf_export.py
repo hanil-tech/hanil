@@ -50,7 +50,7 @@ def save(result: UnfoldResult, path: str, part_name: str = "", notes: bool = Tru
 
 
 def bend_label(b) -> str:
-    return f"B{b.number} {b.direction} {b.angle_deg:.1f}%%d R{b.inner_radius:.2f}"
+    return f"B{b.number} {b.direction} {b.angle_deg:.1f}%%d R{b.radius_text} K{b.k:.3f}"
 
 
 def _add_notes(msp, result: UnfoldResult, part_name: str) -> None:
@@ -71,7 +71,9 @@ def _add_notes(msp, result: UnfoldResult, part_name: str) -> None:
     lines = []
     if part_name:
         lines.append(part_name)
-    lines.append(f"T={result.thickness:.2f}  K={result.k_factor:.3f}  "
+    ks = sorted({round(b.k, 3) for b in result.bends})
+    k_text = f"K={'/'.join(f'{k:.3f}' for k in ks)}  " if ks else ""
+    lines.append(f"T={result.thickness:.2f}  {k_text}"
                  f"SIZE {w:.2f} x {h:.2f}  BENDS {len(result.bends)}")
     for i, line in enumerate(lines):
         msp.add_text(line, height=height, dxfattribs={"layer": "NOTE"}).set_placement(

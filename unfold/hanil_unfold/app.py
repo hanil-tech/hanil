@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBo
                                QWidget)
 
 from . import __version__, dxf_export, loader
+from .bend_panel import BendPanel
 from .unfolder import Arc, Line, Polyline, UnfoldError, unfold
 
 APP_NAME = "한일 판금 전개"
@@ -215,7 +216,7 @@ class FlatView(QWidget):
         w, h = r.size
         p.setPen(QColor(200, 200, 200))
         p.drawText(8, 18, f"전개 크기  {w:.2f} × {h:.2f} mm   두께 {r.thickness:.2f}   "
-                          f"K {r.k_factor:.3f}")
+                          f"{r.settings_text}")
         p.setPen(QColor(150, 150, 150))
         p.drawText(8, self.height() - 8, "휠로 확대 · 끌어서 이동 · 두 번 눌러 맞춤")
 
@@ -265,10 +266,10 @@ class MainWindow(QMainWindow):
         views.addWidget(self.flat_view)
         views.setSizes([500, 800])
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(
-            ["번호", "방향", "각도(°)", "안쪽 R", "절곡선 길이", "펼친 길이"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table = QTableWidget(0, len(TABLE_COLUMNS))
+        self.table.setHorizontalHeaderLabels(TABLE_COLUMNS)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
@@ -279,13 +280,16 @@ class MainWindow(QMainWindow):
         bottom = QWidget()
         bl = QHBoxLayout(bottom)
         bl.setContentsMargins(6, 0, 6, 6)
-        bl.addWidget(self.table, 3)
+        self.bend_panel = BendPanel(self.settings)
+        self.bend_panel.changed.connect(self.run_unfold)
+        bl.addWidget(self.table, 5)
+        bl.addWidget(self.bend_panel, 0)
         bl.addWidget(self.info, 2)
 
         split = QSplitter(Qt.Vertical)
         split.addWidget(views)
         split.addWidget(bottom)
-        split.setSizes([600, 200])
+        split.setSizes([540, 280])
         self.setCentralWidget(split)
 
         self._set_info("STEP 파일을 여세요. (솔리드웍스·NX·CATIA 에서 STEP 으로 저장)")
@@ -313,17 +317,6 @@ class MainWindow(QMainWindow):
         self.solid_box.setMinimumWidth(110)
         self.solid_box.currentIndexChanged.connect(lambda _: self.run_unfold())
         tb.addWidget(self.solid_box)
-
-        tb.addWidget(QLabel("  K 계수 "))
-        self.k_spin = QDoubleSpinBox()
-        self.k_spin.setRange(0.0, 1.0)
-        self.k_spin.setDecimals(3)
-        self.k_spin.setSingleStep(0.01)
-        self.k_spin.setValue(float(self.settings.value("k_factor", 0.44)))
-        self.k_spin.setToolTip("중립축 위치. 0 = 안쪽 면, 0.5 = 두께 가운데.\n"
-                               "회사 절곡 기준값을 넣으세요. 보통 0.33 ~ 0.5")
-        self.k_spin.editingFinished.connect(self.run_unfold)
-        tb.addWidget(self.k_spin)
 
         tb.addWidget(QLabel("  두께 "))
         self.t_auto = QCheckBox("자동")
@@ -401,13 +394,12 @@ class MainWindow(QMainWindow):
         solid = self.current_solid()
         if solid is None:
             return
-        self.settings.setValue("k_factor", self.k_spin.value())
         self.model_view.set_solid(solid)
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
 
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            self.result = unfold(solid, k_factor=self.k_spin.value(), thickness=thickness)
+            self.result = unfold(solid, thickness=thickness, settings=self.bend_panel.settings())
         except UnfoldError as e:
             self.result = None
             self._set_info(f"전개하지 못했습니다.<br>{e}", error=True)
@@ -432,11 +424,13 @@ class MainWindow(QMainWindow):
             lines = [
                 f"<b>전개 크기</b> {w:.2f} × {h:.2f} mm",
                 f"<b>두께</b> {r.thickness:.3f} mm" + (" (자동 측정)" if thickness is None else ""),
-                f"<b>K 계수</b> {r.k_factor:.3f}",
+                f"<b>절곡 조건</b> {r.settings_text}",
                 f"<b>절곡</b> {len(r.bends)}곳",
                 "<span style='color:#999'>UP = 전개도를 보는 쪽으로 세움, "
                 "DOWN = 반대쪽으로 세움</span>",
             ]
+            for txt in r.rolled:
+                lines.append(txt)
             for wmsg in r.warnings:
                 lines.append(f"<span style='color:#e0a040'>⚠ {wmsg}</span>")
             self._set_info("<br>".join(lines))
@@ -446,8 +440,9 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(len(bends))
         for row, b in enumerate(bends):
             vals = [f"B{b.number}", "UP (위)" if b.direction == "UP" else "DOWN (아래)",
-                    f"{b.angle_deg:.2f}", f"{b.inner_radius:.2f}", f"{b.length:.2f}",
-                    f"{b.allowance:.3f}"]
+                    f"{b.angle_deg:.2f}", f"{b.model_radius:.2f}", b.radius_text, f"{b.k:.3f}",
+                    _num(b.deduction), _num(b.deduction90), f"{b.allowance:.3f}",
+                    f"{b.length:.2f}", b.source]
             for col, v in enumerate(vals):
                 item = QTableWidgetItem(v)
                 item.setTextAlignment(Qt.AlignCenter)
@@ -487,7 +482,7 @@ class MainWindow(QMainWindow):
         if not out_dir:
             return
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
-        report = batch_convert(paths, out_dir, self.k_spin.value(), thickness,
+        report = batch_convert(paths, out_dir, self.bend_panel.settings(), thickness,
                                self.notes_box.isChecked(),
                                progress=lambda: QApplication.processEvents())
         QMessageBox.information(self, "한꺼번에 전개 결과", report)
@@ -507,14 +502,22 @@ class MainWindow(QMainWindow):
             self.open_file(urls[0].toLocalFile())
 
 
-def batch_convert(paths, out_dir, k, thickness, notes, progress=None):
+TABLE_COLUMNS = ["번호", "방향", "각도(°)", "모델 R", "실제 R", "K", "연신",
+                 "90° 연신", "펼친 길이", "절곡선 길이", "근거"]
+
+
+def _num(x):
+    return "-" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.3f}"
+
+
+def batch_convert(paths, out_dir, settings, thickness, notes, progress=None):
     ok, failed = 0, []
     for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
         try:
             model = loader.load(path)
             for i, solid in enumerate(model.solids, 1):
-                r = unfold(solid, k_factor=k, thickness=thickness)
+                r = unfold(solid, thickness=thickness, settings=settings)
                 suffix = f"_{i}" if len(model.solids) > 1 else ""
                 dxf_export.save(r, os.path.join(out_dir, f"{name}{suffix}_flat.dxf"),
                                 part_name=name, notes=notes)
@@ -534,17 +537,27 @@ HELP_TEXT = """\
 
 1. [열기] 로 STEP(.stp) 파일을 엽니다. 창에 끌어다 놓아도 됩니다.
    솔리드웍스·NX·CATIA 파일은 각 프로그램에서 STEP 으로 저장해서 여세요.
-2. K 계수를 회사 기준값으로 맞춥니다. 바꾸면 바로 다시 전개됩니다.
+2. 아래 [절곡 조건] 에서 계산 방법을 고릅니다. 바꾸면 바로 다시 전개됩니다.
+     · K 계수 직접 입력
+     · 재질별 K 표 (문헌) — 재질·가공 방식(에어/바텀/코이닝)·R 로 K 결정
+     · DIN 6935 공식
+   [상형 R · 하형 V 로 실제 R 계산] 을 켜면 모델 R 대신 실제 절곡 R 로
+   연신을 다시 계산합니다 (도면의 바깥 치수는 그대로 유지).
+   [연신 표] 에서 재질별 두께 × 상형 R 연신을 보고, 현장에서 잰 값을 넣으면
+   그 값이 먼저 쓰입니다.
 3. 두께는 자동으로 잽니다. 다르면 [자동] 을 끄고 직접 넣으세요.
 4. [DXF 저장] 을 누르면 레이저 가공용 DXF 가 만들어집니다.
      CUT  레이어 : 절단선 (외곽, 구멍)
      BEND 레이어 : 절곡선
      NOTE 레이어 : 절곡 번호·방향·각도 (가공기로 보낼 때 끄세요)
 
-펼친 길이 = 플랜지 직선 길이 + 절곡각 × (안쪽 R + K × 두께)
+전개 길이 = 바깥 치수 합 − Σ 연신
+연신 = 2·tan(θ/2)·(R + t) − θ·(R + K·t)
 
-전개할 수 있는 형상: 두께가 일정하고, 절곡부가 원통(R)인 판금 부품.
-원뿔 절곡, 자유곡면 성형품, 용접으로 붙인 조립품은 전개하지 않습니다.
+전개할 수 있는 형상: 두께가 일정한 판금 부품.
+  · 어떤 각도의 절곡이든 (30°, 45°, 120°, 헤밍), 비스듬한 절곡선
+  · 원통 절곡, 말아 만든 관, 원뿔(깔때기)·원뿔 절곡
+자유곡면 성형품(엠보·루버)과 용접으로 붙인 조립품은 전개하지 않습니다.
 """
 
 
