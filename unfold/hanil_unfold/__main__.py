@@ -29,6 +29,7 @@ def cli(argv):
     ap.add_argument("--shop-table", help="회사 연신 표 JSON (없으면 기본 위치)")
     ap.add_argument("-t", "--thickness", type=float, help="두께 (없으면 자동 측정)")
     ap.add_argument("--no-notes", action="store_true", help="절곡 글씨 빼기")
+    ap.add_argument("--no-dims", action="store_true", help="DXF 에 치수(DIM 레이어) 빼기")
     ap.add_argument("--mode", choices=list(MODE_NAMES), default="auto",
                     help="auto=판금이면 정확·곡면이면 근사, sheet=판금, forming=성형품 근사")
     ap.add_argument("--no-history", action="store_true", help="전개 기록에 남기지 않기")
@@ -88,7 +89,8 @@ def cli(argv):
                 log_error(f"{path}{suffix}")
                 status = 1
                 continue
-            dxf_export.save(r, out, part_name=name, notes=not args.no_notes)
+            dxf_export.save(r, out, part_name=name, notes=not args.no_notes,
+                            dims=not args.no_dims, density=settings.mat.density)
             if history is not None:
                 rid = history.record(path, r, settings, i, len(model.solids),
                                      part_name=model.names[i - 1])

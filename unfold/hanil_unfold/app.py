@@ -17,15 +17,17 @@ from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPai
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QMainWindow, QMessageBox,
                                QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout,
-                               QWidget, QListWidget, QTabWidget)
+                               QWidget, QListWidget, QTabWidget, QPushButton)
 
 from . import __version__, dxf_export, loader
 from . import report
 from .bend_panel import BendPanel
 from .history import History
 from .history_dialog import HistoryDialog
-from .drawing import (DARK, FlatTransform, assembly_polylines, paint_assembly, paint_flat,
-                      paint_legend, solid_polylines, view_rotation)
+from . import assembly_calc
+from . import dims as dimsmod
+from .drawing import (DARK, FlatTransform, assembly_polylines, paint_assembly, paint_dimensions,
+                      paint_flat, paint_legend, paint_summary, solid_polylines, view_rotation)
 from .unfolder import AUTO, MODE_NAMES, UnfoldError, unfold
 
 APP_NAME = "한일 판금 전개"
@@ -189,13 +191,20 @@ class FlatView(QWidget):
     def __init__(self):
         super().__init__()
         self.result = None
+        self.dims = None
+        self.show_dims = True
         self.scale = 1.0
         self.offset = QPointF(0, 0)
         self._drag = None
         self.setMinimumSize(300, 300)
 
-    def set_result(self, result):
+    def set_result(self, result, dims=None):
         self.result = result
+        self.dims = dims
+        self.fit()
+
+    def set_show_dims(self, on):
+        self.show_dims = on
         self.fit()
 
     def fit(self):
@@ -204,7 +213,9 @@ class FlatView(QWidget):
             return
         x0, y0, x1, y1 = self.result.bbox
         w, h = max(x1 - x0, 1e-6), max(y1 - y0, 1e-6)
-        self.scale = 0.85 * min(self.width() / w, self.height() / h)
+        # 치수선과 요약 상자 자리를 남긴다
+        room = 0.70 if self.show_dims else 0.85
+        self.scale = room * min(self.width() / w, self.height() / h)
         self.offset = QPointF(self.width() / 2 - self.scale * (x0 + x1) / 2,
                               self.height() / 2 + self.scale * (y0 + y1) / 2)
         self.update()
@@ -235,10 +246,11 @@ class FlatView(QWidget):
         if r.forming is not None:
             paint_legend(p, QRectF(self.width() - 280, self.height() - 50, 260, 12), DARK)
 
-        w, h = r.size
-        p.setPen(QColor(200, 200, 200))
-        p.drawText(8, 18, f"전개 크기  {w:.2f} × {h:.2f} mm   두께 {r.thickness:.2f}   "
-                          f"{r.settings_text}")
+        p.setPen(QColor(150, 150, 150))
+        p.drawText(8, 18, r.settings_text)
+        if self.show_dims and self.dims is not None:
+            paint_dimensions(p, r, tf, DARK, self.dims)
+            paint_summary(p, self.dims.summary_lines(), 8, 26, DARK)
         p.setPen(QColor(150, 150, 150))
         p.drawText(8, self.height() - 8, "휠로 확대 · 끌어서 이동 · 두 번 눌러 맞춤")
 
@@ -287,13 +299,32 @@ class MainWindow(QMainWindow):
         self.assembly_view = AssemblyView()
         self.assembly_view.partClicked.connect(self.select_part)
         self.part_list = QListWidget()
-        self.part_list.setMaximumWidth(260)
         self.part_list.currentRowChanged.connect(
             lambda row: row >= 0 and row != self.solid_box.currentIndex() and self.select_part(row))
+        side = QWidget()
+        sl = QVBoxLayout(side)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.addWidget(self.part_list, 1)
+        row = QHBoxLayout()
+        self.calc_all_btn = QPushButton("전체 계산")
+        self.calc_all_btn.setToolTip("모든 부품을 전개해 두께·면적·무게를 구하고 두께별로 합칩니다")
+        self.calc_all_btn.clicked.connect(self.calc_all)
+        self.calc_xlsx_btn = QPushButton("엑셀로")
+        self.calc_xlsx_btn.clicked.connect(self.save_assembly_xlsx)
+        self.calc_xlsx_btn.setEnabled(False)
+        row.addWidget(self.calc_all_btn)
+        row.addWidget(self.calc_xlsx_btn)
+        sl.addLayout(row)
+        self.assy_summary = QLabel("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
+        self.assy_summary.setWordWrap(True)
+        self.assy_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        sl.addWidget(self.assy_summary)
+        side.setMaximumWidth(320)
+        self.assy_parts_result = None
         assy = QSplitter(Qt.Horizontal)
         assy.addWidget(self.assembly_view)
-        assy.addWidget(self.part_list)
-        assy.setSizes([520, 200])
+        assy.addWidget(side)
+        assy.setSizes([520, 260])
         self.left_tabs = QTabWidget()
         self.left_tabs.addTab(self.model_view, "부품 3D")
         self.left_tabs.addTab(assy, "조립품 전체 (번호)")
@@ -319,7 +350,16 @@ class MainWindow(QMainWindow):
         bl.setContentsMargins(6, 0, 6, 6)
         self.bend_panel = BendPanel(self.settings)
         self.bend_panel.changed.connect(self.run_unfold)
-        bl.addWidget(self.table, 5)
+        self.dim_table = QTableWidget(0, 2)
+        self.dim_table.setHorizontalHeaderLabels(["항목", "값 (mm)"])
+        self.dim_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.dim_table.horizontalHeader().setStretchLastSection(True)
+        self.dim_table.verticalHeader().setVisible(False)
+        self.dim_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.bottom_tabs = QTabWidget()
+        self.bottom_tabs.addTab(self.dim_table, "치수 · 면적")
+        self.bottom_tabs.addTab(self.table, "절곡")
+        bl.addWidget(self.bottom_tabs, 5)
         bl.addWidget(self.bend_panel, 0)
         bl.addWidget(self.info, 2)
 
@@ -390,6 +430,12 @@ class MainWindow(QMainWindow):
 
         self.notes_box = QCheckBox("DXF 에 절곡 글씨 넣기")
         self.notes_box.setChecked(self.settings.value("notes", "true") == "true")
+        self.dims_box = QCheckBox("치수")
+        self.dims_box.setToolTip("전개도에 기본 치수(전체·절곡선 위치·구멍)와 두께·면적 요약을 표시하고\n"
+                                 "DXF 의 DIM 레이어에도 넣습니다")
+        self.dims_box.setChecked(self.settings.value("dims_on", "true") == "true")
+        self.dims_box.toggled.connect(self._dims_toggled)
+        tb.addWidget(self.dims_box)
         self.history_box = QCheckBox("전개 기록 남기기")
         self.history_box.setToolTip("전개한 부품의 수치와 DXF 사본을 자동으로 쌓아 둡니다.\n"
                                     "같은 날 같은 부품을 다시 전개하면 최신 값으로 갱신합니다.")
@@ -401,6 +447,10 @@ class MainWindow(QMainWindow):
         tb.addWidget(self.history_box)
         tb.addSeparator()
         tb.addAction(self.act_help)
+
+    def _dims_toggled(self, on):
+        self.settings.setValue("dims_on", "true" if on else "false")
+        self.flat_view.set_show_dims(on)
 
     def _mode_changed(self, _):
         self.settings.setValue("mode", self.mode_box.currentData())
@@ -461,10 +511,67 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         self.assembly_view.set_parts(self.assembly_parts)
+        self.assy_parts_result = None
+        self.calc_xlsx_btn.setEnabled(False)
+        self.assy_summary.setText("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
         # 부품이 여럿이면 조립품 전체부터 보여 준다
         self.left_tabs.setCurrentIndex(1 if len(model.solids) > 1 else 0)
         self.t_auto.setChecked(True)
         self.run_unfold()
+
+    def calc_all(self):
+        if self.model is None:
+            return
+        from PySide6.QtWidgets import QProgressDialog
+        n = len(self.model.solids)
+        dlg = QProgressDialog("부품을 전개하는 중…", "그만", 0, n, self)
+        dlg.setWindowTitle("조립품 전체 계산")
+        dlg.setMinimumDuration(0)
+
+        def progress(i, total, name):
+            dlg.setValue(i)
+            dlg.setLabelText(f"{i + 1} / {total}  {name}")
+            QApplication.processEvents()
+            return not dlg.wasCanceled()
+
+        settings = self.bend_panel.settings()
+        thickness = None if self.t_auto.isChecked() else self.t_spin.value()
+        parts = assembly_calc.compute_all(self.model, settings, self.mode_box.currentData(),
+                                          thickness, progress)
+        dlg.setValue(n)
+        self.assy_parts_result = parts
+        self.calc_xlsx_btn.setEnabled(bool(parts))
+        for p in parts:
+            item = self.part_list.item(p.index)
+            if p.ok:
+                item.setText(f"{self.model.label(p.index)}   t{p.thickness:.2f} · "
+                             f"{p.metrics.blank_area / 1e6:.4f} m² · {p.metrics.weight_kg:.3f} kg")
+            else:
+                item.setText(f"{self.model.label(p.index)}   — 펼칠 수 없음")
+                item.setToolTip(p.error)
+        groups, total = assembly_calc.summarize(parts, settings.mat.code)
+        lines = [f"<b>전체 {len(parts)}개</b> · 전개 {total.count}개 · "
+                 f"펼칠 수 없음 {len(parts) - total.count}개",
+                 f"<b>블랭크 면적 합계</b> {total.blank_area / 1e6:.4f} m²",
+                 f"<b>블랭크 무게 합계</b> {total.weight_kg:.3f} kg "
+                 f"(사각 원판 {total.rect_weight_kg:.3f} kg)",
+                 f"<b>절단 길이 합계</b> {total.cut_length / 1000:.2f} m", "<b>두께별</b>"]
+        for g in groups:
+            lines.append(f"t{g.thickness:g} × {g.count}개 · {g.blank_area / 1e6:.4f} m² · "
+                         f"{g.weight_kg:.3f} kg")
+        lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
+        self.assy_summary.setText("<br>".join(lines))
+
+    def save_assembly_xlsx(self):
+        if not self.assy_parts_result:
+            return
+        base = os.path.splitext(self.model.path)[0] + "_assembly.xlsx"
+        path, _ = QFileDialog.getSaveFileName(self, "조립품 합계 엑셀", base, "엑셀 (*.xlsx)")
+        if not path:
+            return
+        assembly_calc.save_xlsx(path, self.model, self.assy_parts_result,
+                                self.bend_panel.settings().mat.code)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def select_part(self, idx):
         if self.model is not None and 0 <= idx < len(self.model.solids):
@@ -504,8 +611,16 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
 
-        self.flat_view.set_result(self.result)
+        self.dims = None
+        if self.result is not None:
+            try:
+                self.dims = dimsmod.compute(self.result, self.bend_panel.settings().mat.density)
+            except Exception:
+                traceback.print_exc()
+        self.flat_view.show_dims = self.dims_box.isChecked()
+        self.flat_view.set_result(self.result, self.dims)
         self._fill_table()
+        self._fill_dims()
         self._update_actions()
         self.record_id = None
         if self.result is not None and self.history_box.isChecked():
@@ -545,6 +660,13 @@ class MainWindow(QMainWindow):
                 lines.append(f"<span style='color:#e0a040'>⚠ {wmsg}</span>")
             self._set_info("<br>".join(lines))
 
+    def _fill_dims(self):
+        rows = self.dims.rows() if self.dims else []
+        self.dim_table.setRowCount(len(rows))
+        for i, (k, v) in enumerate(rows):
+            self.dim_table.setItem(i, 0, QTableWidgetItem(k))
+            self.dim_table.setItem(i, 1, QTableWidgetItem(v))
+
     def _fill_table(self):
         bends = self.result.bends if self.result else []
         self.table.setRowCount(len(bends))
@@ -577,7 +699,8 @@ class MainWindow(QMainWindow):
         try:
             dxf_export.save(self.result, path,
                             part_name=os.path.splitext(os.path.basename(self.model.path))[0],
-                            notes=self.notes_box.isChecked())
+                            notes=self.notes_box.isChecked(), dims=self.dims_box.isChecked(),
+                            density=self.bend_panel.settings().mat.density)
         except Exception as e:
             QMessageBox.warning(self, "저장 실패", str(e))
             return
@@ -714,7 +837,8 @@ def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports
                 r = unfold(solid, thickness=thickness, settings=settings, mode=mode)
                 suffix = f"_{i}" if len(model.solids) > 1 else ""
                 base = os.path.join(out_dir, f"{name}{suffix}")
-                dxf_export.save(r, base + "_flat.dxf", part_name=name, notes=notes)
+                dxf_export.save(r, base + "_flat.dxf", part_name=name, notes=notes,
+                                density=settings.mat.density)
                 if history is not None:
                     rid = history.record(path, r, settings, i, len(model.solids),
                                          part_name=model.names[i - 1])

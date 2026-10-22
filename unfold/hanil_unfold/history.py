@@ -131,7 +131,7 @@ class History:
             rid = cur.lastrowid
         if archive:
             dxf = self._archive_path(rid, name, part_index, part_count, when)
-            dxf_export.save(result, dxf, part_name=name)
+            dxf_export.save(result, dxf, part_name=name, density=mat.density)
             self.db.execute("UPDATE unfolds SET archive_dxf=? WHERE id=?", (dxf, rid))
         self.db.commit()
         return rid

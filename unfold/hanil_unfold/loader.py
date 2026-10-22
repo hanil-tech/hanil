@@ -136,6 +136,9 @@ def load(path: str) -> LoadedModel:
         shape = _fix(shape)
         solids = list_solids(shape)
         names = [f"부품 {i + 1}" for i in range(len(solids))]
+    if len(solids) == 1:
+        # 부품 하나짜리 파일은 파일 이름이 곧 부품 이름 (제품 이름 칸에 변환기 이름이 든 파일이 많다)
+        names = [os.path.splitext(os.path.basename(path))[0]]
     if not solids:
         raise ValueError(
             "파일 안에 솔리드(두께가 있는 3D 형상)가 없습니다.\n"
@@ -164,6 +167,10 @@ def _compound(solids):
 def _part_names(raw):
     """STEP 제품 이름을 부품 이름으로. 이름이 없거나 모두 같으면(한 덩어리로 저장된 파일) '부품 N'.
     같은 이름이 여러 번 나오면(같은 부품을 여러 개 조립) 뒤에 #2, #3 을 붙인다."""
+    import re
+    junk = re.compile(r"^\s*(open cascade.*|.*step translator.*|"
+                      r"(shell|solid|body|part|unnamed|noname)\s*(\(\d+\)|\d+)?)\s*$", re.I)
+    raw = ["" if not n or junk.match(n) else n for n in raw]
     if not raw or len(set(raw)) == 1 and len(raw) > 1 or not any(raw):
         return [f"부품 {i + 1}" for i in range(len(raw))]
     seen = {}

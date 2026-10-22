@@ -125,43 +125,100 @@ def paint_flat(p: QPainter, result, tf: FlatTransform, theme: Theme, strain=True
             p.drawText(m + QPointF(4, -4), f"B{b.number}")
 
 
-def paint_dimensions(p: QPainter, result, tf: FlatTransform, theme: Theme):
-    """전체 가로·세로 치수선."""
+def paint_dimensions(p: QPainter, result, tf: FlatTransform, theme: Theme, dims=None,
+                     line_width=0.8):
+    """치수선: 절곡선까지 연속 치수(안쪽), 전체 길이(바깥쪽), 구멍 번호·지름.
+
+    dims 가 없으면 전체 가로·세로만 그린다.
+    """
     x0, y0, x1, y1 = result.bbox
     w, h = x1 - x0, y1 - y0
     fm = p.fontMetrics()
-    gap = fm.height() * 1.2
-    p.setPen(QPen(theme.dim, 0.8))
-    # 가로 (아래)
-    a, b = tf.pt((x0, y0)), tf.pt((x1, y0))
-    y = a.y() + gap
+    gap = fm.height() * 1.3
+    p.setPen(QPen(theme.dim, line_width))
+    chains = {c.axis: c for c in (dims.chains if dims else [])}
+
+    # 가로 (아래): 연속 치수가 있으면 안쪽 줄, 전체는 바깥 줄
+    level = 1
+    if "x" in chains:
+        c = chains["x"]
+        for a_, b_ in zip(c.positions[:-1], c.positions[1:]):
+            _hdim(p, tf.pt((x0 + a_, y0)), tf.pt((x0 + b_, y0)), gap * level, f"{b_ - a_:.2f}", fm)
+        level += 1
+    _hdim(p, tf.pt((x0, y0)), tf.pt((x1, y0)), gap * level, f"{w:.2f}", fm)
+
+    # 세로 (오른쪽)
+    level = 1
+    if "y" in chains:
+        c = chains["y"]
+        for a_, b_ in zip(c.positions[:-1], c.positions[1:]):
+            _vdim(p, tf.pt((x1, y0 + a_)), tf.pt((x1, y0 + b_)), gap * level, f"{b_ - a_:.2f}", fm)
+        level += 1
+    _vdim(p, tf.pt((x1, y0)), tf.pt((x1, y1)), gap * level, f"{h:.2f}", fm)
+
+    # 구멍 번호와 지름
+    if dims:
+        for hole in dims.holes:
+            c = tf.pt((x0 + hole.center[0], y0 + hole.center[1]))
+            txt = f"{hole.label} Ø{hole.diameter:.1f}" if hole.diameter else \
+                f"{hole.label} {hole.size[0]:.1f}×{hole.size[1]:.1f}"
+            r = (hole.diameter / 2 if hole.diameter else max(hole.size) / 2) * tf.scale
+            p.drawText(QPointF(c.x() + r * 0.75 + 2, c.y() - r * 0.75 - 2), txt)
+
+
+def _hdim(p, a: QPointF, b: QPointF, off, txt, fm):
+    if abs(b.x() - a.x()) < 1:
+        return
+    y = max(a.y(), b.y()) + off
     p.drawLine(QPointF(a.x(), a.y() + 3), QPointF(a.x(), y + 3))
     p.drawLine(QPointF(b.x(), b.y() + 3), QPointF(b.x(), y + 3))
-    _arrow_line(p, QPointF(a.x(), y), QPointF(b.x(), y))
-    txt = f"{w:.2f}"
-    p.drawText(QPointF((a.x() + b.x()) / 2 - fm.horizontalAdvance(txt) / 2, y - 3), txt)
-    # 세로 (오른쪽)
-    c, d = tf.pt((x1, y0)), tf.pt((x1, y1))
-    x = c.x() + gap
-    p.drawLine(QPointF(c.x() + 3, c.y()), QPointF(x + 3, c.y()))
-    p.drawLine(QPointF(d.x() + 3, d.y()), QPointF(x + 3, d.y()))
-    _arrow_line(p, QPointF(x, c.y()), QPointF(x, d.y()))
-    txt = f"{h:.2f}"
+    _arrow_line(p, QPointF(a.x(), y), QPointF(b.x(), y), fm.height() * 0.35)
+    tw = fm.horizontalAdvance(txt)
+    if tw > abs(b.x() - a.x()) - 4:          # 좁으면 글씨를 조금 위로 비켜 쓴다
+        p.drawText(QPointF((a.x() + b.x()) / 2 - tw / 2, y - fm.height() * 0.9), txt)
+    else:
+        p.drawText(QPointF((a.x() + b.x()) / 2 - tw / 2, y - 3), txt)
+
+
+def _vdim(p, a: QPointF, b: QPointF, off, txt, fm):
+    if abs(b.y() - a.y()) < 1:
+        return
+    x = max(a.x(), b.x()) + off
+    p.drawLine(QPointF(a.x() + 3, a.y()), QPointF(x + 3, a.y()))
+    p.drawLine(QPointF(b.x() + 3, b.y()), QPointF(x + 3, b.y()))
+    _arrow_line(p, QPointF(x, a.y()), QPointF(x, b.y()), fm.height() * 0.35)
     p.save()
-    p.translate(x - 3, (c.y() + d.y()) / 2 + fm.horizontalAdvance(txt) / 2)
+    p.translate(x - 3, (a.y() + b.y()) / 2 + fm.horizontalAdvance(txt) / 2)
     p.rotate(-90)
     p.drawText(QPointF(0, 0), txt)
     p.restore()
 
 
-def _arrow_line(p, a: QPointF, b: QPointF):
+def paint_summary(p: QPainter, lines, x, y, theme: Theme):
+    """전개도 구석의 요약 상자 (두께·크기·면적·무게·절단 길이)."""
+    fm = p.fontMetrics()
+    w = max(fm.horizontalAdvance(t) for t in lines) + 16
+    h = fm.height() * len(lines) + 10
+    bg = QColor(theme.bg)
+    bg.setAlpha(225)
+    p.setPen(QPen(theme.dim, 0.8))
+    p.setBrush(bg)
+    p.drawRoundedRect(QRectF(x, y, w, h), 4, 4)
+    p.setBrush(Qt.NoBrush)
+    p.setPen(theme.text)
+    for i, t in enumerate(lines):
+        p.drawText(QPointF(x + 8, y + 5 + fm.ascent() + i * fm.height()), t)
+    return QRectF(x, y, w, h)
+
+
+def _arrow_line(p, a: QPointF, b: QPointF, s=6.0):
     p.drawLine(a, b)
     d = b - a
     L = math.hypot(d.x(), d.y())
     if L < 1e-6:
         return
     ux, uy = d.x() / L, d.y() / L
-    s = 6
+    s = min(s, L / 3)
     for tip, sgn in ((a, 1), (b, -1)):
         for side in (1, -1):
             p.drawLine(tip, QPointF(tip.x() + sgn * s * ux - side * s * 0.35 * uy,

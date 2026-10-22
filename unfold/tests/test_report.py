@@ -65,7 +65,7 @@ def test_excel_report_contents(reports):
     import openpyxl
     out, items = reports
     wb = openpyxl.load_workbook(out / "sheet.xlsx")
-    assert wb.sheetnames == ["보고서", "절곡표"]
+    assert wb.sheetnames == ["보고서", "절곡표", "치수"]
     ws = wb["절곡표"]
     assert ws.cell(1, 1).value == "번호"
     assert [ws.cell(r, 3).value for r in (2, 3)] == pytest.approx([90, 45], abs=1e-6) or \
@@ -140,3 +140,46 @@ def test_single_product_file_gets_numbered_names(tmp_path):
     w.Write(path)
     model = loader.load(path)
     assert len(model.solids) == 1 and model.label(0).startswith("1. ")
+
+
+def test_basic_dimensions_and_area():
+    from hanil_unfold import dims
+
+    steps = [("L", 50), ("B", 90, 2), ("L", 30), ("B", -90, 2), ("L", 20)]
+    part = drill(drill(profile_part(steps, 2, 40), 20, 0, 15, 8), 20, 0, 30, 5)
+    r = unfold(solid(part), k_factor=0.44)
+    d = dims.compute(r, 7.85)
+    ba = math.pi / 2 * (2 + 0.44 * 2)
+    # 절곡선(가운데) 위치: 첫 플랜지 + 절곡 여유의 절반
+    chain = d.chains[0]
+    assert chain.axis == "x"
+    assert chain.positions[1] == pytest.approx(50 + ba / 2, abs=1e-6)
+    assert chain.positions[2] == pytest.approx(50 + ba + 30 + ba / 2, abs=1e-6)
+    assert sum(chain.spans) == pytest.approx(d.width, abs=1e-9)
+    holes = sorted(d.holes, key=lambda h: h.diameter)
+    assert [round(h.diameter, 6) for h in holes] == [5, 8]
+    assert holes[1].center == pytest.approx((20, 15), abs=1e-6)
+    assert d.thickness == pytest.approx(2)
+    assert d.metrics.blank_area == pytest.approx(d.width * 40 - math.pi * (16 + 6.25), rel=1e-4)
+    keys = [k for k, _ in d.rows()]
+    assert "두께" in keys and "블랭크 면적 (구멍 뺌)" in keys and "H1 구멍" in keys
+
+
+def test_dxf_has_real_dimensions(tmp_path):
+    import ezdxf
+    from hanil_unfold import dxf_export
+
+    part = drill(profile_part([("L", 50), ("B", 90, 2), ("L", 30)], 2, 40), 20, 0, 15, 8)
+    r = unfold(solid(part), k_factor=0.44)
+    out = tmp_path / "d.dxf"
+    dxf_export.save(r, str(out))
+    doc = ezdxf.readfile(out)
+    texts = []
+    for dim in doc.modelspace().query("DIMENSION"):
+        texts += [t.dxf.text for t in doc.blocks.get(dim.dxf.geometry).query("MTEXT TEXT")]
+    w = r.size[0]
+    assert f"{w:.2f}" in texts            # 전체 길이, 배율 1
+    assert "40" in texts
+    assert any("%%c8" in t for t in texts)  # 구멍 지름
+    notes = [t.dxf.text for t in doc.modelspace().query('TEXT[layer=="NOTE"]')]
+    assert any(t.startswith("AREA ") and "WEIGHT" in t for t in notes)

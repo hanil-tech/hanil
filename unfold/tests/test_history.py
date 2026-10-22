@@ -76,3 +76,28 @@ def test_history_survives_reopen(tmp_path, result):
 
 def test_bend_summary_groups(result):
     assert bend_summary(result.bends) == "90.0°R2.00 ×2"
+
+
+def test_assembly_totals_by_thickness(tmp_path):
+    from models import tray
+    from hanil_unfold import assembly_calc
+    from hanil_unfold.loader import LazySolids, LoadedModel
+
+    a = profile_part([("L", 50), ("B", 90, 2), ("L", 30)], 2, 40)
+    b = tray(100, 80, 30, 1.6, 1.6, 5)
+    c = profile_part([("L", 20), ("B", 90, 2), ("L", 20)], 2, 30)
+    solids = [loader.list_solids(x)[0] for x in (a, b, c)]
+    model = LoadedModel("x.step", None, LazySolids(solids), ["A", "B", "C"])
+    s = bc.BendSettings(material="SPCC")
+    parts = assembly_calc.compute_all(model, s)
+    assert all(p.ok for p in parts)
+    groups, total = assembly_calc.summarize(parts, "SPCC")
+    assert [g.thickness for g in groups] == [1.6, 2.0]
+    assert [g.count for g in groups] == [1, 2]
+    assert total.weight_kg == pytest.approx(sum(p.metrics.weight_kg for p in parts))
+    out = tmp_path / "assy.xlsx"
+    assembly_calc.save_xlsx(str(out), model, parts, "SPCC")
+    import openpyxl
+    wb = openpyxl.load_workbook(out)
+    assert wb.sheetnames == ["두께별 합계", "부품별"]
+    assert wb["두께별 합계"].cell(4, 2).value == "합계"

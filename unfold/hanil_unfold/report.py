@@ -44,6 +44,18 @@ class ReportData:
         return self._m
 
     @property
+    def dims(self):
+        if not hasattr(self, "_d"):
+            from . import dims as dimsmod
+            self._d = dimsmod.compute(self.result, self.material.density)
+        return self._d
+
+    def dim_rows(self):
+        """보고서 치수 표: 요약 표와 겹치는 면적·무게 줄은 빼고 위치·구멍만."""
+        return [r for r in self.dims.rows()
+                if not r[0].startswith(("두께", "전체 크기", "블랭크", "외곽", "사각", "절단"))]
+
+    @property
     def title(self):
         return "성형품 블랭크 전개 보고서" if self.result.mode == "forming" else "판금 전개 보고서"
 
@@ -71,8 +83,9 @@ def summary_rows(d: ReportData):
         rows.append(("계산 조건", r.settings_text))
     rows += [
         ("전개 크기 (가로 × 세로)", f"{m.width:.2f} × {m.height:.2f} mm"),
-        ("블랭크 넓이", f"{m.blank_area:,.1f} mm²  ({m.blank_area / 1e6:.4f} m²)"),
-        ("사각 원판 넓이", f"{m.rect_area:,.1f} mm²   수율 {m.yield_ratio:.1%}"),
+        ("블랭크 면적 (구멍 뺌)", f"{m.blank_area:,.1f} mm²  ({m.blank_area / 1e6:.4f} m²)"),
+        ("외곽 면적 (구멍 포함)", f"{m.outer_area:,.1f} mm²"),
+        ("사각 원판 면적", f"{m.rect_area:,.1f} mm²   수율 {m.yield_ratio:.1%}"),
         ("블랭크 무게", f"{m.weight_kg:.3f} kg   (사각 원판 {m.rect_weight_kg:.3f} kg, "
                      f"비중 {d.material.density:g})"),
         ("절단 길이", f"{m.cut_length:,.1f} mm   (피어싱 {m.pierce}곳, 구멍 {m.holes}개)"),
@@ -154,7 +167,7 @@ def render_flat_image(d: ReportData, w=1600, h=1000, dims=True):
     tf = FlatTransform.fit(d.result, rect)
     paint_flat(p, d.result, tf, LIGHT, line_scale=2.0)
     if dims:
-        paint_dimensions(p, d.result, tf, LIGHT)
+        paint_dimensions(p, d.result, tf, LIGHT, d.dims, line_width=1.5)
     if legend_h:
         paint_legend(p, QRectF(w * 0.25, h - legend_h - 10, w * 0.5, 22), LIGHT)
     p.end()
@@ -234,7 +247,8 @@ def save_pdf(d: ReportData, path: str):
 
     # 전개도 + 3D
     bends = bend_rows(d)
-    table_h = 7 + 5 * min(len(bends), 12) if bends else 0
+    dim_rows = d.dim_rows()
+    table_h = (7 + 5 * min(len(bends), 12) if bends else 0) + (6 + 4.6 * min(len(dim_rows), 10))
     note_list = notes(d)
     notes_h = 4 + 4.2 * len(note_list)
     avail = page_h - margin - y - table_h - notes_h - 6
@@ -246,9 +260,9 @@ def save_pdf(d: ReportData, path: str):
     p.setFont(_font(7))
     legend_h = 9 if d.result.forming is not None else 0
     inner = R(margin + 3, y + 5, flat_w - 14, draw_h - 13 - legend_h)
-    tf = FlatTransform.fit(d.result, inner, margin=0.92)
+    tf = FlatTransform.fit(d.result, inner, margin=0.78)
     paint_flat(p, d.result, tf, LIGHT, line_scale=0.25 * k)
-    paint_dimensions(p, d.result, tf, LIGHT)
+    paint_dimensions(p, d.result, tf, LIGHT, d.dims, line_width=0.15 * k)
     if legend_h:
         paint_legend(p, R(margin + flat_w * 0.2, y + draw_h - legend_h - 2, flat_w * 0.6, 3), LIGHT)
     p.setPen(gray)
@@ -270,6 +284,10 @@ def save_pdf(d: ReportData, path: str):
     if bends:
         y = _bend_table(p, R, bends, y, margin, inner_w, page_h, header)
 
+    # 치수 표 (절곡선 위치·플랜지 길이·구멍) — 두 단
+    if dim_rows:
+        y = _dim_table(p, R, dim_rows, y, margin, inner_w, page_h, header)
+
     # 주의 사항
     p.setFont(_font(7.5))
     if y + notes_h > page_h - margin:
@@ -283,6 +301,36 @@ def save_pdf(d: ReportData, path: str):
         p.drawText(R(margin + 2, y, inner_w - 2, 4.2), Qt.AlignLeft | Qt.TextWordWrap, "· " + n)
         y += 4.2
     p.end()
+
+
+def _dim_table(p, R, rows, y, margin, inner_w, page_h, header):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+
+    row_h = 4.6
+    p.setFont(_font(7.5, True))
+    p.setPen(QColor(20, 20, 20))
+    p.drawText(R(margin, y, inner_w, 5), Qt.AlignLeft | Qt.AlignVCenter,
+               "치수 (mm, 원점 = 전개도 왼쪽 아래)")
+    y += 5.5
+    p.setFont(_font(7))
+    col_w = (inner_w - 4) / 2
+    half = (len(rows) + 1) // 2
+    for i, (k, v) in enumerate(rows):
+        col, r = divmod(i, half)
+        ry = y + r * row_h
+        if ry + row_h > page_h - 14:
+            p.device().newPage()
+            y = header(12) - r * row_h
+            ry = y + r * row_h
+        x = margin + col * (col_w + 4)
+        if r % 2 == 0:
+            p.fillRect(R(x, ry, col_w, row_h), QColor(244, 246, 249))
+        p.setPen(QColor(110, 110, 110))
+        p.drawText(R(x + 1.5, ry, 34, row_h), Qt.AlignLeft | Qt.AlignVCenter, k)
+        p.setPen(QColor(20, 20, 20))
+        p.drawText(R(x + 36, ry, col_w - 37, row_h), Qt.AlignLeft | Qt.AlignVCenter, v)
+    return y + half * row_h + 4
 
 
 def _bend_table(p, R, bends, y, margin, inner_w, page_h, header):
@@ -427,6 +475,29 @@ def save_xlsx(d: ReportData, path: str):
             if b.kind == "원뿔":
                 wsb.cell(i, 5, b.radius_text)
         wsb.freeze_panes = "A2"
+
+    # 치수
+    wsd = wb.create_sheet("치수")
+    wsd.column_dimensions["A"].width = 28
+    wsd.column_dimensions["B"].width = 60
+    for j, h in enumerate(("항목", "값 (mm, 원점 = 전개도 왼쪽 아래)"), 1):
+        c = wsd.cell(1, j, h)
+        c.font, c.fill = st["head"], st["head_fill"]
+    for i, (k, v) in enumerate(d.dims.rows(), 2):
+        wsd.cell(i, 1, k)
+        wsd.cell(i, 2, v)
+    r0 = len(d.dims.rows()) + 3
+    if d.dims.holes:
+        for j, h in enumerate(("구멍", "지름", "가로", "세로", "중심 X", "중심 Y"), 1):
+            c = wsd.cell(r0, j, h)
+            c.font, c.fill = st["head"], st["head_fill"]
+        for i, hole in enumerate(d.dims.holes, r0 + 1):
+            vals = [hole.label, hole.diameter, hole.size[0] if hole.size else None,
+                    hole.size[1] if hole.size else None, hole.center[0], hole.center[1]]
+            for j, v in enumerate(vals, 1):
+                c = wsd.cell(i, j, round(v, 3) if isinstance(v, float) else v)
+                if isinstance(v, float):
+                    c.number_format = "0.00"
 
     # 성형품 두께 변화 분포
     if d.result.forming is not None:
