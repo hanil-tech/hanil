@@ -268,6 +268,7 @@ def arap(V, F, U, iterations=60):
     L[0, 0] = 1
     solve = factorized(L.tocsc())
 
+    size = float(np.linalg.norm(V.max(0) - V.min(0))) or 1.0
     for _ in range(iterations):
         # 국소 단계: 삼각형마다 가장 가까운 회전
         Rs = np.zeros((len(F), 2, 2))
@@ -276,22 +277,27 @@ def arap(V, F, U, iterations=60):
             du = U[F[:, i]] - U[F[:, j]]
             dq = q[:, i] - q[:, j]
             Rs += cots[:, k, None, None] * np.einsum("ti,tj->tij", du, dq)
-        u_, s_, vt = np.linalg.svd(Rs)
-        R = u_ @ vt
-        bad = np.linalg.det(R) < 0
-        if bad.any():
-            u_[bad, :, 1] *= -1
-            R[bad] = u_[bad] @ vt[bad]
+        # 2x2 에서 가장 가까운 회전은 각도 하나로 바로 나온다 (SVD 보다 수십 배 빠름)
+        th = np.arctan2(Rs[:, 1, 0] - Rs[:, 0, 1], Rs[:, 0, 0] + Rs[:, 1, 1])
+        c, sn = np.cos(th), np.sin(th)
+        R = np.empty((len(F), 2, 2))
+        R[:, 0, 0], R[:, 0, 1], R[:, 1, 0], R[:, 1, 1] = c, -sn, sn, c
         # 전역 단계
         rhs = np.zeros((n, 2))
         for k in range(3):
             i, j = (k + 1) % 3, (k + 2) % 3
             dq = q[:, i] - q[:, j]
             b = 0.5 * cots[:, k, None] * np.einsum("tij,tj->ti", R, dq)
-            np.add.at(rhs, F[:, i], b)
-            np.add.at(rhs, F[:, j], -b)
+            for d in (0, 1):
+                rhs[:, d] += np.bincount(F[:, i], weights=b[:, d], minlength=n)
+                rhs[:, d] -= np.bincount(F[:, j], weights=b[:, d], minlength=n)
         rhs[0] = U[0]
-        U = np.column_stack([solve(rhs[:, 0]), solve(rhs[:, 1])])
+        U_new = np.column_stack([solve(rhs[:, 0]), solve(rhs[:, 1])])
+        # 더 움직이지 않으면 멈춘다 (크기의 10만분의 1 이하)
+        moved = float(np.abs(U_new - U).max())
+        U = U_new
+        if moved < 1e-5 * size:
+            break
     return U
 
 

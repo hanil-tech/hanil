@@ -75,7 +75,8 @@ class LazySolids:
             i += len(self.raw)
         if i not in self._done:
             from .canonical import canonicalize
-            solid, changed, kept = canonicalize(self.raw[i])
+            # 형상 보정(ShapeFix)도 꺼낼 때 한다 — 열 때 모든 부품을 고치면 큰 조립품이 느리다
+            solid, changed, kept = canonicalize(_first_solid(_fix(self.raw[i])))
             self._done[i] = solid
             self.recognized[i] = (changed, kept)
         return self._done[i]
@@ -84,12 +85,19 @@ class LazySolids:
         return (self[i] for i in range(len(self)))
 
 
+def _first_solid(shape):
+    found = list_solids(shape)
+    return found[0] if found else shape
+
+
 @dataclass
 class LoadedModel:
     path: str
     shape: TopoDS_Shape
     solids: LazySolids
     names: list = None          # 부품 이름 (STEP 의 제품 이름, 없으면 "부품 N")
+    cache_dir: str = ""         # 다시 열 때 쓰는 보관 폴더 (메시 등도 여기에)
+    from_cache: bool = False
 
     @property
     def recognized(self):
@@ -105,7 +113,7 @@ class LoadedModel:
         return f"{i + 1}. {self.names[i]}" if self.names else f"{i + 1}"
 
 
-def load(path: str) -> LoadedModel:
+def load(path: str, use_cache: bool = True) -> LoadedModel:
     ext = os.path.splitext(path)[1].lower()
 
     if ext in _CONVERT_HELP:
@@ -113,11 +121,19 @@ def load(path: str) -> LoadedModel:
     if not os.path.isfile(path):
         raise FileNotFoundError(f"파일이 없습니다: {path}")
 
+    cdir = cache_dir_for(path) if use_cache else ""
+    if cdir:
+        cached = _read_cache(cdir)
+        if cached is not None:
+            solids, names = cached
+            return LoadedModel(path=path, shape=_compound(solids), solids=LazySolids(solids),
+                               names=names, cache_dir=cdir, from_cache=True)
+
     names = None
     if ext in (".stp", ".step"):
         parts = _read_step_parts(path)
         if parts is not None:
-            solids = [_fix(s) for s, _ in parts]
+            solids = [s for s, _ in parts]
             names = _part_names([n for _, n in parts])
             shape = _compound(solids)
         else:
@@ -144,8 +160,72 @@ def load(path: str) -> LoadedModel:
             "파일 안에 솔리드(두께가 있는 3D 형상)가 없습니다.\n"
             "곡면(서피스)만 들어 있는 파일이면 CAD 에서 솔리드로 저장해 주세요."
         )
+    if cdir:
+        _write_cache(cdir, solids, names)
     # 평면·절곡 R 까지 자유곡면으로 저장된 파일은 부품을 꺼낼 때 원래 모양으로 되돌린다.
-    return LoadedModel(path=path, shape=shape, solids=LazySolids(solids), names=names)
+    return LoadedModel(path=path, shape=shape, solids=LazySolids(solids), names=names,
+                       cache_dir=cdir)
+
+
+# ---------------------------------------------------------------- 다시 열기 보관 (캐시)
+
+CACHE_VERSION = "2"
+
+
+def cache_root():
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~/.cache")
+    return os.path.join(base, "HanilUnfold", "cache")
+
+
+def cache_dir_for(path):
+    """파일 경로·크기·수정 시각이 같으면 같은 폴더. 파일이 바뀌면 새로 읽는다."""
+    import hashlib
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    key = f"{os.path.abspath(path)}|{st.st_size}|{int(st.st_mtime)}|{CACHE_VERSION}"
+    return os.path.join(cache_root(), hashlib.sha1(key.encode("utf-8")).hexdigest()[:20])
+
+
+def _read_cache(cdir):
+    import json
+    shape_path = os.path.join(cdir, "shape.bin")
+    names_path = os.path.join(cdir, "names.json")
+    if not (os.path.exists(shape_path) and os.path.exists(names_path)):
+        return None
+    try:
+        from OCP.BinTools import BinTools
+        shape = TopoDS_Shape()
+        BinTools.Read_s(shape, shape_path)
+        solids = list_solids(shape)
+        with open(names_path, encoding="utf-8") as f:
+            names = json.load(f)
+        if not solids or len(names) != len(solids):
+            return None
+        os.utime(cdir, None)       # 최근에 쓴 보관 폴더로 표시 (오래된 것부터 지운다)
+        return solids, names
+    except Exception:
+        return None
+
+
+def _write_cache(cdir, solids, names, keep=15):
+    import json
+    import shutil
+    try:
+        from OCP.BinTools import BinTools
+        os.makedirs(cdir, exist_ok=True)
+        BinTools.Write_s(_compound(solids), os.path.join(cdir, "shape.bin"))
+        with open(os.path.join(cdir, "names.json"), "w", encoding="utf-8") as f:
+            json.dump(names, f, ensure_ascii=False)
+        # 보관 폴더는 최근 keep 개만 남긴다
+        root = cache_root()
+        dirs = sorted((os.path.join(root, d) for d in os.listdir(root)),
+                      key=lambda d: os.path.getmtime(d), reverse=True)
+        for d in dirs[keep:]:
+            shutil.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
 
 
 def _fix(shape):
@@ -206,6 +286,13 @@ def _read_step_parts(path):
         doc = TDocStd_Document(TCollection_ExtendedString("MDTV-XCAF"))
         reader = STEPCAFControl_Reader()
         reader.SetNameMode(True)
+        # 이름만 쓴다. 색·레이어·치수 주석 같은 것은 읽지 않아 빠르게
+        for flag in ("SetColorMode", "SetLayerMode", "SetPropsMode", "SetSHUOMode",
+                     "SetGDTMode", "SetMatMode", "SetViewMode"):
+            try:
+                getattr(reader, flag)(False)
+            except Exception:
+                pass
         if reader.ReadFile(path) != IFSelect_RetDone:
             raise ValueError("STEP 파일을 읽지 못했습니다. 파일이 손상되었을 수 있습니다.")
         if not reader.Transfer(doc):

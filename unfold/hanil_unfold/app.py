@@ -25,6 +25,7 @@ from .bend_panel import BendPanel
 from .history import History
 from .history_dialog import HistoryDialog
 from . import assembly_calc
+from .gl_view import GLView, gl_available, mesh_parts, mesh_parts_cached
 from . import dims as dimsmod
 from .drawing import (DARK, FlatTransform, assembly_polylines, paint_assembly, paint_dimensions,
                       paint_flat, paint_legend, paint_summary, solid_polylines, view_rotation)
@@ -295,8 +296,15 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
 
-        self.model_view = ModelView()
-        self.assembly_view = AssemblyView()
+        # 그래픽 카드(OpenGL)를 쓸 수 있으면 3D 를 그래픽 카드로 그린다 (큰 조립품도 부드럽게).
+        self.use_gl = self.settings.value("use_gl", "true") == "true" and gl_available()
+        if self.use_gl:
+            self.model_view = GLView(balloons=False, hint="끌어서 돌리기 · 오른쪽 끌기 이동 · 휠로 확대")
+            self.assembly_view = GLView(
+                hint="부품·번호를 누르면 그 부품 · 왼쪽 끌기 돌리기 · 오른쪽 끌기 이동 · 휠 확대 · 두 번 눌러 맞춤")
+        else:
+            self.model_view = ModelView()
+            self.assembly_view = AssemblyView()
         self.assembly_view.partClicked.connect(self.select_part)
         self.part_list = QListWidget()
         self.part_list.currentRowChanged.connect(
@@ -315,6 +323,10 @@ class MainWindow(QMainWindow):
         row.addWidget(self.calc_all_btn)
         row.addWidget(self.calc_xlsx_btn)
         sl.addLayout(row)
+        self.all_balloons_box = QCheckBox("번호 모두 보기")
+        self.all_balloons_box.setToolTip("끄면 고른 부품 번호만 보입니다 (부품이 많을 때)")
+        self.all_balloons_box.toggled.connect(self._balloons_toggled)
+        sl.addWidget(self.all_balloons_box)
         self.assy_summary = QLabel("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
         self.assy_summary.setWordWrap(True)
         self.assy_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -440,6 +452,12 @@ class MainWindow(QMainWindow):
         self.dims_box.setChecked(self.settings.value("dims_on", "true") == "true")
         self.dims_box.toggled.connect(self._dims_toggled)
         tb.addWidget(self.dims_box)
+        self.gl_box = QCheckBox("그래픽 가속")
+        self.gl_box.setToolTip("3D 를 그래픽 카드(OpenGL)로 그립니다. 큰 조립품이 훨씬 빠릅니다.\n"
+                               "화면이 깨지거나 원격 데스크톱이면 끄세요 (다시 시작하면 적용).")
+        self.gl_box.setChecked(self.settings.value("use_gl", "true") == "true")
+        self.gl_box.toggled.connect(self._gl_toggled)
+        tb.addWidget(self.gl_box)
         self.history_box = QCheckBox("전개 기록 남기기")
         self.history_box.setToolTip("전개한 부품의 수치와 DXF 사본을 자동으로 쌓아 둡니다.\n"
                                     "같은 날 같은 부품을 다시 전개하면 최신 값으로 갱신합니다.")
@@ -451,6 +469,13 @@ class MainWindow(QMainWindow):
         tb.addWidget(self.history_box)
         tb.addSeparator()
         tb.addAction(self.act_help)
+
+    def _gl_toggled(self, on):
+        self.settings.setValue("use_gl", "true" if on else "false")
+        QMessageBox.information(self, "그래픽 가속",
+                                "프로그램을 다시 시작하면 적용됩니다." + (
+                                    "" if not on or gl_available() else
+                                    "\n\n이 PC 는 OpenGL 2.1 을 쓸 수 없어 예전 방식으로 그립니다."))
 
     def _dims_toggled(self, on):
         self.settings.setValue("dims_on", "true" if on else "false")
@@ -512,12 +537,22 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self.assembly_parts = assembly_polylines(model.raw_solids)
+            if self.use_gl:
+                self.assembly_meshes = mesh_parts_cached(model.raw_solids, model.cache_dir)
         finally:
             QApplication.restoreOverrideCursor()
-        self.assembly_view.set_parts(self.assembly_parts)
+        if self.use_gl:
+            self.assembly_view.set_parts(self.assembly_meshes, self.assembly_parts)
+        else:
+            self.assembly_view.set_parts(self.assembly_parts)
         self.assy_parts_result = None
         self.calc_xlsx_btn.setEnabled(False)
         self.assy_summary.setText("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
+        # 부품이 많으면 번호는 고른 부품만 (화면이 번호로 덮이지 않게)
+        self.all_balloons_box.blockSignals(True)
+        self.all_balloons_box.setChecked(len(model.solids) <= 40)
+        self.all_balloons_box.blockSignals(False)
+        self._balloons_toggled(self.all_balloons_box.isChecked())
         # 부품이 여럿이면 조립품 전체부터 보여 준다
         self.left_tabs.setCurrentIndex(1 if len(model.solids) > 1 else 0)
         self.t_auto.setChecked(True)
@@ -577,6 +612,10 @@ class MainWindow(QMainWindow):
                                 self.bend_panel.settings().mat.code)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    def _balloons_toggled(self, on):
+        if hasattr(self.assembly_view, "set_all_balloons"):
+            self.assembly_view.set_all_balloons(on)
+
     def select_part(self, idx):
         if self.model is not None and 0 <= idx < len(self.model.solids):
             self.solid_box.setCurrentIndex(idx)
@@ -597,7 +636,10 @@ class MainWindow(QMainWindow):
         self.part_list.blockSignals(True)
         self.part_list.setCurrentRow(idx)
         self.part_list.blockSignals(False)
-        self.model_view.set_solid(solid)
+        if self.use_gl:
+            self.model_view.set_parts(mesh_parts([solid]), [solid_polylines(solid, iso=False)])
+        else:
+            self.model_view.set_solid(solid)
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
 
         QApplication.setOverrideCursor(Qt.WaitCursor)

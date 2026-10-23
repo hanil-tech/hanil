@@ -260,7 +260,7 @@ def solid_polylines(solid, samples=24, iso=True):
     return out
 
 
-def _iso_lines(solid, count=7, samples=40):
+def _iso_lines(solid, count=7, samples=40, max_faces=25):
     """곡면에 등매개변수선을 몇 줄 그어 모양이 보이게 한다 (면 밖으로 나간 부분은 자른다)."""
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.BRepClass import BRepClass_FaceClassifier
@@ -270,14 +270,25 @@ def _iso_lines(solid, count=7, samples=40):
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopoDS import TopoDS
 
-    out = []
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+
+    # 곡면이 많으면 느려지므로 넓은 곡면 몇 개에만 긋는다
+    faces = []
     exp = TopExp_Explorer(solid, TopAbs_FACE)
     while exp.More():
         face = TopoDS.Face(exp.Current())
         exp.Next()
-        surf = BRepAdaptor_Surface(face, True)
-        if surf.GetType() in (GeomAbs_Plane, GeomAbs_Cylinder, GeomAbs_Cone):
+        if BRepAdaptor_Surface(face, True).GetType() in (GeomAbs_Plane, GeomAbs_Cylinder, GeomAbs_Cone):
             continue
+        g = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, g)
+        faces.append((g.Mass(), face))
+    faces.sort(key=lambda t: -t[0])
+    count, samples = min(count, 5), min(samples, 24)
+    out = []
+    for _, face in faces[:max_faces]:
+        surf = BRepAdaptor_Surface(face, True)
         u0, u1 = surf.FirstUParameter(), surf.LastUParameter()
         v0, v1 = surf.FirstVParameter(), surf.LastVParameter()
         for direction in (0, 1):
@@ -419,34 +430,31 @@ def paint_assembly(p: QPainter, parts, rect: QRectF, theme: Theme, highlight=Non
     return out
 
 
-def _spread_balloons(anchors, r, rect: QRectF, iterations=80):
-    """겹치는 풍선을 서로 밀어 낸다. 처음 자리는 부품 위(끈 없음)."""
+def _spread_balloons(anchors, r, rect: QRectF, iterations=150):
+    """겹치는 풍선을 서로 밀어 낸다. 처음 자리는 부품 위(끈 없음).
+
+    numpy 로 한꺼번에 계산한다 (풍선이 수백 개여도 빠르게)."""
     if not anchors:
         return []
     P = np.array(anchors, float).copy()
     A = P.copy()
+    n = len(P)
     gap = 2.3 * r
     lo = np.array([rect.left() + r, rect.top() + r])
     hi = np.array([rect.right() - r, rect.bottom() - r])
+    # 같은 자리에 겹친 풍선은 조금씩 다른 방향으로 흩어 둔다
+    ang = np.arange(n) * 2.399963
+    P += np.c_[np.cos(ang), np.sin(ang)] * 1e-3 * r
+    eye = np.eye(n, dtype=bool)
     for _ in range(iterations):
-        moved = False
         D = P[:, None, :] - P[None, :, :]
-        dist = np.linalg.norm(D, axis=2) + np.eye(len(P)) * 1e9
-        close = dist < gap
-        if close.any():
-            push = np.zeros_like(P)
-            ii, jj = np.nonzero(close)
-            for i, j in zip(ii, jj):
-                d = D[i, j]
-                n = np.linalg.norm(d)
-                if n < 1e-6:
-                    d, n = np.array([1.0, 0.3]) * (1 if i < j else -1), 1.0
-                push[i] += d / n * (gap - dist[i, j]) * 0.5
-            P += push
-            moved = True
-        # 원래 자리로 조금씩 당긴다 (끈이 너무 길어지지 않게)
-        P += (A - P) * 0.02
-        P = np.clip(P, lo, hi)
-        if not moved:
+        dist = np.linalg.norm(D, axis=2)
+        close = (dist < gap) & ~eye
+        if not close.any():
             break
+        safe = np.where(dist < 1e-9, 1.0, dist)
+        push = np.where(close[..., None], D / safe[..., None] * (gap - dist)[..., None] * 0.5, 0.0)
+        P += push.sum(axis=1)
+        P += (A - P) * 0.02          # 원래 자리로 조금씩 (끈이 너무 길어지지 않게)
+        P = np.clip(P, lo, hi)
     return list(P)
