@@ -792,7 +792,8 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             report.save_assembly_pdf(self.model, path, parts=self.assembly_parts,
-                                     yaw=self.assembly_view.yaw, pitch=self.assembly_view.pitch)
+                                     yaw=getattr(self.assembly_view, "yaw", None),
+                                     pitch=getattr(self.assembly_view, "pitch", None))
         except Exception as e:
             traceback.print_exc()
             QMessageBox.warning(self, "조립도 저장 실패", str(e))

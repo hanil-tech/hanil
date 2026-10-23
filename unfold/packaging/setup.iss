@@ -36,6 +36,7 @@ Name: "assoc"; Description: "STEP 파일(.stp, .step)을 마우스 오른쪽 [�
 
 [Files]
 Source: "..\dist\HanilUnfold\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\한일 판금 전개"; Filename: "{app}\HanilUnfold.exe"
