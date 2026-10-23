@@ -55,6 +55,7 @@ a = Analysis(
     # scipy 는 안에 넣어 둔 array_api_compat 를 실행 중에 불러와 PyInstaller 가 놓친다.
     hiddenimports=(collect_submodules("OCP") + collect_submodules("scipy._external")
                    + collect_submodules("scipy.sparse") + collect_submodules("scipy.spatial")
+                   + collect_submodules("scipy.ndimage") + collect_submodules("scipy.fft")
                    + ["ezdxf", "numpy", "numpy.fft", "numpy.linalg", "openpyxl", "PIL"]),
     runtime_hooks=[os.path.join(HERE, "rthook_dlls.py")],
     excludes=["tkinter", "matplotlib", "vtk", "vtkmodules", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore",

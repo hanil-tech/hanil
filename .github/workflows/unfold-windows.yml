@@ -63,6 +63,12 @@ jobs:
           if ((Get-ChildItem $out -Filter *.dxf).Count -ne 3) { throw "DXF 가 만들어지지 않았습니다" }
           if ((Get-ChildItem $out -Filter *.pdf).Count -ne 3) { throw "PDF 보고서가 만들어지지 않았습니다" }
           if (-not (Test-Path (Join-Path $out "parts_list.xlsx"))) { throw "부품 목록 엑셀이 없습니다" }
+          $p = Start-Process -FilePath "dist\HanilUnfold\HanilUnfold.exe" `
+                 -ArgumentList @("nest", "samples\bracket_t2.step", "samples\tray_t1.6.step",
+                                 "--sheet", "1219x2438", "--qty", "5", "-o", $out) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "철판 배치 실패 (종료 코드 $($p.ExitCode))" }
+          if ((Get-ChildItem $out -Filter *_nesting_*.dxf).Count -ne 1) { throw "철판 배치 DXF 가 없습니다" }
+          if ((Get-ChildItem $out -Filter *_nesting_*.pdf).Count -ne 1) { throw "철판 배치 PDF 가 없습니다" }
 
       - name: 설치 파일 만들기
         shell: pwsh

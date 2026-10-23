@@ -4,6 +4,8 @@
       → 화면 프로그램 (파일을 주면 바로 연다. exe 아이콘에 끌어다 놓은 경우)
   python -m hanil_unfold convert 부품.stp [-o 전개.dxf] [-k 0.44] [-t 2.0]
       → 화면 없이 DXF 만들기 (여러 파일도 가능)
+  python -m hanil_unfold nest 부품.stp [더.stp] --sheet 1219x2438 [--qty 2] [-o 폴더]
+      → 모든 부품을 전개해 철판에 배치 (두께별), 배치 DXF·PDF
 """
 import argparse
 import os
@@ -118,6 +120,61 @@ def cli(argv):
     return status
 
 
+def nest_cli(argv):
+    from . import bendcalc as bc
+    from . import loader, nesting, report
+    from .unfolder import unfold
+
+    ap = argparse.ArgumentParser(prog="HanilUnfold nest", description="STEP 부품을 전개해 철판에 배치")
+    ap.add_argument("files", nargs="+", help="STEP 파일")
+    ap.add_argument("--sheet", default="1219x2438", help="철판 크기 (예: 1219x2438, 1524*3048)")
+    ap.add_argument("--gap", type=float, default=5.0, help="부품 간격 mm")
+    ap.add_argument("--margin", type=float, default=10.0, help="가장자리 여유 mm")
+    ap.add_argument("--rotate", choices=list(nesting.ROTATIONS), default="free",
+                    help="free=90° 씩, 45=45° 씩, grain=180° 만, none=돌리지 않음")
+    ap.add_argument("--qty", type=int, default=1, help="부품마다 수량")
+    ap.add_argument("--tries", type=int, default=1, help="놓는 순서를 바꿔 해 볼 횟수 (1~3)")
+    ap.add_argument("--material", choices=list(bc.MATERIAL_BY_CODE), default="SPCC")
+    ap.add_argument("-o", "--output", help="저장할 폴더")
+    args = ap.parse_args(argv)
+    size = nesting.parse_size(args.sheet)
+    if size is None:
+        print(f"철판 크기를 읽지 못했습니다: {args.sheet}", file=sys.stderr)
+        return 2
+    settings = bc.BendSettings(method=bc.K_MATERIAL, material=args.material)
+    parts = []
+    status = 0
+    for path in args.files:
+        try:
+            model = loader.load(path)
+        except Exception as e:
+            print(f"[실패] {path}\n{e}", file=sys.stderr)
+            status = 1
+            continue
+        for i, solid in enumerate(model.solids):
+            try:
+                r = unfold(solid, settings=settings)
+                parts.append(nesting.NestPart.from_result(model.names[i], r, args.qty, args.material,
+                                                          len(parts) + 1))
+            except Exception as e:
+                print(f"[건너뜀] {path} {i + 1}: {str(e).splitlines()[0]}", file=sys.stderr)
+    if not parts:
+        return 1
+    results = nesting.nest_by_thickness(parts, size[0], size[1], gap=args.gap, margin=args.margin,
+                                        rotations=args.rotate, tries=args.tries)
+    folder = args.output or os.path.dirname(os.path.abspath(args.files[0]))
+    os.makedirs(folder, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(args.files[0]))[0]
+    base = os.path.join(folder, f"{stem}_nesting_{size[0]:g}x{size[1]:g}")
+    nesting.save_dxf(results, base + ".dxf")
+    report.save_nesting_pdf(results, base + ".pdf", os.path.basename(args.files[0]),
+                            settings.mat.density)
+    for r in results:
+        print("\n".join(r.summary_lines(settings.mat.density)) + "\n")
+    print(f"[완료] {base}.dxf, {base}.pdf")
+    return status
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-V", "version"):
         from . import version_text
@@ -130,6 +187,8 @@ def main():
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "convert":
         sys.exit(cli(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "nest":
+        sys.exit(nest_cli(sys.argv[2:]))
     from .app import main as gui
     gui()
 

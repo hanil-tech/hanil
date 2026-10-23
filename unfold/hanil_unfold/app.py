@@ -404,11 +404,14 @@ class MainWindow(QMainWindow):
         self.act_xlsx = QAction("보고서 엑셀", self, triggered=lambda: self.save_report("xlsx"))
         self.act_history = QAction("전개 기록", self, shortcut="Ctrl+H", triggered=self.show_history)
         self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
+        self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
+        self.act_nest.setToolTip("전개한 부품을 1219 × 2438 같은 철판 위에 늘어놓아 필요한 장 수를 셉니다")
         tb.addAction(self.act_open)
         tb.addAction(self.act_save)
         tb.addAction(self.act_pdf)
         tb.addAction(self.act_xlsx)
         tb.addAction(self.act_assy)
+        tb.addAction(self.act_nest)
         tb.addAction(self.act_batch)
         tb.addAction(self.act_history)
         tb.addSeparator()
@@ -493,6 +496,7 @@ class MainWindow(QMainWindow):
         for act in (self.act_save, self.act_pdf, self.act_xlsx):
             act.setEnabled(self.result is not None)
         self.act_assy.setEnabled(self.model is not None)
+        self.act_nest.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
 
     def _set_info(self, text, error=False):
@@ -600,6 +604,37 @@ class MainWindow(QMainWindow):
                          f"{g.weight_kg:.3f} kg")
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
+
+    def show_nesting(self):
+        """철판 배치 창. 조립품이면 [전체 계산] 결과의 모든 부품, 아니면 지금 부품."""
+        from .nest_dialog import NestDialog
+        if self.model is None:
+            QMessageBox.information(self, "철판 배치", "먼저 3D 도면을 여세요.")
+            return
+        if len(self.model.solids) > 1 and not self.assy_parts_result:
+            ans = QMessageBox.question(
+                self, "철판 배치",
+                f"부품이 {len(self.model.solids)}개입니다. 모든 부품을 전개해서 배치할까요?\n"
+                "[아니요] 를 누르면 지금 고른 부품만 배치합니다.",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+            if ans == QMessageBox.Cancel:
+                return
+            if ans == QMessageBox.Yes:
+                self.calc_all()
+        if self.assy_parts_result and len(self.model.solids) > 1:
+            items = [(p.index + 1, p.name, p.result) for p in self.assy_parts_result if p.ok]
+        elif self.result is not None:
+            idx = max(self.solid_box.currentIndex(), 0)
+            items = [(idx + 1, self.model.names[idx] if self.model.names else
+                      os.path.basename(self.model.path), self.result)]
+        else:
+            items = []
+        if not items:
+            QMessageBox.information(self, "철판 배치", "전개한 부품이 없습니다.")
+            return
+        st = self.bend_panel.settings()
+        dlg = NestDialog(items, st.mat.code, st.mat.density, os.path.basename(self.model.path), self)
+        dlg.exec()
 
     def save_assembly_xlsx(self):
         if not self.assy_parts_result:

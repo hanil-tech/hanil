@@ -458,3 +458,71 @@ def _spread_balloons(anchors, r, rect: QRectF, iterations=150):
         P += (A - P) * 0.02          # 원래 자리로 조금씩 (끈이 너무 길어지지 않게)
         P = np.clip(P, lo, hi)
     return list(P)
+
+
+# ---------------------------------------------------------------- 철판 배치
+
+_PART_COLORS = [QColor(c) for c in ("#5b8ff9", "#5ad8a6", "#f6bd16", "#e8684a", "#6dc8ec", "#9270ca",
+                                    "#ff9d4d", "#269a99", "#ff99c3", "#a0b04a")]
+
+
+class _Flat:
+    """paint_flat 에 넘길 도형 묶음 (절곡 글씨·두께 지도 없이)."""
+
+    def __init__(self, entities):
+        self.entities, self.bends, self.forming = entities, [], None
+
+
+def sheet_shapes(nest_result, sheet):
+    """철판 한 장의 부품마다 (부품 번호, 도형, 윤곽들, 중심) — 그릴 때 한 번만 계산해 둔다."""
+    from .metrics import loops
+    out = []
+    for pl in sheet.placements:
+        ents = pl.entities(nest_result.parts)
+        # 외곽이 끊긴 부품은 색칠하지 않는다 (구멍만 칠해지므로)
+        lps = loops(ents) if nest_result.parts[pl.part].outer is not None else []
+        out.append((pl.part, ents, lps, pl.center(nest_result.parts)))
+    return out
+
+
+def paint_sheet(p: QPainter, nest_result, sheet, rect: QRectF, theme: Theme, shapes=None,
+                line_scale=1.0, font_px=None):
+    """철판 한 장: 테두리, 여유선, 부품(색칠·번호). 철판 왼쪽 아래가 (0, 0)."""
+    p.setRenderHint(QPainter.Antialiasing)
+    W, H = sheet.width, sheet.height
+    s = 0.96 * min(rect.width() / W, rect.height() / H)
+    tf = FlatTransform(s, rect.center().x() - s * W / 2, rect.center().y() + s * H / 2)
+    sheet_poly = QPolygonF([tf.pt(q) for q in ((0, 0), (W, 0), (W, H), (0, H))])
+    p.setPen(QPen(QColor(200, 60, 60), 1.6 * line_scale))
+    p.setBrush(QColor(60, 64, 72) if theme is DARK else QColor(245, 245, 245))
+    p.drawPolygon(sheet_poly)
+    m = nest_result.margin
+    if m > 0:
+        p.setPen(QPen(QColor(200, 60, 60, 120), 0.8 * line_scale, Qt.DashLine))
+        p.setBrush(Qt.NoBrush)
+        p.drawPolygon(QPolygonF([tf.pt(q) for q in ((m, m), (W - m, m), (W - m, H - m), (m, H - m))]))
+    shapes = shapes if shapes is not None else sheet_shapes(nest_result, sheet)
+    for part, ents, lps, _ in shapes:
+        col = QColor(_PART_COLORS[part % len(_PART_COLORS)])
+        col.setAlpha(110 if theme is DARK else 70)
+        path = QPainterPath()
+        path.setFillRule(Qt.OddEvenFill)
+        for lp in lps:
+            path.addPolygon(QPolygonF([tf.pt(q) for q in lp]))
+            path.closeSubpath()
+        p.setPen(Qt.NoPen)
+        p.setBrush(col)
+        p.drawPath(path)
+        p.setBrush(Qt.NoBrush)
+        paint_flat(p, _Flat(ents), tf, theme, strain=False, labels=False, line_scale=line_scale * 0.7)
+    f = QFont(p.font())
+    f.setPixelSize(int(font_px or max(9, min(16, s * 40))))
+    f.setBold(True)
+    p.setFont(f)
+    fm = p.fontMetrics()
+    p.setPen(theme.text if theme is DARK else QColor(20, 20, 20))
+    for part, _, _, c in shapes:
+        txt = nest_result.parts[part].label
+        q = tf.pt(c)
+        p.drawText(QPointF(q.x() - fm.horizontalAdvance(txt) / 2, q.y() + fm.ascent() / 2 - 1), txt)
+    return tf

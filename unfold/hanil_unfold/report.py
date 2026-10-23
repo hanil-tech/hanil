@@ -694,3 +694,121 @@ def save_assembly_pdf(model, path: str, parts=None, yaw=None, pitch=None, highli
                     x += w
             start += len(chunk)
     p.end()
+
+
+def save_nesting_pdf(results, path: str, source_name: str = "", density=None):
+    """철판 배치: 첫 쪽에 요약·부품별 수량, 다음 쪽부터 철판 한 장에 한 쪽 (A3 가로)."""
+    from PySide6.QtCore import QMarginsF, QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
+
+    from .drawing import LIGHT, paint_sheet
+
+    ensure_gui()
+    pdf = QPdfWriter(path)
+    pdf.setResolution(300)
+    pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A3), QPageLayout.Landscape,
+                                  QMarginsF(0, 0, 0, 0)))
+    pdf.setTitle(f"철판 배치 - {source_name}")
+    pdf.setCreator(f"한일 판금 전개 {version_text()}")
+    k = 300 / 25.4
+    page_w, page_h, margin = 420.0, 297.0, 12.0
+    total = sum(len(r.sheets) for r in results)
+
+    def R(x, y, w, h):
+        return QRectF(x * k, y * k, w * k, h * k)
+
+    p = QPainter(pdf)
+    gray = QColor(110, 110, 110)
+
+    def header(sub=""):
+        y = margin
+        p.setPen(QColor(20, 20, 20))
+        p.setFont(_font(16, True))
+        p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignLeft | Qt.AlignVCenter,
+                   "철판 배치" + (f"  {source_name}" if source_name else "") + (f"  ({sub})" if sub else ""))
+        p.setFont(_font(8))
+        p.setPen(gray)
+        p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignRight | Qt.AlignVCenter,
+                   f"철판 {total}장  ·  {_dt.datetime.now():%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}")
+        p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
+        p.drawLine(QPointF(margin * k, (y + 10) * k), QPointF((page_w - margin) * k, (y + 10) * k))
+        return y + 14
+
+    # ---- 첫 쪽: 요약 + 부품별 배치 수
+    y = header("요약")
+    p.setFont(_font(10))
+    for r in results:
+        lines = r.summary_lines(density)
+        p.setPen(QColor(20, 20, 20))
+        p.setFont(_font(11, True))
+        p.drawText(R(margin, y, 250, 6), Qt.AlignLeft | Qt.AlignVCenter, lines[0])
+        y += 6.5
+        p.setFont(_font(9))
+        for ln in lines[1:]:
+            p.setPen(QColor(170, 40, 40) if ln.startswith("못 놓음") else QColor(40, 40, 40))
+            p.drawText(R(margin + 4, y, 260, 5), Qt.AlignLeft | Qt.AlignVCenter, ln)
+            y += 5
+        y += 3
+        if y > page_h - 40:
+            pdf.newPage()
+            y = header("요약")
+
+    rows = []
+    for r in results:
+        cnt = {}
+        for si, s in enumerate(r.sheets):
+            for pl in s.placements:
+                c = cnt.setdefault(pl.part, [0, set()])
+                c[0] += 1
+                c[1].add(si + 1)
+        for i, part in enumerate(r.parts):
+            n, sheets = cnt.get(i, [0, set()])
+            rows.append((part.label, part.name, f"t{r.thickness:g}", f"{part.qty}", f"{n}",
+                         ", ".join(str(x) for x in sorted(sheets))))
+    heads = ("번호", "부품명", "두께", "수량", "배치", "철판")
+    widths = [16, 150, 22, 18, 18, 172]
+    row_h = 5.5
+
+    def table_head(y):
+        p.fillRect(R(margin, y, sum(widths), row_h), QColor(40, 60, 90))
+        p.setPen(QColor(255, 255, 255))
+        p.setFont(_font(8, True))
+        x = margin
+        for h, w in zip(heads, widths):
+            p.drawText(R(x + 1, y, w - 2, row_h), Qt.AlignCenter, h)
+            x += w
+        return y + row_h
+
+    y = table_head(y + 2)
+    p.setFont(_font(8))
+    for i, row in enumerate(rows):
+        if y > page_h - margin - row_h:
+            pdf.newPage()
+            y = table_head(header("부품별 수량"))
+            p.setFont(_font(8))
+        if i % 2:
+            p.fillRect(R(margin, y, sum(widths), row_h), QColor(244, 246, 249))
+        x = margin
+        for j, (v, w) in enumerate(zip(row, widths)):
+            short = row[3] != row[4] and j == 4
+            p.setPen(QColor(190, 30, 30) if short else QColor(20, 20, 20))
+            align = (Qt.AlignLeft if j in (1, 5) else Qt.AlignCenter) | Qt.AlignVCenter
+            p.drawText(R(x + 1.5, y, w - 3, row_h), align,
+                       p.fontMetrics().elidedText(v, Qt.ElideRight, int((w - 3) * k)))
+            x += w
+        y += row_h
+
+    # ---- 철판마다 한 쪽
+    for r in results:
+        for si, s in enumerate(r.sheets):
+            pdf.newPage()
+            y = header(f"t{r.thickness:g}  {si + 1} / {len(r.sheets)}장")
+            p.setFont(_font(9))
+            p.setPen(QColor(40, 40, 40))
+            p.drawText(R(margin, y, page_w - 2 * margin, 5), Qt.AlignLeft | Qt.AlignVCenter,
+                       f"철판 {r.sheet_h:g} × {r.sheet_w:g}  t{r.thickness:g}  ·  부품 {len(s.placements)}개  ·  "
+                       f"사용률 {s.utilization * 100:.1f}%  ·  사용 길이 {s.used_length:.0f} mm  ·  "
+                       f"간격 {r.gap:g} / 여유 {r.margin:g} mm")
+            box = R(margin, y + 7, page_w - 2 * margin, page_h - y - 7 - margin)
+            paint_sheet(p, r, s, box, LIGHT, line_scale=0.25 * k, font_px=int(3.0 * k))
+    p.end()
