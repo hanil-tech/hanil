@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import __version__
+from . import __version__, version_text
 from . import bendcalc as bc
 from . import metrics as mt
 
@@ -203,7 +203,7 @@ def save_pdf(d: ReportData, path: str):
     pdf.setResolution(300)
     pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Portrait, QMarginsF(0, 0, 0, 0)))
     pdf.setTitle(f"{d.title} - {d.display_name}")
-    pdf.setCreator(f"한일 판금 전개 {__version__}")
+    pdf.setCreator(f"한일 판금 전개 {version_text()}")
 
     k = 300 / 25.4                      # mm → 점
 
@@ -223,7 +223,7 @@ def save_pdf(d: ReportData, path: str):
         p.setFont(_font(8))
         p.setPen(gray)
         p.drawText(R(margin, y, inner_w, 9), Qt.AlignRight | Qt.AlignVCenter,
-                   f"한일  ·  {d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {__version__}")
+                   f"한일  ·  {d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}")
         p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
         p.drawLine(QPointF(margin * k, (y + 10) * k), QPointF((page_w - margin) * k, (y + 10) * k))
         return y + 13
@@ -413,7 +413,7 @@ def save_xlsx(d: ReportData, path: str):
     ws.column_dimensions["B"].width = 70
     ws["A1"] = d.title
     ws["A1"].font = st["title"]
-    ws["A2"] = f"한일  ·  {d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {__version__}"
+    ws["A2"] = f"한일  ·  {d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}"
     ws["A2"].font = st["key"]
     r = 4
     for i, (k, v) in enumerate(summary_rows(d)):
@@ -619,7 +619,7 @@ def save_assembly_pdf(model, path: str, parts=None, yaw=None, pitch=None, highli
                                   QMarginsF(0, 0, 0, 0)))
     name = os.path.basename(model.path)
     pdf.setTitle(f"조립도 - {name}")
-    pdf.setCreator(f"한일 판금 전개 {__version__}")
+    pdf.setCreator(f"한일 판금 전개 {version_text()}")
     k = 300 / 25.4
     page_w, page_h, margin = 420.0, 297.0, 12.0
 
@@ -638,7 +638,7 @@ def save_assembly_pdf(model, path: str, parts=None, yaw=None, pitch=None, highli
         p.setPen(gray)
         p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignRight | Qt.AlignVCenter,
                    f"부품 {len(model.solids)}개  ·  {_dt.datetime.now():%Y-%m-%d %H:%M}  ·  "
-                   f"한일 판금 전개 {__version__}")
+                   f"한일 판금 전개 {version_text()}")
         p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
         p.drawLine(QPointF(margin * k, (y + 10) * k), QPointF((page_w - margin) * k, (y + 10) * k))
         return y + 13

@@ -101,3 +101,22 @@ def test_assembly_totals_by_thickness(tmp_path):
     wb = openpyxl.load_workbook(out)
     assert wb.sheetnames == ["두께별 합계", "부품별"]
     assert wb["두께별 합계"].cell(4, 2).value == "합계"
+
+
+def test_version_text_and_old_history_file_upgrade(tmp_path, result):
+    import sqlite3
+    from hanil_unfold import __version__, version_text
+
+    assert version_text().startswith(__version__)
+    # 버전 칸이 없던 예전 기록 파일도 열면 칸이 덧붙고 새 기록에 버전이 남는다
+    folder = tmp_path / "old"
+    folder.mkdir()
+    db = sqlite3.connect(folder / "history.sqlite")
+    db.execute("CREATE TABLE unfolds (id INTEGER PRIMARY KEY AUTOINCREMENT, created TEXT, updated TEXT, "
+               "day TEXT, source_path TEXT, part_index INTEGER)")
+    db.commit()
+    db.close()
+    h = History(str(folder))
+    rid = h.record("x.step", result, bc.BendSettings())
+    assert h.search()[0]["app_version"] == version_text()
+    assert rid == 1

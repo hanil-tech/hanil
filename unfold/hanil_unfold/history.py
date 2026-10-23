@@ -16,7 +16,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 
-from . import dxf_export
+from . import dxf_export, version_text
 from . import metrics as mt
 
 COLUMNS = [
@@ -46,6 +46,7 @@ COLUMNS = [
     ("archive_dxf", "TEXT"),      # 보관함에 남긴 DXF
     ("exported", "TEXT"),         # 사용자가 따로 저장한 파일들 (; 로 구분)
     ("note", "TEXT"),
+    ("app_version", "TEXT"),      # 계산한 프로그램 버전
 ]
 FIELDS = [c for c, _ in COLUMNS]
 
@@ -57,7 +58,7 @@ LABELS = {
     "rect_weight_kg": "사각 원판 무게(kg)", "yield_ratio": "수율", "cut_length": "절단 길이(mm)",
     "pierce": "피어싱", "bends": "절곡 수", "bend_summary": "절곡", "settings": "계산 조건",
     "warnings": "주의", "archive_dxf": "보관 DXF", "exported": "저장한 파일", "note": "메모",
-    "source_path": "원본 경로", "created": "처음 기록",
+    "source_path": "원본 경로", "created": "처음 기록", "app_version": "프로그램 버전",
 }
 
 
@@ -85,6 +86,11 @@ class History:
         cols = ", ".join(f"{n} {t}" for n, t in COLUMNS)
         self.db.execute(f"CREATE TABLE IF NOT EXISTS unfolds ({cols})")
         self.db.execute("CREATE INDEX IF NOT EXISTS ix_key ON unfolds(source_path, part_index, day)")
+        # 예전 버전에서 만든 기록 파일이면 새 칸을 덧붙인다
+        have = {r[1] for r in self.db.execute("PRAGMA table_info(unfolds)")}
+        for name, typ in COLUMNS:
+            if name not in have:
+                self.db.execute(f"ALTER TABLE unfolds ADD COLUMN {name} {typ}")
         self.db.commit()
 
     def close(self):
@@ -115,6 +121,7 @@ class History:
             yield_ratio=m.yield_ratio, cut_length=m.cut_length, pierce=m.pierce,
             bends=len(result.bends), bend_summary=bend_summary(result.bends),
             warnings=" / ".join(w for w in result.warnings if "근사 전개:" not in w),
+            app_version=version_text(),
         )
         row = self.db.execute(
             "SELECT id FROM unfolds WHERE source_path=? AND part_index=? AND day=?",
@@ -202,7 +209,7 @@ class History:
         cols = ["id", "updated", "source_name", "part_index", "mode", "material", "thickness",
                 "width", "height", "blank_area", "weight_kg", "rect_weight_kg", "yield_ratio",
                 "cut_length", "pierce", "bends", "bend_summary", "settings", "warnings", "note",
-                "archive_dxf", "source_path"]
+                "app_version", "archive_dxf", "source_path"]
         wb = Workbook()
         ws = wb.active
         ws.title = "전개 기록"

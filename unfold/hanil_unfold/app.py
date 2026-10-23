@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBo
                                QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout,
                                QWidget, QListWidget, QTabWidget, QPushButton)
 
-from . import __version__, dxf_export, loader
+from . import __version__, version_text, dxf_export, loader
 from . import report
 from .bend_panel import BendPanel
 from .history import History
@@ -283,7 +283,7 @@ class FlatView(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME}  v{__version__}")
         self.resize(1300, 820)
         self.setAcceptDrops(True)
         self.settings = QSettings("Hanil", "SheetUnfold")
@@ -370,6 +370,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(split)
 
         self._set_info("STEP 파일을 여세요. (솔리드웍스·NX·CATIA 에서 STEP 으로 저장)")
+        # 상태 표시줄 오른쪽에 늘 버전을 보인다
+        ver = QLabel(f"버전 {version_text(long=True)}")
+        ver.setStyleSheet("color: #888; padding-right: 8px;")
+        self.statusBar().addPermanentWidget(ver)
         self._update_actions()
 
     # ---- 화면 구성
@@ -494,7 +498,7 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
 
         self.model = model
-        self.setWindowTitle(f"{APP_NAME} — {os.path.basename(path)}")
+        self.setWindowTitle(f"{APP_NAME}  v{__version__} — {os.path.basename(path)}")
         self.solid_box.blockSignals(True)
         self.part_list.blockSignals(True)
         self.solid_box.clear()
@@ -804,7 +808,9 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "한꺼번에 전개 결과", text)
 
     def show_help(self):
-        QMessageBox.information(self, "도움말", HELP_TEXT.format(version=__version__))
+        from .changes import text as changes_text
+        QMessageBox.information(self, "도움말", HELP_TEXT.format(version=version_text(long=True))
+                                + "\n\n최근 바뀐 것\n" + changes_text(limit=3))
 
     # ---- 끌어다 놓기
 

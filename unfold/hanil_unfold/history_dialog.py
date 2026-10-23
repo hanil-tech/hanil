@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDateEdit, QDialog,
 from .history import LABELS
 
 SHOW = ["id", "updated", "source_name", "part_index", "mode", "material", "thickness", "width",
-        "height", "weight_kg", "yield_ratio", "cut_length", "bends", "bend_summary", "note"]
+        "height", "weight_kg", "yield_ratio", "cut_length", "bends", "bend_summary", "note",
+        "app_version"]
 
 
 class HistoryDialog(QDialog):

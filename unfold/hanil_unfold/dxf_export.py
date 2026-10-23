@@ -136,6 +136,8 @@ def _add_notes(msp, result: UnfoldResult, part_name: str, d=None) -> None:
         m = d.metrics
         lines.append(f"AREA {m.blank_area:.1f} mm2 (OUTER {m.outer_area:.1f})  "
                      f"WEIGHT {m.weight_kg:.3f} kg  CUT {m.cut_length:.1f} mm  PIERCE {m.pierce}")
+    from . import BUILD_NUMBER, __version__
+    lines.append(f"HANIL UNFOLD v{__version__}" + (f" build {BUILD_NUMBER}" if BUILD_NUMBER else ""))
     # 치수선 아래로 비켜 쓴다
     below = (max(4.0, min(w, h) / 12) * 3 + height) if d is not None else 0
     x0, y0 = result.bbox[0], result.bbox[1]

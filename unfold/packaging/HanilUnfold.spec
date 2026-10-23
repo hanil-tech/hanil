@@ -67,6 +67,9 @@ exe = EXE(
     exclude_binaries=True,
     name="HanilUnfold",
     icon=os.path.join(ROOT, "hanil_unfold", "icon.ico"),
+    # 파일 속성 → 자세히 의 버전 (write_build_info.py 가 만든다, 없으면 생략)
+    version=(os.path.join(HERE, "version_info.txt")
+             if os.path.exists(os.path.join(HERE, "version_info.txt")) else None),
     console=False,
     upx=False,
 )

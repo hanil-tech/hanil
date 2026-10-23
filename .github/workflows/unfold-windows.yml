@@ -36,6 +36,14 @@ jobs:
       - name: 전개 시험
         run: python -m pytest tests -q
 
+      - name: 빌드 번호 넣기
+        id: ver
+        shell: pwsh
+        run: |
+          python packaging/write_build_info.py ${{ github.run_number }} ${{ github.sha }}
+          $ver = (Select-String -Path hanil_unfold\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
       - name: 실행 파일 만들기
         run: pyinstaller packaging/HanilUnfold.spec --noconfirm --distpath dist --workpath build
 
@@ -61,12 +69,11 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          $ver = (Select-String -Path hanil_unfold\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
-          & $iscc "/DMyVersion=$ver" packaging\setup.iss
+          & $iscc "/DMyVersion=${{ steps.ver.outputs.version }}" packaging\setup.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패" }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: HanilUnfold-Setup
-          path: unfold/dist/HanilUnfold-Setup.exe
+          name: HanilUnfold-Setup-${{ steps.ver.outputs.version }}-build${{ github.run_number }}
+          path: unfold/dist/HanilUnfold-Setup-*.exe
           if-no-files-found: error

@@ -16,7 +16,9 @@ def cli(argv):
     from . import dxf_export, loader, report
     from .unfolder import MODE_NAMES, unfold
 
+    from . import version_text
     ap = argparse.ArgumentParser(prog="HanilUnfold", description="판금 STEP → 전개 DXF")
+    ap.add_argument("--version", action="version", version=f"한일 판금 전개 {version_text(long=True)}")
     ap.add_argument("files", nargs="+", help="STEP 파일")
     ap.add_argument("-o", "--output", help="저장할 DXF (파일 하나일 때) 또는 폴더")
     ap.add_argument("-k", "--k-factor", type=float, default=0.44, help="K 계수 (직접 입력 방식)")
@@ -117,6 +119,15 @@ def cli(argv):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-V", "version"):
+        from . import version_text
+        text = f"한일 판금 전개 {version_text(long=True)}"
+        if sys.stdout is not None:
+            print(text)
+        else:   # 화면 없는 exe: 현재 폴더에 적어 둔다
+            with open("version.txt", "w", encoding="utf-8") as f:
+                f.write(text + "\n")
+        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "convert":
         sys.exit(cli(sys.argv[2:]))
     from .app import main as gui

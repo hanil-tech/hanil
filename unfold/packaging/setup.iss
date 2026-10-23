@@ -8,12 +8,15 @@
 AppId={{6C0B7B0E-2F5B-4C1E-9F64-6A1C1E5A7D21}
 AppName=한일 판금 전개
 AppVersion={#MyVersion}
+AppVerName=한일 판금 전개 {#MyVersion}
+VersionInfoVersion={#MyVersion}
+VersionInfoProductName=한일 판금 전개
 AppPublisher=Hanil
 DefaultDirName={autopf}\HanilUnfold
 DefaultGroupName=한일 판금 전개
 UninstallDisplayIcon={app}\HanilUnfold.exe
 OutputDir=..\dist
-OutputBaseFilename=HanilUnfold-Setup
+OutputBaseFilename=HanilUnfold-Setup-{#MyVersion}
 SetupIconFile=..\hanil_unfold\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
