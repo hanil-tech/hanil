@@ -54,6 +54,7 @@ class QuoteDialog(QDialog):
         self.items = bom.build(model, parts, settings.mat.density, excluded, settings.mat.code)
         self.cache = {}
         self.overrides = {}          # 품번 → 가공비 직접 입력
+        self.mat_overrides = {}      # 품번 → 자재비 직접 입력
         self.sub_prices = json.loads(self.st.value("quote_sub_prices", "{}") or "{}")
         self.extra_subs = []         # 직접 넣은 부자재 SubItem
         self._busy = False
@@ -95,10 +96,14 @@ class QuoteDialog(QDialog):
         tabs.addTab(w0, "요약")
 
         self.t_parts = _table(["품번", "품명", "수량/세트", "구분", "재질·두께", "공정 방식", "공정수", "공정",
-                               "제품 kg", "소요 kg", "재료비/개", "가공비/개 (고칠 수 있음)", "단가/개",
+                               "필요 톤수 tf", "사용 기계", "시간 초/개", "제품 kg", "소요 kg",
+                               "자재비/개 (고칠 수 있음)", "가공비/개 (고칠 수 있음)", "단가/개",
                                "세트 금액", "금형비", "비고"])
         self.t_parts.itemChanged.connect(self._part_edited)
-        tabs.addTab(self.t_parts, "부품별 (공정·재료비)")
+        tabs.addTab(self.t_parts, "부품별 (공정·톤수·자재비)")
+        self.t_ops = _table(["품번", "품명", "공정", "종류", "힘 tf", "사용 기계", "시간 초/개", "가공비 원/개", "비고"])
+        self.t_ops.setEditTriggers(QTableWidget.NoEditTriggers)
+        tabs.addTab(self.t_ops, "공정별 (톤수·기계)")
 
         w2 = QWidget()
         l2 = QVBoxLayout(w2)
@@ -117,17 +122,23 @@ class QuoteDialog(QDialog):
         l2.addLayout(row)
         tabs.addTab(w2, "부자재")
 
-        tabs.addTab(self._rates_tab(), "단가표")
+        tabs.addTab(self._machine_tab(), "기계·임률")
+        tabs.addTab(self._die_tab(), "금형 견적")
+        tabs.addTab(self._rates_tab(), "자재 단가·관리비")
 
         btns = QHBoxLayout()
-        xl = QPushButton("견적서 엑셀…")
-        pdf = QPushButton("견적서 PDF…")
+        xl = QPushButton("생산 견적서 엑셀…")
+        pdf = QPushButton("생산 견적서 PDF…")
+        dxl = QPushButton("금형 견적서 엑셀…")
+        dpdf = QPushButton("금형 견적서 PDF…")
         xl.clicked.connect(lambda: self.save("xlsx"))
         pdf.clicked.connect(lambda: self.save("pdf"))
-        btns.addWidget(QLabel("단가는 예시값입니다 — [단가표] 에서 회사 단가로 바꾸면 저장됩니다."))
+        dxl.clicked.connect(lambda: self.save("xlsx", die=True))
+        dpdf.clicked.connect(lambda: self.save("pdf", die=True))
+        btns.addWidget(QLabel("단가·기계·임률은 예시값입니다 — 탭에서 회사 값으로 바꾸면 저장됩니다."))
         btns.addStretch(1)
-        btns.addWidget(xl)
-        btns.addWidget(pdf)
+        for b in (xl, pdf, dxl, dpdf):
+            btns.addWidget(b)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
         lay.addWidget(tabs, 1)
@@ -138,6 +149,128 @@ class QuoteDialog(QDialog):
             w.valueChanged.connect(self.recalc)
         self.amort.toggled.connect(self.recalc)
         self.recalc()
+
+    # ---- 기계·임률
+    def _machine_tab(self):
+        from . import costing as cs
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.addWidget(QLabel("회사 기계로 바꾸세요. 필요 톤수 × 여유 이상인 가장 작은 기계를 고릅니다 "
+                             "(절곡기는 절곡 길이도 봄). 노란 칸을 고치면 바로 다시 계산하고 저장합니다."))
+        self.t_mach = _table([h for _, h in cs.MACHINE_COLS])
+        self.t_mach.itemChanged.connect(self._machines_edited)
+        lay.addWidget(self.t_mach, 1)
+        row = QHBoxLayout()
+        add = QPushButton("기계 추가")
+        add.clicked.connect(self._add_machine)
+        rem = QPushButton("고른 기계 지우기")
+        rem.clicked.connect(self._remove_machine)
+        self.safety = QDoubleSpinBox()
+        self.safety.setRange(1.0, 3.0)
+        self.safety.setSingleStep(0.05)
+        self.safety.setValue(float(self.rates["costing"].get("safety", cs.SAFETY)))
+        self.safety.valueChanged.connect(self._machines_edited)
+        reset = QPushButton("예시 기계로 되돌리기")
+        reset.clicked.connect(self._reset_machines)
+        row.addWidget(add)
+        row.addWidget(rem)
+        row.addWidget(reset)
+        row.addStretch(1)
+        row.addWidget(QLabel("톤수 여유 (배)"))
+        row.addWidget(self.safety)
+        lay.addLayout(row)
+        self._fill_machines()
+        return w
+
+    def _fill_machines(self):
+        from . import costing as cs
+        self._busy = True
+        t = self.t_mach
+        ms = self.rates["costing"]["machines"]
+        t.setRowCount(len(ms))
+        for i, m in enumerate(ms):
+            for j, (k, _) in enumerate(cs.MACHINE_COLS):
+                v = m.get(k, "")
+                t.setItem(i, j, _item(v if isinstance(v, str) else f"{v:g}", True, right=not isinstance(v, str)))
+        self._busy = False
+
+    def _machines_edited(self, *_):
+        from . import costing as cs
+        if self._busy:
+            return
+        ms = []
+        for i in range(self.t_mach.rowCount()):
+            m = {}
+            for j, (k, _) in enumerate(cs.MACHINE_COLS):
+                it = self.t_mach.item(i, j)
+                txt = it.text() if it else ""
+                m[k] = txt.strip() if k in ("name", "kind") else _num(txt)
+            if m["name"]:
+                ms.append(m)
+        self.rates["costing"]["machines"] = ms
+        self.rates["costing"]["safety"] = self.safety.value()
+        self._save_rates()
+        self.recalc()
+
+    def _add_machine(self):
+        self.rates["costing"]["machines"].append({"name": "새 프레스", "kind": "프레스", "capacity": 150,
+                                                  "length": 0, "rate": 60000, "spm": 25, "setup_min": 40})
+        self._fill_machines()
+        self._machines_edited()
+
+    def _remove_machine(self):
+        r = self.t_mach.currentRow()
+        if 0 <= r < len(self.rates["costing"]["machines"]):
+            del self.rates["costing"]["machines"][r]
+            self._fill_machines()
+            self._machines_edited()
+
+    def _reset_machines(self):
+        from . import costing as cs
+        self.rates["costing"]["machines"] = [dict(m) for m in cs.DEFAULT_MACHINES]
+        self._fill_machines()
+        self._machines_edited()
+
+    # ---- 금형 견적
+    def _die_tab(self):
+        from . import costing as cs
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        self.die_label = QLabel()
+        self.die_label.setTextFormat(Qt.RichText)
+        self.die_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.die_label.setWordWrap(True)
+        from PySide6.QtWidgets import QScrollArea
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setWidget(self.die_label)
+        lay.addWidget(sc, 3)
+        form = QFormLayout()
+        self.die_spins = {}
+        for k, name in cs.DIE_NAMES.items():
+            sp = QDoubleSpinBox()
+            sp.setRange(0, 1e10)
+            sp.setDecimals(2 if k in ("drawing_factor",) or k.endswith("pct") else 0)
+            sp.setGroupSeparatorShown(True)
+            sp.setValue(float(self.rates["costing"]["die"][k]))
+            sp.valueChanged.connect(self._die_edited)
+            self.die_spins[k] = sp
+            form.addRow(name, sp)
+        box = QWidget()
+        box.setLayout(form)
+        lay.addWidget(box, 2)
+        return w
+
+    def _die_edited(self, *_):
+        if self._busy:
+            return
+        for k, sp in self.die_spins.items():
+            self.rates["costing"]["die"][k] = sp.value()
+        self._save_rates()
+        self.recalc()
+
+    def _save_rates(self):
+        self.st.setValue("quote_rates", json.dumps(self.rates, ensure_ascii=False))
 
     # ---- 단가표
     def _rates_tab(self):
@@ -185,11 +318,13 @@ class QuoteDialog(QDialog):
             self.rates[k] = s.value()
         for k, e in self.sup_edits.items():
             self.rates["supplier"][k] = e.text()
-        self.st.setValue("quote_rates", json.dumps(self.rates, ensure_ascii=False))
+        self._save_rates()
         self.recalc()
 
     def _reset_rates(self):
+        keep = self.rates["costing"]
         self.rates = qt_.load_rates(None)
+        self.rates["costing"] = keep
         self._busy = True
         for r in range(self.t_mat.rowCount()):
             code = self.t_mat.item(r, 0).text()
@@ -205,6 +340,7 @@ class QuoteDialog(QDialog):
                       title=self.title, items=self.items, cache=self.cache)
         for p in q.parts:
             p.process_override = self.overrides.get(p.no)
+            p.material_override = self.mat_overrides.get(p.no)
         for s in q.subs:
             s.unit_price = float(self.sub_prices.get(s.name, 0.0))
         q.subs += self.extra_subs
@@ -227,7 +363,9 @@ class QuoteDialog(QDialog):
         lines = [
             f"<h2>세트 단가 {qt_.won(q.unit_price)} 원 · 견적 합계 {qt_.won(q.total)} 원 (부가세 포함)</h2>",
             f"자작 부품 {len(q.parts)}종 · <b>공정 합계 {q.total_ops}</b> · 부자재 {len(q.subs)}종 · "
-            f"견적 수량 {q.sets:,} 세트 · 연간 {q.annual:,} 개 기준",
+            f"견적 수량 {q.sets:,} 세트 · 연간 {q.annual:,} 개 기준<br>"
+            f"<b>필요 톤수 최대 {q.max_tonf:,.1f} tf</b> · 사용 기계: {', '.join(q.machine_list) or '-'}<br>"
+            f"금형 견적 {qt_.won(q.die_total)} 원 ({len(q.dies)} 벌, 부가세 별도) → [금형 견적] 탭",
             "<table cellpadding=4>",
             f"<tr><td>재료비</td><td align=right>{qt_.won(q.material)}</td></tr>",
             f"<tr><td>가공비 (조립 등 포함)</td><td align=right>{qt_.won(q.process)}</td></tr>",
@@ -247,6 +385,9 @@ class QuoteDialog(QDialog):
         if zero:
             lines.append(f"<p style='color:#c80'>⚠ 단가가 0 인 부자재 {len(zero)}개: "
                          + ", ".join(zero[:8]) + (" …" if len(zero) > 8 else "") + " — [부자재] 에서 넣으세요.</p>")
+        over = sorted({o.machine for p in q.parts for o in p.opc if "⚠" in o.note})
+        if over:
+            lines.append(f"<p style='color:#d40'>⚠ 용량이 모자란 기계: {', '.join(over)} — [기계·임률] 에 더 큰 기계를 넣으세요.</p>")
         rough = [p.name for p in q.parts if p.note.startswith("가공비는")]
         if rough:
             lines.append(f"<p style='color:#c80'>⚠ 기계 가공 부품 {len(rough)}개는 가공비가 무게 어림입니다.</p>")
@@ -257,16 +398,47 @@ class QuoteDialog(QDialog):
         t.setRowCount(len(q.parts))
         for i, p in enumerate(q.parts):
             vals = [p.no, p.name, p.qty, p.category, p.spec, p.method, p.n_ops, " → ".join(p.ops),
-                    f"{p.weight:.3f}", f"{p.gross_kg:.3f}", float(p.material), None, float(p.unit),
+                    f"{p.need_tonf:,.1f}", ", ".join(p.machines), f"{p.seconds:,.1f}",
+                    f"{p.weight:.3f}", f"{p.gross_kg:.3f}", None, None, float(p.unit),
                     float(p.amount), float(p.die_cost), p.note]
             for j, v in enumerate(vals):
-                if j == 11:
+                if j == 13:
+                    it = _item(float(p.material), True)
+                    if p.material_override is not None:
+                        it.setForeground(QColor(200, 60, 0))
+                elif j == 14:
                     it = _item(float(p.process_cost), True)
                     if p.process_override is not None:
                         it.setForeground(QColor(200, 60, 0))
                 else:
-                    it = _item(v, right=j in (8, 9))
+                    it = _item(v, right=j in (8, 10, 11, 12))
+                    if j == 9 and "⚠" in " ".join(o.note for o in p.opc):
+                        it.setForeground(QColor(220, 60, 0))
                 t.setItem(i, j, it)
+        rows = [(p, o) for p in q.parts for o in p.opc]
+        self.t_ops.setRowCount(len(rows))
+        for i, (p, o) in enumerate(rows):
+            for j, v in enumerate([str(p.no), p.name, o.op, o.kind, f"{o.tonf:,.2f}", o.machine,
+                                   f"{o.seconds:,.1f}", f"{o.cost:,.1f}", o.note]):
+                it = _item(v, right=j in (4, 6, 7))
+                if "⚠" in o.note:
+                    it.setForeground(QColor(220, 60, 0))
+                self.t_ops.setItem(i, j, it)
+        # 금형 견적
+        from html import escape
+        supply, vat, total = qt_.die_total_with_vat(q)
+        html = [f"<h3>금형 견적 합계 {qt_.won(supply)} 원 (부가세 별도) · {len(q.dies)} 벌</h3>"]
+        if not q.dies:
+            html.append("금형이 필요 없는 공정입니다 (연간 생산량을 늘리면 금형 공정으로 바뀝니다).")
+        for d in q.dies:
+            html.append(f"<p><b>{escape(d.part_name)}</b> — {escape(d.die_type)}, {d.stations} 공정, "
+                        f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm<br><table cellpadding=2>")
+            for name, formula, amt in d.lines:
+                html.append(f"<tr><td>{escape(name)}</td><td style='color:#888'>{escape(formula)}</td>"
+                            f"<td align=right>{qt_.won(amt)}</td></tr>")
+            html.append(f"<tr><td><b>소계</b></td><td></td><td align=right><b>{qt_.won(d.cost)}</b></td></tr>"
+                        "</table></p>")
+        self.die_label.setText("".join(html))
 
     def _fill_subs(self, q):
         t = self.t_subs
@@ -279,13 +451,15 @@ class QuoteDialog(QDialog):
                 t.setItem(i, j, _item(v, editable=(j == 4 or j == 2 and mine or j in (0, 1, 3) and mine)))
 
     def _part_edited(self, it):
-        if self._busy or it.column() != 11:
+        if self._busy or it.column() not in (13, 14):
             return
         no = int(self.t_parts.item(it.row(), 0).text())
+        target = self.mat_overrides if it.column() == 13 else self.overrides
         txt = it.text().strip()
-        self.overrides[no] = None if txt == "" else _num(txt)
-        if self.overrides[no] is None:
-            del self.overrides[no]
+        if txt == "":
+            target.pop(no, None)
+        else:
+            target[no] = _num(txt)
         self.recalc()
 
     def _sub_edited(self, it):
@@ -321,16 +495,22 @@ class QuoteDialog(QDialog):
             self.extra_subs.pop()
             self.recalc()
 
-    def save(self, kind):
+    def save(self, kind, die=False):
         self.st.setValue("quote_annual", self.annual.value())
         self.st.setValue("quote_customer", self.customer.text())
-        base = os.path.splitext(self.model.path)[0] + f"_견적서.{kind}"
+        if die and not self.q.dies:
+            QMessageBox.information(self, "금형 견적", "금형이 필요한 부품이 없습니다 (연간 생산량을 확인하세요).")
+            return
+        base = os.path.splitext(self.model.path)[0] + (f"_금형견적서.{kind}" if die else f"_견적서.{kind}")
         path, _ = QFileDialog.getSaveFileName(self, "견적서 저장", base,
                                               "엑셀 (*.xlsx)" if kind == "xlsx" else "PDF (*.pdf)")
         if not path:
             return
         try:
-            (qt_.save_xlsx if kind == "xlsx" else qt_.save_pdf)(self.q, path)
+            if die:
+                (qt_.save_die_xlsx if kind == "xlsx" else qt_.save_die_pdf)(self.q, path)
+            else:
+                (qt_.save_xlsx if kind == "xlsx" else qt_.save_pdf)(self.q, path)
         except Exception as e:
             QMessageBox.warning(self, "견적서 저장 실패", str(e))
             return

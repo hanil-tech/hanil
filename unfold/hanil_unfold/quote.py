@@ -1,13 +1,14 @@
-"""견적: 도면(3D) → 부품별 공정수·재료비·가공비, 부자재, 관리비·이윤 → 견적서 초안.
+"""견적: 도면(3D) → 부품별 공정·필요 톤수·사용 기계·공정 시간, 재료비, 가공비(기계 임률), 부자재,
+관리비·이윤 → 생산 견적서 초안, 그리고 금형 견적서 초안.
 
-  · 자작 부품: 자동 공정 설계(procplan)로 금형 형식·공정을 정하고
-      - 금형 없이 (레이저 + 절곡기): 절단 길이 m · 피어싱 수 · 절곡 수로 가공비
-      - 금형: 공정 수 × 공정당 프레스 단가, 금형비 = 공정 수 × 공정당 금형비 (따로 또는 수량으로 나눠 단가에)
-  · 재료비: BOM 원자재 소요량(사각 원판·환봉 kg) × 재질 단가 − 스크랩(소요 − 제품 무게) × 고철 단가
+  · 자작 부품: 자동 공정 설계(procplan)로 금형 형식·공정을 정하고, costing 으로 공정마다 힘(톤) →
+    기계 선택 → 시간 × 임률 (+ 준비 시간 ÷ 로트)
+  · 재료비: BOM 원자재 소요량(사각 원판·환봉 kg) × 재질 단가 − 스크랩 × 고철 단가 (부품별 직접 입력 가능)
   · 부자재: BOM 의 표준품·구매품 + 직접 넣는 줄 (도장·포장 …)
-  · 관리비·이윤: 제조원가(재료 + 가공 + 부자재) 에 % 로
+  · 금형비: costing.die_quote (설계·강재·인서트·열처리·가공·표준 부품·조립·트라이)
+  · 관리비·이윤: 제조원가에 % 로
 
-단가는 모두 예시값이다 — [단가표] 에서 회사 단가로 바꾸면 저장된다.
+단가·기계·임률은 모두 예시값이다 — 견적 창에서 회사 값으로 바꾸면 저장된다.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import math
 from dataclasses import dataclass, field
 
 from . import bendcalc as bc
+from . import costing as cs
 
 # 원/kg (예시값, 2026 국내 유통가 어림 — 반드시 회사 단가로 바꿀 것)
 MATERIAL_PRICE = {
@@ -29,18 +31,11 @@ MATERIAL_PRICE = {
 DEFAULT_RATES = {
     "material": dict(MATERIAL_PRICE),
     "scrap_kg": 300,              # 고철 회수 원/kg
-    "laser_m": 800,               # 레이저 절단 원/m (두께 1 mm 기준)
-    "laser_t": 0.35,              # 두께 1 mm 늘 때마다 +35 %
-    "pierce": 30,                 # 피어싱(관통) 원/개
-    "bend": 400,                  # 절곡기 1 회 원
-    "press_stroke": 60,           # 금형 1 공정 원/개 (프레스 시간당 비용 ÷ 시간당 생산 어림)
-    "die_station": 3_000_000,     # 순차 금형 공정당 금형비
-    "die_single": 6_000_000,      # 단발·트랜스퍼 금형 1 벌
-    "machining_kg": 4000,         # 선반·가공 부품 가공비 원/kg (어림)
     "overhead_pct": 10.0,         # 일반관리비 %
     "profit_pct": 10.0,           # 이윤 %
     "vat_pct": 10.0,
     "supplier": {"대표": "", "주소": "", "전화": "", "사업자번호": "", "담당": ""},
+    "costing": cs.default_costing(),
 }
 
 
@@ -50,11 +45,18 @@ def load_rates(text: str | None):
         try:
             saved = json.loads(text)
             for k, v in saved.items():
-                if isinstance(v, dict) and isinstance(r.get(k), dict):
+                if k == "costing" and isinstance(v, dict):
+                    if isinstance(v.get("machines"), list) and v["machines"]:
+                        r["costing"]["machines"] = v["machines"]
+                    if isinstance(v.get("die"), dict):
+                        r["costing"]["die"].update(v["die"])
+                    if "safety" in v:
+                        r["costing"]["safety"] = v["safety"]
+                elif isinstance(v, dict) and isinstance(r.get(k), dict):
                     r[k].update(v)
-                else:
+                elif k in r:
                     r[k] = v
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             pass
     return r
 
@@ -67,22 +69,58 @@ class PartCost:
     category: str
     spec: str                # 재질·두께
     method: str              # 금형 형식 또는 레이저 + 절곡기
-    ops: list                # 공정 이름
+    opc: list                # costing.OpCost 목록
     weight: float            # 제품 kg (개당)
     gross_kg: float          # 원자재 소요 kg (개당)
-    material: float          # 원/개 (스크랩 뺀)
-    process: float           # 가공비 원/개
-    die_cost: float = 0.0    # 금형비 (한 번)
+    material_auto: float     # 원/개 (스크랩 뺀)
+    die: object = None       # costing.DieQuote
     note: str = ""
     process_override: float | None = None
+    material_override: float | None = None
+
+    @property
+    def ops(self):
+        return [o.op for o in self.opc]
 
     @property
     def n_ops(self):
-        return len(self.ops)
+        return len(self.opc)
+
+    @property
+    def material(self):
+        return self.material_auto if self.material_override is None else self.material_override
+
+    @property
+    def process(self):
+        return sum(o.cost for o in self.opc)
 
     @property
     def process_cost(self):
         return self.process if self.process_override is None else self.process_override
+
+    @property
+    def seconds(self):
+        return sum(o.seconds for o in self.opc)
+
+    @property
+    def need_tonf(self):
+        """프레스에 걸리는 가장 큰 힘 (tf). 한 프레스 금형은 공정 합, 아니면 공정 중 최대."""
+        press = [o for o in self.opc if o.kind == cs.PRESS]
+        if press and ("순차" in self.method or "트랜스퍼" in self.method or "복합" in self.method):
+            return sum(o.tonf for o in press)
+        return max((o.tonf for o in self.opc), default=0.0)
+
+    @property
+    def machines(self):
+        out = []
+        for o in self.opc:
+            if o.machine and o.machine not in out:
+                out.append(o.machine)
+        return out
+
+    @property
+    def die_cost(self):
+        return self.die.cost if self.die is not None else 0.0
 
     @property
     def unit(self):
@@ -176,16 +214,29 @@ class Quote:
     def total_ops(self):
         return sum(p.n_ops for p in self.parts)
 
+    @property
+    def max_tonf(self):
+        return max((p.need_tonf for p in self.parts), default=0.0)
+
+    @property
+    def machine_list(self):
+        out = []
+        for p in self.parts:
+            for m in p.machines:
+                if m not in out:
+                    out.append(m)
+        return out
+
+    @property
+    def dies(self):
+        return [p.die for p in self.parts if p.die is not None]
+
 
 # ---------------------------------------------------------------- 부품 하나
 
-def laser_cost(rates, cut_len_mm, pierce, bends, t):
-    per_m = rates["laser_m"] * (1 + rates["laser_t"] * max(t - 1.0, 0))
-    return cut_len_mm / 1000 * per_m + pierce * rates["pierce"] + bends * rates["bend"]
-
-
-def part_cost(item, settings: bc.BendSettings, rates, annual, cache=None):
-    """BomItem (자작) → PartCost. cache: {(품번, 생산량): (형식, 공정, 절단 길이, 피어싱)} (단가만 바꿀 때 다시 안 셈)."""
+def part_cost(item, settings: bc.BendSettings, rates, annual, cache=None, lot=1):
+    """BomItem (자작) → PartCost. cache: {(품번, 생산량): (형식, 공정, 절단 길이, 피어싱)}
+    (단가·임률만 바꿀 때 공정 설계를 다시 안 함). lot: 이 부품 로트 수량 (준비 시간 나눔)."""
     from . import metrics as mt
     from . import procplan as pp
     mat = settings.mat
@@ -193,14 +244,16 @@ def part_cost(item, settings: bc.BendSettings, rates, annual, cache=None):
     rm = item.rm or {}
     gross = float(rm.get("kg", item.weight))
     net = float(rm.get("net_kg", item.weight))
-    material = gross * price - max(gross - net, 0) * rates["scrap_kg"]
     t = item.thickness or 0.0
-    spec = f"{mat.code} t{t:g}" if item.thickness else rm.get("spec", "")
-    if item.result is None or "선반" in item.category or item.category.endswith("(가공)"):
-        # 판금이 아닌 자작 (선반·가공): 재료 + 무게 비례 가공비 (어림)
-        return PartCost(item.no, item.name, item.qty, item.category, rm.get("spec", ""), "기계 가공",
-                        ["재료 절단", "가공"], item.weight, gross, material,
-                        item.weight * rates["machining_kg"], note="가공비는 무게 어림 — 확인 필요")
+    costing = rates["costing"]
+    machined = item.result is None or "선반" in item.category or item.category.endswith("(가공)")
+    if machined:
+        material = gross * price - max(gross - net, 0) * rates["scrap_kg"]
+        opc = cs.op_costs(item, settings, "기계 가공", [], 0, 0, costing, lot)
+        return PartCost(item.no, item.name, item.qty, item.category, rm.get("spec", ""), "기계 가공", opc,
+                        item.weight, gross, material, note="가공비는 무게 어림 — 확인 필요")
+    material = gross * price - max(gross - net, 0) * rates["scrap_kg"]
+    spec = f"{mat.code} t{t:g}"
     key = (item.no, annual)
     if cache is not None and key in cache:
         method, ops, cut_len, pierce = cache[key]
@@ -215,23 +268,10 @@ def part_cost(item, settings: bc.BendSettings, rates, annual, cache=None):
         cut_len, pierce = m.cut_length, m.pierce
         if cache is not None:
             cache[key] = (method, tuple(ops), cut_len, pierce)
-    nb = len(item.result.bends)
-    if "레이저" in method:
-        ops = ["레이저 절단"] + [f"절곡 {i + 1}" for i in range(nb)]
-        proc = laser_cost(rates, cut_len, pierce, nb, t)
-        die = 0.0
-        note = f"절단 {cut_len / 1000:.2f} m · 피어싱 {pierce} · 절곡 {nb}"
-    else:
-        proc = len(ops) * rates["press_stroke"]
-        if "순차" in method:
-            die = len(ops) * rates["die_station"]
-        elif "복합" in method:
-            die = rates["die_single"]
-        else:
-            die = len(ops) * rates["die_single"] / 2      # 단발·트랜스퍼·탠덤: 공정당 반 벌 어림
-        note = f"{len(ops)} 공정 × {rates['press_stroke']:,} 원"
-    return PartCost(item.no, item.name, item.qty, item.category, spec, method, ops, item.weight, gross,
-                    material, proc, die, note)
+    opc = cs.op_costs(item, settings, method, ops, cut_len, pierce, costing, lot)
+    die = cs.die_quote(item, method, ops, costing, settings)
+    return PartCost(item.no, item.name, item.qty, item.category, spec, method, opc, item.weight, gross,
+                    material, die)
 
 
 def build(model, parts, settings: bc.BendSettings, rates, sets=1, annual=100_000, excluded=(),
@@ -244,7 +284,7 @@ def build(model, parts, settings: bc.BendSettings, rates, sets=1, annual=100_000
         if it.excluded:
             continue
         if it.procure == "자작":
-            pcs.append(part_cost(it, settings, rates, annual, cache))
+            pcs.append(part_cost(it, settings, rates, annual, cache, lot=sets * it.qty))
         else:
             subs.append(SubItem(it.name or f"품번 {it.no}", it.size_text, it.qty, 0.0, "EA",
                                 it.category))
@@ -354,7 +394,7 @@ def save_xlsx(q: Quote, path: str):
         c.font, c.fill, c.border = hf, head, box
         c.alignment = Alignment(horizontal="center")
     lines = [[1, q.title or "제품", f"자작 {len(q.parts)}종 · 부자재 {len(q.subs)}종", q.sets, "SET",
-              q.unit_price, q.unit_price * q.sets, f"공정 합계 {q.total_ops}"]]
+              q.unit_price, q.unit_price * q.sets, f"공정 {q.total_ops} · 최대 {q.max_tonf:,.0f} tf"]]
     if q.die_total and not q.amortize_die:
         lines.append([2, "금형비", f"{sum(1 for p in q.parts if p.die_cost)} 부품", 1, "식", q.die_total,
                       q.die_total, "별도 (한 번)"])
@@ -378,7 +418,8 @@ def save_xlsx(q: Quote, path: str):
     notes = ["1. 단가는 도면(3D) 전개 결과와 단가표로 계산한 초안입니다.",
              "2. " + die_note(q),
              "3. 도장·열처리·포장·운송은 따로 적지 않은 경우 포함되지 않습니다.",
-             f"4. 연간 예상 {q.annual:,} 개 기준으로 금형 형식을 정했습니다."]
+             f"4. 연간 예상 {q.annual:,} 개 기준으로 금형 형식을 정했습니다.",
+             f"5. 필요 톤수 최대 {q.max_tonf:,.1f} tf · 사용 기계: {', '.join(q.machine_list) or '-'}"]
     for n in notes:
         ws.cell(r, 1, n)
         r += 1
@@ -388,8 +429,8 @@ def save_xlsx(q: Quote, path: str):
 
     # 산출 근거
     w2 = wb.create_sheet("산출 근거")
-    h2 = ["품번", "품명", "세트당 수량", "구분", "재질·두께", "공정 방식", "공정수", "공정", "제품 kg",
-          "소요 kg", "재료비/개", "가공비/개", "단가/개", "세트당 금액", "금형비", "비고"]
+    h2 = ["품번", "품명", "세트당 수량", "구분", "재질·두께", "공정 방식", "공정수", "공정", "필요 톤수 (tf)",
+          "사용 기계", "제품 kg", "소요 kg", "재료비/개", "가공비/개", "단가/개", "세트당 금액", "금형비", "비고"]
     for j, h in enumerate(h2, 1):
         c = w2.cell(1, j, h)
         c.font, c.fill = hf, head
@@ -397,13 +438,15 @@ def save_xlsx(q: Quote, path: str):
     w2.column_dimensions["B"].width = 26
     w2.column_dimensions["F"].width = 28
     w2.column_dimensions["H"].width = 50
+    w2.column_dimensions["J"].width = 30
     for i, p in enumerate(q.parts, 2):
         vals = [p.no, p.name, p.qty, p.category, p.spec, p.method, p.n_ops, " → ".join(p.ops),
+                round(p.need_tonf, 1), ", ".join(p.machines),
                 round(p.weight, 3), round(p.gross_kg, 3), round(p.material), round(p.process_cost), round(p.unit),
                 round(p.amount), round(p.die_cost), p.note]
         for j, v in enumerate(vals, 1):
             c = w2.cell(i, j, v)
-            if j >= 11 and j <= 15:
+            if 13 <= j <= 17:
                 c.number_format = "#,##0"
     r2 = len(q.parts) + 3
     w2.cell(r2, 1, "부자재").font = Font(bold=True)
@@ -423,13 +466,42 @@ def save_xlsx(q: Quote, path: str):
     for i, (k, v) in enumerate(summary, r3):
         w2.cell(i, 2, k).font = Font(bold=True)
         w2.cell(i, 3, round(v)).number_format = "#,##0"
+    # 공정별 (톤수·기계·시간·비용)
+    w4 = wb.create_sheet("공정별")
+    h4 = ["품번", "품명", "공정", "기계 종류", "힘 (tf)", "사용 기계", "시간 (초/개)", "가공비 (원/개)", "비고"]
+    for j, h in enumerate(h4, 1):
+        c = w4.cell(1, j, h)
+        c.font, c.fill = hf, head
+        w4.column_dimensions[c.column_letter].width = 14
+    w4.column_dimensions["B"].width = 24
+    w4.column_dimensions["F"].width = 22
+    w4.column_dimensions["I"].width = 48
+    r4 = 2
+    for p in q.parts:
+        for o in p.opc:
+            for j, v in enumerate([p.no, p.name, o.op, o.kind, round(o.tonf, 2), o.machine, round(o.seconds, 1),
+                                   round(o.cost, 1), o.note], 1):
+                w4.cell(r4, j, v)
+            r4 += 1
+    # 기계·임률
+    w5 = wb.create_sheet("기계·임률")
+    for j, (_, h) in enumerate(cs.MACHINE_COLS, 1):
+        c = w5.cell(1, j, h)
+        c.font, c.fill = hf, head
+        w5.column_dimensions[c.column_letter].width = 16
+    used = set(q.machine_list)
+    for i, mch in enumerate(q.rates["costing"]["machines"], 2):
+        for j, (k, _) in enumerate(cs.MACHINE_COLS, 1):
+            c = w5.cell(i, j, mch.get(k, ""))
+            if mch["name"] in used:
+                c.font = Font(bold=True)
     w3 = wb.create_sheet("단가표")
     w3.append(["항목", "값"])
     for k, v in q.rates["material"].items():
         w3.append([f"재료 {k} (원/kg)", v])
-    for k in ("scrap_kg", "laser_m", "laser_t", "pierce", "bend", "press_stroke", "die_station", "die_single",
-              "machining_kg", "overhead_pct", "profit_pct", "vat_pct"):
+    for k in RATE_NAMES:
         w3.append([RATE_NAMES[k], q.rates[k]])
+    w3.append(["기계 선택 여유 (배)", q.rates["costing"].get("safety", cs.SAFETY)])
     wb.save(path)
     import os
     for t in tmp:
@@ -440,10 +512,7 @@ def save_xlsx(q: Quote, path: str):
 
 
 RATE_NAMES = {
-    "scrap_kg": "고철 회수 (원/kg)", "laser_m": "레이저 절단 (원/m, 1 mm)", "laser_t": "두께 1 mm 당 절단비 증가 (비)",
-    "pierce": "피어싱 (원/개)", "bend": "절곡기 1 회 (원)", "press_stroke": "금형 1 공정 (원/개)",
-    "die_station": "순차 금형 공정당 금형비 (원)", "die_single": "단발 금형 1 벌 (원)",
-    "machining_kg": "기계 가공비 (원/kg)", "overhead_pct": "일반관리비 (%)", "profit_pct": "이윤 (%)",
+    "scrap_kg": "고철 회수 (원/kg)", "overhead_pct": "일반관리비 (%)", "profit_pct": "이윤 (%)",
     "vat_pct": "부가세 (%)",
 }
 
@@ -549,6 +618,11 @@ def save_pdf(q: Quote, path: str):
     y = table(m, y, [("항목", 60, Qt.AlignLeft), ("금액 (원)", 40, Qt.AlignRight)], srows)
     text(m + 108, y - 8 * 6.5, W - 2 * m - 108, 6.5, f"공정 합계 {q.total_ops} · 자작 {len(q.parts)}종", 9)
     text(m + 108, y - 7 * 6.5, W - 2 * m - 108, 6.5, f"연간 예상 {q.annual:,} 개 기준 금형 형식", 9)
+    text(m + 108, y - 6 * 6.5, W - 2 * m - 108, 6.5, f"필요 톤수 최대 {q.max_tonf:,.1f} tf", 9, True)
+    yy = y - 5 * 6.5
+    for mname in q.machine_list[:5]:
+        text(m + 108, yy, W - 2 * m - 108, 6, "· " + mname, 8.5)
+        yy += 6
     y += 6
     for n in ["※ 도면(3D) 전개 결과와 단가표로 계산한 초안입니다. 확정 전 검토하세요.",
               "※ " + die_note(q),
@@ -560,18 +634,21 @@ def save_pdf(q: Quote, path: str):
     pdf.newPage()
     text(m, m, W - 2 * m, 9, f"산출 근거 — {q.title}", 14, True)
     y = m + 12
-    cols = [("품번", 10, Qt.AlignCenter), ("품명", 34, Qt.AlignLeft), ("수량", 10, Qt.AlignRight),
-            ("재질", 20, Qt.AlignLeft), ("방식", 30, Qt.AlignLeft), ("공정", 10, Qt.AlignRight),
-            ("재료/개", 19, Qt.AlignRight), ("가공/개", 19, Qt.AlignRight), ("세트 금액", 22, Qt.AlignRight)]
-    rows = [[x.no, x.name[:18], x.qty, x.spec, short_method(x.method), x.n_ops,
-             won(x.material), won(x.process_cost), won(x.amount)] for x in q.parts]
-    y = table(m, y, cols, rows, 7.5, 5.6)
+    cols = [("품번", 8, Qt.AlignCenter), ("품명", 26, Qt.AlignLeft), ("수량", 8, Qt.AlignRight),
+            ("재질", 17, Qt.AlignLeft), ("방식", 24, Qt.AlignLeft), ("공정", 8, Qt.AlignRight),
+            ("톤 tf", 11, Qt.AlignRight), ("기계", 26, Qt.AlignLeft),
+            ("재료/개", 16, Qt.AlignRight), ("가공/개", 16, Qt.AlignRight), ("세트 금액", 20, Qt.AlignRight)]
+    rows = [[x.no, x.name[:14], x.qty, x.spec, short_method(x.method)[:12], x.n_ops, f"{x.need_tonf:,.1f}",
+             ", ".join(x.machines)[:16], won(x.material), won(x.process_cost), won(x.amount)] for x in q.parts]
+    y = table(m, y, cols, rows, 7, 5.6)
     y += 4
     for x in q.parts:
         if y > H - 40:
             break
-        text(m, y, W - 2 * m, 5, f"{x.no}. {x.name[:20]}: " + " → ".join(x.ops) + (f"   ({x.note})" if x.note else ""),
-             7, color=QColor(60, 60, 60))
+        steps = " → ".join(f"{o.op}" + (f" ({o.machine.split()[0] if o.machine else ''} {o.tonf:.0f}tf)"
+                                         if o.tonf >= 0.5 else "") for o in x.opc)
+        text(m, y, W - 2 * m, 5, f"{x.no}. {x.name[:16]}: {steps}" + (f"   ({x.note})" if x.note else ""),
+             6.8, color=QColor(60, 60, 60))
         y += 4.6
     if q.subs:
         y += 4
@@ -581,6 +658,158 @@ def save_pdf(q: Quote, path: str):
                 ("단가", 30, Qt.AlignRight), ("금액", 34, Qt.AlignRight)]
         y = table(m, y, cols, [[s.name[:30], s.spec[:22], f"{s.qty:g}", won(s.unit_price), won(s.amount)]
                                for s in q.subs if y < H - 30], 7.5, 5.6)
+    text(m, H - m - 5, W - 2 * m, 5, f"한일 판금 전개 {version_text()}  ·  {company.MAKER}", 7.5,
+         color=QColor(130, 130, 130))
+    p.end()
+
+
+# ---------------------------------------------------------------- 금형 견적서
+
+def die_total_with_vat(q: Quote):
+    supply = sum(d.cost for d in q.dies)
+    vat = round(supply * q.rates["vat_pct"] / 100)
+    return supply, vat, supply + vat
+
+
+def save_die_xlsx(q: Quote, path: str):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    from . import company
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "금형 견적서"
+    head = PatternFill("solid", fgColor="1F4E8C")
+    hf = Font(bold=True, color="FFFFFF")
+    for i, w in enumerate([8, 30, 26, 12, 46, 16], 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.merge_cells("A1:F1")
+    ws["A1"] = "금 형  견 적 서"
+    ws["A1"].font = Font(bold=True, size=20)
+    ws["A1"].alignment = Alignment(horizontal="center")
+    supply, vat, total = die_total_with_vat(q)
+    sup = q.rates.get("supplier", {})
+    info = [("견적 일자", f"{q.date:%Y-%m-%d}"), ("수신", f"{q.customer} 귀하" if q.customer else "귀하"),
+            ("제품", q.title), ("공급자", f"{company.NAME}  {sup.get('전화', '')}"),
+            ("합계 금액", f"일금 {korean_amount(total)}원정 (₩ {won(total)}, 부가세 포함)")]
+    for i, (k, v) in enumerate(info, 3):
+        ws.cell(i, 1, k).font = Font(bold=True)
+        ws.merge_cells(start_row=i, start_column=2, end_row=i, end_column=6)
+        ws.cell(i, 2, v)
+    r = 9
+    for j, h in enumerate(["번호", "금형", "형식", "공정수", "크기 (길이×폭×두께)", "금액"], 1):
+        c = ws.cell(r, j, h)
+        c.font, c.fill = hf, head
+    for i, d in enumerate(q.dies, 1):
+        r += 1
+        for j, v in enumerate([i, f"{d.part_name} (품번 {d.part_no})", short_method(d.die_type), d.stations,
+                               f"{d.size[0]:.0f} × {d.size[1]:.0f} × {d.size[2]:.0f}", round(d.cost)], 1):
+            c = ws.cell(r, j, v)
+            if j == 6:
+                c.number_format = "#,##0"
+    for k, v in (("공급가액", supply), (f"부가세 {q.rates['vat_pct']:g} %", vat), ("합계", total)):
+        r += 1
+        ws.cell(r, 5, k).font = Font(bold=True)
+        c = ws.cell(r, 6, v)
+        c.number_format = "#,##0"
+        c.font = Font(bold=True)
+    r += 2
+    for n in ["1. 금형 구조·크기는 전개도와 공정 설계로 어림한 초안입니다 (금형 설계 후 확정).",
+              "2. 트라이 후 제품 수정·설계 변경 비용은 포함되지 않습니다.",
+              "3. 금형 보증 타수·보관·수리 조건은 따로 정합니다."]:
+        ws.cell(r, 1, n)
+        r += 1
+    ws2 = wb.create_sheet("금형 산출 근거")
+    r = 1
+    for d in q.dies:
+        ws2.cell(r, 1, f"{d.part_name} — {d.die_type}, {d.stations} 공정, "
+                       f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm").font = Font(bold=True)
+        r += 1
+        for name, formula, amt in d.lines:
+            ws2.cell(r, 1, name)
+            ws2.cell(r, 2, formula)
+            ws2.cell(r, 3, round(amt)).number_format = "#,##0"
+            r += 1
+        ws2.cell(r, 1, "소계").font = Font(bold=True)
+        ws2.cell(r, 3, round(d.cost)).number_format = "#,##0"
+        r += 2
+    ws2.column_dimensions["A"].width = 26
+    ws2.column_dimensions["B"].width = 60
+    ws2.column_dimensions["C"].width = 16
+    ws3 = wb.create_sheet("금형 단가")
+    for k, v in q.rates["costing"]["die"].items():
+        ws3.append([cs.DIE_NAMES.get(k, k), v])
+    ws3.column_dimensions["A"].width = 34
+    wb.save(path)
+
+
+def save_die_pdf(q: Quote, path: str):
+    from PySide6.QtCore import QMarginsF, QRectF, Qt
+    from PySide6.QtGui import QColor, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
+
+    from . import company
+    from .report import _brand, _font, ensure_gui, version_text
+    ensure_gui()
+    pdf = QPdfWriter(path)
+    pdf.setResolution(300)
+    pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Portrait, QMarginsF(0, 0, 0, 0)))
+    pdf.setTitle(f"금형 견적서 - {q.title}")
+    k = 300 / 25.4
+    W, H, m = 210.0, 297.0, 15.0
+
+    def R(x, y, w, h):
+        return QRectF(x * k, y * k, w * k, h * k)
+
+    p = QPainter(pdf)
+
+    def text(x, y, w, h, s, size=9, bold=False, align=Qt.AlignLeft, color=QColor(20, 20, 20)):
+        p.setFont(_font(size, bold))
+        p.setPen(color)
+        p.drawText(R(x, y, w, h), align | Qt.AlignVCenter, s)
+
+    supply, vat, total = die_total_with_vat(q)
+    text(m, m, W - 2 * m, 14, "금 형  견 적 서", 22, True, Qt.AlignCenter)
+    _brand(p, R(m, m + 16, W - 2 * m, 6))
+    y = m + 25
+    for kk, v in [("견적 일자", f"{q.date:%Y-%m-%d}"), ("수신", f"{q.customer} 귀하" if q.customer else "귀하"),
+                  ("제품", q.title), ("공급자", company.NAME)]:
+        text(m, y, 25, 6, kk, 9.5, True)
+        text(m + 25, y, 140, 6, v, 9.5)
+        y += 6.5
+    y += 3
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(234, 240, 250))
+    p.drawRect(R(m, y, W - 2 * m, 10))
+    text(m + 3, y, W - 2 * m - 6, 10, f"합계 금액: 일금 {korean_amount(total)}원정 (₩ {won(total)}, 부가세 포함)",
+         11, True)
+    y += 15
+    for d in q.dies:
+        if y > H - 60:
+            pdf.newPage()
+            y = m
+        text(m, y, W - 2 * m, 7, f"{d.part_name} — {short_method(d.die_type)}, {d.stations} 공정, "
+                                 f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm", 10.5, True,
+             color=QColor(31, 78, 140))
+        y += 8
+        for name, formula, amt in d.lines:
+            text(m + 2, y, 50, 5.6, name, 8.5)
+            text(m + 52, y, 98, 5.6, formula, 8, color=QColor(90, 90, 90))
+            text(m + 150, y, 30, 5.6, won(amt), 8.5, align=Qt.AlignRight)
+            y += 5.6
+        p.setPen(QPen(QColor(120, 120, 120), 0.2 * k))
+        p.drawLine(R(m, y, W - 2 * m, 0).topLeft(), R(m, y, W - 2 * m, 0).topRight())
+        text(m + 2, y + 0.5, 50, 6, "소계", 9, True)
+        text(m + 150, y + 0.5, 30, 6, won(d.cost), 9, True, Qt.AlignRight)
+        y += 10
+    for kk, v in (("공급가액", supply), (f"부가세 {q.rates['vat_pct']:g} %", vat), ("합계", total)):
+        text(m + 100, y, 50, 6.5, kk, 10, True, Qt.AlignRight)
+        text(m + 150, y, 30, 6.5, won(v), 10, True, Qt.AlignRight)
+        y += 6.5
+    y += 4
+    for n in ["※ 금형 구조·크기는 전개도와 공정 설계로 어림한 초안입니다 (금형 설계 후 확정).",
+              "※ 트라이 후 제품 수정·설계 변경 비용은 포함되지 않습니다."]:
+        text(m, y, W - 2 * m, 5.5, n, 8.5, color=QColor(90, 90, 90))
+        y += 5.5
     text(m, H - m - 5, W - 2 * m, 5, f"한일 판금 전개 {version_text()}  ·  {company.MAKER}", 7.5,
          color=QColor(130, 130, 130))
     p.end()

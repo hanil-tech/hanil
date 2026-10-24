@@ -64,30 +64,103 @@ def test_quote_high_volume_dies_and_overrides(assy):
     rates = q.load_rates(None)
     qt = q.build(m, parts, st, rates, sets=1000, annual=300_000)
     panel = next(p for p in qt.parts if p.name == "SIDE PANEL")
-    assert "순차" in panel.method and panel.die_cost == panel.n_ops * rates["die_station"]
+    assert "순차" in panel.method and panel.die is not None and panel.die_cost > 0
     assert qt.supply == qt.unit_price * 1000 + qt.die_total
     before = qt.unit_price
     qt.amortize_die = True
     assert qt.unit_price > before and qt.supply == qt.unit_price * 1000
     panel.process_override = 0.0
-    assert panel.process_cost == 0 and panel.unit == panel.material
+    panel.material_override = 123.0
+    assert panel.process_cost == 0 and panel.unit == 123.0
     qt.subs[0].unit_price = 100
     assert qt.sub_total == pytest.approx(100 * qt.subs[0].qty)
+
+
+def test_tonnage_and_machine_choice(assy):
+    from hanil_unfold import costing as cs
+    from hanil_unfold import diecalc as dc
+    m, parts, st = assy
+    rates = q.load_rates(None)
+    qt = q.build(m, parts, st, rates, sets=1000, annual=300_000)
+    panel = next(p for p in qt.parts if p.name == "SIDE PANEL")
+    # 순차 금형: 한 프레스 = 공정 힘의 합, 그 × 1.3 이상인 가장 작은 프레스
+    total = sum(o.tonf for o in panel.opc)
+    assert panel.need_tonf == pytest.approx(total)
+    from hanil_unfold import bom
+    item = next(it for it in bom.build(m, parts, st.mat.density, (), st.mat.code) if it.name == "SIDE PANEL")
+    rep = dc.review(item.result, st, strip=False)
+    assert total >= (rep.loads[0].force_n + rep.loads[1].force_n) / dc.TON
+    press = [x for x in rates["costing"]["machines"] if x["kind"] == cs.PRESS]
+    need = total * 1.3
+    expect = min((x for x in press if x["capacity"] >= need), key=lambda x: x["capacity"])
+    assert panel.machines == [expect["name"]]
+    # 저 생산량: 레이저 + 절곡기, 절곡마다 절곡기 톤수
+    low = q.build(m, parts, st, rates, sets=10, annual=1000)
+    lp = next(p for p in low.parts if p.name == "SIDE PANEL")
+    kinds = [o.kind for o in lp.opc]
+    assert kinds[0] == cs.LASER and kinds[1:] == [cs.BRAKE] * 4
+    assert all(o.tonf > 0 and o.machine.startswith("절곡기") for o in lp.opc[1:])
+    # 임률을 두 배로 → 가공비 두 배 (준비 포함)
+    r2 = q.load_rates(None)
+    for x in r2["costing"]["machines"]:
+        x["rate"] *= 2
+    lp2 = next(p for p in q.build(m, parts, st, r2, sets=10, annual=1000).parts if p.name == "SIDE PANEL")
+    assert lp2.process == pytest.approx(2 * lp.process)
+    # 기계가 모자라면 표시
+    r3 = q.load_rates(None)
+    r3["costing"]["machines"] = [x for x in r3["costing"]["machines"] if x["kind"] != cs.PRESS] + [
+        {"name": "작은 프레스", "kind": cs.PRESS, "capacity": 1, "rate": 10000, "spm": 30, "setup_min": 0}]
+    hp = next(p for p in q.build(m, parts, st, r3, sets=10, annual=300_000).parts if p.name == "SIDE PANEL")
+    assert any("⚠" in o.note for o in hp.opc)
+
+
+def test_die_quote_parts(assy):
+    m, parts, st = assy
+    rates = q.load_rates(None)
+    qt = q.build(m, parts, st, rates, sets=1000, annual=300_000)
+    d = next(p.die for p in qt.parts if p.name == "SIDE PANEL")
+    names = [x[0] for x in d.lines]
+    assert names[:7] == ["설계", "다이 세트·플레이트", "인서트 (SKD11)", "열처리", "가공 (와이어·MCT·연삭)",
+                         "표준 부품", "조립·트라이"]
+    sub = sum(x[2] for x in d.lines[:7])
+    assert d.cost == pytest.approx(sub * 1.1 * 1.1)
+    rates["costing"]["die"]["machining_per_station"] *= 2
+    d2 = next(p.die for p in q.build(m, parts, st, rates, sets=1000, annual=300_000).parts if p.name == "SIDE PANEL")
+    assert d2.cost > d.cost
+    supply, vat, total = q.die_total_with_vat(qt)
+    assert supply == pytest.approx(qt.die_total) and total == supply + vat
 
 
 def test_outputs(assy, tmp_path):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
     m, parts, st = assy
-    qt = q.build(m, parts, st, q.load_rates(None), sets=5, annual=1000, title="TRUCK")
+    qt = q.build(m, parts, st, q.load_rates(None), sets=5, annual=300_000, title="TRUCK")
     qt.customer = "고객사"
     q.save_xlsx(qt, str(tmp_path / "q.xlsx"))
     q.save_pdf(qt, str(tmp_path / "q.pdf"))
+    q.save_die_xlsx(qt, str(tmp_path / "d.xlsx"))
+    q.save_die_pdf(qt, str(tmp_path / "d.pdf"))
     import openpyxl
     wb = openpyxl.load_workbook(tmp_path / "q.xlsx")
-    assert wb.sheetnames == ["견적서", "산출 근거", "단가표"]
+    assert wb.sheetnames == ["견적서", "산출 근거", "공정별", "기계·임률", "단가표"]
     ws = wb["견적서"]
     texts = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
     assert any("일금" in t and q.korean_amount(qt.total) in t for t in texts)
     assert any("고객사" in t for t in texts)
-    assert (tmp_path / "q.pdf").stat().st_size > 5000
+    assert any("tf" in t for t in texts)
+    assert wb["공정별"].max_row > len(qt.parts)
+    wd = openpyxl.load_workbook(tmp_path / "d.xlsx")
+    assert wd.sheetnames == ["금형 견적서", "금형 산출 근거", "금형 단가"]
+    assert (tmp_path / "q.pdf").stat().st_size > 5000 and (tmp_path / "d.pdf").stat().st_size > 3000
+
+
+def test_saved_machines_survive_load():
+    import json
+    r = q.load_rates(None)
+    r["costing"]["machines"] = [{"name": "우리 프레스 150", "kind": "프레스", "capacity": 150, "rate": 1, "spm": 20}]
+    r["costing"]["die"]["design_per_station"] = 1
+    back = q.load_rates(json.dumps(r, ensure_ascii=False))
+    assert back["costing"]["machines"][0]["name"] == "우리 프레스 150"
+    assert back["costing"]["die"]["design_per_station"] == 1
+    assert back["costing"]["die"]["heat_kg"] == q.DEFAULT_RATES["costing"]["die"]["heat_kg"]
