@@ -272,8 +272,10 @@ DXF 를 화면에 놓고 위에서 본다고 할 때
 ## 제작사 · 로고
 
 화면 오른쪽 아래, [도움말], PDF·엑셀 보고서 머리에 **제작사 : 한일특장(주)** 와 로고가 들어갑니다.
-회사 로고 그림(PNG, 투명 바탕 권장)을 `%APPDATA%\HanilUnfold\logo.png` 로 넣으면 그 그림으로 바뀝니다
-(없으면 파란 네모에 H 표식). 소스의 `hanil_unfold/company.py` 에서 이름을 바꿀 수 있습니다.
+로고는 회사 로고 원본(`HANIL_A_화이트.ai`)을 PNG 로 바꾼 것입니다: 흰 바탕(보고서·화면 아래)에는 같은 모양을
+검은색으로(`hanil_unfold/logo.png`), 어두운 바탕에는 원본 흰색(`hanil_unfold/logo_white.png`)을 씁니다.
+다른 로고를 쓰려면 PNG(투명 바탕)를 `%APPDATA%\HanilUnfold\logo.png` 로 넣으면 그것이 먼저 쓰입니다.
+이름은 `hanil_unfold/company.py` 에서 바꿀 수 있습니다.
 
 ## 3D 미리보기 화면
 

@@ -434,7 +434,7 @@ def save_xlsx(d: ReportData, path: str):
     ws["A2"].font = _xl_font(st["val"], bold=True)
     ws["A3"] = f"{d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}"
     ws["A3"].font = st["key"]
-    logo_tmp = _add_image(ws, company.logo_image(96), "B2", 40)
+    logo_tmp = _add_image(ws, company.logo_image(96), "B2", 90)
     ws.row_dimensions[2].height = 32
     r = 5
     for i, (k, v) in enumerate(summary_rows(d)):
@@ -904,7 +904,7 @@ def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
     from . import company
     ws.cell(1, 1, "철판 배치 보고서").font = st["title"]
     ws.row_dimensions[1].height = 34
-    logo_tmp = _add_image(ws, company.logo_image(96), "D1", 44)
+    logo_tmp = _add_image(ws, company.logo_image(96), "D1", 100)
     ws.cell(1, 5, company.MAKER).font = _xl_font(st["val"], bold=True)
     info = [("제작사", company.NAME), ("도면", source_name), ("만든 때", f"{_dt.datetime.now():%Y-%m-%d %H:%M}"),
             ("프로그램", f"한일 판금 전개 {version_text(long=True)}")]

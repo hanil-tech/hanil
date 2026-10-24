@@ -50,6 +50,8 @@ a = Analysis(
     pathex=[ROOT],
     binaries=binaries,
     datas=[(os.path.join(ROOT, "hanil_unfold", "icon.ico"), "hanil_unfold"),
+           (os.path.join(ROOT, "hanil_unfold", "logo.png"), "hanil_unfold"),
+           (os.path.join(ROOT, "hanil_unfold", "logo_white.png"), "hanil_unfold"),
            # OCP 는 시작할 때 vtk.libs 폴더를 DLL 경로에 넣는데, 폴더가 없으면 오류가 난다.
            (os.path.join(HERE, "vtk.libs.txt"), "vtk.libs")],
     # scipy 는 안에 넣어 둔 array_api_compat 를 실행 중에 불러와 PyInstaller 가 놓친다.

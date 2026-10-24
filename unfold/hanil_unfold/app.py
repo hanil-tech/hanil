@@ -951,7 +951,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtGui import QPixmap
         box = QMessageBox(self)
         box.setWindowTitle("도움말")
-        box.setIconPixmap(QPixmap.fromImage(company.logo_image(64)))
+        box.setIconPixmap(QPixmap.fromImage(company.logo_image(48)))
         box.setText(HELP_TEXT.format(version=version_text(long=True)) + f"\n\n{company.MAKER}"
                     + "\n\n최근 바뀐 것\n" + changes_text(limit=3))
         box.exec()

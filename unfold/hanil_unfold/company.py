@@ -1,9 +1,10 @@
 """제작사 표기와 로고 (화면 아래, 도움말, PDF·엑셀 보고서).
 
-로고 파일을 두면 그것을 쓴다 (먼저 찾는 곳부터):
-  1. %APPDATA%\\HanilUnfold\\logo.png   ← 회사 로고를 여기에 넣으면 바로 바뀐다
-  2. 프로그램 안 hanil_unfold\\logo.png
-없으면 간단한 표식(파란 네모에 H)을 그린다.
+로고: 회사 로고(HANIL_A_화이트.ai)를 PNG 로 바꿔 넣었다.
+  hanil_unfold\\logo.png        흰 바탕용 (원본 모양 그대로 검은색)
+  hanil_unfold\\logo_white.png  어두운 바탕용 (원본 흰색)
+%APPDATA%\\HanilUnfold\\logo.png 가 있으면 그것을 먼저 쓴다 (로고를 바꿀 때).
+파일이 하나도 없으면 간단한 표식(파란 네모에 H)을 그린다.
 """
 from __future__ import annotations
 
@@ -18,19 +19,20 @@ def user_logo_path() -> str:
     return os.path.join(base, "HanilUnfold", "logo.png")
 
 
-def logo_path() -> str:
-    for p in (user_logo_path(), os.path.join(os.path.dirname(__file__), "logo.png")):
+def logo_path(white=False) -> str:
+    here = os.path.dirname(__file__)
+    for p in (user_logo_path(), os.path.join(here, "logo_white.png" if white else "logo.png")):
         if os.path.exists(p):
             return p
     return ""
 
 
-def logo_image(height_px: int = 64):
-    """로고 QImage (높이 height_px, 투명 바탕)."""
+def logo_image(height_px: int = 64, white=False):
+    """로고 QImage (높이 height_px, 투명 바탕). white=True 는 어두운 바탕용."""
     from PySide6.QtCore import QRectF, Qt
     from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath
 
-    path = logo_path()
+    path = logo_path(white)
     if path:
         img = QImage(path)
         if not img.isNull():
