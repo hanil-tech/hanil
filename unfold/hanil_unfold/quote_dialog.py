@@ -136,8 +136,11 @@ class QuoteDialog(QDialog):
         dxl.clicked.connect(lambda: self.save("xlsx", die=True))
         dpdf.clicked.connect(lambda: self.save("pdf", die=True))
         btns.addWidget(QLabel("단가·기계·임률은 예시값입니다 — 탭에서 회사 값으로 바꾸면 저장됩니다."))
+        allb = QPushButton("엑셀 + PDF 모두 저장…")
+        allb.setToolTip("생산 견적서와 (금형이 있으면) 금형 견적서를 엑셀·PDF 로 한 번에")
+        allb.clicked.connect(self.save_all)
         btns.addStretch(1)
-        for b in (xl, pdf, dxl, dpdf):
+        for b in (xl, pdf, dxl, dpdf, allb):
             btns.addWidget(b)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
@@ -494,6 +497,28 @@ class QuoteDialog(QDialog):
         if self.extra_subs:
             self.extra_subs.pop()
             self.recalc()
+
+    def save_all(self):
+        self.st.setValue("quote_annual", self.annual.value())
+        self.st.setValue("quote_customer", self.customer.text())
+        base = os.path.splitext(self.model.path)[0] + "_견적서.xlsx"
+        path, _ = QFileDialog.getSaveFileName(self, "견적서 모두 저장 (이름 하나로 엑셀·PDF)", base, "엑셀 (*.xlsx)")
+        if not path:
+            return
+        stem = os.path.splitext(path)[0]
+        if stem.endswith("_견적서"):
+            stem = stem[:-4]
+        jobs = [(qt_.save_xlsx, stem + "_견적서.xlsx"), (qt_.save_pdf, stem + "_견적서.pdf")]
+        if self.q.dies:
+            jobs += [(qt_.save_die_xlsx, stem + "_금형견적서.xlsx"), (qt_.save_die_pdf, stem + "_금형견적서.pdf")]
+        try:
+            for fn, out in jobs:
+                fn(self.q, out)
+        except Exception as e:
+            QMessageBox.warning(self, "견적서 저장 실패", str(e))
+            return
+        QMessageBox.information(self, "견적서", "저장했습니다.\n" + "\n".join(o for _, o in jobs))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(jobs[0][1])))
 
     def save(self, kind, die=False):
         self.st.setValue("quote_annual", self.annual.value())

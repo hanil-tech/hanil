@@ -6,7 +6,7 @@ import os
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QImage, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QColor, QDesktopServices, QImage, QPainter, QPen, QPolygonF  # noqa: F401
 from PySide6.QtWidgets import (QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
                                QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
@@ -170,11 +170,13 @@ class DieDialog(QDialog):
         tabs.addTab(self._process_tab(), "금형 공정도")
         self.tabs = tabs
 
-        save = QPushButton("엑셀로 저장…")
-        save.clicked.connect(self.save)
         row = QHBoxLayout()
+        row.addWidget(QLabel("모든 탭 (하중·설계 규칙·스트립·드로잉·자동 공정 설계·공정도) 을 한 파일로"))
         row.addStretch(1)
-        row.addWidget(save)
+        for text_, kind in (("엑셀…", "xlsx"), ("PDF…", "pdf"), ("엑셀 + PDF 모두…", "both")):
+            b = QPushButton(text_)
+            b.clicked.connect(lambda _=False, k_=kind: self.save(k_))
+            row.addWidget(b)
         lay = QVBoxLayout(self)
         lay.addWidget(tabs)
         lay.addLayout(row)
@@ -464,17 +466,31 @@ class DieDialog(QDialog):
             f"<th>드로잉력 kN</th><th>tf</th></tr>{rows}</table>"
             "<br><span style='color:#777'>드로잉력 F = π·d·t·σb·n (n: 드로잉률에 따른 계수 0.4~1.0)</span>")
 
-    def save(self):
-        base = os.path.splitext(self.name or "part")[0] + "_금형검토.xlsx"
-        path, _ = QFileDialog.getSaveFileName(self, "금형 검토 저장", base, "엑셀 (*.xlsx)")
+    def save(self, kind="xlsx"):
+        base = os.path.splitext(self.name or "part")[0] + "_금형검토"
+        filt = {"xlsx": "엑셀 (*.xlsx)", "pdf": "PDF (*.pdf)", "both": "엑셀 (*.xlsx)"}[kind]
+        path, _ = QFileDialog.getSaveFileName(self, "금형 검토 저장", base + (".pdf" if kind == "pdf" else ".xlsx"), filt)
         if not path:
             return
-        save_xlsx(self.rep, path, self.name, self.strip_img, self.draw_plan())
-        QMessageBox.information(self, "금형 검토", f"저장했습니다.\n{path}")
-        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        stem = os.path.splitext(path)[0]
+        args = (self.rep, None, self.name, self.strip_img, self.draw_plan(), self.route,
+                getattr(self, "plan", None))
+        out = []
+        try:
+            if kind in ("xlsx", "both"):
+                save_xlsx(args[0], stem + ".xlsx", *args[2:])
+                out.append(stem + ".xlsx")
+            if kind in ("pdf", "both"):
+                save_pdf(args[0], stem + ".pdf", *args[2:])
+                out.append(stem + ".pdf")
+        except Exception as e:
+            QMessageBox.warning(self, "금형 검토 저장 실패", str(e))
+            return
+        QMessageBox.information(self, "금형 검토", "저장했습니다.\n" + "\n".join(out))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(out[-1]))
 
 
-def save_xlsx(rep, path, name="", strip_img=None, plan=None):
+def save_xlsx(rep, path, name="", strip_img=None, plan=None, route=None, process_plan=None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
@@ -531,9 +547,133 @@ def save_xlsx(rep, path, name="", strip_img=None, plan=None):
                          f"누르개 힘 {plan.holder_n / 1000:,.1f} kN")
         for k, n in enumerate(plan.notes, 1):
             ws4.cell(nxt + k, 1, n)
-    wb.save(path)
-    if tmp:
+    tmps = [tmp] if tmp else []
+    if route is not None:
+        from . import procplan as pp
+        ws5 = wb.create_sheet("자동 공정 설계")
+        nxt = sheet(ws5, f"추천 금형: {route.die_type} — {route.die_reason}", ["순서", "공정", "내용", "근거"],
+                    pp.route_rows(route))
+        if route.features.holes:
+            nxt = sheet(ws5, "", ["구멍", "크기", "있는 판", "가까운 절곡", "동축 짝", "뚫는 때", "근거"],
+                        pp.hole_rows(route), start=nxt)
+        for i, (k_, v) in enumerate(pp.RULES.items()):
+            ws5.cell(nxt + i, 1, k_)
+            ws5.cell(nxt + i, 2, v)
+        if route.ai:
+            r0 = nxt + len(pp.RULES) + 1
+            ws5.cell(r0, 1, f"AI 도면 검토: {route.ai['die_type']} — {route.ai['die_reason']}")
+            for i, st_ in enumerate(route.ai["steps"], 1):
+                ws5.cell(r0 + i, 1, i)
+                ws5.cell(r0 + i, 2, st_["op"])
+                ws5.cell(r0 + i, 3, st_["detail"])
+                ws5.cell(r0 + i, 4, st_["reason"])
+    if process_plan is not None:
+        from . import process as pr
+        ws6 = wb.create_sheet("금형 공정도")
+        nxt = sheet(ws6, "금형 공정도 (초안)", ["공정", "작업", "내용", "하중 kN", "tf"], pr.station_rows(process_plan))
+        for i, line in enumerate(pr.summary_lines(process_plan)):
+            ws6.cell(nxt + i, 1, line)
         try:
-            os.remove(tmp)
+            tmps.append(_add_image(ws6, pr.render(process_plan, 1400, 520), f"A{nxt + len(pr.summary_lines(process_plan)) + 1}",
+                                   1000))
+        except Exception:
+            pass
+    wb.save(path)
+    for t_ in tmps:
+        try:
+            os.remove(t_)
         except OSError:
             pass
+
+
+def save_pdf(rep, path, name="", strip_img=None, plan=None, route=None, process_plan=None):
+    """금형 검토 PDF (A3 가로): 하중·클리어런스·스프링백 / 설계 규칙 / 스트립·드로잉 / 공정도 / 공정 설계."""
+    from PySide6.QtCore import QMarginsF, QPointF, QRectF
+    from PySide6.QtGui import QPageLayout, QPageSize, QPdfWriter
+
+    from . import process as pr
+    from .report import _brand, _font, ensure_gui, version_text
+    ensure_gui()
+    pdf = QPdfWriter(path)
+    pdf.setResolution(300)
+    pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A3), QPageLayout.Landscape, QMarginsF(0, 0, 0, 0)))
+    pdf.setTitle(f"금형 검토 - {name}")
+    pdf.setCreator(f"한일 판금 전개 {version_text()}")
+    k = 300 / 25.4
+    W, H, m = 420.0, 297.0, 12.0
+
+    def R(x, y, w, h):
+        return QRectF(x * k, y * k, w * k, h * k)
+
+    p = QPainter(pdf)
+    p.setRenderHint(QPainter.Antialiasing)
+
+    def header(title):
+        p.setPen(QColor(20, 20, 20))
+        p.setFont(_font(16, True))
+        p.drawText(R(m, m, W - 2 * m, 9), Qt.AlignLeft | Qt.AlignVCenter, title)
+        p.setFont(_font(8))
+        _brand(p, R(m, m + 1.5, W - 2 * m, 6))
+        p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
+        p.drawLine(QPointF(m * k, (m + 10) * k), QPointF((W - m) * k, (m + 10) * k))
+        return m + 15
+
+    def fmt(rows):
+        return [[v if isinstance(v, str) else f"{v:,.2f}" for v in r] for r in rows]
+
+    # 1 쪽: 하중 · 절곡 · 설계 규칙
+    y = header(f"금형 검토 — {name}  ({rep.material}, t {rep.thickness:g})")
+    p.setFont(_font(10))
+    p.setPen(QColor(30, 30, 30))
+    p.drawText(R(m, y, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter,
+               f"전단 저항 τ = {rep.shear_mpa:.0f} MPa · 한쪽 클리어런스 {rep.clearance_pct:g} % = {rep.clearance_mm:.3f} mm "
+               f"(다이 = 펀치 + {2 * rep.clearance_mm:.3f}) · 권장 프레스 {rep.press_tonf:.0f} tf")
+    y += 9
+    y = pr._table(p, R, k, m, y, [("하중", 80), ("길이 mm", 26), ("힘 kN", 26), ("tf", 22), ("비고", 50)],
+                  fmt(load_rows(rep)))
+    if rep.bends:
+        y = pr._table(p, R, k, m, y + 5, [("절곡", 16), ("길이 mm", 24), ("힘 kN", 24), ("tf", 20),
+                                          ("보정 없이 (°)", 30), ("금형 보정 각 (°)", 32), ("Ks", 22)],
+                      fmt(bend_rows(rep)), maxy=H - m - 10)
+    x2 = m + 216
+    pr._table(p, R, k, x2, m + 24, [("규칙", 46), ("대상", 22), ("값", 18), ("기준", 18), ("판정", 16)],
+              [[c.rule, c.target, f"{c.value:.2f}", f"{c.limit:.2f}", c.verdict] for c in rep.checks],
+              8, maxy=H - m - 10)
+    # 2 쪽: 스트립 · 드로잉
+    if strip_img is not None or plan is not None:
+        pdf.newPage()
+        y = header(f"스트립 배치 · 원통 드로잉 — {name}")
+        if strip_img is not None:
+            iw = W - 2 * m
+            ih = iw * strip_img.height() / strip_img.width()
+            if ih > 130:                      # 높이를 줄이면 너비도 같은 비율로
+                iw, ih = iw * 130 / ih, 130
+            p.drawImage(R(m, y, iw, ih), strip_img)
+            y += ih + 6
+        if plan is not None:
+            p.setFont(_font(11, True))
+            p.setPen(QColor(31, 78, 140))
+            p.drawText(R(m, y, W - 2 * m, 7), Qt.AlignLeft | Qt.AlignVCenter,
+                       f"원통 드로잉: 블랭크 Ø{plan.D:.2f} mm · {len(plan.stages)}회 · t/D {plan.rel_thickness:.2f} % · "
+                       f"주름 누르개 {plan.holder_needed}")
+            y += 9
+            pr._table(p, R, k, m, y, [("공정", 20), ("드로잉률 m", 30), ("지름 mm", 30), ("드로잉력 kN", 34), ("tf", 24)],
+                      [[str(s_.no), f"{s_.m:.3f}", f"{s_.d:.1f}", f"{s_.force_n / 1000:,.1f}", f"{s_.force_n / dc.TON:.2f}"]
+                       for s_ in plan.stages])
+    # 3 쪽: 공정도, 4 쪽: 자동 공정 설계
+    if process_plan is not None:
+        pdf.newPage()
+        y = header(f"금형 공정도 (초안) — {name}")
+        box = R(m, y, W - 2 * m, 160)
+        p.setPen(QPen(QColor(180, 180, 180), 0.2 * k))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(box)
+        p.setFont(_font(9))
+        pr.paint(p, box.adjusted(3 * k, 2 * k, -3 * k, -2 * k), process_plan, 3.6 * k)
+        yy = pr._table(p, R, k, m, y + 166, [("공정", 16), ("작업", 40), ("내용", 190), ("하중 kN", 30), ("tf", 24)],
+                       fmt(pr.station_rows(process_plan)), maxy=H - m - 8)
+        del yy
+    if route is not None:
+        pdf.newPage()
+        pr._route_page(p, R, k, W, H, m, route, name)
+    p.end()

@@ -93,3 +93,22 @@ def test_route_page_in_pdf(channel, tmp_path):
     out = tmp_path / "p.pdf"
     pr.save_pdf(plan, str(out), "ch", route=rt)
     assert out.read_bytes().count(b"/Type /Page") >= 3      # 쪽 2 + 쪽 목록
+
+
+def test_die_review_excel_and_pdf(channel, tmp_path):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hanil_unfold import diecalc as dc
+    from hanil_unfold import die_dialog as dd
+    st = bc.BendSettings()
+    rep = dc.review(channel, st)
+    img = dd.render_strip(channel, rep.strip)
+    plan = dc.draw_plan(100, 50, 6, 2.0, st.mat)
+    rt = pp.route(channel, st, 300_000)
+    pplan = pr.progressive(channel, st)
+    dd.save_xlsx(rep, str(tmp_path / "d.xlsx"), "ch", img, plan, rt, pplan)
+    dd.save_pdf(rep, str(tmp_path / "d.pdf"), "ch", img, plan, rt, pplan)
+    import openpyxl
+    wb = openpyxl.load_workbook(tmp_path / "d.xlsx")
+    assert wb.sheetnames == ["하중", "설계 규칙", "스트립", "원통 드로잉", "자동 공정 설계", "금형 공정도"]
+    assert (tmp_path / "d.pdf").read_bytes().count(b"/Type /Page") >= 5      # 4 쪽 + 목록
