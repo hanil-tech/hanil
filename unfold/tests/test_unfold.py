@@ -207,3 +207,35 @@ def test_welded_t_joint_is_not_folded_and_warns():
     assert not r.bends
     assert r.coverage == pytest.approx(60000 / 84000, rel=1e-3)
     assert any("부피" in w for w in r.warnings)
+
+
+def test_surface_only_iges_becomes_solids(tmp_path):
+    """곡면만 담긴 IGES (솔리드 없음): 꿰매서 부품마다 솔리드로."""
+    from OCP.BRep import BRep_Builder
+    from OCP.IGESControl import IGESControl_Writer
+    from OCP.Interface import Interface_Static
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS_Compound
+    from models import tray, profile_part
+    from hanil_unfold import loader
+
+    comp = TopoDS_Compound()
+    bld = BRep_Builder()
+    bld.MakeCompound(comp)
+    parts = [tray(), profile_part([("L", 50), ("B", 90, 2), ("L", 30)], 2.0, 40)]
+    for shp in parts:
+        e = TopExp_Explorer(shp, TopAbs_FACE)
+        while e.More():
+            bld.Add(comp, e.Current())     # 솔리드가 아니라 낱개 면으로
+            e.Next()
+    Interface_Static.SetIVal_s("write.iges.brep.mode", 0)   # 곡면(144/128) 으로 쓰기
+    w = IGESControl_Writer("MM", 0)
+    w.AddShape(comp)
+    w.ComputeModel()
+    path = str(tmp_path / "surf.igs")
+    assert w.Write(path)
+    m = loader.load(path, use_cache=False)
+    assert len(m.solids) == 2
+    sizes = sorted(round(max(unfold(s).size)) for s in m.solids)
+    assert sizes[0] == pytest.approx(round(max(unfold(solid(parts[1])).size)), abs=1)

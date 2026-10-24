@@ -77,12 +77,27 @@ class LazySolids:
             from .canonical import canonicalize
             # 형상 보정(ShapeFix)도 꺼낼 때 한다 — 열 때 모든 부품을 고치면 큰 조립품이 느리다
             solid, changed, kept = canonicalize(_first_solid(_fix(self.raw[i])))
-            self._done[i] = solid
+            self._done[i] = _outward(solid)
             self.recognized[i] = (changed, kept)
         return self._done[i]
 
     def __iter__(self):
         return (self[i] for i in range(len(self)))
+
+
+def _outward(solid):
+    """부피가 음수(면이 안쪽을 보는) 솔리드는 뒤집는다. 두께를 재는 빛이 바깥으로 나가지 않게."""
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    try:
+        g = GProp_GProps()
+        BRepGProp.VolumeProperties_s(solid, g)
+        if g.Mass() < 0:
+            return TopoDS.Solid(solid.Reversed()) if solid.ShapeType().name == "TopAbs_SOLID" \
+                else solid.Reversed()
+    except Exception:
+        pass
+    return solid
 
 
 def _first_solid(shape):
@@ -151,6 +166,11 @@ def load(path: str, use_cache: bool = True) -> LoadedModel:
     if names is None:
         shape = _fix(shape)
         solids = list_solids(shape)
+        if not solids:
+            # IGES 는 솔리드 없이 곡면만 담긴 경우가 많다: 곡면을 꿰매 닫힌 껍질마다 솔리드로
+            solids = solids_from_surfaces(shape)
+            if solids:
+                shape = _compound(solids)
         names = [f"부품 {i + 1}" for i in range(len(solids))]
     if len(solids) == 1:
         # 부품 하나짜리 파일은 파일 이름이 곧 부품 이름 (제품 이름 칸에 변환기 이름이 든 파일이 많다)
@@ -329,6 +349,55 @@ def _read_step_parts(path):
         raise
     except Exception:
         return None
+
+
+def solids_from_surfaces(shape, tolerances=(0.01, 0.05, 0.1, 0.5)) -> list:
+    """곡면(면)만 있는 형상을 꿰매(sewing) 닫힌 껍질마다 솔리드로 만든다.
+
+    작은 허용 오차부터 시도해, 열린 껍질이 남지 않는 첫 값을 쓴다 (모두 남으면 닫힌 것이 가장 많은 값).
+    열린 껍질(구멍 난 곡면)은 버린다."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.ShapeFix import ShapeFix_Solid
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL
+
+    if not TopExp_Explorer(shape, TopAbs_FACE).More():
+        return []
+    best = None
+    for tol in tolerances:
+        sw = BRepBuilderAPI_Sewing(tol)
+        sw.Add(shape)
+        sw.Perform()
+        closed, n_open = [], 0
+        exp = TopExp_Explorer(sw.SewedShape(), TopAbs_SHELL)
+        while exp.More():
+            sh = TopoDS.Shell(exp.Current())
+            if BRep_Tool.IsClosed_s(sh):
+                closed.append(sh)
+            else:
+                n_open += 1
+            exp.Next()
+        if best is None or len(closed) > len(best[0]):
+            best = (closed, n_open)
+        if closed and n_open == 0:
+            break
+    solids = []
+    for sh in best[0]:
+        try:
+            mk = BRepBuilderAPI_MakeSolid(sh)
+            fix = ShapeFix_Solid(mk.Solid())
+            fix.Perform()               # 면 방향(안·밖) 바로잡기
+            for so in list_solids(fix.Solid()):
+                g = GProp_GProps()
+                BRepGProp.VolumeProperties_s(so, g)
+                if g.Mass() < 0:        # 안팎이 뒤집힌 껍질
+                    so = TopoDS.Solid(so.Reversed())
+                solids.append(so)
+        except Exception:
+            continue
+    return solids
 
 
 def list_solids(shape: TopoDS_Shape) -> list:

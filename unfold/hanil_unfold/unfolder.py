@@ -637,6 +637,16 @@ class SheetMetalUnfolder:
         if self.mode == FORMING or (self.mode == AUTO and unsupported):
             return self._unfold_forming(skin, t, len(unsupported))
         if unsupported:
+            # [판금] 이어도 곡선을 따라 꺾인 절곡(자유곡면)이 겉면의 상당 부분이면, 빼고 펼치면
+            # 판 한 장만 남는다. 그럴 때는 성형품 근사로 펼치고 알린다.
+            free = sum(self.info[fi].area for fi in unsupported)
+            total = sum(self.info[fi].area for fi in skin)
+            if total > 0 and free / total > 0.05:
+                r = self._unfold_forming(skin, t, len(unsupported))
+                r.warnings.insert(0, f"곡선을 따라 꺾인 절곡(자유곡면 {len(unsupported)}개, 겉면의 "
+                                     f"{free / total:.0%})이 있어 정확 전개가 안 됩니다. 성형품 근사로 펼쳤습니다.")
+                return r
+        if unsupported:
             self.warnings.append(
                 f"평면·원통·원뿔이 아닌 면 {len(unsupported)}개는 전개에서 뺐습니다 "
                 "(프레스 성형 같은 자유곡면은 지원하지 않습니다).")
@@ -1023,7 +1033,7 @@ def _rotate_entities(entities, bends, ang):
     return out
 
 
-def _curve_is_straight(c, tol=1e-4) -> bool:
+def _curve_is_straight(c, tol=5e-3) -> bool:
     """직선이거나, 자유곡선으로 저장됐어도 점들이 한 직선 위에 있으면 True."""
     if c.GetType() == GeomAbs_Line:
         return True
