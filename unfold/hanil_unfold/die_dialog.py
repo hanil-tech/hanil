@@ -163,7 +163,10 @@ class DieDialog(QDialog):
         # 4) 드로잉
         tabs.addTab(self._draw_tab(), "원통 드로잉 계산")
 
-        # 5) 금형 공정도
+        # 5) 자동 공정 설계 (문헌 규칙 + AI 도면 검토)
+        self.route = None
+        tabs.addTab(self._route_tab(), "자동 공정 설계")
+        # 6) 금형 공정도
         tabs.addTab(self._process_tab(), "금형 공정도")
         self.tabs = tabs
 
@@ -229,6 +232,116 @@ class DieDialog(QDialog):
         lay.addWidget(self.draw_out, 2)
         self._calc_draw()
         return w
+
+    def _route_tab(self):
+        from PySide6.QtWidgets import QSpinBox
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        row = QHBoxLayout()
+        self.r_qty = QSpinBox()
+        self.r_qty.setRange(1, 100_000_000)
+        self.r_qty.setSingleStep(10_000)
+        self.r_qty.setGroupSeparatorShown(True)
+        self.r_qty.setValue(100_000)
+        self.r_qty.setSuffix(" 개/년")
+        self.r_qty.valueChanged.connect(self._calc_route)
+        row.addWidget(QLabel("연간 생산량"))
+        row.addWidget(self.r_qty)
+        row.addStretch(1)
+        ai = QPushButton("AI 도면 검토…")
+        ai.setToolTip("도면 PDF(있으면)의 공차·주기를 Claude 가 읽고 공정 초안을 바로잡습니다")
+        ai.clicked.connect(self._ai_review)
+        go = QPushButton("공정도 보기 →")
+        go.clicked.connect(lambda: self.tabs.setCurrentIndex(5))
+        row.addWidget(ai)
+        row.addWidget(go)
+        lay.addLayout(row)
+        self.r_head = QLabel()
+        self.r_head.setWordWrap(True)
+        lay.addWidget(self.r_head)
+        self.r_steps = QTableWidget(0, 4)
+        self.r_steps.setHorizontalHeaderLabels(["순서", "공정", "내용", "근거"])
+        self.r_holes = QTableWidget(0, 7)
+        self.r_holes.setHorizontalHeaderLabels(["구멍", "크기", "있는 판", "가까운 절곡 (mm)", "동축 짝",
+                                                "뚫는 때", "근거"])
+        for t_ in (self.r_steps, self.r_holes):
+            t_.verticalHeader().setVisible(False)
+            t_.setEditTriggers(QTableWidget.NoEditTriggers)
+            t_.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+            t_.horizontalHeader().setStretchLastSection(True)
+        lay.addWidget(self.r_steps, 2)
+        lay.addWidget(QLabel("구멍별 판단"))
+        lay.addWidget(self.r_holes, 1)
+        self.r_ai = QLabel()
+        self.r_ai.setWordWrap(True)
+        self.r_ai.setTextFormat(Qt.RichText)
+        lay.addWidget(self.r_ai)
+        from . import procplan as pp
+        rules = QLabel("근거 규칙: " + " · ".join(f"<b>{k}</b> {v}" for k, v in pp.RULES.items()))
+        rules.setWordWrap(True)
+        rules.setStyleSheet("color:#777")
+        lay.addWidget(rules)
+        self._calc_route()
+        return w
+
+    def _fill(self, table, rows):
+        table.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            for j, v in enumerate(r):
+                table.setItem(i, j, QTableWidgetItem(str(v)))
+
+    def _calc_route(self, *_):
+        from . import procplan as pp
+        try:
+            self.route = pp.route(self.result, self.settings, self.r_qty.value())
+        except Exception as e:
+            self.route = None
+            self.r_head.setText(f"공정을 정하지 못했습니다: {e}")
+            return
+        rt = self.route
+        f = rt.features
+        self.r_head.setText(
+            f"<h3>추천 금형: {rt.die_type}</h3>{rt.die_reason}<br>"
+            f"{f.material} t{f.thickness:g} · 전개 {f.size[0]:.0f} × {f.size[1]:.0f} · 구멍 {len(f.holes)} · "
+            f"절곡 {f.bends}" + (" (나란함)" if f.parallel else "") + (" · 성형품" if f.forming else "")
+            + "".join(f"<br>⚠ {n}" for n in rt.notes))
+        self._fill(self.r_steps, pp.route_rows(rt))
+        self._fill(self.r_holes, pp.hole_rows(rt))
+
+    def _ai_review(self):
+        from PySide6.QtCore import QSettings
+        from PySide6.QtWidgets import QInputDialog, QLineEdit
+
+        from . import procplan as pp
+        if self.route is None:
+            return
+        st = QSettings("Hanil", "SheetUnfold")
+        start = st.value("last_dir", "") or ""
+        pdf, _ = QFileDialog.getOpenFileName(self, "도면 PDF (없으면 취소 → 3D 특징만)", start, "PDF (*.pdf)")
+        key = st.value("anthropic_api_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            key, ok = QInputDialog.getText(self, "AI 도면 검토", "Anthropic API 키", QLineEdit.Password)
+            if not ok or not key:
+                return
+        from PySide6.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            ai = pp.ai_review(self.route, pdf or None, self.r_qty.value(), api_key=key)
+        except Exception as e:
+            from .ai_bom_dialog import _explain
+            QMessageBox.warning(self, "AI 도면 검토", _explain(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        from html import escape
+        steps = "".join(f"<tr><td>{i}</td><td>{escape(s_['op'])}</td><td>{escape(s_['detail'])}</td>"
+                        f"<td>{escape(s_['reason'])}</td></tr>" for i, s_ in enumerate(ai["steps"], 1))
+        self.r_ai.setText(
+            f"<h3>AI 검토 ({'도면 ' + escape(os.path.basename(pdf)) if pdf else '도면 없음'}): "
+            f"{escape(ai['die_type'])}</h3>{escape(ai['die_reason'])}<br>"
+            f"<table border=1 cellspacing=0 cellpadding=3>{steps}</table>"
+            + "".join(f"<br>· 도면: {escape(n)}" for n in ai["drawing_notes"])
+            + "".join(f"<br>⚠ {escape(n)}" for n in ai["warnings"]))
 
     def _process_tab(self):
         from PySide6.QtWidgets import QCheckBox, QScrollArea
@@ -317,7 +430,10 @@ class DieDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "금형 공정도 저장", base, filt)
         if not path:
             return
-        (pr.save_pdf if kind == "pdf" else pr.save_dxf)(self.plan, path, self.name)
+        if kind == "pdf":
+            pr.save_pdf(self.plan, path, self.name, route=self.route)
+        else:
+            pr.save_dxf(self.plan, path, self.name)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def draw_plan(self):

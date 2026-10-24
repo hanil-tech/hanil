@@ -31,6 +31,8 @@ class Station:
     detail: str
     force_n: float = 0.0
     bends: list = field(default_factory=list)     # [(번호, 이 공정까지 접은 각도)]
+    holes: list = field(default_factory=list)     # 이 공정에서 뚫는 구멍 (plan.holes 의 번호)
+    rules: list = field(default_factory=list)     # 근거 규칙 (procplan.RULES)
 
 
 @dataclass
@@ -201,14 +203,30 @@ def progressive(result, settings: bc.BendSettings, idle=False):
     pitch = math.ceil(pitch * 2) / 2
 
     # 공정
+    from . import procplan
+    feat = procplan.features(result, settings)
+    info = {h.index: h for h in feat.holes}
     st = []
-    hole_len = sum(dc._perimeter(hh) for hh in holes)
     pilot_len = math.pi * pilot_d
-    st.append(Station(0, PIERCE, "피어싱", f"제품 구멍 {len(holes)}개 + 파일럿 Ø{pilot_d:g}",
-                      (hole_len + pilot_len) * t * tau))
+
+    def hlen(ids):
+        return sum(dc._perimeter(holes[i]) for i in ids)
+
+    pre = [i for i in range(len(holes)) if not info[i].after_bend]
+    groups = sorted({info[i].group for i in pre}) or [0]
+    for g in groups:
+        ids = [i for i in pre if info[i].group == g]
+        names = ", ".join(info[i].label for i in ids)
+        if g == 0:
+            st.append(Station(0, PIERCE, "피어싱" if len(groups) == 1 else "피어싱 1",
+                              f"파일럿 Ø{pilot_d:g}" + (f" + {names}" if names else ""),
+                              (hlen(ids) + pilot_len) * t * tau, holes=ids, rules=["R1", "R2"]))
+        else:
+            st.append(Station(0, PIERCE, f"피어싱 {g + 1}", f"{names} (가까운 구멍 나눔)",
+                              hlen(ids) * t * tau, holes=ids, rules=["R5"]))
     outer_len = dc._perimeter(O) - tab_w
     st.append(Station(0, NOTCH, "노칭 (외곽)", f"외곽 {outer_len:,.0f} mm 따내기, 연결부 {tab_w:.1f} 남김",
-                      outer_len * t * tau))
+                      outer_len * t * tau, rules=["R6"]))
     if idle:
         st.append(Station(0, IDLE, "빈 공정", "금형 강도 · 다음 공정 여유"))
     v = settings.die_v if settings.die_v > 0 else bc.default_die_v(t)
@@ -229,14 +247,25 @@ def progressive(result, settings: bc.BendSettings, idle=False):
             st.append(Station(0, BEND, "예비 굽힘",
                               " · ".join(f"B{f.number} {f.angle / 2:.0f}°" for f in big),
                               sum(dc.bend_force(mat, bmap[f.number].length, t, v) for f in big),
-                              [(f.number, done[f.number]) for f in grp if f.number in done]))
+                              [(f.number, done[f.number]) for f in grp if f.number in done], rules=["R8"]))
         for f in grp:
             done[f.number] = f.angle
         f_n = sum(dc.bend_force(mat, bmap[f.number].length, t, v, settings.process) for f in grp)
         st.append(Station(0, BEND, "절곡",
                           " · ".join(f"B{f.number} {f.angle:.0f}° {'UP' if bmap[f.number].direction == 'UP' else 'DOWN'}"
-                                     for f in grp), f_n, [(f.number, f.angle) for f in grp]))
-    st.append(Station(0, CUTOFF, "분리 (컷오프)", f"연결부 {tab_w:.1f} × {t:g} 자르기", tab_w * t * tau * 1.0))
+                                     for f in grp), f_n, [(f.number, f.angle) for f in grp], rules=["R7"]))
+    post = [i for i in range(len(holes)) if info[i].after_bend]
+    flat = [i for i in post if not info[i].cam]
+    cam = [i for i in post if info[i].cam]
+    if flat:
+        st.append(Station(0, PIERCE, "후 피어싱", ", ".join(info[i].label for i in flat) + " (절곡선 가까움)",
+                          hlen(flat) * t * tau, holes=flat, rules=["R3"]))
+    if cam:
+        st.append(Station(0, PIERCE, "캠 피어싱",
+                          procplan.pair_names([info[i] for i in cam]),
+                          hlen(cam) * t * tau, holes=cam, rules=sorted({info[i].reason for i in cam})))
+    st.append(Station(0, CUTOFF, "분리 (컷오프)", f"연결부 {tab_w:.1f} × {t:g} 자르기", tab_w * t * tau,
+                      rules=["R6"]))
     for i, s in enumerate(st, 1):
         s.no = i
     if any(f.angle > 150 for f in folds):
@@ -434,12 +463,17 @@ def _paint_strip(p, rect, plan, fp):
             p.setPen(QPen(QColor(90, 110, 160), lw, Qt.DashLine))
             p.setBrush(Qt.NoBrush)
             p.drawPolygon(poly(plan.outer, dx))
-        pierced = any(st.kind == PIERCE for st in plan.stations[:i + 1])
-        if pierced:
-            p.setPen(edge)
-            p.setBrush(QColor(255, 255, 255))
-            for hh in plan.holes:
+        made = {h for st_ in plan.stations[:i + 1] for h in st_.holes}
+        p.setPen(edge)
+        p.setBrush(QColor(255, 255, 255))
+        for k_, hh in enumerate(plan.holes):
+            if k_ in made:
                 p.drawPolygon(poly(fold_points(hh, plan.folds, done), dx))
+        if s.holes:          # 이번 공정에서 뚫는 구멍은 빨간 테두리
+            p.setPen(QPen(QColor(220, 50, 50), lw * 1.6))
+            p.setBrush(Qt.NoBrush)
+            for k_ in s.holes:
+                p.drawPolygon(poly(fold_points(plan.holes[k_], plan.folds, done), dx))
         # 이번 공정의 절곡선
         for num, _ in s.bends:
             fl = next(f for f in plan.folds if f.number == num)
@@ -553,7 +587,8 @@ def render(plan, w=1400, h=520):
 
 
 def station_rows(plan):
-    return [[f"S{s.no}", s.title, s.detail, s.force_n / 1000, s.force_n / dc.TON] for s in plan.stations]
+    return [[f"S{s.no}", s.title, s.detail + (f"  [{' '.join(s.rules)}]" if s.rules else ""),
+             s.force_n / 1000, s.force_n / dc.TON] for s in plan.stations]
 
 
 def summary_lines(plan):
@@ -569,7 +604,7 @@ def summary_lines(plan):
     return out + [f"⚠ {n}" for n in plan.notes]
 
 
-def save_pdf(plan, path, name=""):
+def save_pdf(plan, path, name="", route=None):
     from PySide6.QtCore import QMarginsF, QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
 
@@ -651,7 +686,107 @@ def save_pdf(plan, path, name=""):
     p.drawText(R(m, H - m - 6, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter,
                "자동으로 만든 초안입니다. 공정 순서·캐리어·파일럿·빈 공정·하중은 금형 설계자가 확정하세요. "
                "하중: 전단 τ = 인장강도 × 0.8, 굽힘 F = 1.33·σb·L·t²/V.")
+    if route is not None:
+        pdf.newPage()
+        _route_page(p, R, k, W, H, m, route, name)
     p.end()
+
+
+def _table(p, R, k, x, y, cols, rows, size=9, maxy=280.0):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+
+    from .report import _font
+    p.setFont(_font(size, True))
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(31, 78, 140))
+    tw = sum(c[1] for c in cols)
+    p.drawRect(R(x, y, tw, 6.5))
+    p.setPen(QColor(255, 255, 255))
+    cx = x
+    for title, cw in cols:
+        p.drawText(R(cx + 1.5, y, cw - 3, 6.5), Qt.AlignVCenter | Qt.AlignLeft, title)
+        cx += cw
+    y += 6.5
+    p.setFont(_font(size))
+    for i, row in enumerate(rows):
+        if y > maxy:
+            break
+        if i % 2:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(240, 244, 250))
+            p.drawRect(R(x, y, tw, 6))
+        p.setPen(QColor(20, 20, 20))
+        cx = x
+        for (title, cw), v in zip(cols, row):
+            p.drawText(R(cx + 1.5, y, cw - 3, 6), Qt.AlignVCenter | Qt.AlignLeft, str(v))
+            cx += cw
+        y += 6
+    return y
+
+
+def _route_page(p, R, k, W, H, m, rt, name):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QColor, QPen
+
+    from . import procplan as pp
+    from .report import _brand, _font
+    p.setPen(QColor(20, 20, 20))
+    p.setFont(_font(16, True))
+    p.drawText(R(m, m, W - 2 * m, 9), Qt.AlignLeft | Qt.AlignVCenter, f"자동 공정 설계 — {name}")
+    p.setFont(_font(8))
+    _brand(p, R(m, m + 1.5, W - 2 * m, 6))
+    p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
+    p.drawLine(QPointF(m * k, (m + 10) * k), QPointF((W - m) * k, (m + 10) * k))
+    y = m + 15
+    p.setFont(_font(12, True))
+    p.setPen(QColor(31, 78, 140))
+    p.drawText(R(m, y, W - 2 * m, 7), Qt.AlignLeft | Qt.AlignVCenter, f"추천 금형: {rt.die_type}")
+    y += 8
+    p.setFont(_font(9))
+    p.setPen(QColor(40, 40, 40))
+    p.drawText(R(m, y, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter, rt.die_reason)
+    y += 9
+    left_w = 250
+    y1 = _table(p, R, k, m, y, [("순서", 14), ("공정", 40), ("내용", 166), ("근거", 30)], pp.route_rows(rt))
+    if rt.features.holes:
+        y1 = _table(p, R, k, m, y1 + 6, [("구멍", 14), ("크기", 18), ("있는 판", 32), ("가까운 절곡", 30),
+                                         ("동축", 16), ("뚫는 때", 40), ("근거", 22)], pp.hole_rows(rt), 8)
+    # 오른쪽: AI 검토 · 주의 · 규칙
+    x = m + left_w + 8
+    yy = y
+    cw = W - m - x
+
+    def para(text, color=QColor(30, 30, 30), size=9, bold=False):
+        nonlocal yy
+        p.setFont(_font(size, bold))
+        p.setPen(color)
+        rr = R(x, yy, cw, 60)
+        br = p.boundingRect(rr, Qt.TextWordWrap, text)
+        p.drawText(rr, Qt.TextWordWrap, text)
+        yy += br.height() / k + 1.5
+
+    for n in rt.notes:
+        para("⚠ " + n, QColor(200, 100, 0))
+    if rt.ai:
+        a = rt.ai
+        para(f"AI 도면 검토: {a['die_type']}", QColor(31, 78, 140), 11, True)
+        para(a["die_reason"])
+        for i, s_ in enumerate(a["steps"], 1):
+            para(f"{i}. {s_['op']} — {s_['detail']}  ({s_['reason']})", size=8)
+        for n in a["drawing_notes"]:
+            para("· 도면: " + n, size=8)
+        for n in a["warnings"]:
+            para("⚠ " + n, QColor(200, 100, 0), 8)
+        yy += 2
+    para("근거 규칙", QColor(31, 78, 140), 10, True)
+    for kk, v in pp.RULES.items():
+        para(f"{kk}  {v}", QColor(70, 70, 70), 8)
+    p.setFont(_font(8))
+    p.setPen(QColor(120, 120, 120))
+    p.drawText(R(m, H - m - 6, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter,
+               "규칙 출처: Naranje & Kumar 2013 (순차 금형 KBS), Vosniakos 외 2005, Qattawi 외 2014 (조사), "
+               "MetalForming·절곡 실무 지침, 자동차 패널 금형 라인 (DR-TR/PI-FL-RST-CAM). 생산량 기준은 어림값.")
 
 
 def save_dxf(plan, path, name=""):
@@ -695,9 +830,11 @@ def save_dxf(plan, path, name=""):
             msp.add_lwpolyline([(tab_x + dx - tab_w / 2, yc1), (tab_x + dx - tab_w / 2, y0),
                                 (tab_x + dx + tab_w / 2, y0), (tab_x + dx + tab_w / 2, yc1)],
                                dxfattribs={"layer": "PART"})
-        for hh in plan.holes:
-            msp.add_lwpolyline([tuple(q) for q in fold_points(hh, plan.folds, done) + (dx, 0)], close=True,
-                               dxfattribs={"layer": "PART"})
+        made = {h for st_ in plan.stations[:i + 1] for h in st_.holes}
+        for k_, hh in enumerate(plan.holes):
+            if k_ in made:
+                msp.add_lwpolyline([tuple(q) for q in fold_points(hh, plan.folds, done) + (dx, 0)], close=True,
+                                   dxfattribs={"layer": "PART"})
         for num, _ in s.bends:
             fl = next(f for f in plan.folds if f.number == num)
             d = np.array([fl.n[1], -fl.n[0]])

@@ -832,8 +832,9 @@ class MainWindow(QMainWindow):
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
         self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
-        self.act_process = QAction("금형 공정도", self, shortcut="Ctrl+J", triggered=lambda: self.show_die(4))
-        self.act_process.setToolTip("순차 금형 스트립 공정도 (피어싱 → 노칭 → 절곡 → 분리) 또는 드로잉 공정도 — PDF·DXF")
+        self.act_process = QAction("금형 공정", self, shortcut="Ctrl+J", triggered=lambda: self.show_die(4))
+        self.act_process.setToolTip("3D 를 보고 문헌 규칙으로 금형 형식·공정 순서를 자동으로 (AI 도면 검토 선택), "
+                                    "순차 금형 스트립 공정도 — PDF·DXF")
         self.act_die.setToolTip("지금 부품의 전단·굽힘 하중, 클리어런스, 스프링백, 설계 규칙, "
                                 "스트립 배치, 원통 드로잉 공정 (프레스 금형 교재 계산)")
         self.act_bom.setToolTip("부품표: 같은 부품끼리 묶어 품번·수량·재질·두께·전개 크기·무게 (엑셀·PDF)")
