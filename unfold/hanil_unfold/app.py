@@ -831,6 +831,9 @@ class MainWindow(QMainWindow):
         self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
+        self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
+        self.act_die.setToolTip("지금 부품의 전단·굽힘 하중, 클리어런스, 스프링백, 설계 규칙, "
+                                "스트립 배치, 원통 드로잉 공정 (프레스 금형 교재 계산)")
         self.act_bom.setToolTip("부품표: 같은 부품끼리 묶어 품번·수량·재질·두께·전개 크기·무게 (엑셀·PDF)")
         self.act_zip = QAction("ZIP 만들기", self, triggered=self.make_zip)
         self.act_zip.setToolTip("지금 연 3D 파일을 압축(.zip) 해서 보내기 쉽게 만듭니다")
@@ -843,6 +846,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_xlsx)
         tb.addAction(self.act_assy)
         tb.addAction(self.act_nest)
+        tb.addAction(self.act_die)
         tb.addAction(self.act_bom)
         tb.addAction(self.act_ai_bom)
         tb.addAction(self.act_batch)
@@ -932,6 +936,7 @@ class MainWindow(QMainWindow):
         self.act_assy.setEnabled(self.model is not None)
         self.act_nest.setEnabled(self.model is not None)
         self.act_bom.setEnabled(self.model is not None)
+        self.act_die.setEnabled(self.result is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
         self.act_zip.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
@@ -1071,6 +1076,21 @@ class MainWindow(QMainWindow):
                          f"{g.weight_kg:.3f} kg")
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
+
+    def show_die(self):
+        """금형 검토 창 (지금 부품)."""
+        from .die_dialog import DieDialog
+        if self.result is None:
+            QMessageBox.information(self, "금형 검토", "먼저 부품을 전개하세요.")
+            return
+        idx = max(self.solid_box.currentIndex(), 0)
+        name = self.model.names[idx] if self.model and self.model.names else ""
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            dlg = DieDialog(self.result, self.bend_panel.settings(), name, self)
+        finally:
+            QApplication.restoreOverrideCursor()
+        dlg.exec()
 
     def show_nesting(self):
         """철판 배치 창. 조립품이면 [전체 계산] 결과의 모든 부품, 아니면 지금 부품."""
