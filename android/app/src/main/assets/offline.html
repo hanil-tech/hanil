@@ -1,0 +1,20 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ body{margin:0;background:#f4f6fa;color:#222;font:16px/1.6 sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+ .c{background:#fff;border:1px solid #e3e8f0;border-radius:16px;padding:26px 24px;margin:16px;max-width:460px}
+ h1{font-size:21px;margin:0 0 8px;color:#1b2a4a}
+ p{color:#6b7684;font-size:15px;margin:6px 0}
+ button{margin-top:18px;width:100%;border:0;background:#2954A5;color:#fff;border-radius:12px;padding:15px;font-size:18px;font-weight:700}
+ .v{font-size:12px;color:#9aa4b2;margin-top:14px;text-align:right}
+</style></head><body>
+<div class="c">
+  <h1>회사 포털에 연결하지 못했습니다</h1>
+  <p>· 와이파이나 데이터(LTE·5G)가 켜져 있는지 확인해 주세요.</p>
+  <p>· 회사 안에서는 사내 서버, 밖에서는 work.hanil-steel.com 으로 붙습니다.</p>
+  <p>· 서버가 꺼져 있을 수 있습니다. 관리자에게 알려 주세요.</p>
+  <button onclick="HanilApp.retry()">다시 시도</button>
+  <div class="v" id="v"></div>
+</div>
+<script>try{document.getElementById('v').textContent='v'+HanilApp.version();}catch(e){}</script>
+</body></html>
