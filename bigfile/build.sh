@@ -8,7 +8,8 @@ import zipfile
 out = '../release/hanil-bigfile-portal.zip'
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     #  메모장에서 줄이 안 붙게 CRLF 로
-    z.writestr('설치안내.txt', open('설치안내.txt', encoding='utf-8').read().replace('\n', '\r\n').encode('utf-8-sig'))
+    for t in ('설치안내.txt', '주의사항.txt'):
+        z.writestr(t, open(t, encoding='utf-8').read().replace('\n', '\r\n').encode('utf-8-sig'))
     for src, name in [('portal/bigfile-route.js', 'bigfile-route.js'), ('portal/bigfile.html', 'bigfile.html'), ('README.md', 'README.md')]:
         z.write(src, name)
 for i in zipfile.ZipFile(out).infolist(): print(i.filename, i.file_size, 'utf8' if i.flag_bits & 0x800 else '')

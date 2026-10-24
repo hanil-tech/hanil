@@ -19,7 +19,7 @@
 
 ## 포털에 넣기 (포털 담당)
 
-**받기: [hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** (안에 `설치안내.txt` · 두 파일 · 이 README). 고친 뒤 다시 묶기: `bigfile/build.sh`
+**받기: [hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** (안에 `설치안내.txt` · `주의사항.txt` · 두 파일 · 이 README). 고친 뒤 다시 묶기: `bigfile/build.sh`
 
 1. `portal/bigfile-route.js` 와 `portal/bigfile.html` 을 포털 폴더(`server.js` 옆)에 둡니다.
 2. `server.js` 에서 세션(express-session)이 붙은 뒤(다른 `require('./…')(app, …)` 들 사이) **한 줄**:
@@ -68,6 +68,18 @@ require('./bigfile-route')(app, {
   parallel: 3,              // 한 파일을 몇 조각씩 함께 보내나
 });
 ```
+
+## ⚠ 주의사항
+
+전체는 [주의사항.txt](주의사항.txt)(묶음에도 들어 있음 — Ⅰ부는 직원에게 그대로 전달). 꼭 지킬 것만:
+
+- **포털을 하나만 띄웁니다** — 올리는 중인 파일 정보를 메모리에 들고 있어 pm2 cluster·여러 대로 나누면 조각이 엇갈립니다.
+- **Node.js 18.15 이상** — 낮으면 디스크 남은 자리를 못 읽어 가득 찰 때까지 막지 못합니다.
+- **nginx 가 있으면 `client_max_body_size 16m`** — 없으면 큰 파일이 안 올라갑니다.
+- **처음 켜고 확인** — 오른쪽 위에 자기 이름, 관리자에게 「전체(관리자)」 칸. 아니면 `user` 설정을 넣습니다.
+- **🔗 링크는 가진 사람 누구나 받습니다** — 기한·횟수를 정하고, 다 받으면 끊습니다. 바깥에 열 때는 https 로.
+- **`bigfile-store/` 를 손으로 고치지 않습니다** — 지우기는 화면의 🗑, 백업은 폴더째 복사.
+- 바이러스 검사는 하지 않습니다 · 보관 창고가 아니라 주고받는 곳입니다(원본은 따로).
 
 ## 저장 모양
 

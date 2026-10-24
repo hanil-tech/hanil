@@ -27,4 +27,6 @@
 
      require('./bigfile-route')(app, { dir: 'D:/portal-files' });
 
+⭐ 켜기 전에 「주의사항.txt」를 꼭 읽어 주세요. Ⅰ부(직원용)는 직원들에게 그대로 전달하시면 됩니다.
+
 자세한 설정(최대 크기·사람별 한도·보관 기간 등)은 README.md 를 보세요.
