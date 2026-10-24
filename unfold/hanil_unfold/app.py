@@ -831,6 +831,8 @@ class MainWindow(QMainWindow):
         self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
+        self.act_quote = QAction("견적", self, shortcut="Ctrl+E", triggered=self.show_quote)
+        self.act_quote.setToolTip("도면(3D)으로 공정수·재료비·가공비·부자재를 계산해 견적서 초안 (엑셀·PDF)")
         self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
         self.act_process = QAction("금형 공정", self, shortcut="Ctrl+J", triggered=lambda: self.show_die(4))
         self.act_process.setToolTip("3D 를 보고 문헌 규칙으로 금형 형식·공정 순서를 자동으로 (AI 도면 검토 선택), "
@@ -849,6 +851,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_xlsx)
         tb.addAction(self.act_assy)
         tb.addAction(self.act_nest)
+        tb.addAction(self.act_quote)
         tb.addAction(self.act_die)
         tb.addAction(self.act_process)
         tb.addAction(self.act_bom)
@@ -941,6 +944,7 @@ class MainWindow(QMainWindow):
         self.act_nest.setEnabled(self.model is not None)
         self.act_bom.setEnabled(self.model is not None)
         self.act_die.setEnabled(self.result is not None)
+        self.act_quote.setEnabled(self.model is not None)
         self.act_process.setEnabled(self.result is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
         self.act_zip.setEnabled(self.model is not None)
@@ -1081,6 +1085,28 @@ class MainWindow(QMainWindow):
                          f"{g.weight_kg:.3f} kg")
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
+
+    def show_quote(self):
+        """견적 창. 아직 [전체 계산] 을 안 했으면 먼저 한다."""
+        from .quote_dialog import QuoteDialog
+        if self.model is None:
+            QMessageBox.information(self, "견적", "먼저 3D 도면을 여세요.")
+            return
+        if not self.assy_parts_result:
+            self.calc_all()
+            if not self.assy_parts_result:
+                return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            dlg = QuoteDialog(self.model, self.assy_parts_result, self.bend_panel.settings(), self.excluded,
+                              os.path.splitext(os.path.basename(self.model.path))[0], self)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "견적", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        dlg.exec()
 
     def show_die(self, tab=0):
         """금형 검토 창 (지금 부품). tab: 처음 보일 탭 (4 = 금형 공정도)."""
