@@ -527,3 +527,59 @@ def paint_sheet(p: QPainter, nest_result, sheet, rect: QRectF, theme: Theme, sha
         q = tf.pt(c)
         p.drawText(QPointF(q.x() - fm.horizontalAdvance(txt) / 2, q.y() + fm.ascent() / 2 - 1), txt)
     return tf
+
+
+# ---------------------------------------------------------------- 사용자가 찍은 치수
+
+def snap_points(result):
+    """전개도에서 치수를 찍을 때 붙을 점들 (끝점·가운데·원 중심·사분점, 바깥 상자 네 귀퉁이) → numpy (n, 2).
+
+    모서리가 둥근 판도 바깥 상자 귀퉁이에 붙으면 전체 크기를 바로 잴 수 있다."""
+    x0, y0, x1, y1 = result.bbox
+    pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    for e in result.entities:
+        if isinstance(e, Line):
+            pts += [e.p1, e.p2, ((e.p1[0] + e.p2[0]) / 2, (e.p1[1] + e.p2[1]) / 2)]
+        elif isinstance(e, Polyline):
+            q = e.points
+            step = max(1, len(q) // 40)
+            pts += list(q[::step]) + [q[-1]]
+        elif isinstance(e, Arc):
+            cx, cy = e.center
+            pts.append(e.center)
+            if e.full:
+                pts += [(cx + e.radius, cy), (cx - e.radius, cy), (cx, cy + e.radius), (cx, cy - e.radius)]
+            else:
+                for a in (e.start_deg, e.end_deg, (e.start_deg + ((e.end_deg - e.start_deg) % 360) / 2)):
+                    pts.append((cx + e.radius * math.cos(math.radians(a)), cy + e.radius * math.sin(math.radians(a))))
+    return np.array(pts, float) if pts else np.zeros((0, 2))
+
+
+def dim_text(p1, p2):
+    dx, dy = abs(p2[0] - p1[0]), abs(p2[1] - p1[1])
+    L = math.hypot(dx, dy)
+    if dx < 1e-6 or dy < 1e-6:
+        return f"{L:.2f}"
+    return f"{L:.2f}  (X {dx:.2f} · Y {dy:.2f})"
+
+
+def paint_user_dims(p: QPainter, dims, tf: FlatTransform, theme: Theme, preview=None, line_width=1.2,
+                    color=None):
+    """찍은 치수: 두 점 사이 화살표 선 + 길이 글씨 (글씨는 바탕을 칠해 잘 보이게)."""
+    col = color or QColor(255, 120, 200)
+    items = list(dims) + ([preview] if preview else [])
+    fm = p.fontMetrics()
+    for k, (a, b) in enumerate(items):
+        A, B = tf.pt(a), tf.pt(b)
+        is_prev = preview is not None and k == len(items) - 1
+        pen = QPen(col, line_width, Qt.DashLine if is_prev else Qt.SolidLine)
+        p.setPen(pen)
+        _arrow_line(p, A, B, 7 * line_width)          # 선 + 양 끝 화살표
+        for c in (A, B):
+            p.drawEllipse(c, 2.5, 2.5)
+        txt = dim_text(a, b)
+        m = QPointF((A.x() + B.x()) / 2, (A.y() + B.y()) / 2)
+        w, h = fm.horizontalAdvance(txt) + 8, fm.height() + 2
+        box = QRectF(m.x() - w / 2, m.y() - h - 4, w, h)
+        p.fillRect(box, QColor(30, 30, 30, 200) if theme is DARK else QColor(255, 255, 255, 220))
+        p.drawText(box, Qt.AlignCenter, txt)

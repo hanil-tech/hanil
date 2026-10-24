@@ -26,7 +26,8 @@ _LAYERS = {
 
 
 def save(result: UnfoldResult, path: str, part_name: str = "", notes: bool = True,
-         dims: bool = True, density: float = 7.85) -> None:
+         dims: bool = True, density: float = 7.85, user_dims=None) -> None:
+    """user_dims: 화면에서 찍은 치수 [(p1, p2)] — DIM 레이어에 정렬 치수로 넣는다."""
     doc = ezdxf.new("R2010", setup=True)
     doc.units = units.MM
     doc.header["$MEASUREMENT"] = 1
@@ -54,8 +55,21 @@ def save(result: UnfoldResult, path: str, part_name: str = "", notes: bool = Tru
         _add_dimensions(msp, result, d)
     if notes:
         _add_notes(msp, result, part_name, d)
+    if user_dims:
+        _add_user_dims(msp, result, user_dims)
 
     doc.saveas(path)
+
+
+def _add_user_dims(msp, result, user_dims):
+    x0, y0, x1, y1 = result.bbox
+    size = min(x1 - x0, y1 - y0) or 1.0
+    over = {"dimtxt": max(2.0, size / 45), "dimasz": max(1.5, size / 60), "dimdec": 2,
+            "dimdsep": ord("."), "dimlfac": 1.0, "dimclrd": 6, "dimclre": 6, "dimclrt": 6}
+    for p1, p2 in user_dims:
+        dim = msp.add_aligned_dim(p1=p1, p2=p2, distance=over["dimtxt"] * 1.5, dimstyle="EZDXF",
+                                  override=over, dxfattribs={"layer": "DIM"})
+        dim.render()
 
 
 def bend_label(b) -> str:

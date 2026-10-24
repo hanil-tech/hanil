@@ -32,6 +32,7 @@ class ReportData:
     solid_count: int = 1
     part_title: str = ""         # 조립품 안의 부품 이름 (조립도 번호와 같은 순서)
     created: _dt.datetime = field(default_factory=_dt.datetime.now)
+    user_dims: list = field(default_factory=list)   # 화면에서 찍은 치수 [(p1, p2)]
 
     @property
     def material(self) -> bc.Material:
@@ -159,7 +160,7 @@ def _font(size_pt, bold=False):
 
 def render_flat_image(d: ReportData, w=1600, h=1000, dims=True):
     from PySide6.QtCore import QRectF
-    from PySide6.QtGui import QImage, QPainter
+    from PySide6.QtGui import QColor, QImage, QPainter
 
     from .drawing import LIGHT, FlatTransform, paint_dimensions, paint_flat, paint_legend
 
@@ -174,6 +175,9 @@ def render_flat_image(d: ReportData, w=1600, h=1000, dims=True):
     paint_flat(p, d.result, tf, LIGHT, line_scale=2.0)
     if dims:
         paint_dimensions(p, d.result, tf, LIGHT, d.dims, line_width=1.5)
+    if d.user_dims:
+        from .drawing import paint_user_dims
+        paint_user_dims(p, d.user_dims, tf, LIGHT, line_width=1.8, color=QColor(200, 0, 120))
     if legend_h:
         paint_legend(p, QRectF(w * 0.25, h - legend_h - 10, w * 0.5, 22), LIGHT)
     p.end()

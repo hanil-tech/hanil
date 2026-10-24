@@ -183,3 +183,20 @@ def test_dxf_has_real_dimensions(tmp_path):
     assert any("%%c8" in t for t in texts)  # 구멍 지름
     notes = [t.dxf.text for t in doc.modelspace().query('TEXT[layer=="NOTE"]')]
     assert any(t.startswith("AREA ") and "WEIGHT" in t for t in notes)
+
+
+def test_user_dims_in_dxf_and_snap_points(tmp_path):
+    import ezdxf
+    from hanil_unfold import dxf_export
+    from hanil_unfold.drawing import dim_text, snap_points
+    r = unfold(solid(tray()), k_factor=0.44)
+    snaps = snap_points(r)
+    x0, y0, x1, y1 = r.bbox
+    assert any(abs(px - x1) < 1e-9 and abs(py - y1) < 1e-9 for px, py in snaps)   # 바깥 귀퉁이
+    path = tmp_path / "u.dxf"
+    dxf_export.save(r, str(path), user_dims=[((0, 0), (30, 40)), ((0, 0), (60, 0))])
+    dims = [d for d in ezdxf.readfile(str(path)).modelspace().query("DIMENSION")]
+    meas = sorted(round(d.get_measurement(), 3) for d in dims)
+    assert 50.0 in meas and 60.0 in meas
+    assert dim_text((0, 0), (30, 40)) == "50.00  (X 30.00 · Y 40.00)"
+    assert dim_text((0, 0), (60, 0)) == "60.00"

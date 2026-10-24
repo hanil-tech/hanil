@@ -203,6 +203,7 @@ class FlatView(QWidget):
     오른쪽 단추 메뉴: 색칠 켜기/끄기, 색 바꾸기, 이 부품 제외 (전체 계산·철판 배치 합계에서 뺀다)."""
 
     excludeToggled = Signal(bool)
+    SNAP_PX = 12            # 이 픽셀 안에 끝점·원 중심이 있으면 거기에 붙는다
     exportRequested = Signal()
     FILL = QColor(70, 130, 200, 110)
 
@@ -219,6 +220,15 @@ class FlatView(QWidget):
         for key in ("chain", "holes", "bends", "summary"):
             self.show[key] = (settings.value(f"flat_show_{key}", "true") == "true") if settings else True
         self.holes_auto_hidden = False
+        # 치수 찍기
+        self.measure = False
+        self.user_dims = []          # [(p1, p2)] 전개도 좌표 (mm)
+        self._m_first = None
+        self._hover = None           # (점, 붙었나)
+        self._snaps = None
+        self._press = None
+        self._shift = False
+        self.setFocusPolicy(Qt.StrongFocus)
         self.result = None
         self.dims = None
         self.show_dims = True
@@ -237,6 +247,15 @@ class FlatView(QWidget):
     def _build_buttons(self):
         from PySide6.QtWidgets import QToolButton
         self.buttons = {}
+        mb = QToolButton(self)
+        mb.setText("치수 찍기")
+        mb.setToolTip("두 점을 눌러 거리 치수 (끝점·구멍 중심에 붙음). Shift: 수평/수직, Esc: 취소, "
+                      "Ctrl+Z: 마지막 지우기, 오른쪽 단추: 모두 지우기")
+        mb.setCheckable(True)
+        mb.setStyleSheet("QToolButton{color:#ddd;background:rgba(40,44,52,210);border:1px solid #556;"
+                         "border-radius:3px;padding:1px 6px;} QToolButton:checked{background:#c0408f;color:white;}")
+        mb.toggled.connect(self.set_measure)
+        self.measure_btn = mb
         for key, label, tip in self.TOGGLES:
             b = QToolButton(self)
             b.setText(label)
@@ -257,6 +276,78 @@ class FlatView(QWidget):
             x -= b.width()
             b.move(x, 6)
             x -= 3
+        self.measure_btn.adjustSize()
+        self.measure_btn.move(x - 8 - self.measure_btn.width(), 6)
+
+    # ---- 치수 찍기
+
+    def set_measure(self, on):
+        self.measure = on
+        self._m_first = None
+        self._hover = None
+        self.setMouseTracking(on)
+        self.setCursor(Qt.CrossCursor if on else Qt.ArrowCursor)
+        if self.measure_btn.isChecked() != on:
+            self.measure_btn.setChecked(on)
+        if on:
+            self.setFocus()
+        self.update()
+
+    def _to_flat(self, pos):
+        return ((pos.x() - self.offset.x()) / self.scale, (self.offset.y() - pos.y()) / self.scale)
+
+    def _snap(self, pos):
+        """화면 점 → (전개도 점, 붙었나)."""
+        if self._snaps is None and self.result is not None:
+            from .drawing import snap_points
+            self._snaps = snap_points(self.result)
+        raw = self._to_flat(pos)
+        if self._snaps is not None and len(self._snaps):
+            d = np.hypot(self._snaps[:, 0] - raw[0], self._snaps[:, 1] - raw[1]) * self.scale
+            k = int(np.argmin(d))
+            if d[k] <= self.SNAP_PX:
+                return (float(self._snaps[k, 0]), float(self._snaps[k, 1])), True
+        return raw, False
+
+    def _constrained(self, a, b, shift):
+        if not shift:
+            return b
+        return (b[0], a[1]) if abs(b[0] - a[0]) >= abs(b[1] - a[1]) else (a[0], b[1])
+
+    def _measure_click(self, pos, shift):
+        pt, _ = self._snap(pos)
+        if self._m_first is None:
+            self._m_first = pt
+        else:
+            b = self._constrained(self._m_first, pt, shift)
+            if math.dist(self._m_first, b) > 1e-6:
+                self.user_dims.append((self._m_first, b))
+            self._m_first = None
+        self.update()
+
+    def undo_dim(self):
+        if self._m_first is not None:
+            self._m_first = None
+        elif self.user_dims:
+            self.user_dims.pop()
+        self.update()
+
+    def clear_dims(self):
+        self.user_dims.clear()
+        self._m_first = None
+        self.update()
+
+    def keyPressEvent(self, ev):
+        if ev.key() == Qt.Key_Escape:
+            if self._m_first is not None:
+                self._m_first = None
+                self.update()
+            elif self.measure:
+                self.set_measure(False)
+        elif ev.key() == Qt.Key_Z and ev.modifiers() & Qt.ControlModifier:
+            self.undo_dim()
+        else:
+            super().keyPressEvent(ev)
 
     def set_show(self, key, on, remember=True):
         self.show[key] = on
@@ -276,6 +367,9 @@ class FlatView(QWidget):
         self.dims = dims
         self.excluded = excluded
         self._fill_cache = None
+        self._snaps = None
+        self.user_dims = []
+        self._m_first = None
         # 구멍이 아주 많으면 번호 글씨는 처음에 숨긴다 (저장한 설정은 그대로)
         many = dims is not None and len(dims.holes) > self.MANY_HOLES
         want = self.settings.value("flat_show_holes", "true") == "true" if self.settings else True
@@ -357,6 +451,15 @@ class FlatView(QWidget):
             t.setChecked(self.show[key])
             t.toggled.connect(lambda on, k=key: self.set_show(k, on))
         m.addSeparator()
+        md = m.addAction("치수 찍기")
+        md.setCheckable(True)
+        md.setChecked(self.measure)
+        md.toggled.connect(self.set_measure)
+        u = m.addAction("마지막 찍은 치수 지우기  (Ctrl+Z)", self.undo_dim)
+        u.setEnabled(bool(self.user_dims))
+        c = m.addAction(f"찍은 치수 모두 지우기 ({len(self.user_dims)}개)", self.clear_dims)
+        c.setEnabled(bool(self.user_dims))
+        m.addSeparator()
         m.addAction("이 부품만 STEP 으로 저장…", self.exportRequested.emit)
         x = m.addAction("이 부품 제외 (전체 계산·철판 배치에서 뺌)")
         x.setCheckable(True)
@@ -434,6 +537,26 @@ class FlatView(QWidget):
                              holes_on=self.show["holes"])
         if self.show["summary"] and self.dims is not None:
             paint_summary(p, self.dims.summary_lines(), 8, 26, DARK)
+        if self.user_dims or self.measure:
+            from .drawing import paint_user_dims
+            prev = None
+            if self.measure and self._m_first is not None and self._hover is not None:
+                prev = (self._m_first, self._constrained(self._m_first, self._hover[0], self._shift))
+            paint_user_dims(p, self.user_dims, tf, DARK, preview=prev)
+            if self.measure and self._hover is not None:
+                q = tf.pt(self._hover[0])
+                p.setPen(QPen(QColor(255, 230, 0) if self._hover[1] else QColor(255, 120, 200), 1.5))
+                p.setBrush(Qt.NoBrush)
+                if self._hover[1]:
+                    p.drawRect(QRectF(q.x() - 5, q.y() - 5, 10, 10))
+                else:
+                    p.drawLine(QPointF(q.x() - 6, q.y()), QPointF(q.x() + 6, q.y()))
+                    p.drawLine(QPointF(q.x(), q.y() - 6), QPointF(q.x(), q.y() + 6))
+            if self.measure:
+                p.setPen(QColor(255, 150, 210))
+                p.drawText(self.rect().adjusted(0, 0, -8, -24), Qt.AlignRight | Qt.AlignBottom,
+                           "치수 찍기: 두 점을 누르세요 (노란 네모 = 끝점·중심에 붙음) · Shift 수평/수직 · "
+                           "Esc 취소 · Ctrl+Z 지우기")
         if self.holes_auto_hidden and self.dims is not None:
             p.setPen(QColor(220, 170, 80))
             p.drawText(self.rect().adjusted(0, 34, -8, 0), Qt.AlignRight | Qt.AlignTop,
@@ -443,19 +566,30 @@ class FlatView(QWidget):
 
     def mousePressEvent(self, ev):
         self._drag = ev.position() if ev.button() == Qt.LeftButton else None
+        self._press = ev.position() if ev.button() == Qt.LeftButton else None
 
     def mouseMoveEvent(self, ev):
+        self._shift = bool(ev.modifiers() & Qt.ShiftModifier)
+        if self.measure and self.result is not None:
+            self._hover = self._snap(ev.position())
+            self.update()
         if self._drag is None:
             return
         self.offset += ev.position() - self._drag
         self._drag = ev.position()
         self.update()
 
-    def mouseReleaseEvent(self, _):
+    def mouseReleaseEvent(self, ev):
+        clicked = self._press is not None and \
+            (ev.position() - self._press).manhattanLength() < 4
         self._drag = None
+        self._press = None
+        if clicked and self.measure and self.result is not None:
+            self._measure_click(ev.position(), bool(ev.modifiers() & Qt.ShiftModifier))
 
     def mouseDoubleClickEvent(self, _):
-        self.fit()
+        if not self.measure:          # 치수 찍는 중에는 두 번 누름이 점 찍기와 겹치므로 맞춤 안 함
+            self.fit()
 
     def wheelEvent(self, ev):
         k = 1.15 ** (ev.angleDelta().y() / 120)
@@ -1186,7 +1320,8 @@ class MainWindow(QMainWindow):
             dxf_export.save(self.result, path,
                             part_name=os.path.splitext(os.path.basename(self.model.path))[0],
                             notes=self.notes_box.isChecked(), dims=self.dims_box.isChecked(),
-                            density=self.bend_panel.settings().mat.density)
+                            density=self.bend_panel.settings().mat.density,
+                            user_dims=self.flat_view.user_dims)
         except Exception as e:
             QMessageBox.warning(self, "저장 실패", str(e))
             return
@@ -1220,7 +1355,8 @@ class MainWindow(QMainWindow):
         return report.ReportData(
             name, self.model.path, self.result, self.bend_panel.settings(), self.current_solid(),
             solid_index=self.solid_box.currentIndex() + 1, solid_count=len(self.model.solids),
-            part_title=self.model.names[self.solid_box.currentIndex()])
+            part_title=self.model.names[self.solid_box.currentIndex()],
+            user_dims=list(self.flat_view.user_dims))
 
     def save_assembly_pdf(self):
         if self.model is None:
