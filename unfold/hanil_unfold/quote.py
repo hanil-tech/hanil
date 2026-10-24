@@ -813,3 +813,37 @@ def save_die_pdf(q: Quote, path: str):
     text(m, H - m - 5, W - 2 * m, 5, f"한일 판금 전개 {version_text()}  ·  {company.MAKER}", 7.5,
          color=QColor(130, 130, 130))
     p.end()
+
+
+# ---------------------------------------------------------------- 기록용
+
+def record_values(q: Quote, die=False):
+    """History.add_doc 에 넘길 값 (생산 견적 / 금형 견적)."""
+    if die:
+        supply, vat, total = die_total_with_vat(q)
+        return dict(title=q.title, customer=q.customer, sets=q.sets, annual=q.annual, unit_price=None,
+                    supply=supply, total=total, die_total=supply, max_tonf=q.max_tonf,
+                    machines=", ".join(q.machine_list), total_ops=sum(d.stations for d in q.dies),
+                    parts=len(q.dies),
+                    summary=f"금형 {len(q.dies)} 벌 · 공급가 {won(supply)} 원 · "
+                            + ", ".join(f"{d.part_name} {short_method(d.die_type)} {d.stations}공정" for d in q.dies))
+    return dict(title=q.title, customer=q.customer, sets=q.sets, annual=q.annual, unit_price=q.unit_price,
+                supply=q.supply, total=q.total, die_total=q.die_total, max_tonf=q.max_tonf,
+                machines=", ".join(q.machine_list), total_ops=q.total_ops, parts=len(q.parts),
+                summary=f"세트 단가 {won(q.unit_price)} × {q.sets:,} · 재료 {won(q.material)} · 가공 {won(q.process)}"
+                        f" · 부자재 {won(q.sub_total)} · 금형 {won(q.die_total)}"
+                        + (" (상각)" if q.amortize_die else ""))
+
+
+def record_detail(q: Quote, die=False):
+    if die:
+        return [{"no": d.part_no, "name": d.part_name, "method": d.die_type, "n_ops": d.stations,
+                 "size": list(d.size), "lines": [[a, b, round(c)] for a, b, c in d.lines], "die": round(d.cost)}
+                for d in q.dies]
+    return [{"no": p.no, "name": p.name, "qty": p.qty, "spec": p.spec, "method": p.method, "n_ops": p.n_ops,
+             "ops": " → ".join(p.ops), "tonf": round(p.need_tonf, 1), "machines": ", ".join(p.machines),
+             "material": round(p.material), "process": round(p.process_cost), "die": round(p.die_cost),
+             "material_override": p.material_override is not None,
+             "process_override": p.process_override is not None} for p in q.parts] + \
+        [{"no": "", "name": s.name, "qty": s.qty, "spec": s.spec, "method": "부자재", "material": round(s.unit_price)}
+         for s in q.subs]

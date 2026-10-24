@@ -1099,7 +1099,8 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             dlg = QuoteDialog(self.model, self.assy_parts_result, self.bend_panel.settings(), self.excluded,
-                              os.path.splitext(os.path.basename(self.model.path))[0], self)
+                              os.path.splitext(os.path.basename(self.model.path))[0], self,
+                              history=self.history if self.history_box.isChecked() else None)
         except Exception as e:
             traceback.print_exc()
             QMessageBox.warning(self, "견적", str(e))
@@ -1118,7 +1119,9 @@ class MainWindow(QMainWindow):
         name = self.model.names[idx] if self.model and self.model.names else ""
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            dlg = DieDialog(self.result, self.bend_panel.settings(), name, self)
+            dlg = DieDialog(self.result, self.bend_panel.settings(), name, self,
+                            history=self.history if self.history_box.isChecked() else None,
+                            source_path=self.model.path if self.model else "")
         finally:
             QApplication.restoreOverrideCursor()
         dlg.tabs.setCurrentIndex(tab if isinstance(tab, int) else 0)

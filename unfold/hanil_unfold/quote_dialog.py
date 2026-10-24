@@ -43,12 +43,13 @@ def _table(head):
 
 
 class QuoteDialog(QDialog):
-    def __init__(self, model, parts, settings, excluded=(), title="", parent=None):
+    def __init__(self, model, parts, settings, excluded=(), title="", parent=None, history=None):
         super().__init__(parent)
         from . import bom
         self.setWindowTitle(f"견적 — {title}")
         self.resize(1200, 760)
         self.model, self.parts, self.settings, self.title = model, parts, settings, title
+        self.history = history
         self.st = QSettings("Hanil", "SheetUnfold")
         self.rates = qt_.load_rates(self.st.value("quote_rates", ""))
         self.items = bom.build(model, parts, settings.mat.density, excluded, settings.mat.code)
@@ -139,8 +140,11 @@ class QuoteDialog(QDialog):
         allb = QPushButton("엑셀 + PDF 모두 저장…")
         allb.setToolTip("생산 견적서와 (금형이 있으면) 금형 견적서를 엑셀·PDF 로 한 번에")
         allb.clicked.connect(self.save_all)
+        logb = QPushButton("견적·금형 기록…")
+        logb.setToolTip("지금까지 저장한 견적서·금형 견적서·금형 검토 기록")
+        logb.clicked.connect(self.show_log)
         btns.addStretch(1)
-        for b in (xl, pdf, dxl, dpdf, allb):
+        for b in (logb, xl, pdf, dxl, dpdf, allb):
             btns.addWidget(b)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
@@ -499,6 +503,7 @@ class QuoteDialog(QDialog):
             self.recalc()
 
     def save_all(self):
+        self.recalc()                 # 수신 업체 등 마지막 입력을 반영
         self.st.setValue("quote_annual", self.annual.value())
         self.st.setValue("quote_customer", self.customer.text())
         base = os.path.splitext(self.model.path)[0] + "_견적서.xlsx"
@@ -517,10 +522,34 @@ class QuoteDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "견적서 저장 실패", str(e))
             return
-        QMessageBox.information(self, "견적서", "저장했습니다.\n" + "\n".join(o for _, o in jobs))
+        self._log(False, [o for _, o in jobs[:2]])
+        if self.q.dies:
+            self._log(True, [o for _, o in jobs[2:]])
+        QMessageBox.information(self, "견적서", "저장했습니다.\n" + "\n".join(o for _, o in jobs)
+                                + ("\n(견적·금형 기록에 남겼습니다)" if self.history is not None else ""))
         QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(jobs[0][1])))
 
+    def _log(self, die, files):
+        if self.history is None:
+            return
+        try:
+            v = qt_.record_values(self.q, die)
+            v["material"] = self.settings.mat.code
+            self.history.add_doc("금형 견적" if die else "생산 견적", files, self.model.path, v,
+                                 qt_.record_detail(self.q, die))
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+    def show_log(self):
+        if self.history is None:
+            QMessageBox.information(self, "견적·금형 기록", "기록을 쓸 수 없습니다 ([전개 기록 남기기] 가 꺼져 있음).")
+            return
+        from .doc_history_dialog import DocHistoryDialog
+        DocHistoryDialog(self.history, parent=self).exec()
+
     def save(self, kind, die=False):
+        self.recalc()
         self.st.setValue("quote_annual", self.annual.value())
         self.st.setValue("quote_customer", self.customer.text())
         if die and not self.q.dies:
@@ -539,4 +568,5 @@ class QuoteDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "견적서 저장 실패", str(e))
             return
+        self._log(die, [path])
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))

@@ -62,7 +62,7 @@ class HistoryDialog(QDialog):
         for text, slot in (("보관 DXF 열기", self.open_dxf), ("원본 다시 열기", self.reopen),
                            ("메모", self.edit_note), ("엑셀로 내보내기", self.export),
                            ("보관 폴더 열기", self.open_folder), ("보관 위치 바꾸기", self.move),
-                           ("선택 삭제", self.remove)):
+                           ("선택 삭제", self.remove), ("견적·금형 기록…", self.show_docs)):
             b = QPushButton(text)
             b.clicked.connect(slot)
             buttons.addWidget(b)
@@ -115,6 +115,10 @@ class HistoryDialog(QDialog):
             f"기록 {len(self.records)}건 (전체 {self.history.count()}건)   ·   "
             f"블랭크 무게 합계 {total:,.3f} kg   ·   절단 길이 합계 {cut / 1000:,.2f} m   ·   "
             f"보관 위치: {self.history.folder}")
+
+    def show_docs(self):
+        from .doc_history_dialog import DocHistoryDialog
+        DocHistoryDialog(self.history, open_source=self.open_source, parent=self).exec()
 
     def _selected(self):
         ids = sorted({self.table.item(i.row(), 0).data(Qt.UserRole)

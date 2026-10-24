@@ -7,6 +7,10 @@
 저장 위치 (기본)
     %APPDATA%\\HanilUnfold\\기록\\history.sqlite     기록 데이터베이스
     %APPDATA%\\HanilUnfold\\기록\\보관함\\2026-10\\    DXF 사본 (월별 폴더)
+    %APPDATA%\\HanilUnfold\\기록\\보관함\\2026-10\\견적\\  저장한 견적서·금형 견적서·금형 검토 사본
+
+견적·금형 기록 (docs 표): 생산 견적서·금형 견적서·금형 검토를 저장할 때마다 한 줄 —
+고객·수량·단가·합계·금형비·필요 톤수·사용 기계·공정수와 부품별 내용(JSON), 파일 사본.
 """
 from __future__ import annotations
 
@@ -50,6 +54,41 @@ COLUMNS = [
 ]
 FIELDS = [c for c, _ in COLUMNS]
 
+DOC_COLUMNS = [
+    ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
+    ("created", "TEXT"),
+    ("day", "TEXT"),
+    ("kind", "TEXT"),             # 생산 견적 / 금형 견적 / 금형 검토
+    ("source_path", "TEXT"),
+    ("source_name", "TEXT"),
+    ("title", "TEXT"),
+    ("customer", "TEXT"),
+    ("material", "TEXT"),
+    ("sets", "INTEGER"),
+    ("annual", "INTEGER"),
+    ("unit_price", "REAL"),       # 세트 단가
+    ("supply", "REAL"),           # 공급가액
+    ("total", "REAL"),            # 부가세 포함 합계
+    ("die_total", "REAL"),
+    ("max_tonf", "REAL"),
+    ("machines", "TEXT"),
+    ("total_ops", "INTEGER"),
+    ("parts", "INTEGER"),
+    ("summary", "TEXT"),          # 한 줄 요약
+    ("detail", "TEXT"),           # 부품별 JSON
+    ("files", "TEXT"),            # 저장한 파일 (; 로)
+    ("archived", "TEXT"),         # 보관함 사본 (; 로)
+    ("note", "TEXT"),
+    ("app_version", "TEXT"),
+]
+DOC_LABELS = {
+    "id": "번호", "created": "일시", "kind": "종류", "source_name": "파일", "title": "제품", "customer": "수신",
+    "material": "재질", "sets": "수량(세트)", "annual": "연간 생산량", "unit_price": "세트 단가", "supply": "공급가액",
+    "total": "합계(VAT 포함)", "die_total": "금형비", "max_tonf": "최대 톤수(tf)", "machines": "사용 기계",
+    "total_ops": "공정수", "parts": "자작 부품", "summary": "요약", "files": "저장한 파일", "archived": "보관 사본",
+    "note": "메모", "app_version": "프로그램 버전", "source_path": "원본 경로",
+}
+
 # 화면·엑셀에 보일 이름
 LABELS = {
     "id": "번호", "updated": "전개 일시", "source_name": "파일", "part_index": "부품",
@@ -76,7 +115,135 @@ class Record:
         return self.data[k]
 
 
-class History:
+# ---------------------------------------------------------------- 견적·금형 기록
+
+class _DocsMixin:
+    """견적·금형 기록 (docs 표). History 가 물려받는다."""
+
+
+    def add_doc(self, kind, files, source_path="", values=None, detail=None, archive=True,
+                when: _dt.datetime | None = None) -> int:
+        """견적서·금형 견적서·금형 검토 저장 한 번을 기록. values: DOC_COLUMNS 의 값들."""
+        import json
+        import shutil
+        when = when or _dt.datetime.now()
+        v = dict(values or {})
+        v.update(created=when.isoformat(timespec="seconds"), day=when.date().isoformat(), kind=kind,
+                 source_path=os.path.abspath(source_path) if source_path else "",
+                 source_name=os.path.basename(source_path) if source_path else v.get("source_name", ""),
+                 files=";".join(os.path.abspath(f) for f in files), app_version=version_text(),
+                 detail=json.dumps(detail, ensure_ascii=False) if detail is not None else "")
+        v = {k: x for k, x in v.items() if k in dict(DOC_COLUMNS)}
+        keys = ", ".join(v)
+        cur = self.db.execute(f"INSERT INTO docs ({keys}) VALUES ({', '.join('?' for _ in v)})", tuple(v.values()))
+        rid = cur.lastrowid
+        if archive:
+            folder = os.path.join(self.archive_root, when.strftime("%Y-%m"), "견적")
+            os.makedirs(folder, exist_ok=True)
+            copies = []
+            for f in files:
+                if os.path.exists(f):
+                    dst = os.path.join(folder, f"{rid:05d}_{os.path.basename(f)}")
+                    shutil.copy2(f, dst)
+                    copies.append(dst)
+            self.db.execute("UPDATE docs SET archived=? WHERE id=?", (";".join(copies), rid))
+        self.db.commit()
+        return rid
+
+
+    def search_docs(self, text="", kind="", date_from="", date_to="", limit=5000):
+        sql = "SELECT * FROM docs WHERE 1=1"
+        args = []
+        for word in text.split():
+            sql += " AND (source_name LIKE ? OR title LIKE ? OR customer LIKE ? OR note LIKE ? OR material LIKE ?)"
+            args += [f"%{word}%"] * 5
+        if kind:
+            sql += " AND kind = ?"
+            args.append(kind)
+        if date_from:
+            sql += " AND day >= ?"
+            args.append(date_from)
+        if date_to:
+            sql += " AND day <= ?"
+            args.append(date_to)
+        sql += " ORDER BY created DESC, id DESC LIMIT ?"
+        args.append(limit)
+        return [Record(r["id"], dict(r)) for r in self.db.execute(sql, args)]
+
+
+    def count_docs(self):
+        return self.db.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
+
+
+    def set_doc_note(self, rid, note):
+        self.db.execute("UPDATE docs SET note=? WHERE id=?", (note, rid))
+        self.db.commit()
+
+
+    def delete_docs(self, ids, remove_files=True):
+        for rid in ids:
+            row = self.db.execute("SELECT archived FROM docs WHERE id=?", (rid,)).fetchone()
+            if row and remove_files:
+                for f in (row["archived"] or "").split(";"):
+                    if f and os.path.exists(f):
+                        try:
+                            os.remove(f)
+                        except OSError:
+                            pass
+            self.db.execute("DELETE FROM docs WHERE id=?", (rid,))
+        self.db.commit()
+
+
+    def export_docs_xlsx(self, path, records=None):
+        import json
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        records = self.search_docs() if records is None else records
+        cols = ["id", "created", "kind", "title", "customer", "source_name", "material", "sets", "annual",
+                "unit_price", "supply", "total", "die_total", "max_tonf", "machines", "total_ops", "parts",
+                "summary", "note", "files", "archived", "app_version"]
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "견적·금형 기록"
+        head_font = Font(name="맑은 고딕", bold=True, color="FFFFFF")
+        fill = PatternFill("solid", fgColor="28405A")
+        for j, c in enumerate(cols, 1):
+            cell = ws.cell(1, j, DOC_LABELS.get(c, c))
+            cell.font, cell.fill = head_font, fill
+            cell.alignment = Alignment(horizontal="center")
+            ws.column_dimensions[cell.column_letter].width = 32 if c in ("summary", "files", "archived", "machines") else 14
+        for i, r in enumerate(records, 2):
+            for j, c in enumerate(cols, 1):
+                v = r.data.get(c)
+                if c == "created" and v:
+                    v = v.replace("T", " ")
+                cell = ws.cell(i, j, v)
+                if c in ("unit_price", "supply", "total", "die_total"):
+                    cell.number_format = "#,##0"
+                elif c == "max_tonf":
+                    cell.number_format = "#,##0.0"
+        ws.freeze_panes = "A2"
+        # 부품별 (상세)
+        w2 = wb.create_sheet("부품별")
+        heads = ["기록 번호", "종류", "제품", "품번", "품명", "수량/세트", "재질", "공정 방식", "공정수", "공정",
+                 "톤수(tf)", "기계", "자재비/개", "가공비/개", "금형비"]
+        w2.append(heads)
+        for c in w2[1]:
+            c.font, c.fill = head_font, fill
+        for r in records:
+            try:
+                parts = json.loads(r.data.get("detail") or "[]")
+            except ValueError:
+                parts = []
+            for p in parts if isinstance(parts, list) else []:
+                w2.append([r.id, r.data.get("kind"), r.data.get("title"), p.get("no"), p.get("name"), p.get("qty"),
+                           p.get("spec"), p.get("method"), p.get("n_ops"), p.get("ops"), p.get("tonf"),
+                           p.get("machines"), p.get("material"), p.get("process"), p.get("die")])
+        wb.save(path)
+
+
+class History(_DocsMixin):
     def __init__(self, folder: str | None = None):
         self.folder = folder or default_dir()
         os.makedirs(self.folder, exist_ok=True)
@@ -91,6 +258,12 @@ class History:
         for name, typ in COLUMNS:
             if name not in have:
                 self.db.execute(f"ALTER TABLE unfolds ADD COLUMN {name} {typ}")
+        cols = ", ".join(f"{n} {t}" for n, t in DOC_COLUMNS)
+        self.db.execute(f"CREATE TABLE IF NOT EXISTS docs ({cols})")
+        have = {r[1] for r in self.db.execute("PRAGMA table_info(docs)")}
+        for name, typ in DOC_COLUMNS:
+            if name not in have:
+                self.db.execute(f"ALTER TABLE docs ADD COLUMN {name} {typ}")
         self.db.commit()
 
     def close(self):

@@ -107,11 +107,12 @@ def render_strip(result, strip, w=1100, h=360, copies=4):
 
 
 class DieDialog(QDialog):
-    def __init__(self, result, settings: bc.BendSettings, name="", parent=None):
+    def __init__(self, result, settings: bc.BendSettings, name="", parent=None, history=None, source_path=""):
         super().__init__(parent)
         self.setWindowTitle(f"금형 검토 — {name}" if name else "금형 검토")
         self.resize(1150, 720)
         self.result, self.settings, self.name = result, settings, name
+        self.history, self.source_path = history, source_path
         self.rep = dc.review(result, settings)
         rep = self.rep
         tabs = QTabWidget()
@@ -466,6 +467,30 @@ class DieDialog(QDialog):
             f"<th>드로잉력 kN</th><th>tf</th></tr>{rows}</table>"
             "<br><span style='color:#777'>드로잉력 F = π·d·t·σb·n (n: 드로잉률에 따른 계수 0.4~1.0)</span>")
 
+    def _log(self, files):
+        if self.history is None:
+            return
+        rep, rt = self.rep, self.route
+        plan = getattr(self, "plan", None)
+        ops = len(plan.stations) if plan is not None else (len(rt.steps) if rt else 0)
+        bad = sum(c.verdict == dc.NG for c in rep.checks)
+        warn = sum(c.verdict == dc.WARN for c in rep.checks)
+        v = dict(title=self.name, material=rep.material, annual=self.r_qty.value() if rt else None,
+                 max_tonf=(plan.press_tonf if plan is not None else rep.press_tonf), total_ops=ops, parts=1,
+                 machines="", summary=(f"{rt.die_type} · " if rt else "") + f"공정 {ops} · 권장 프레스 "
+                 f"{(plan.press_tonf if plan is not None else rep.press_tonf):.0f} tf · 클리어런스 {rep.clearance_mm:.3f} · "
+                 f"설계 규칙 부적합 {bad}·주의 {warn}"
+                 + (f" · 스트립 이용률 {rep.strip.utilization:.0%}" if rep.strip else ""))
+        detail = {"loads": [[L.name, round(L.force_n / 1000, 2)] for L in rep.loads],
+                  "checks": [[c.rule, c.target, round(c.value, 2), c.verdict] for c in rep.checks],
+                  "route": [[s_.op, s_.detail, s_.rules] for s_ in rt.steps] if rt else [],
+                  "stations": [[st_.no, st_.title, st_.detail] for st_ in plan.stations] if plan is not None else []}
+        try:
+            self.history.add_doc("금형 검토", files, self.source_path, v, detail)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
     def save(self, kind="xlsx"):
         base = os.path.splitext(self.name or "part")[0] + "_금형검토"
         filt = {"xlsx": "엑셀 (*.xlsx)", "pdf": "PDF (*.pdf)", "both": "엑셀 (*.xlsx)"}[kind]
@@ -486,6 +511,7 @@ class DieDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "금형 검토 저장 실패", str(e))
             return
+        self._log(out)
         QMessageBox.information(self, "금형 검토", "저장했습니다.\n" + "\n".join(out))
         QDesktopServices.openUrl(QUrl.fromLocalFile(out[-1]))
 

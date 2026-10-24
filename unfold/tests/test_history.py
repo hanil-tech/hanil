@@ -120,3 +120,46 @@ def test_version_text_and_old_history_file_upgrade(tmp_path, result):
     rid = h.record("x.step", result, bc.BendSettings())
     assert h.search()[0]["app_version"] == version_text()
     assert rid == 1
+
+
+def test_quote_and_die_docs_are_recorded(tmp_path):
+    import json
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from models import nested_assembly_step
+
+    from hanil_unfold import assembly_calc, loader
+    from hanil_unfold import bendcalc as bc
+    from hanil_unfold import quote as q
+    from hanil_unfold.history import History
+    step = tmp_path / "truck.step"
+    nested_assembly_step(str(step))
+    m = loader.load(str(step), use_cache=False)
+    st = bc.BendSettings()
+    qt = q.build(m, assembly_calc.compute_all(m, st), st, q.load_rates(None), sets=20, annual=300_000, title="TRUCK")
+    qt.customer = "가나상사"
+    out = tmp_path / "견적서.xlsx"
+    q.save_xlsx(qt, str(out))
+    h = History(str(tmp_path / "기록"))
+    rid = h.add_doc("생산 견적", [str(out)], str(step), q.record_values(qt), q.record_detail(qt))
+    h.add_doc("금형 견적", [], str(step), q.record_values(qt, die=True), q.record_detail(qt, die=True))
+    rows = h.search_docs("가나")
+    assert len(rows) == 2 and h.count_docs() == 2
+    r = next(x for x in rows if x.id == rid).data
+    assert r["total"] == qt.total and r["unit_price"] == qt.unit_price and r["max_tonf"] == pytest.approx(qt.max_tonf)
+    assert r["kind"] == "생산 견적" and r["source_name"] == "truck.step"
+    assert os.path.exists(r["archived"]) and r["archived"] != str(out)        # 보관 사본
+    assert json.loads(r["detail"])[0]["name"]
+    assert len(h.search_docs(kind="금형 견적")) == 1
+    h.set_doc_note(rid, "수주")
+    assert h.search_docs("수주")[0].id == rid
+    h.export_docs_xlsx(str(tmp_path / "log.xlsx"))
+    import openpyxl
+    wb = openpyxl.load_workbook(tmp_path / "log.xlsx")
+    assert wb.sheetnames == ["견적·금형 기록", "부품별"] and wb["부품별"].max_row > 2
+    h.delete_docs([rid])
+    assert h.count_docs() == 1 and not os.path.exists(r["archived"])

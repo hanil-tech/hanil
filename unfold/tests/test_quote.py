@@ -164,3 +164,24 @@ def test_saved_machines_survive_load():
     assert back["costing"]["machines"][0]["name"] == "우리 프레스 150"
     assert back["costing"]["die"]["design_per_station"] == 1
     assert back["costing"]["die"]["heat_kg"] == q.DEFAULT_RATES["costing"]["die"]["heat_kg"]
+
+
+def test_dialog_save_all_records_latest_customer(assy, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+    QApplication.instance() or QApplication([])
+    from hanil_unfold import quote_dialog as qd
+    from hanil_unfold.history import History
+    m, parts, st = assy
+    monkeypatch.setattr(qd.QDesktopServices, "openUrl", staticmethod(lambda *a: None))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(tmp_path / "T_견적서.xlsx"), "")))
+    h = History(str(tmp_path / "기록"))
+    dlg = qd.QuoteDialog(m, parts, st, (), "TRUCK", history=h)
+    dlg.annual.setValue(300_000)
+    dlg.customer.setText("마바상사")          # 고친 뒤 다시 계산 없이 바로 저장
+    dlg.save_all()
+    rows = h.search_docs()
+    assert {r.data["kind"] for r in rows} == {"생산 견적", "금형 견적"}
+    assert all(r.data["customer"] == "마바상사" for r in rows)
+    assert (tmp_path / "T_견적서.pdf").exists() and (tmp_path / "T_금형견적서.xlsx").exists()
