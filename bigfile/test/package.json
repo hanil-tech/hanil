@@ -1,0 +1,7 @@
+{
+  "name": "hanil-bigfile-check",
+  "private": true,
+  "description": "대용량 파일 조각 점검(가짜 포털)",
+  "scripts": { "test": "node api-check.js" },
+  "devDependencies": { "express": "^4.21.2", "express-session": "^1.18.1" }
+}

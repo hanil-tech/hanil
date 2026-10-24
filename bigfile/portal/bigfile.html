@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ko" data-notheme="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>대용량 파일 — 한일</title>
+<style>
+:root{--bg:#f3f5f9;--card:#fff;--fg:#1d2433;--sub:#6a7385;--line:#e3e7ef;--acc:#1f5eff;--acc2:#e8eeff;--ok:#1a7f37;--bad:#b3261e;--warn:#9a6700;--bar:#dfe5f1}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2030;--fg:#e6e9f0;--sub:#9aa3b5;--line:#2c3346;--acc:#5b8cff;--acc2:#24304f;--ok:#4cc26b;--bad:#ff7a70;--warn:#e0b44c;--bar:#2c3346}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+a{color:var(--acc)}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+header h1{font-size:20px;margin:0;flex:1}
+header .who{color:var(--sub);font-size:13px}
+.home{text-decoration:none;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+#drop{border:2px dashed var(--line);border-radius:12px;padding:28px 12px;text-align:center;cursor:pointer;transition:.15s}
+#drop.on{border-color:var(--acc);background:var(--acc2)}
+#drop .big{font-size:36px}
+#drop b{font-size:16px}
+#drop .sub{color:var(--sub);font-size:13px;margin-top:4px}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:6px 10px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+button:hover,.btn:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+.up{border-top:1px solid var(--line);padding:10px 0}
+.up:first-child{border-top:0}
+.up .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.up .nm{flex:1;min-width:160px;font-weight:600;word-break:break-all}
+.up .st{color:var(--sub);font-size:12.5px;margin-top:4px;font-variant-numeric:tabular-nums}
+.st.bad{color:var(--bad)}.st.ok{color:var(--ok)}
+.bar{height:8px;background:var(--bar);border-radius:6px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+.bar.ok i{background:var(--ok)}.bar.bad i{background:var(--bad)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.tabs button.on{background:var(--acc2);border-color:var(--acc);color:var(--acc);font-weight:700}
+.tabs input{flex:1;min-width:140px;font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
+th{color:var(--sub);font-weight:600;font-size:12.5px;border-top:0}
+td.n{word-break:break-all;font-weight:600}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.a{white-space:nowrap;text-align:right}
+td .tag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:5px;margin-left:4px;vertical-align:1px}
+.tag.pub{background:#e6f4e6;color:#1a7f37}.tag.part{background:#fff4d6;color:#9a6700}.tag.lnk{background:var(--acc2);color:var(--acc)}
+@media (prefers-color-scheme:dark){.tag.pub{background:#18361f;color:#7fdc95}.tag.part{background:#3a3016;color:#e9c46a}}
+.muted{color:var(--sub);font-size:12.5px}
+.empty{text-align:center;color:var(--sub);padding:26px 0}
+footer{color:var(--sub);font-size:12.5px;text-align:center;margin:8px 0 30px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--fg);padding:18px;max-width:520px;width:calc(100% - 32px)}
+dialog::backdrop{background:#0006}
+dialog h3{margin:0 0 6px;font-size:16px;word-break:break-all}
+dialog label{display:inline-flex;gap:6px;align-items:center;margin:6px 12px 6px 0}
+dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.lk{display:flex;gap:6px;align-items:center;border-top:1px solid var(--line);padding:8px 0;flex-wrap:wrap}
+.lk input{flex:1;min-width:180px;font:12.5px monospace;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2433;color:#fff;padding:9px 16px;border-radius:10px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;max-width:calc(100% - 32px)}
+#toast.on{opacity:1}
+/* 폰 — 표를 카드처럼 */
+@media (max-width:700px){
+  thead{display:none}
+  table,tbody,tr,td{display:block;width:100%}
+  tr{border-top:1px solid var(--line);padding:8px 0}
+  td{border:0;padding:2px 0;text-align:left!important}
+  td.r{display:inline-block;width:auto;margin-right:10px;color:var(--sub);font-size:12.5px}
+  td.a{white-space:normal;margin-top:4px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📦 대용량 파일</h1>
+    <span class="who" id="who"></span>
+    <a class="home" href="/">← 포털</a>
+  </header>
+
+  <div class="card">
+    <div id="drop" tabindex="0" role="button">
+      <div class="big">⬆</div>
+      <b>여기에 파일을 끌어다 놓거나 눌러서 고르세요</b>
+      <div class="sub" id="limits">설치할 것 없이 브라우저에서 바로 — 여러 개를 한꺼번에 골라도 됩니다</div>
+    </div>
+    <input type="file" id="pick" multiple hidden>
+    <div id="ups"></div>
+  </div>
+
+  <div class="card">
+    <div class="tabs" id="tabs">
+      <button data-t="mine" class="on">내 파일</button>
+      <button data-t="pub">사내 공개</button>
+      <button data-t="all" id="tabAll" hidden>전체(관리자)</button>
+      <input id="q" type="search" placeholder="이름·올린 사람 찾기">
+      <button id="reload" title="새로 고침">↻</button>
+    </div>
+    <table>
+      <thead><tr><th>이름</th><th class="r">크기</th><th class="r">올린 날</th><th>올린 사람</th><th class="r">받음</th><th></th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>파일이 없습니다</div>
+  </div>
+  <footer id="foot"></footer>
+</div>
+
+<dialog id="dlg">
+  <h3 id="dName"></h3>
+  <div class="muted">로그인 없이 받을 수 있는 링크입니다. 거래처 등 바깥 사람에게 보낼 때 쓰세요.</div>
+  <div style="margin:10px 0">
+    <label>기한 <select id="dDays"><option value="1">1일</option><option value="3">3일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select></label>
+    <label>받는 횟수 <select id="dMax"><option value="0">제한 없음</option><option value="1">1번</option><option value="3">3번</option><option value="5">5번</option><option value="10">10번</option></select></label>
+    <button class="pri" id="dMake">🔗 링크 만들기</button>
+  </div>
+  <div id="dLinks"></div>
+  <div style="text-align:right;margin-top:10px"><button id="dClose">닫기</button></div>
+</dialog>
+<div id="toast"></div>
+
+<script>
+'use strict';
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var INFO = null, FILES = [], TAB = 'mine', UPS = [], RUNNING = false, RESUME_FOR = null;
+
+  // ── 도우미 ───────────────────────────────────────────────
+  function human(b) {
+    if (b < 1024) return b + ' B';
+    var u = ['KB', 'MB', 'GB', 'TB'], i = -1;
+    do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
+    return b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0) + ' ' + u[i];
+  }
+  function dur(s) {
+    if (!isFinite(s) || s < 0) return '';
+    s = Math.round(s);
+    if (s < 60) return s + '초';
+    if (s < 3600) return Math.floor(s / 60) + '분 ' + (s % 60) + '초';
+    return Math.floor(s / 3600) + '시간 ' + Math.floor((s % 3600) / 60) + '분';
+  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function day(t) { var d = new Date(t); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function qs(o) { return Object.keys(o).map(function (k) { return k + '=' + encodeURIComponent(o[k]); }).join('&'); }
+  var tt;
+  function toast(m) { var t = $('toast'), d = $('dlg'); (d.open ? d : document.body).appendChild(t);   //  열린 창(dialog) 뒤에 가리지 않게
+     t.textContent = m; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(function () { t.classList.remove('on'); }, 2600); }
+  function api(method, url) {
+    return fetch(url, { method: method, credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(function (r) {
+      if (r.status === 401) { location.href = '/?next=' + encodeURIComponent('/bigfile'); throw new Error('로그인이 필요합니다'); }
+      return r.text().then(function (t) {
+        var j; try { j = JSON.parse(t); } catch (e) { j = null; }
+        if (!r.ok) throw new Error((j && j.error) || ('서버 답 ' + r.status + (r.status === 413 ? ' — 서버(nginx 등)가 조각을 너무 크다고 막았습니다' : '')));
+        if (!j) throw new Error('서버가 JSON 대신 다른 것을 보냈습니다');
+        return j;
+      });
+    });
+  }
+  //  CRC32 — 서버(bigfile-route.js)와 같은 계산
+  var CRC_T = (function () { var t = new Int32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
+  function crc32(u8) { var c = -1; for (var i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return (~c >>> 0).toString(16); }
+  function copy(text, input) {
+    function old() { input.select(); try { document.execCommand('copy'); toast('링크를 복사했습니다'); } catch (e) { toast('복사가 안 됩니다 — 직접 선택해 복사하세요'); } }
+    //  http(사내 주소)로 열면 navigator.clipboard 가 없거나 거절된다 — 옛 방식으로
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text).then(function () { toast('링크를 복사했습니다'); }, old);
+    old();
+  }
+
+  // ── 올리기 ───────────────────────────────────────────────
+  //   한 번에 파일 하나, 그 파일을 조각 PAR 개씩 함께. 조각이 실패하면 기다렸다가 다시(최대 10번).
+  function addFiles(list) {
+    for (var i = 0; i < list.length; i++) {
+      var f = list[i];
+      if (INFO && f.size > INFO.max) { toast(f.name + ' — 파일 하나는 ' + human(INFO.max) + ' 까지입니다'); continue; }
+      var it = { f: f, sent: 0, inflight: {}, state: 'wait', msg: '기다리는 중', xhrs: [], samples: [] };
+      UPS.push(it); drawUp(it);
+    }
+    run();
+  }
+  function run() {
+    if (RUNNING) return;
+    var it = UPS.filter(function (x) { return x.state === 'wait'; })[0];
+    if (!it) return;
+    RUNNING = true;
+    upload(it).then(function () { RUNNING = false; run(); }, function () { RUNNING = false; run(); });
+  }
+  function upload(it) {
+    it.state = 'run'; it.msg = '준비 중'; it.err = ''; drawUp(it);
+    var f = it.f;
+    return api('POST', '/bigfile/api/init?' + qs({ name: f.name, size: f.size, type: f.type || '', lm: f.lastModified || 0 })).then(function (r) {
+      it.id = r.id; it.chunk = r.chunk; it.n = r.n;
+      var have = atob(r.have || ''), todo = [];
+      it.sent = 0;
+      for (var i = 0; i < r.n; i++) {
+        if ((have.charCodeAt(i >> 3) >> (i & 7)) & 1) it.sent += Math.min(r.chunk, f.size - i * r.chunk);
+        else todo.push(i);
+      }
+      if (r.resumed && it.sent) toast(f.name + ' — 받아 둔 ' + human(it.sent) + ' 다음부터 이어 올립니다');
+      it.t0 = Date.now(); it.base = it.sent; it.samples = [];
+      it.msg = ''; drawUp(it); loadList();
+      var next = 0, fail = null;
+      function worker() {
+        if (fail || it.state !== 'run' || next >= todo.length) return Promise.resolve();
+        var idx = todo[next++];
+        return sendChunk(it, idx).then(worker, function (e) { fail = fail || e; });
+      }
+      var ws = [];
+      for (var k = 0; k < Math.min(INFO.parallel || 3, todo.length || 1); k++) ws.push(worker());
+      return Promise.all(ws).then(function () {
+        if (fail) throw fail;
+        if (it.state !== 'run') return;
+        it.msg = '마무리 중'; drawUp(it);
+        return api('POST', '/bigfile/api/done/' + it.id).then(function () {
+          it.state = 'done'; it.sent = f.size; it.msg = ''; drawUp(it); loadList(); loadInfo();
+        });
+      });
+    }).catch(function (e) {
+      if (it.state === 'pause' || it.state === 'cancel') return;
+      it.state = 'error'; it.err = e.message || String(e); drawUp(it);
+    });
+  }
+  function sendChunk(it, i) {
+    var f = it.f, a = i * it.chunk, b = Math.min(f.size, a + it.chunk);
+    return f.slice(a, b).arrayBuffer().then(function (buf) {
+      var crc = crc32(new Uint8Array(buf)), tries = 0;
+      function once() {
+        if (it.state !== 'run') return Promise.resolve();
+        return new Promise(function (ok, no) {
+          var x = new XMLHttpRequest();
+          it.xhrs.push(x);
+          x.open('PUT', '/bigfile/api/chunk/' + it.id + '/' + i);
+          x.setRequestHeader('Content-Type', 'application/octet-stream');
+          x.setRequestHeader('X-Crc32', crc);
+          x.upload.onprogress = function (e) { it.inflight[i] = e.loaded; tick(it); };
+          x.onloadend = function () {
+            it.xhrs = it.xhrs.filter(function (y) { return y !== x; });
+            delete it.inflight[i];
+            var j = null; try { j = JSON.parse(x.responseText); } catch (e) { /* */ }
+            if (x.status === 200) { it.sent += b - a; tick(it); return ok(); }
+            if (it.state !== 'run') return ok();
+            if (x.status === 401) { location.href = '/?next=' + encodeURIComponent('/bigfile'); return no(new Error('로그인이 풀렸습니다')); }
+            //  다시 해 볼 만한 것: 망 끊김(0)·깨짐(422)·같은 조각 받는 중(409)·서버 바쁨(5xx 일부)·시간 초과
+            var retry = x.status === 0 || x.status === 408 || x.status === 409 || x.status === 422 || x.status === 429 || x.status === 400 || x.status === 502 || x.status === 503 || x.status === 504;
+            var why = (j && j.error) || (x.status ? '서버 답 ' + x.status : '연결이 끊겼습니다');
+            if (x.status === 413 && !(j && j.error)) why = '서버(nginx 등)가 조각을 너무 크다고 막았습니다 — 관리자에게 client_max_body_size 를 늘려 달라고 하세요';
+            if (!retry || ++tries > 10) return no(new Error(why));
+            var wait = Math.min(30, Math.pow(2, tries - 1));
+            it.msg = why + ' — ' + wait + '초 뒤 다시 (' + tries + '/10)'; drawUp(it);
+            var go = function () { window.removeEventListener('online', go); clearTimeout(t); if (it.msg.indexOf('다시') >= 0) it.msg = ''; once().then(ok, no); };
+            var t = setTimeout(go, wait * 1000);
+            if (!navigator.onLine) window.addEventListener('online', go);
+          };
+          x.send(buf);
+        });
+      }
+      return once();
+    });
+  }
+  //  속도 — 최근 8초 동안 보낸 양으로
+  function tick(it) {
+    var now = Date.now(), done = it.sent;
+    for (var k in it.inflight) done += it.inflight[k];
+    it.cur = Math.min(done, it.f.size);
+    it.samples.push([now, it.cur]);
+    while (it.samples.length > 2 && now - it.samples[0][0] > 8000) it.samples.shift();
+    if (!it._raf) it._raf = setTimeout(function () { it._raf = 0; drawUp(it); }, 250);
+  }
+  function drawUp(it) {
+    if (!it.el) {
+      it.el = document.createElement('div');
+      it.el.className = 'up';
+      it.el.innerHTML = '<div class="row"><span class="nm"></span><span class="ctl"></span></div><div class="bar"><i></i></div><div class="st"></div>';
+      $('ups').appendChild(it.el);
+    }
+    var f = it.f, cur = it.state === 'done' ? f.size : (it.cur === undefined ? it.sent : Math.max(it.sent, it.cur));
+    var pct = f.size ? cur / f.size * 100 : (it.state === 'done' ? 100 : 0);
+    it.el.querySelector('.nm').textContent = f.name;
+    it.el.querySelector('.bar i').style.width = pct.toFixed(1) + '%';
+    it.el.querySelector('.bar').className = 'bar' + (it.state === 'done' ? ' ok' : it.state === 'error' ? ' bad' : '');
+    var st = it.el.querySelector('.st'), s = '';
+    if (it.state === 'done') s = '✅ 다 올렸습니다 · ' + human(f.size) + (it.t0 ? ' · ' + dur((Date.now() - it.t0) / 1000) : '');
+    else if (it.state === 'error') s = '❌ ' + it.err;
+    else if (it.state === 'pause') s = '⏸ 멈춤 · ' + human(cur) + ' / ' + human(f.size);
+    else if (it.state === 'wait') s = '⏳ 기다리는 중 · ' + human(f.size);
+    else {
+      var sp = 0, sm = it.samples;
+      if (sm.length > 1) sp = (sm[sm.length - 1][1] - sm[0][1]) / Math.max(0.001, (sm[sm.length - 1][0] - sm[0][0]) / 1000);
+      s = pct.toFixed(1) + '% · ' + human(cur) + ' / ' + human(f.size) + (sp > 0 ? ' · ' + human(sp) + '/초 · 남은 시간 ' + dur((f.size - cur) / sp) : '') + (it.msg ? ' · ' + it.msg : '');
+    }
+    st.textContent = s;
+    st.className = 'st' + (it.state === 'error' ? ' bad' : it.state === 'done' ? ' ok' : '');
+    //  단추는 상태가 바뀔 때만 새로 — 진행률마다 새로 만들면 누르는 사이에 단추가 바뀌어 안 눌린다
+    if (it.ctlFor === it.state) return;
+    it.ctlFor = it.state;
+    var c = it.el.querySelector('.ctl');
+    c.innerHTML = '';
+    function b(label, fn, title) { var x = document.createElement('button'); x.textContent = label; if (title) x.title = title; x.onclick = fn; c.appendChild(x); }
+    if (it.state === 'run') b('⏸ 멈춤', function () { it.state = 'pause'; it.xhrs.forEach(function (x) { x.abort(); }); drawUp(it); });
+    if (it.state === 'pause' || it.state === 'error') b('▶ 이어 올리기', function () { it.state = 'wait'; it.inflight = {}; drawUp(it); run(); });
+    if (it.state !== 'done') b('✕', function () {
+      if (!confirm(f.name + ' 올리기를 그만둘까요?\n(서버에 받아 둔 조각도 지웁니다)')) return;
+      it.state = 'cancel'; it.xhrs.forEach(function (x) { x.abort(); });
+      if (it.id) api('DELETE', '/bigfile/api/file/' + it.id).then(loadList, loadList);
+      UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove();
+    }, '그만두기');
+    else b('지우기', function () { UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove(); }, '이 줄 지우기(파일은 그대로)');
+  }
+  window.addEventListener('beforeunload', function (e) {
+    if (UPS.some(function (x) { return x.state === 'run' || x.state === 'wait'; })) { e.preventDefault(); e.returnValue = '올리는 중입니다'; return e.returnValue; }
+  });
+
+  // ── 끌어다 놓기·고르기 ───────────────────────────────────
+  var drop = $('drop'), pick = $('pick');
+  drop.onclick = function () { RESUME_FOR = null; pick.click(); };
+  drop.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drop.click(); } };
+  pick.onchange = function () {
+    var list = [].slice.call(pick.files);
+    pick.value = '';
+    if (RESUME_FOR) {
+      var p = RESUME_FOR; RESUME_FOR = null;
+      if (list.length !== 1 || list[0].name !== p.name || list[0].size !== p.size) { toast('올리다 만 파일(' + p.name + ', ' + human(p.size) + ')과 같은 파일을 골라 주세요'); return; }
+    }
+    addFiles(list);
+  };
+  ['dragenter', 'dragover'].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('on'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); if (ev === 'drop' || !e.relatedTarget) drop.classList.remove('on'); }); });
+  document.addEventListener('drop', function (e) {
+    var dt = e.dataTransfer; if (!dt) return;
+    var out = [];
+    for (var i = 0; i < dt.files.length; i++) {
+      var en = dt.items && dt.items[i] && dt.items[i].webkitGetAsEntry && dt.items[i].webkitGetAsEntry();
+      if (en && en.isDirectory) { toast('폴더는 올릴 수 없습니다 — 압축(zip)해서 올려 주세요'); continue; }
+      out.push(dt.files[i]);
+    }
+    if (out.length) addFiles(out);
+  });
+
+  // ── 목록 ─────────────────────────────────────────────────
+  function loadInfo() {
+    return api('GET', '/bigfile/api/info').then(function (r) {
+      INFO = r;
+      $('who').textContent = r.user + ' 님';
+      $('tabAll').hidden = !r.admin;
+      $('limits').textContent = '설치할 것 없이 브라우저에서 바로 · 파일 하나 ' + human(r.max) + ' 까지 · 끊겨도 같은 파일을 다시 고르면 이어 올립니다';
+      var s = [];
+      s.push('내가 쓰는 자리 ' + human(r.used) + (r.quota ? ' / ' + human(r.quota) : ''));
+      if (r.free >= 0) s.push('서버 남은 자리 ' + human(r.free));
+      s.push('다 못 올린 파일은 ' + r.partDays + '일 뒤 지워집니다');
+      if (r.keepDays) s.push('올린 파일은 ' + r.keepDays + '일 동안 보관');
+      $('foot').textContent = s.join(' · ');
+    });
+  }
+  function loadList() {
+    return api('GET', '/bigfile/api/list' + (TAB === 'all' ? '?all=1' : '')).then(function (r) { FILES = r.files; drawList(); })
+      .catch(function (e) { toast(e.message); });
+  }
+  function drawList() {
+    var q = $('q').value.trim().toLowerCase();
+    var rows = FILES.filter(function (f) {
+      if (TAB === 'mine' && !f.mine) return false;
+      if (TAB === 'pub' && !f.pub) return false;
+      return !q || (f.name + ' ' + f.owner).toLowerCase().indexOf(q) >= 0;
+    });
+    var up = {}; UPS.forEach(function (u) { if (u.id && u.state !== 'done') up[u.id] = 1; });
+    $('empty').hidden = rows.length > 0;
+    $('list').innerHTML = rows.map(function (f) {
+      var part = f.state !== 'done';
+      var tags = (f.pub ? '<span class="tag pub">사내 공개</span>' : '') + (f.shares.length ? '<span class="tag lnk">링크 ' + f.shares.length + '</span>' : '') +
+        (part ? '<span class="tag part">' + (up[f.id] ? '올리는 중' : '다 못 올림 ' + Math.floor(f.got / f.n * 100) + '%') + '</span>' : '');
+      var act = part
+        ? (up[f.id] ? '' : '<button data-a="resume" data-id="' + f.id + '">▶ 이어 올리기</button>') + '<button data-a="del" data-id="' + f.id + '">🗑</button>'
+        : '<a class="btn pri" style="background:var(--acc);color:#fff;border-color:var(--acc)" href="/bigfile/api/file/' + f.id + '/dl" download>⬇ 받기</a>' +
+          (f.mine || INFO.admin ? '<button data-a="share" data-id="' + f.id + '" title="바깥 사람용 링크">🔗</button>' +
+            '<button data-a="pub" data-id="' + f.id + '" title="' + (f.pub ? '사내 공개 끄기' : '로그인한 직원 누구나 받게') + '">' + (f.pub ? '🔒' : '🏢') + '</button>' +
+            '<button data-a="del" data-id="' + f.id + '" title="지우기">🗑</button>' : '');
+      return '<tr><td class="n">' + esc(f.name) + tags + '</td><td class="r">' + human(f.size) + '</td><td class="r">' + day(f.t1 || f.t0) +
+        '</td><td>' + esc(f.owner) + '</td><td class="r">' + (part ? '' : f.dl + '번 받음') + '</td><td class="a">' + act + '</td></tr>';
+    }).join('');
+  }
+  $('list').onclick = function (e) {
+    var b = e.target.closest('button[data-a]'); if (!b) return;
+    var f = FILES.filter(function (x) { return x.id === b.dataset.id; })[0]; if (!f) return;
+    var a = b.dataset.a;
+    if (a === 'del') {
+      if (!confirm(f.name + ' 을(를) 지울까요?\n지우면 공유 링크도 더는 안 됩니다.')) return;
+      api('DELETE', '/bigfile/api/file/' + f.id).then(function () { toast('지웠습니다'); loadList(); loadInfo(); }, function (er) { toast(er.message); });
+    } else if (a === 'pub') {
+      api('POST', '/bigfile/api/pub/' + f.id + '?on=' + (f.pub ? 0 : 1)).then(function () { toast(f.pub ? '사내 공개를 껐습니다' : '로그인한 직원 누구나 받을 수 있습니다'); loadList(); }, function (er) { toast(er.message); });
+    } else if (a === 'resume') {
+      RESUME_FOR = f; toast('올리다 만 파일(' + f.name + ')을 다시 골라 주세요'); pick.click();
+    } else if (a === 'share') openShare(f);
+  };
+  $('tabs').onclick = function (e) {
+    var b = e.target.closest('button[data-t]'); if (!b) return;
+    TAB = b.dataset.t;
+    [].forEach.call(document.querySelectorAll('#tabs button[data-t]'), function (x) { x.classList.toggle('on', x === b); });
+    loadList();
+  };
+  $('q').oninput = drawList;
+  $('reload').onclick = function () { loadInfo(); loadList(); };
+
+  // ── 공유 링크 ────────────────────────────────────────────
+  var DF = null, dlg = $('dlg');
+  function openShare(f) {
+    DF = f; $('dName').textContent = '🔗 ' + f.name;
+    $('dDays').innerHTML = [1, 3, 7, 14, 30].filter(function (d) { return d <= (INFO.shareDaysMax || 30); })
+      .map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + '일</option>'; }).join('');
+    drawLinks();
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  }
+  function drawLinks() {
+    var base = location.origin + '/bigfile/s/';
+    $('dLinks').innerHTML = DF.shares.length ? DF.shares.map(function (s) {
+      return '<div class="lk"><input readonly value="' + esc(base + s.tok) + '"><button data-c="1">복사</button><button data-x="' + esc(s.tok) + '">끊기</button>' +
+        '<div class="muted" style="width:100%">' + day(s.exp) + ' 까지 · ' + (s.max ? s.used + ' / ' + s.max + '번 받음' : s.used + '번 받음') + '</div></div>';
+    }).join('') : '<div class="muted" style="padding:6px 0">아직 만든 링크가 없습니다</div>';
+  }
+  $('dLinks').onclick = function (e) {
+    var c = e.target.closest('button[data-c]');
+    if (c) { var inp = c.parentNode.querySelector('input'); copy(inp.value, inp); return; }
+    var x = e.target.closest('button[data-x]');
+    if (x && confirm('이 링크를 끊을까요? 받은 사람도 더는 못 받습니다.')) {
+      api('DELETE', '/bigfile/api/share/' + DF.id + '/' + encodeURIComponent(x.dataset.x)).then(function (r) { DF = r.file; drawLinks(); loadList(); }, function (er) { toast(er.message); });
+    }
+  };
+  $('dMake').onclick = function () {
+    api('POST', '/bigfile/api/share/' + DF.id + '?days=' + $('dDays').value + '&max=' + $('dMax').value).then(function (r) {
+      DF = r.file; drawLinks(); loadList();
+      var inp = $('dLinks').querySelector('.lk:last-child input'); if (inp) copy(inp.value, inp);
+    }, function (er) { toast(er.message); });
+  };
+  $('dClose').onclick = function () { if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); };
+
+  loadInfo().then(loadList).catch(function (e) { toast(e.message); });
+})();
+</script>
+</body>
+</html>
