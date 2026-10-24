@@ -6,6 +6,10 @@
       → 화면 없이 DXF 만들기 (여러 파일도 가능)
   python -m hanil_unfold nest 부품.stp [더.stp] --sheet 1219x2438 [--qty 2] [-o 폴더]
       → 모든 부품을 전개해 철판에 배치 (두께별), 배치 DXF·PDF
+  python -m hanil_unfold bom 조립품.stp [-o BOM.xlsx | BOM.pdf]
+      → 같은 부품끼리 묶은 BOM
+  python -m hanil_unfold ai-bom 조립품.stp 도면.pdf [-o AI_BOM.xlsx]
+      → 도면 PDF 와 3D 를 AI(Claude)로 맞춰 본 BOM (ANTHROPIC_API_KEY 필요)
 """
 import argparse
 import os
@@ -175,6 +179,49 @@ def nest_cli(argv):
     return status
 
 
+def bom_cli(argv):
+    from . import assembly_calc, bom, loader
+    from . import bendcalc as bc
+    ap = argparse.ArgumentParser(prog="HanilUnfold bom", description="조립품 STEP → BOM (엑셀·PDF)")
+    ap.add_argument("file", help="STEP / IGES 조립품")
+    ap.add_argument("--material", choices=list(bc.MATERIAL_BY_CODE), default="SPCC")
+    ap.add_argument("-o", "--output", help="저장할 .xlsx 또는 .pdf (없으면 도면 옆 _BOM.xlsx)")
+    args = ap.parse_args(argv)
+    st = bc.BendSettings(method=bc.K_MATERIAL, material=args.material)
+    model = loader.load(args.file)
+    parts = assembly_calc.compute_all(model, st)
+    items = bom.build(model, parts, st.mat.density)
+    out = args.output or os.path.splitext(args.file)[0] + "_BOM.xlsx"
+    name = os.path.basename(args.file)
+    if out.lower().endswith(".pdf"):
+        bom.save_pdf(items, out, name, st.mat.code, st.mat.density)
+    else:
+        bom.save_xlsx(items, out, name, st.mat.code, st.mat.density)
+    print(f"[완료] {out}  {len(items)} 품목, {sum(i.qty for i in items)} 개")
+    return 0
+
+
+def ai_bom_cli(argv):
+    from . import ai_bom, assembly_calc, bom, loader
+    from . import bendcalc as bc
+    ap = argparse.ArgumentParser(prog="HanilUnfold ai-bom",
+                                 description="2D 도면 PDF + 3D → AI(Claude) 분석 BOM 엑셀 (ANTHROPIC_API_KEY 필요)")
+    ap.add_argument("model", help="3D STEP / IGES")
+    ap.add_argument("pdf", help="2D 도면 PDF")
+    ap.add_argument("--material", choices=list(bc.MATERIAL_BY_CODE), default="SPCC")
+    ap.add_argument("-o", "--output", help="저장할 .xlsx")
+    args = ap.parse_args(argv)
+    st = bc.BendSettings(method=bc.K_MATERIAL, material=args.material)
+    model = loader.load(args.model)
+    items = bom.build(model, assembly_calc.compute_all(model, st), st.mat.density)
+    ai = ai_bom.analyze(args.pdf, items)
+    out = args.output or os.path.splitext(args.model)[0] + "_AI_BOM.xlsx"
+    rows, unmatched = ai_bom.save_xlsx(ai, items, out, os.path.basename(args.model),
+                                       os.path.basename(args.pdf), st.mat.code, st.mat.density)
+    print(f"[완료] {out}  도면 {len(rows)} 줄, 3D 에만 {len(unmatched)} 품목")
+    return 0
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-V", "version"):
         from . import version_text
@@ -187,6 +234,10 @@ def main():
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "convert":
         sys.exit(cli(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "ai-bom":
+        sys.exit(ai_bom_cli(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "bom":
+        sys.exit(bom_cli(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "nest":
         sys.exit(nest_cli(sys.argv[2:]))
     from .app import main as gui

@@ -554,6 +554,10 @@ class MainWindow(QMainWindow):
         self.act_history = QAction("전개 기록", self, shortcut="Ctrl+H", triggered=self.show_history)
         self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
+        self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
+        self.act_bom.setToolTip("부품표: 같은 부품끼리 묶어 품번·수량·재질·두께·전개 크기·무게 (엑셀·PDF)")
+        self.act_ai_bom = QAction("AI BOM", self, triggered=self.show_ai_bom)
+        self.act_ai_bom.setToolTip("2D 도면 PDF 와 3D 를 AI(Claude)로 맞춰 보고 BOM 엑셀을 만듭니다")
         self.act_nest.setToolTip("전개한 부품을 1219 × 2438 같은 철판 위에 늘어놓아 필요한 장 수를 셉니다")
         tb.addAction(self.act_open)
         tb.addAction(self.act_save)
@@ -561,6 +565,8 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_xlsx)
         tb.addAction(self.act_assy)
         tb.addAction(self.act_nest)
+        tb.addAction(self.act_bom)
+        tb.addAction(self.act_ai_bom)
         tb.addAction(self.act_batch)
         tb.addAction(self.act_history)
         tb.addSeparator()
@@ -646,6 +652,8 @@ class MainWindow(QMainWindow):
             act.setEnabled(self.result is not None)
         self.act_assy.setEnabled(self.model is not None)
         self.act_nest.setEnabled(self.model is not None)
+        self.act_bom.setEnabled(self.model is not None)
+        self.act_ai_bom.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
 
     def _set_info(self, text, error=False):
@@ -795,6 +803,52 @@ class MainWindow(QMainWindow):
         st = self.bend_panel.settings()
         dlg = NestDialog(items, st.mat.code, st.mat.density, os.path.basename(self.model.path), self)
         dlg.exec()
+
+    def save_bom(self):
+        """BOM (부품표) 을 엑셀 또는 PDF 로. 아직 [전체 계산] 을 안 했으면 먼저 한다."""
+        from . import bom
+        if self.model is None:
+            return
+        if not self.assy_parts_result:
+            self.calc_all()
+            if not self.assy_parts_result:
+                return
+        base = os.path.splitext(self.model.path)[0] + "_BOM.xlsx"
+        path, flt = QFileDialog.getSaveFileName(self, "BOM 저장", base, "엑셀 (*.xlsx);;PDF (*.pdf)")
+        if not path:
+            return
+        st = self.bend_panel.settings()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            items = bom.build(self.model, self.assy_parts_result, st.mat.density, self.excluded)
+            name = os.path.basename(self.model.path)
+            if path.lower().endswith(".pdf"):
+                bom.save_pdf(items, path, name, st.mat.code, st.mat.density)
+            else:
+                if not path.lower().endswith(".xlsx"):
+                    path += ".xlsx"
+                bom.save_xlsx(items, path, name, st.mat.code, st.mat.density)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "BOM 저장 실패", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.statusBar().showMessage(f"BOM {len(items)} 품목을 저장했습니다: {path}", 8000)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def show_ai_bom(self):
+        from . import bom
+        from .ai_bom_dialog import AiBomDialog
+        if self.model is None:
+            return
+        if not self.assy_parts_result:
+            self.calc_all()
+            if not self.assy_parts_result:
+                return
+        st = self.bend_panel.settings()
+        items = bom.build(self.model, self.assy_parts_result, st.mat.density, self.excluded)
+        AiBomDialog(items, self.model.path, st.mat.code, st.mat.density, self).exec()
 
     def save_assembly_xlsx(self):
         if not self.assy_parts_result:

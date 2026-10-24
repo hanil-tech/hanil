@@ -58,6 +58,7 @@ a = Analysis(
     hiddenimports=(collect_submodules("OCP") + collect_submodules("scipy._external")
                    + collect_submodules("scipy.sparse") + collect_submodules("scipy.spatial")
                    + collect_submodules("scipy.ndimage") + collect_submodules("scipy.fft")
+                   + collect_submodules("anthropic")
                    + ["ezdxf", "numpy", "numpy.fft", "numpy.linalg", "openpyxl", "PIL"]),
     runtime_hooks=[os.path.join(HERE, "rthook_dlls.py")],
     excludes=["tkinter", "matplotlib", "vtk", "vtkmodules", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore",
