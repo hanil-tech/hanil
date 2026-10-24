@@ -332,11 +332,13 @@ class GLView(QOpenGLWidget):
     """조립품 전체 또는 부품 하나를 그래픽 카드로 그린다.
 
     위쪽 단추: 맞춤·표준 방향(부드럽게 돌아감), 원근, 외곽선, 단면(축·위치), 투명(고른 부품만 또렷하게).
-    마우스: 왼쪽 끌기 회전, 오른쪽(또는 Shift) 끌기 이동, 휠은 커서 쪽으로 확대, 두 번 누르면 맞춤.
+    마우스: 왼쪽 끌기 회전, 오른쪽(또는 Shift) 끌기 이동, 휠은 커서 쪽으로 확대, 두 번 누르면 큰 창 (맞춤은 [맞춤]·F).
+    오른쪽 단추를 끌지 않고 누르면 메뉴 (그 부품 숨기기 · 이것만 보기 · 모두 보이기).
     """
 
     partClicked = Signal(int)
     hiddenChanged = Signal()
+    enlargeRequested = Signal()           # 두 번 누름: 큰 창으로
 
     def __init__(self, balloons=True, hint=""):
         super().__init__()
@@ -869,12 +871,41 @@ class GLView(QOpenGLWidget):
 
     def mouseReleaseEvent(self, ev):
         clicked = self._drag is not None and not self._moved
+        button = self._drag[1] if self._drag is not None else None
         self._drag = None
-        if clicked:
+        if clicked and button == Qt.RightButton:
+            # 오른쪽 단추를 끌지 않고 눌렀다 떼면 메뉴 (끌면 화면 이동)
+            self._context_menu(ev.position())
+        elif clicked:
             idx = self.pick(ev.position().x(), ev.position().y())
             if idx is not None:
                 self.partClicked.emit(idx)
         self.update()
+
+    def _context_menu(self, pos):
+        self.build_menu(pos).exec(self.mapToGlobal(pos.toPoint()))
+
+    def build_menu(self, pos):
+        """오른쪽 단추 메뉴 (pos 아래 부품 기준)."""
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(self)
+        if self.balloons and self.parts:
+            idx = self.pick(pos.x(), pos.y())
+            if idx is not None:
+                self.partClicked.emit(idx)        # 누른 부품을 고른다
+                m.addAction(f"{idx + 1}번 숨기기", lambda: self.hide_part(idx))
+                m.addAction(f"{idx + 1}번만 보기", lambda: self.isolate(idx))
+                m.addSeparator()
+            act = m.addAction("모두 보이기", self.show_all)
+            act.setEnabled(bool(self.hidden))
+            if self.hidden:
+                sub = m.addMenu(f"숨긴 부품 보이기 ({len(self.hidden)}개)")
+                for i in sorted(self.hidden)[:40]:
+                    sub.addAction(f"{i + 1}번", lambda i=i: self.show_part(i))
+            m.addSeparator()
+        m.addAction("맞춤", lambda: self.go_view("fit"))
+        m.addAction("크게 보기", self.enlargeRequested.emit)
+        return m
 
     def wheelEvent(self, ev):
         # 커서 아래 점이 그 자리에 머물도록 확대 (SolidCraft 의 zoom_at)
@@ -886,7 +917,7 @@ class GLView(QOpenGLWidget):
         self._settle.start(250)
 
     def mouseDoubleClickEvent(self, _):
-        self.go_view("fit")
+        self.enlargeRequested.emit()
 
     def keyPressEvent(self, ev):
         keys = {Qt.Key_F: "fit", Qt.Key_0: "iso", Qt.Key_1: "front", Qt.Key_7: "top",

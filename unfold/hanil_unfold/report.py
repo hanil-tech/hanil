@@ -432,6 +432,7 @@ def save_xlsx(d: ReportData, path: str):
     from . import company
     ws["A2"] = company.MAKER
     ws["A2"].font = _xl_font(st["val"], bold=True)
+    ws["A2"].hyperlink = company.HOMEPAGE
     ws["A3"] = f"{d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}"
     ws["A3"].font = st["key"]
     logo_tmp = _add_image(ws, company.logo_image(96), "B2", 90)
@@ -856,6 +857,25 @@ def render_sheet_image(r, sheet, w=1600, h=820):
     return img
 
 
+def render_part_thumb(part, w=208, h=108):
+    """펼친 부품 하나 작은 그림 (엑셀 부품별 표용, 흰 바탕)."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from .drawing import LIGHT, FlatTransform, _Flat, paint_flat
+    ensure_gui()
+    img = QImage(w, h, QImage.Format_RGB32)
+    img.fill(QColor(255, 255, 255))
+    P = np.vstack([np.asarray(c, float) for c in part.cut])
+    flat = _Flat(part.entities)
+    flat.bbox = (*P.min(0), *P.max(0))
+    p = QPainter(img)
+    paint_flat(p, flat, FlatTransform.fit(flat, QRectF(0, 0, w, h), margin=0.88), LIGHT,
+               strain=False, labels=False, line_scale=0.9)
+    p.end()
+    return img
+
+
 def nesting_part_rows(results, density):
     """부품별: (번호, 부품명, 두께, 크기, 면적 m², 수량, 배치 수, 철판, 개당 kg, 합계 kg)."""
     rows = []
@@ -879,6 +899,7 @@ def nesting_part_rows(results, density):
 def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
     """철판 배치 보고서 (엑셀): 요약 · 부품별 · 철판별(그림)."""
     from openpyxl import Workbook
+    from openpyxl.styles import Alignment
 
     st = _xl_styles()
     wb = Workbook()
@@ -906,6 +927,7 @@ def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
     ws.row_dimensions[1].height = 34
     logo_tmp = _add_image(ws, company.logo_image(96), "D1", 100)
     ws.cell(1, 5, company.MAKER).font = _xl_font(st["val"], bold=True)
+    ws.cell(1, 5).hyperlink = company.HOMEPAGE
     info = [("제작사", company.NAME), ("도면", source_name), ("만든 때", f"{_dt.datetime.now():%Y-%m-%d %H:%M}"),
             ("프로그램", f"한일 판금 전개 {version_text(long=True)}")]
     if results:
@@ -944,15 +966,23 @@ def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
     ws.cell(row + 2, 1, f"무게는 밀도 {density:g} g/cm³ 기준. 사용률 = 부품 넓이 합 / 철판 넓이 합.").font = st["key"]
     ws.freeze_panes = None
 
-    # 부품별
+    # 부품별 (부품명 옆에 펼친 모양 작은 그림)
     wp = wb.create_sheet("부품별")
-    names = ["번호", "부품명", "두께", "크기 (mm)", "면적 (m²)", "수량", "배치", "철판", "개당 무게 (kg)", "합계 (kg)"]
-    head(wp, 1, names, [8, 34, 8, 16, 12, 8, 8, 16, 14, 12])
-    fmt = [None, None, "0.0##", None, "0.0000", "0", "0", None, "0.000", "0.000"]
-    for i, vals in enumerate(nesting_part_rows(results, density), 2):
-        put(wp, i, list(vals), i % 2 == 1, fmt)
+    names = ["번호", "부품명", "모양", "두께", "크기 (mm)", "면적 (m²)", "수량", "배치", "철판",
+             "개당 무게 (kg)", "합계 (kg)"]
+    head(wp, 1, names, [8, 30, 16, 8, 16, 12, 8, 8, 16, 14, 12])
+    fmt = [None, None, None, "0.0##", None, "0.0000", "0", "0", None, "0.000", "0.000"]
+    tmps = []
+    parts = [p for r in results for p in r.parts]
+    for i, (vals, part) in enumerate(zip(nesting_part_rows(results, density), parts), 2):
+        vals = list(vals)
+        put(wp, i, vals[:2] + [None] + vals[2:], i % 2 == 1, fmt)
         if vals[5] != vals[6]:
-            wp.cell(i, 7).font = _xl_font(st["val"], color="C00000", bold=True)
+            wp.cell(i, 8).font = _xl_font(st["val"], color="C00000", bold=True)
+        wp.row_dimensions[i].height = 42
+        for j in range(1, len(names) + 1):
+            wp.cell(i, j).alignment = Alignment(vertical="center", horizontal="left" if j == 2 else None)
+        tmps.append(_add_image(wp, render_part_thumb(part), f"C{i}", 104))
     wp.freeze_panes = "A2"
 
     # 철판별 + 그림
@@ -960,7 +990,6 @@ def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
     names = ["두께", "장", "부품 수", "사용률", "사용 길이 (mm)", "부품 번호"]
     head(wsh, 1, names, [8, 8, 10, 10, 14, 90])
     row = 1
-    tmps = []
     for r in results:
         for k, s in enumerate(r.sheets, 1):
             row += 1

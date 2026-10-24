@@ -12,6 +12,13 @@ import os
 
 NAME = "한일특장(주)"
 MAKER = f"제작사 : {NAME}"
+HOMEPAGE = "https://www.hanil-steel.com"
+
+
+def open_homepage():
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    QDesktopServices.openUrl(QUrl(HOMEPAGE))
 
 
 def user_logo_path() -> str:

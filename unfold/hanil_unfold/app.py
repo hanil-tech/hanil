@@ -46,6 +46,11 @@ EDGE3D = QColor(150, 200, 255)
 class ModelView(QWidget):
     """마우스로 돌려 보는 선 모델."""
 
+    enlargeRequested = Signal()
+
+    def mouseDoubleClickEvent(self, _):
+        self.enlargeRequested.emit()
+
     def __init__(self):
         super().__init__()
         self.lines = []
@@ -116,6 +121,10 @@ class AssemblyView(QWidget):
     """조립품 전체. 부품마다 번호 풍선이 붙고, 풍선(또는 부품 목록)을 누르면 그 부품을 고른다."""
 
     partClicked = Signal(int)
+    enlargeRequested = Signal()
+
+    def mouseDoubleClickEvent(self, _):
+        self.enlargeRequested.emit()
 
     def __init__(self):
         super().__init__()
@@ -189,10 +198,21 @@ class AssemblyView(QWidget):
 
 
 class FlatView(QWidget):
-    """전개도. 휠로 확대, 끌어서 이동, 두 번 눌러 맞춤."""
+    """전개도. 휠로 확대, 끌어서 이동, 두 번 눌러 맞춤.
 
-    def __init__(self):
+    오른쪽 단추 메뉴: 색칠 켜기/끄기, 색 바꾸기, 이 부품 제외 (전체 계산·철판 배치 합계에서 뺀다)."""
+
+    excludeToggled = Signal(bool)
+    FILL = QColor(70, 130, 200, 110)
+
+    def __init__(self, settings=None):
         super().__init__()
+        self.settings = settings
+        self.fill_on = (settings.value("flat_fill", "true") == "true") if settings else True
+        c = QColor(settings.value("flat_fill_color", "")) if settings else QColor()
+        self.fill_color = c if c.isValid() else QColor(self.FILL)
+        self.excluded = False
+        self._fill_cache = None
         self.result = None
         self.dims = None
         self.show_dims = True
@@ -201,10 +221,94 @@ class FlatView(QWidget):
         self._drag = None
         self.setMinimumSize(300, 300)
 
-    def set_result(self, result, dims=None):
+    def set_result(self, result, dims=None, excluded=False):
         self.result = result
         self.dims = dims
+        self.excluded = excluded
+        self._fill_cache = None
         self.fit()
+
+    def set_excluded(self, on):
+        self.excluded = on
+        self.update()
+
+    def _fill_shape(self):
+        """색칠할 모양: 닫힌 외곽이면 (외곽 − 구멍) 경로, 끊긴 외곽이면 격자 그림."""
+        if self._fill_cache is not None:
+            return self._fill_cache
+        from . import metrics as mt
+        from .nesting import NestPart, _rasterize
+        r = self.result
+        lps = sorted(mt.loops(r.entities), key=mt.polygon_area, reverse=True)
+        if lps and mt._encloses(lps[0], r.bbox):
+            self._fill_cache = ("path", lps)
+        else:
+            try:
+                part = NestPart.from_result("", r)
+                x0, y0, x1, y1 = r.bbox
+                res = max(x1 - x0, y1 - y0) / 700 or 1.0
+                m, origin = _rasterize(part, 0, res, conservative=False)
+                self._fill_cache = ("mask", (m, origin, res))
+            except Exception:
+                self._fill_cache = ("none", None)
+        return self._fill_cache
+
+    def _paint_fill(self, p, tf):
+        kind, data = self._fill_shape()
+        col = QColor(120, 120, 120, 90) if self.excluded else self.fill_color
+        if kind == "path":
+            path = QPainterPath()
+            path.setFillRule(Qt.OddEvenFill)
+            from PySide6.QtGui import QPolygonF
+            for lp in data:
+                path.addPolygon(QPolygonF([tf.pt(q) for q in lp]))
+                path.closeSubpath()
+            p.fillPath(path, col)
+        elif kind == "mask":
+            from PySide6.QtGui import QImage
+            m, (ox, oy), res = data
+            h, w = m.shape
+            rgba = np.zeros((h, w, 4), np.uint8)
+            rgba[m] = (col.red(), col.green(), col.blue(), col.alpha())
+            rgba = np.ascontiguousarray(rgba[::-1])          # 그림은 위가 +y
+            img = QImage(rgba.data, w, h, 4 * w, QImage.Format_RGBA8888).copy()
+            tl = tf.pt((ox, oy + h * res))
+            p.drawImage(QRectF(tl.x(), tl.y(), w * res * tf.scale, h * res * tf.scale), img)
+
+    def contextMenuEvent(self, ev):
+        if self.result is None:
+            return
+        from PySide6.QtWidgets import QColorDialog, QMenu
+        m = QMenu(self)
+        a = m.addAction("색칠")
+        a.setCheckable(True)
+        a.setChecked(self.fill_on)
+        a.toggled.connect(self._set_fill)
+
+        def pick():
+            c = QColorDialog.getColor(self.fill_color, self, "전개도 색",
+                                      QColorDialog.ShowAlphaChannel)
+            if c.isValid():
+                self.fill_color = c
+                if self.settings:
+                    self.settings.setValue("flat_fill_color", c.name(QColor.HexArgb))
+                self._set_fill(True)
+
+        m.addAction("색 바꾸기…", pick)
+        m.addSeparator()
+        x = m.addAction("이 부품 제외 (전체 계산·철판 배치에서 뺌)")
+        x.setCheckable(True)
+        x.setChecked(self.excluded)
+        x.toggled.connect(self.excludeToggled.emit)
+        m.addSeparator()
+        m.addAction("맞춤", self.fit)
+        m.exec(ev.globalPos())
+
+    def _set_fill(self, on):
+        self.fill_on = on
+        if self.settings:
+            self.settings.setValue("flat_fill", "true" if on else "false")
+        self.update()
 
     def set_show_dims(self, on):
         self.show_dims = on
@@ -245,7 +349,18 @@ class FlatView(QWidget):
         f = QFont(self.font())
         f.setPointSize(9)
         p.setFont(f)
+        if self.fill_on and r.forming is None:
+            self._paint_fill(p, tf)
         paint_flat(p, r, tf, DARK)
+        if self.excluded:
+            fx = QFont(self.font())
+            fx.setPointSize(16)
+            fx.setBold(True)
+            p.setFont(fx)
+            p.setPen(QColor(230, 120, 60))
+            p.drawText(self.rect().adjusted(0, 0, 0, -30), Qt.AlignHCenter | Qt.AlignBottom,
+                       "제외한 부품 (전체 계산·철판 배치에서 빠짐)")
+            p.setFont(f)
         if r.forming is not None:
             paint_legend(p, QRectF(self.width() - 280, self.height() - 50, 260, 12), DARK)
 
@@ -255,10 +370,10 @@ class FlatView(QWidget):
             paint_dimensions(p, r, tf, DARK, self.dims)
             paint_summary(p, self.dims.summary_lines(), 8, 26, DARK)
         p.setPen(QColor(150, 150, 150))
-        p.drawText(8, self.height() - 8, "휠로 확대 · 끌어서 이동 · 두 번 눌러 맞춤")
+        p.drawText(8, self.height() - 8, "휠로 확대 · 끌어서 이동 · 두 번 눌러 맞춤 · 오른쪽 단추: 색칠 · 제외")
 
     def mousePressEvent(self, ev):
-        self._drag = ev.position()
+        self._drag = ev.position() if ev.button() == Qt.LeftButton else None
 
     def mouseMoveEvent(self, ev):
         if self._drag is None:
@@ -301,9 +416,10 @@ class MainWindow(QMainWindow):
         # 그래픽 카드(OpenGL)를 쓸 수 있으면 3D 를 그래픽 카드로 그린다 (큰 조립품도 부드럽게).
         self.use_gl = self.settings.value("use_gl", "true") == "true" and gl_available()
         if self.use_gl:
-            self.model_view = GLView(balloons=False, hint="끌어서 돌리기 · 오른쪽 끌기 이동 · 휠로 확대")
+            self.model_view = GLView(balloons=False, hint="끌어서 돌리기 · 오른쪽 끌기 이동 · 휠로 확대 · 두 번 눌러 크게 보기")
             self.assembly_view = GLView(
-                hint="부품·번호를 누르면 그 부품 · 왼쪽 끌기 돌리기 · 오른쪽 끌기 이동 · 휠 확대 · 두 번 눌러 맞춤")
+                hint="부품·번호를 누르면 그 부품 · 오른쪽 단추: 숨기기 메뉴 · 왼쪽 끌기 돌리기 · "
+                     "오른쪽 끌기 이동 · 휠 확대 · 두 번 눌러 크게 보기")
         else:
             self.model_view = ModelView()
             self.assembly_view = AssemblyView()
@@ -311,10 +427,10 @@ class MainWindow(QMainWindow):
         self.part_list = QListWidget()
         self.part_list.currentRowChanged.connect(
             lambda row: row >= 0 and row != self.solid_box.currentIndex() and self.select_part(row))
+        self.part_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.part_list.customContextMenuRequested.connect(self._part_menu)
+        self.part_list.setToolTip("오른쪽 단추: 숨기기 · 보이기 · 이것만 보기 · 제외")
         if hasattr(self.assembly_view, "hide_part"):
-            self.part_list.setContextMenuPolicy(Qt.CustomContextMenu)
-            self.part_list.customContextMenuRequested.connect(self._part_menu)
-            self.part_list.setToolTip("오른쪽 단추: 숨기기 · 보이기 · 이것만 보기")
             self.assembly_view.hiddenChanged.connect(self._mark_hidden)
         side = QWidget()
         sl = QVBoxLayout(side)
@@ -355,8 +471,15 @@ class MainWindow(QMainWindow):
         self.left_tabs = QTabWidget()
         self.left_tabs.addTab(self.model_view, "부품 3D")
         self.left_tabs.addTab(assy, "조립품 전체 (번호)")
-        self.flat_view = FlatView()
+        self.flat_view = FlatView(self.settings)
+        self.flat_view.excludeToggled.connect(self._exclude_current)
+        self.excluded = set()          # 전체 계산·철판 배치에서 뺄 부품 번호 (0부터)
         views = QSplitter(Qt.Horizontal)
+        self.views_split = views
+        self._big = None              # 3D 크게 보기 창
+        for v in (self.model_view, self.assembly_view):
+            if hasattr(v, "enlargeRequested"):
+                v.enlargeRequested.connect(self.toggle_big_3d)
         views.addWidget(self.left_tabs)
         views.addWidget(self.flat_view)
         views.setSizes([620, 700])
@@ -402,12 +525,15 @@ class MainWindow(QMainWindow):
         ver.setStyleSheet("color: #888; padding-right: 8px;")
         from . import company
         from PySide6.QtGui import QPixmap
-        logo = QLabel()
-        logo.setPixmap(QPixmap.fromImage(company.logo_image(18)))
-        maker = QLabel(company.MAKER)
-        maker.setStyleSheet("color:#555; font-weight:bold; padding-right:6px;")
-        self.statusBar().addPermanentWidget(logo)
-        self.statusBar().addPermanentWidget(maker)
+        brand = QPushButton(QIcon(QPixmap.fromImage(company.logo_image(36))), " " + company.MAKER)
+        brand.setIconSize(QPixmap.fromImage(company.logo_image(18)).size())
+        brand.setFlat(True)
+        brand.setCursor(Qt.PointingHandCursor)
+        brand.setToolTip(f"회사 홈페이지 열기  {company.HOMEPAGE}")
+        brand.setStyleSheet("QPushButton{color:#555; font-weight:bold; border:none; padding:0 6px;}"
+                            "QPushButton:hover{color:#1f4e8c; text-decoration:underline;}")
+        brand.clicked.connect(company.open_homepage)
+        self.statusBar().addPermanentWidget(brand)
         self.statusBar().addPermanentWidget(ver)
         self._update_actions()
 
@@ -573,6 +699,7 @@ class MainWindow(QMainWindow):
         else:
             self.assembly_view.set_parts(self.assembly_parts)
         self.assy_parts_result = None
+        self.excluded = set()
         self.calc_xlsx_btn.setEnabled(False)
         self.assy_summary.setText("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
         # 부품이 많으면 번호는 고른 부품만 (화면이 번호로 덮이지 않게)
@@ -615,9 +742,19 @@ class MainWindow(QMainWindow):
             else:
                 item.setText(f"{self.model.label(p.index)}   — 펼칠 수 없음")
                 item.setToolTip(p.error)
+        self._fill_summary()
+        self._mark_excluded()
+
+    def _included_parts(self):
+        return [p for p in (self.assy_parts_result or []) if p.index not in self.excluded]
+
+    def _fill_summary(self):
+        settings = self.bend_panel.settings()
+        parts = self._included_parts()
         groups, total = assembly_calc.summarize(parts, settings.mat.code)
         lines = [f"<b>전체 {len(parts)}개</b> · 전개 {total.count}개 · "
-                 f"펼칠 수 없음 {len(parts) - total.count}개",
+                 f"펼칠 수 없음 {len(parts) - total.count}개"
+                 + (f" · <span style='color:#d07030'>제외 {len(self.excluded)}개</span>" if self.excluded else ""),
                  f"<b>블랭크 면적 합계</b> {total.blank_area / 1e6:.4f} m²",
                  f"<b>블랭크 무게 합계</b> {total.weight_kg:.3f} kg "
                  f"(사각 원판 {total.rect_weight_kg:.3f} kg)",
@@ -645,7 +782,7 @@ class MainWindow(QMainWindow):
             if ans == QMessageBox.Yes:
                 self.calc_all()
         if self.assy_parts_result and len(self.model.solids) > 1:
-            items = [(p.index + 1, p.name, p.result) for p in self.assy_parts_result if p.ok]
+            items = [(p.index + 1, p.name, p.result) for p in self._included_parts() if p.ok]
         elif self.result is not None:
             idx = max(self.solid_box.currentIndex(), 0)
             items = [(idx + 1, self.model.names[idx] if self.model.names else
@@ -666,7 +803,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "조립품 합계 엑셀", base, "엑셀 (*.xlsx)")
         if not path:
             return
-        assembly_calc.save_xlsx(path, self.model, self.assy_parts_result,
+        assembly_calc.save_xlsx(path, self.model, self._included_parts(),
                                 self.bend_panel.settings().mat.code)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
@@ -686,19 +823,49 @@ class MainWindow(QMainWindow):
         if hasattr(self.assembly_view, "set_all_balloons"):
             self.assembly_view.set_all_balloons(on)
 
+    def set_excluded(self, idx, on):
+        """부품을 전체 계산·철판 배치 합계에서 빼거나 다시 넣는다."""
+        if on:
+            self.excluded.add(idx)
+        else:
+            self.excluded.discard(idx)
+        if idx == max(0, self.solid_box.currentIndex()):
+            self.flat_view.set_excluded(on)
+        self._mark_excluded()
+        if self.assy_parts_result:
+            self._fill_summary()
+
+    def _exclude_current(self, on):
+        if self.model is not None:
+            self.set_excluded(max(0, self.solid_box.currentIndex()), on)
+
+    def _mark_excluded(self):
+        for i in range(self.part_list.count()):
+            it = self.part_list.item(i)
+            t = it.text().replace("  [제외]", "")
+            it.setText(t + ("  [제외]" if i in self.excluded else ""))
+
     def _part_menu(self, pos):
         from PySide6.QtWidgets import QMenu
         item = self.part_list.itemAt(pos)
         v = self.assembly_view
         m = QMenu(self)
+        can_hide = hasattr(v, "hide_part")
         if item is not None:
             idx = self.part_list.row(item)
-            if idx in v.hidden:
-                m.addAction("보이기", lambda: v.show_part(idx))
+            if can_hide:
+                if idx in v.hidden:
+                    m.addAction("보이기", lambda: v.show_part(idx))
+                else:
+                    m.addAction("숨기기", lambda: v.hide_part(idx))
+                m.addAction("이것만 보기", lambda: v.isolate(idx))
+                m.addSeparator()
+            if idx in self.excluded:
+                m.addAction("다시 포함 (전체 계산·철판 배치)", lambda: self.set_excluded(idx, False))
             else:
-                m.addAction("숨기기", lambda: v.hide_part(idx))
-            m.addAction("이것만 보기", lambda: v.isolate(idx))
-        m.addAction("모두 보이기", v.show_all)
+                m.addAction("제외 (전체 계산·철판 배치에서 뺌)", lambda: self.set_excluded(idx, True))
+        if can_hide:
+            m.addAction("모두 보이기", v.show_all)
         m.exec(self.part_list.mapToGlobal(pos))
 
     def _mark_hidden(self):
@@ -759,7 +926,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 traceback.print_exc()
         self.flat_view.show_dims = self.dims_box.isChecked()
-        self.flat_view.set_result(self.result, self.dims)
+        self.flat_view.set_result(self.result, self.dims, excluded=idx in self.excluded)
         self._fill_table()
         self._fill_dims()
         self._update_actions()
@@ -945,6 +1112,32 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         QMessageBox.information(self, "한꺼번에 전개 결과", text)
 
+    def toggle_big_3d(self):
+        """3D 화면(부품 3D · 조립품 전체)을 큰 창으로 띄우거나, 큰 창이면 닫고 제자리로."""
+        from PySide6.QtWidgets import QDialog
+        if self._big is not None:
+            self._big.close()
+            return
+        dlg = QDialog(self)
+        name = os.path.basename(self.model.path) if self.model else ""
+        dlg.setWindowTitle(f"3D 크게 보기 — {name}   (두 번 누르거나 Esc 로 닫기)")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(0, 0, 0, 0)
+        sizes = self.views_split.sizes()
+        lay.addWidget(self.left_tabs)          # 원래 자리에서 옮겨 온다
+
+        def back(_=None):
+            self.views_split.insertWidget(0, self.left_tabs)
+            self.views_split.setSizes(sizes)
+            self.left_tabs.show()
+            self._big = None
+
+        dlg.finished.connect(back)
+        self._big = dlg
+        scr = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        dlg.setGeometry(scr)
+        dlg.showMaximized()
+
     def show_help(self):
         from .changes import text as changes_text
         from . import company
@@ -952,7 +1145,7 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle("도움말")
         box.setIconPixmap(QPixmap.fromImage(company.logo_image(48)))
-        box.setText(HELP_TEXT.format(version=version_text(long=True)) + f"\n\n{company.MAKER}"
+        box.setText(HELP_TEXT.format(version=version_text(long=True)) + f"\n\n{company.MAKER}   {company.HOMEPAGE}"
                     + "\n\n최근 바뀐 것\n" + changes_text(limit=3))
         box.exec()
 
