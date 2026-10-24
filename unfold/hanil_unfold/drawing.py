@@ -564,20 +564,21 @@ def dim_text(p1, p2):
 
 
 def paint_user_dims(p: QPainter, dims, tf: FlatTransform, theme: Theme, preview=None, line_width=1.2,
-                    color=None):
-    """찍은 치수: 두 점 사이 화살표 선 + 길이 글씨 (글씨는 바탕을 칠해 잘 보이게)."""
-    col = color or QColor(255, 120, 200)
+                    color=None, hot=None):
+    """찍은 치수: 두 점 사이 화살표 선 + 길이 글씨 (글씨는 바탕을 칠해 잘 보이게). hot: 강조할 번호."""
+    base_col = color or QColor(255, 120, 200)
     items = list(dims) + ([preview] if preview else [])
     fm = p.fontMetrics()
     for k, (a, b) in enumerate(items):
         A, B = tf.pt(a), tf.pt(b)
         is_prev = preview is not None and k == len(items) - 1
-        pen = QPen(col, line_width, Qt.DashLine if is_prev else Qt.SolidLine)
+        col = QColor(255, 220, 60) if k == hot else base_col
+        pen = QPen(col, line_width * (2 if k == hot else 1), Qt.DashLine if is_prev else Qt.SolidLine)
         p.setPen(pen)
         _arrow_line(p, A, B, 7 * line_width)          # 선 + 양 끝 화살표
         for c in (A, B):
             p.drawEllipse(c, 2.5, 2.5)
-        txt = dim_text(a, b)
+        txt = dim_text(a, b) + ("   [Delete 지우기]" if k == hot else "")
         m = QPointF((A.x() + B.x()) / 2, (A.y() + B.y()) / 2)
         w, h = fm.horizontalAdvance(txt) + 8, fm.height() + 2
         box = QRectF(m.x() - w / 2, m.y() - h - 4, w, h)

@@ -256,6 +256,19 @@ class FlatView(QWidget):
                          "border-radius:3px;padding:1px 6px;} QToolButton:checked{background:#c0408f;color:white;}")
         mb.toggled.connect(self.set_measure)
         self.measure_btn = mb
+        style = ("QToolButton{color:#ddd;background:rgba(40,44,52,210);border:1px solid #556;"
+                 "border-radius:3px;padding:1px 6px;} QToolButton:hover{background:#7a2050;}")
+        self.undo_btn = QToolButton(self)
+        self.undo_btn.setText("지우기")
+        self.undo_btn.setToolTip("마지막에 찍은 치수 지우기 (Ctrl+Z). 치수 위에 커서를 두고 Delete 를 누르면 그 치수만")
+        self.undo_btn.setStyleSheet(style)
+        self.undo_btn.clicked.connect(self.undo_dim)
+        self.clear_btn = QToolButton(self)
+        self.clear_btn.setText("모두 지우기")
+        self.clear_btn.setToolTip("찍은 치수 모두 지우기")
+        self.clear_btn.setStyleSheet(style)
+        self.clear_btn.clicked.connect(self.clear_dims)
+        self._hot_dim = None         # 커서 아래 치수 번호
         for key, label, tip in self.TOGGLES:
             b = QToolButton(self)
             b.setText(label)
@@ -277,7 +290,16 @@ class FlatView(QWidget):
             b.move(x, 6)
             x -= 3
         self.measure_btn.adjustSize()
-        self.measure_btn.move(x - 8 - self.measure_btn.width(), 6)
+        x -= 8 + self.measure_btn.width()
+        self.measure_btn.move(x, 6)
+        has = bool(self.user_dims)
+        for b in (self.undo_btn, self.clear_btn):
+            b.setVisible(has)
+        # 지우기 단추는 [치수 찍기] 바로 밑에
+        self.undo_btn.adjustSize()
+        self.clear_btn.adjustSize()
+        self.undo_btn.move(x, 6 + self.measure_btn.height() + 3)
+        self.clear_btn.move(x + self.undo_btn.width() + 3, 6 + self.measure_btn.height() + 3)
 
     # ---- 치수 찍기
 
@@ -285,7 +307,7 @@ class FlatView(QWidget):
         self.measure = on
         self._m_first = None
         self._hover = None
-        self.setMouseTracking(on)
+        self.setMouseTracking(on or bool(self.user_dims))
         self.setCursor(Qt.CrossCursor if on else Qt.ArrowCursor)
         if self.measure_btn.isChecked() != on:
             self.measure_btn.setChecked(on)
@@ -322,7 +344,9 @@ class FlatView(QWidget):
             b = self._constrained(self._m_first, pt, shift)
             if math.dist(self._m_first, b) > 1e-6:
                 self.user_dims.append((self._m_first, b))
+                self.setMouseTracking(True)       # 치수 위에 커서를 두면 강조 (Delete 로 지우기)
             self._m_first = None
+            self._place_buttons()
         self.update()
 
     def undo_dim(self):
@@ -330,12 +354,39 @@ class FlatView(QWidget):
             self._m_first = None
         elif self.user_dims:
             self.user_dims.pop()
-        self.update()
+        self._dims_changed()
 
     def clear_dims(self):
         self.user_dims.clear()
         self._m_first = None
+        self._dims_changed()
+
+    def delete_dim(self, k):
+        if 0 <= k < len(self.user_dims):
+            del self.user_dims[k]
+        self._dims_changed()
+
+    def _dims_changed(self):
+        self._hot_dim = None
+        self._place_buttons()
         self.update()
+
+    def _dim_at(self, pos, tol=7):
+        """커서 아래 찍은 치수 번호 (선에서 tol 픽셀 안이거나 길이 글씨 위), 없으면 None."""
+        best, bd = None, tol
+        for k, (a, b) in enumerate(self.user_dims):
+            A, B = self._pt(a), self._pt(b)
+            ax, ay, bx, by = A.x(), A.y(), B.x(), B.y()
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy
+            t = 0.0 if L2 < 1e-9 else max(0.0, min(1.0, ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / L2))
+            d = math.hypot(pos.x() - (ax + t * dx), pos.y() - (ay + t * dy))
+            mx, my = (ax + bx) / 2, (ay + by) / 2
+            if abs(pos.x() - mx) < 60 and my - 24 < pos.y() < my:
+                d = min(d, 2.0)                       # 길이 글씨 위
+            if d < bd:
+                best, bd = k, d
+        return best
 
     def keyPressEvent(self, ev):
         if ev.key() == Qt.Key_Escape:
@@ -346,6 +397,8 @@ class FlatView(QWidget):
                 self.set_measure(False)
         elif ev.key() == Qt.Key_Z and ev.modifiers() & Qt.ControlModifier:
             self.undo_dim()
+        elif ev.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self._hot_dim is not None:
+            self.delete_dim(self._hot_dim)
         else:
             super().keyPressEvent(ev)
 
@@ -370,6 +423,8 @@ class FlatView(QWidget):
         self._snaps = None
         self.user_dims = []
         self._m_first = None
+        self._hot_dim = None
+        self._place_buttons()
         # 구멍이 아주 많으면 번호 글씨는 처음에 숨긴다 (저장한 설정은 그대로)
         many = dims is not None and len(dims.holes) > self.MANY_HOLES
         want = self.settings.value("flat_show_holes", "true") == "true" if self.settings else True
@@ -429,6 +484,12 @@ class FlatView(QWidget):
             return
         from PySide6.QtWidgets import QColorDialog, QMenu
         m = QMenu(self)
+        hot = self._dim_at(QPointF(ev.pos()))
+        if hot is not None:
+            from .drawing import dim_text
+            a_, b_ = self.user_dims[hot]
+            m.addAction(f"이 치수 지우기  ({dim_text(a_, b_).split('  ')[0]})", lambda: self.delete_dim(hot))
+            m.addSeparator()
         a = m.addAction("색칠")
         a.setCheckable(True)
         a.setChecked(self.fill_on)
@@ -542,7 +603,7 @@ class FlatView(QWidget):
             prev = None
             if self.measure and self._m_first is not None and self._hover is not None:
                 prev = (self._m_first, self._constrained(self._m_first, self._hover[0], self._shift))
-            paint_user_dims(p, self.user_dims, tf, DARK, preview=prev)
+            paint_user_dims(p, self.user_dims, tf, DARK, preview=prev, hot=self._hot_dim)
             if self.measure and self._hover is not None:
                 q = tf.pt(self._hover[0])
                 p.setPen(QPen(QColor(255, 230, 0) if self._hover[1] else QColor(255, 120, 200), 1.5))
@@ -570,6 +631,11 @@ class FlatView(QWidget):
 
     def mouseMoveEvent(self, ev):
         self._shift = bool(ev.modifiers() & Qt.ShiftModifier)
+        if self.user_dims and self._drag is None:
+            hot = self._dim_at(ev.position())
+            if hot != self._hot_dim:
+                self._hot_dim = hot
+                self.update()
         if self.measure and self.result is not None:
             self._hover = self._snap(ev.position())
             self.update()
