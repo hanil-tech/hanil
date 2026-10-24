@@ -239,3 +239,17 @@ def test_surface_only_iges_becomes_solids(tmp_path):
     assert len(m.solids) == 2
     sizes = sorted(round(max(unfold(s).size)) for s in m.solids)
     assert sizes[0] == pytest.approx(round(max(unfold(solid(parts[1])).size)), abs=1)
+
+
+def test_save_one_part_as_step_and_zip(tmp_path):
+    import zipfile
+    from models import tray
+    from hanil_unfold import loader
+    s = solid(tray())
+    p = loader.save_step(s, str(tmp_path / "one.stp"))
+    z = loader.save_step(s, str(tmp_path / "one.zip"), name="부품 3 / TRAY")
+    assert zipfile.ZipFile(z).namelist() == ["부품 3 _ TRAY.stp"]
+    assert os.path.getsize(z) < os.path.getsize(p) / 3
+    zipfile.ZipFile(z).extractall(tmp_path / "x")
+    m = loader.load(str(tmp_path / "x" / "부품 3 _ TRAY.stp"), use_cache=False)
+    assert max(unfold(m.solids[0]).size) == pytest.approx(max(unfold(s).size), abs=1e-3)

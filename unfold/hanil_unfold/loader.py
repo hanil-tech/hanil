@@ -8,6 +8,7 @@ CATIA(.CATPart), NX(.prt), 솔리드웍스(.sldprt), DWG 는 각 회사 고유 �
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 from OCP.BRep import BRep_Builder
@@ -430,3 +431,30 @@ def _read_brep(path: str) -> TopoDS_Shape:
     if not BRepTools.Read_s(shape, path, BRep_Builder()):
         raise ValueError("BREP 파일을 읽지 못했습니다.")
     return shape
+
+
+def save_step(shapes, path, name=""):
+    """솔리드(들)만 STEP 으로 저장. path 가 .zip 이면 STEP 을 압축해 넣는다 (보내기 쉽게, 보통 1/10).
+
+    큰 조립품에서 문제 부품 하나만 떼어 보내거나 다른 CAD 로 넘길 때 쓴다."""
+    import tempfile
+    import zipfile
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    shapes = shapes if isinstance(shapes, (list, tuple)) else [shapes]
+    w = STEPControl_Writer()
+    for sh in shapes:
+        w.Transfer(sh, STEPControl_AsIs)
+    zipped = path.lower().endswith(".zip")
+    target = path
+    if zipped:
+        fd, target = tempfile.mkstemp(suffix=".stp")
+        os.close(fd)
+    if w.Write(target) != IFSelect_RetDone:
+        raise ValueError("STEP 파일을 쓰지 못했습니다.")
+    if zipped:
+        inner = (re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "part") + ".stp"
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+            z.write(target, inner)
+        os.remove(target)
+    return path

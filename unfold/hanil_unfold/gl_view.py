@@ -339,6 +339,7 @@ class GLView(QOpenGLWidget):
     partClicked = Signal(int)
     hiddenChanged = Signal()
     enlargeRequested = Signal()           # 두 번 누름: 큰 창으로
+    exportRequested = Signal(int)         # 오른쪽 단추 메뉴: 이 부품만 STEP 으로
 
     def __init__(self, balloons=True, hint=""):
         super().__init__()
@@ -895,6 +896,7 @@ class GLView(QOpenGLWidget):
                 self.partClicked.emit(idx)        # 누른 부품을 고른다
                 m.addAction(f"{idx + 1}번 숨기기", lambda: self.hide_part(idx))
                 m.addAction(f"{idx + 1}번만 보기", lambda: self.isolate(idx))
+                m.addAction(f"{idx + 1}번만 STEP 으로 저장…", lambda: self.exportRequested.emit(idx))
                 m.addSeparator()
             act = m.addAction("모두 보이기", self.show_all)
             act.setEnabled(bool(self.hidden))

@@ -203,6 +203,7 @@ class FlatView(QWidget):
     오른쪽 단추 메뉴: 색칠 켜기/끄기, 색 바꾸기, 이 부품 제외 (전체 계산·철판 배치 합계에서 뺀다)."""
 
     excludeToggled = Signal(bool)
+    exportRequested = Signal()
     FILL = QColor(70, 130, 200, 110)
 
     def __init__(self, settings=None):
@@ -356,6 +357,7 @@ class FlatView(QWidget):
             t.setChecked(self.show[key])
             t.toggled.connect(lambda on, k=key: self.set_show(k, on))
         m.addSeparator()
+        m.addAction("이 부품만 STEP 으로 저장…", self.exportRequested.emit)
         x = m.addAction("이 부품 제외 (전체 계산·철판 배치에서 뺌)")
         x.setCheckable(True)
         x.setChecked(self.excluded)
@@ -499,6 +501,7 @@ class MainWindow(QMainWindow):
         self.part_list.setToolTip("오른쪽 단추: 숨기기 · 보이기 · 이것만 보기 · 제외")
         if hasattr(self.assembly_view, "hide_part"):
             self.assembly_view.hiddenChanged.connect(self._mark_hidden)
+            self.assembly_view.exportRequested.connect(self.export_part_step)
         side = QWidget()
         sl = QVBoxLayout(side)
         sl.setContentsMargins(0, 0, 0, 0)
@@ -540,6 +543,7 @@ class MainWindow(QMainWindow):
         self.left_tabs.addTab(assy, "조립품 전체 (번호)")
         self.flat_view = FlatView(self.settings)
         self.flat_view.excludeToggled.connect(self._exclude_current)
+        self.flat_view.exportRequested.connect(lambda: self.export_part_step())
         self.excluded = set()          # 전체 계산·철판 배치에서 뺄 부품 번호 (0부터)
         views = QSplitter(Qt.Horizontal)
         self.views_split = views
@@ -944,6 +948,29 @@ class MainWindow(QMainWindow):
         if hasattr(self.assembly_view, "set_all_balloons"):
             self.assembly_view.set_all_balloons(on)
 
+    def export_part_step(self, idx=None):
+        """부품 하나만 STEP (또는 압축 .zip) 으로 — 큰 조립품에서 떼어 보내기."""
+        if self.model is None:
+            return
+        if idx is None:
+            idx = max(0, self.solid_box.currentIndex())
+        name = self.model.names[idx] if self.model.names else f"part_{idx + 1}"
+        safe = "".join(c if c not in '\\/:*?"<>|' else "_" for c in name)
+        base = os.path.join(os.path.dirname(self.model.path),
+                            f"{os.path.splitext(os.path.basename(self.model.path))[0]}_{idx + 1}_{safe}.zip")
+        path, _ = QFileDialog.getSaveFileName(self, f"{idx + 1}번 부품만 저장", base,
+                                              "압축 STEP (*.zip);;STEP (*.stp *.step)")
+        if not path:
+            return
+        try:
+            loader.save_step(self.model.raw_solids[idx], path, name)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "저장 실패", str(e))
+            return
+        kb = os.path.getsize(path) / 1024
+        self.statusBar().showMessage(f"{idx + 1}번 부품을 저장했습니다 ({kb:,.0f} KB): {path}", 10000)
+
     def set_excluded(self, idx, on):
         """부품을 전체 계산·철판 배치 합계에서 빼거나 다시 넣는다."""
         if on:
@@ -981,6 +1008,7 @@ class MainWindow(QMainWindow):
                     m.addAction("숨기기", lambda: v.hide_part(idx))
                 m.addAction("이것만 보기", lambda: v.isolate(idx))
                 m.addSeparator()
+            m.addAction("이 부품만 STEP 으로 저장…", lambda: self.export_part_step(idx))
             if idx in self.excluded:
                 m.addAction("다시 포함 (전체 계산·철판 배치)", lambda: self.set_excluded(idx, False))
             else:
