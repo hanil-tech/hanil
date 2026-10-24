@@ -1,0 +1,30 @@
+📦 한일 포털 대용량 파일 — 설치 안내
+=====================================
+
+설치할 프로그램은 없습니다. 직원은 브라우저(크롬·엣지·웨일)나 폰 앱으로 그냥 씁니다.
+아래는 포털 서버에 한 번만 하면 됩니다.
+
+1. 이 압축 파일 안의 두 파일을 포털 폴더(server.js 가 있는 곳)에 복사합니다.
+     bigfile-route.js
+     bigfile.html
+
+2. server.js 를 열어 세션(express-session)이 붙은 줄 아래, 다른 require('./...')(app) 들 사이에 한 줄을 넣습니다.
+
+     require('./bigfile-route')(app);
+
+3. 포털을 다시 켭니다.
+
+4. 브라우저에서  http://<포털 주소>/bigfile  을 엽니다. 메뉴에 이 주소로 링크를 달면 됩니다.
+
+⚠ 포털 앞에 nginx 가 있으면 설정에 넣고 nginx 를 다시 읽게 하세요(없으면 큰 파일이 안 올라갑니다).
+
+     client_max_body_size 16m;
+     proxy_request_buffering off;
+     proxy_buffering off;
+     proxy_read_timeout 600s;
+
+⚠ 파일은 포털 폴더 옆 bigfile-store\ 에 쌓입니다. 다른 디스크에 두려면 2번 줄을 이렇게:
+
+     require('./bigfile-route')(app, { dir: 'D:/portal-files' });
+
+자세한 설정(최대 크기·사람별 한도·보관 기간 등)은 README.md 를 보세요.

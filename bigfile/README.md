@@ -19,6 +19,8 @@
 
 ## 포털에 넣기 (포털 담당)
 
+**받기: [hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** (안에 `설치안내.txt` · 두 파일 · 이 README). 고친 뒤 다시 묶기: `bigfile/build.sh`
+
 1. `portal/bigfile-route.js` 와 `portal/bigfile.html` 을 포털 폴더(`server.js` 옆)에 둡니다.
 2. `server.js` 에서 세션(express-session)이 붙은 뒤(다른 `require('./…')(app, …)` 들 사이) **한 줄**:
    ```js

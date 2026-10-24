@@ -29,6 +29,15 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면만 열어 바코드·레이저 프린터로 라벨을 뽑습니다.
 설치 없이 두 번 눌러 실행합니다. 자세한 안내는 [label/README.md](../label/README.md).
 
+## 📦 포털 대용량 파일 (올리기·받기)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** | 회사 포털 서버(`server.js` 옆) | 20KB |
+
+수 GB 파일을 포털에서 올리고 받는 화면입니다. 직원은 설치할 것 없이 브라우저·폰 앱으로 씁니다.
+압축 안의 `설치안내.txt` 대로 두 파일을 복사하고 `server.js` 에 한 줄 넣으면 됩니다. 자세한 안내는 [bigfile/README.md](../bigfile/README.md).
+
 ## 설치 순서
 
 ### 1단계 — 관리 서버 (먼저)
