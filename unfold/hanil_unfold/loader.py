@@ -458,3 +458,12 @@ def save_step(shapes, path, name=""):
             z.write(target, inner)
         os.remove(target)
     return path
+
+
+def zip_file(src, dst=None):
+    """파일 하나를 최대 압축으로 .zip 에 넣는다 (STEP·IGES 는 글자 파일이라 보통 1/5~1/10). dst 경로를 돌려준다."""
+    import zipfile
+    dst = dst or os.path.splitext(src)[0] + ".zip"
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        z.write(src, os.path.basename(src))
+    return dst

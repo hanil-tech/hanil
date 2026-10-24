@@ -627,6 +627,8 @@ class MainWindow(QMainWindow):
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
         self.act_bom.setToolTip("부품표: 같은 부품끼리 묶어 품번·수량·재질·두께·전개 크기·무게 (엑셀·PDF)")
+        self.act_zip = QAction("ZIP 만들기", self, triggered=self.make_zip)
+        self.act_zip.setToolTip("지금 연 3D 파일을 압축(.zip) 해서 보내기 쉽게 만듭니다")
         self.act_ai_bom = QAction("AI BOM", self, triggered=self.show_ai_bom)
         self.act_ai_bom.setToolTip("2D 도면 PDF 와 3D 를 AI(Claude)로 맞춰 보고 BOM 엑셀을 만듭니다")
         self.act_nest.setToolTip("전개한 부품을 1219 × 2438 같은 철판 위에 늘어놓아 필요한 장 수를 셉니다")
@@ -639,6 +641,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_bom)
         tb.addAction(self.act_ai_bom)
         tb.addAction(self.act_batch)
+        tb.addAction(self.act_zip)
         tb.addAction(self.act_history)
         tb.addSeparator()
 
@@ -725,6 +728,7 @@ class MainWindow(QMainWindow):
         self.act_nest.setEnabled(self.model is not None)
         self.act_bom.setEnabled(self.model is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
+        self.act_zip.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
 
     def _set_info(self, text, error=False):
@@ -947,6 +951,31 @@ class MainWindow(QMainWindow):
     def _balloons_toggled(self, on):
         if hasattr(self.assembly_view, "set_all_balloons"):
             self.assembly_view.set_all_balloons(on)
+
+    def make_zip(self):
+        """지금 연 3D 파일 전체를 압축. 다 되면 그 폴더를 열어 파일을 바로 끌어다 보낼 수 있게."""
+        if self.model is None:
+            return
+        src = self.model.path
+        base = os.path.splitext(src)[0] + ".zip"
+        path, _ = QFileDialog.getSaveFileName(self, "ZIP 만들기", base, "압축 파일 (*.zip)")
+        if not path:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            loader.zip_file(src, path)
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "ZIP 실패", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        a, b = os.path.getsize(src) / 1e6, os.path.getsize(path) / 1e6
+        QMessageBox.information(self, "ZIP 만들기",
+                                f"{os.path.basename(src)}  {a:,.1f} MB → {os.path.basename(path)}  {b:,.1f} MB\n\n"
+                                "저장한 폴더를 엽니다. 이 .zip 파일을 보내면 됩니다.\n"
+                                "(그래도 크면 문제 부품에서 오른쪽 단추 → '이 부품만 STEP 으로 저장')")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
     def export_part_step(self, idx=None):
         """부품 하나만 STEP (또는 압축 .zip) 으로 — 큰 조립품에서 떼어 보내기."""

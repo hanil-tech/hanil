@@ -253,3 +253,13 @@ def test_save_one_part_as_step_and_zip(tmp_path):
     zipfile.ZipFile(z).extractall(tmp_path / "x")
     m = loader.load(str(tmp_path / "x" / "부품 3 _ TRAY.stp"), use_cache=False)
     assert max(unfold(m.solids[0]).size) == pytest.approx(max(unfold(s).size), abs=1e-3)
+
+
+def test_zip_file(tmp_path):
+    import zipfile
+    from hanil_unfold import loader
+    src = tmp_path / "a.stp"
+    src.write_text("ISO-10303-21;\n" + "#1=CARTESIAN_POINT('',(0.,0.,0.));\n" * 2000)
+    z = loader.zip_file(str(src))
+    assert z.endswith("a.zip") and zipfile.ZipFile(z).namelist() == ["a.stp"]
+    assert os.path.getsize(z) < os.path.getsize(src) / 10
