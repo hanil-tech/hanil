@@ -163,6 +163,10 @@ class DieDialog(QDialog):
         # 4) 드로잉
         tabs.addTab(self._draw_tab(), "원통 드로잉 계산")
 
+        # 5) 금형 공정도
+        tabs.addTab(self._process_tab(), "금형 공정도")
+        self.tabs = tabs
+
         save = QPushButton("엑셀로 저장…")
         save.clicked.connect(self.save)
         row = QHBoxLayout()
@@ -226,12 +230,104 @@ class DieDialog(QDialog):
         self._calc_draw()
         return w
 
+    def _process_tab(self):
+        from PySide6.QtWidgets import QCheckBox, QScrollArea
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        row = QHBoxLayout()
+        self.p_kind = QComboBox()
+        self.p_kind.addItem("순차 금형 스트립 (판금)", "progressive")
+        self.p_kind.addItem("드로잉 공정 ([원통 드로잉 계산] 값)", "draw")
+        if self.result.forming is not None or not self.result.bends and not self.rep.checks:
+            self.p_kind.setCurrentIndex(1)
+        self.p_idle = QCheckBox("절곡 앞에 빈 공정")
+        pdf = QPushButton("PDF 저장…")
+        dxf = QPushButton("DXF 저장…")
+        row.addWidget(QLabel("공정"))
+        row.addWidget(self.p_kind)
+        row.addWidget(self.p_idle)
+        row.addStretch(1)
+        row.addWidget(pdf)
+        row.addWidget(dxf)
+        lay.addLayout(row)
+        self.p_img = QLabel()
+        self.p_img.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        sc = QScrollArea()
+        sc.setWidget(self.p_img)
+        sc.setWidgetResizable(True)
+        lay.addWidget(sc, 1)
+        self.p_table = QTableWidget(0, 5)
+        self.p_table.setHorizontalHeaderLabels(["공정", "작업", "내용", "하중 kN", "tf"])
+        self.p_table.verticalHeader().setVisible(False)
+        self.p_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.p_table.horizontalHeader().setStretchLastSection(True)
+        self.p_table.setMaximumHeight(200)
+        lay.addWidget(self.p_table)
+        self.p_sum = QLabel()
+        self.p_sum.setWordWrap(True)
+        lay.addWidget(self.p_sum)
+        self.p_kind.currentIndexChanged.connect(self._calc_process)
+        self.p_idle.toggled.connect(self._calc_process)
+        pdf.clicked.connect(lambda: self._save_process("pdf"))
+        dxf.clicked.connect(lambda: self._save_process("dxf"))
+        self._calc_process()
+        return w
+
+    def process_plan(self):
+        from . import process as pr
+        if self.p_kind.currentData() == "draw":
+            return pr.drawing(self.result, self.settings, self.draw_plan(), self.d_r.value(), self.d_h.value())
+        return pr.progressive(self.result, self.settings, idle=self.p_idle.isChecked())
+
+    def _calc_process(self, *_):
+        from PySide6.QtGui import QPixmap
+
+        from . import process as pr
+        self.p_idle.setEnabled(self.p_kind.currentData() == "progressive")
+        try:
+            plan = self.process_plan()
+        except Exception as e:
+            self.plan = None
+            self.p_img.setPixmap(QPixmap())
+            self.p_img.setText(f"공정도를 만들 수 없습니다: {e}")
+            self.p_table.setRowCount(0)
+            self.p_sum.setText("")
+            return
+        self.plan = plan
+        self.p_img.setPixmap(QPixmap.fromImage(pr.render(plan, 1080, 420)))
+        rows = pr.station_rows(plan)
+        self.p_table.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            for j, v in enumerate(r):
+                it = QTableWidgetItem(v if isinstance(v, str) else f"{v:,.1f}")
+                if not isinstance(v, str):
+                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.p_table.setItem(i, j, it)
+        self.p_sum.setText("<br>".join(pr.summary_lines(plan)))
+
+    def _save_process(self, kind):
+        from . import process as pr
+        if self.plan is None:
+            return
+        if kind == "dxf" and self.plan.kind != "progressive":
+            QMessageBox.information(self, "금형 공정도", "DXF 는 순차 금형 스트립 공정도만 됩니다. PDF 로 저장하세요.")
+            return
+        base = os.path.splitext(self.name or "part")[0] + f"_공정도.{kind}"
+        filt = "PDF (*.pdf)" if kind == "pdf" else "DXF (*.dxf)"
+        path, _ = QFileDialog.getSaveFileName(self, "금형 공정도 저장", base, filt)
+        if not path:
+            return
+        (pr.save_pdf if kind == "pdf" else pr.save_dxf)(self.plan, path, self.name)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
     def draw_plan(self):
         mat = bc.MATERIAL_BY_CODE[self.d_mat.currentData()]
         return dc.draw_plan(self.d_d.value(), self.d_h.value(), self.d_r.value(), self.d_t.value(), mat,
                             self.d_fd.value(), self.d_rf.value(), self.d_trim.value())
 
     def _calc_draw(self, *_):
+        if getattr(self, "p_kind", None) is not None and self.p_kind.currentData() == "draw":
+            self._calc_process()
         try:
             pl = self.draw_plan()
         except (ValueError, ZeroDivisionError) as e:

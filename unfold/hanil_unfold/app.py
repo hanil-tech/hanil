@@ -832,6 +832,8 @@ class MainWindow(QMainWindow):
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
         self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
+        self.act_process = QAction("금형 공정도", self, shortcut="Ctrl+J", triggered=lambda: self.show_die(4))
+        self.act_process.setToolTip("순차 금형 스트립 공정도 (피어싱 → 노칭 → 절곡 → 분리) 또는 드로잉 공정도 — PDF·DXF")
         self.act_die.setToolTip("지금 부품의 전단·굽힘 하중, 클리어런스, 스프링백, 설계 규칙, "
                                 "스트립 배치, 원통 드로잉 공정 (프레스 금형 교재 계산)")
         self.act_bom.setToolTip("부품표: 같은 부품끼리 묶어 품번·수량·재질·두께·전개 크기·무게 (엑셀·PDF)")
@@ -847,6 +849,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_assy)
         tb.addAction(self.act_nest)
         tb.addAction(self.act_die)
+        tb.addAction(self.act_process)
         tb.addAction(self.act_bom)
         tb.addAction(self.act_ai_bom)
         tb.addAction(self.act_batch)
@@ -937,6 +940,7 @@ class MainWindow(QMainWindow):
         self.act_nest.setEnabled(self.model is not None)
         self.act_bom.setEnabled(self.model is not None)
         self.act_die.setEnabled(self.result is not None)
+        self.act_process.setEnabled(self.result is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
         self.act_zip.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
@@ -1077,8 +1081,8 @@ class MainWindow(QMainWindow):
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
 
-    def show_die(self):
-        """금형 검토 창 (지금 부품)."""
+    def show_die(self, tab=0):
+        """금형 검토 창 (지금 부품). tab: 처음 보일 탭 (4 = 금형 공정도)."""
         from .die_dialog import DieDialog
         if self.result is None:
             QMessageBox.information(self, "금형 검토", "먼저 부품을 전개하세요.")
@@ -1090,6 +1094,7 @@ class MainWindow(QMainWindow):
             dlg = DieDialog(self.result, self.bend_panel.settings(), name, self)
         finally:
             QApplication.restoreOverrideCursor()
+        dlg.tabs.setCurrentIndex(tab if isinstance(tab, int) else 0)
         dlg.exec()
 
     def show_nesting(self):
