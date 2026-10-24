@@ -322,3 +322,38 @@ def nested_assembly_step(path):
     w.Transfer(doc, STEPControl_AsIs)
     assert w.Write(path) == IFSelect_RetDone
     return path
+
+
+def drawn_cup(R=50.0, H=50.0, rf=8.0, t=1.0):
+    """딥 드로잉 원통 컵 (바닥 모서리 R rf, 위가 열림). 블랭크 지름 교과서 값 √(d² + 4dh) 근처."""
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+    from OCP.collections import List_TopoDS_Shape
+    from OCP.GeomAbs import GeomAbs_Plane
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    s = BRepPrimAPI_MakeCylinder(R, H).Shape()
+    fl = BRepFilletAPI_MakeFillet(s)
+    exp = TopExp_Explorer(s, TopAbs_EDGE)
+    while exp.More():
+        e = TopoDS.Edge(exp.Current())
+        c = BRepAdaptor_Curve(e)
+        if abs(c.Value(c.FirstParameter()).Z()) < 1e-6 and abs(c.Value(c.LastParameter()).Z()) < 1e-6:
+            fl.Add(rf, e)
+        exp.Next()
+    s = fl.Shape()
+    top = List_TopoDS_Shape()
+    exp = TopExp_Explorer(s, TopAbs_FACE)
+    while exp.More():
+        fc = TopoDS.Face(exp.Current())
+        a = BRepAdaptor_Surface(fc)
+        if a.GetType() == GeomAbs_Plane and abs(a.Plane().Location().Z() - H) < 1e-6:
+            top.Append(fc)
+        exp.Next()
+    mk = BRepOffsetAPI_MakeThickSolid()
+    mk.MakeThickSolidByJoin(s, top, -t, 1e-4)
+    return mk.Shape()

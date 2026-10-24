@@ -77,6 +77,7 @@ def test_excel_report_contents(reports):
     ws = wb["두께 변화"]
     shares = [ws.cell(r, 3).value for r in range(4, 10)]
     assert sum(shares) == pytest.approx(1.0, abs=1e-6)
+    assert len(ws._images) == 1                     # 성형 한계도 (FLD)
 
 
 def test_parts_list(reports):

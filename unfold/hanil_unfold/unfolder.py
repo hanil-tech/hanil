@@ -116,6 +116,40 @@ class FormingInfo:
     product_area: float      # 두께 가운데 면 넓이
     blank_area: float
     reliable: np.ndarray | None = None   # 모양이 괜찮은 삼각형 (가장 작은 각 > 5°)
+    method: str = "ARAP"
+    flc0: float = 0.0        # 평면 변형 성형 한계 (진변형률), 0 = 판정 안 함
+    material: str = ""
+
+    def _weights(self):
+        w = _tri_areas2(self.U, self.F)
+        if self.reliable is not None and self.reliable.any():
+            w = w * self.reliable
+        return w / max(w.sum(), 1e-30)
+
+    @property
+    def risk(self):
+        """삼각형별 주 변형률 / 성형 한계 (1 이상 = 파단 위험)."""
+        from .forming import flc_risk
+        if self.flc0 <= 0:
+            return np.zeros(len(self.F))
+        return flc_risk(self.major, self.minor, self.flc0)
+
+    @property
+    def wrinkle(self):
+        """두께가 5 % 넘게 늘고 부 변형률이 압축인 삼각형 (주름 가능)."""
+        return (-(self.major + self.minor) > 0.05) & (self.minor < 0)
+
+    @property
+    def flc_summary(self):
+        """(파단 위험 넓이 비, 한계 근처 0.8~1 넓이 비, 주름 넓이 비, 가장 큰 risk).
+        가장 큰 값은 넓이 기준 위 0.5 % 를 뺀 값 (메시 조각 삼각형 때문에 튀지 않게)."""
+        w = self._weights()
+        rk = self.risk
+        order = np.argsort(rk)
+        cw = np.cumsum(w[order])
+        top = float(rk[order][min(np.searchsorted(cw, 0.995 * cw[-1]), len(rk) - 1)]) if len(rk) else 0.0
+        return (float(w[rk >= 1].sum()), float(w[(rk >= 0.8) & (rk < 1)].sum()),
+                float(w[self.wrinkle].sum()), top)
 
     @property
     def thinning(self):
@@ -768,7 +802,9 @@ class SheetMetalUnfolder:
 
         faces = [self.info[fi].face for fi in sorted(skin)]
         V, F, N = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
-        Vm, F, U = forming.flatten(V, F, t, N=N)
+        mat = self.settings.mat
+        how = {}
+        Vm, F, U = forming.flatten(V, F, t, N=N, n_exp=mat.n, r_value=mat.r, info=how)
         major, minor, ratio = forming.strains(Vm, F, U)
 
         entities = []
@@ -785,7 +821,8 @@ class SheetMetalUnfolder:
                 "(굽힌 관은 중심선 길이로 재단합니다).")
         fi = FormingInfo(U=U, F=F, ratio=ratio, major=major, minor=minor,
                          product_area=area3d, blank_area=area2d,
-                         reliable=forming.quality(Vm, F) > 5.0)
+                         reliable=forming.quality(Vm, F) > 5.0, method=how.get("method", "ARAP"),
+                         flc0=mat.flc0_for(t), material=mat.code)
         notes = []
         if n_free:
             notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")
@@ -796,10 +833,18 @@ class SheetMetalUnfolder:
             notes.append(f"두께가 최대 {hi:.0%} 얇아지는 곳이 있습니다 (터짐 주의).")
         if lo < -0.15:
             notes.append(f"두께가 최대 {-lo:.0%} 두꺼워지는 곳이 있습니다 (주름 주의).")
+        split, marginal, wrinkle, _ = fi.flc_summary
+        if split > 0.001:
+            notes.append(f"성형 한계(FLC, {mat.code} n={mat.n:g})를 넘는 곳이 {split:.1%} 있습니다 "
+                         "(파단 위험: R 을 키우거나 재질·형상을 바꾸세요).")
+        elif marginal > 0.001:
+            notes.append(f"성형 한계 80 % 이상인 곳이 {marginal:.1%} 있습니다 (파단 여유 적음).")
+        if wrinkle > 0.02:
+            notes.append(f"압축으로 두꺼워지는(주름 가능) 곳이 {wrinkle:.1%} 있습니다.")
         result = UnfoldResult(
             thickness=t, k_factor=0.5, entities=entities, bends=[],
             warnings=self.warnings + notes, face_count=len(skin),
-            settings_text="성형품 근사 (두께 가운데 면, ARAP)", mode=FORMING, forming=fi)
+            settings_text=f"성형품 근사 (두께 가운데 면, {fi.method}, {mat.code} n={mat.n:g} r={mat.r:g})", mode=FORMING, forming=fi)
         result.entities = _normalize_origin(result)
         return result
 

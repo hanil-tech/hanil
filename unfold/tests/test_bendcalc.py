@@ -230,3 +230,105 @@ def test_bspline_saved_sheet_metal_is_recognized():
     assert any(isinstance(e, Arc) and e.full and e.radius == pytest.approx(4, abs=1e-3)
                for e in r.entities)
     assert not any(isinstance(e, Polyline) for e in r.entities if e.layer == "CUT")
+
+
+# ---------------------------------------------------------------- 원스텝 역해석 · 성형 한계
+
+def _dome_mesh(n=10):
+    import numpy as np
+    xs = np.linspace(-1, 1, n)
+    X, Y = np.meshgrid(xs, xs)
+    V = np.c_[X.ravel() * 50, Y.ravel() * 50, 20 * np.exp(-(X ** 2 + Y ** 2)).ravel()]
+    F = []
+    for i in range(n - 1):
+        for j in range(n - 1):
+            a = i * n + j
+            F += [[a, a + 1, a + n + 1], [a, a + n + 1, a + n]]
+    return V, np.array(F)
+
+
+def test_plastic_work_gradient_matches_finite_difference():
+    import numpy as np
+    from hanil_unfold import forming
+    V, F = _dome_mesh()
+    rng = np.random.default_rng(1)
+    U = V[:, :2] * 1.02 + rng.random((len(V), 2)) * 0.3
+    E, g = forming.plastic_work(V, F, U, 0.2, 1.6)
+    for i, c in [(3, 0), (17, 1), (55, 0), (80, 1)]:
+        U2 = U.copy()
+        U2[i, c] += 1e-6
+        E2, _ = forming.plastic_work(V, F, U2, 0.2, 1.6, grad=False)
+        assert g[i, c] == pytest.approx((E2 - E) / 1e-6, rel=1e-3, abs=1e-9)
+
+
+def test_one_step_lowers_plastic_work_without_fold_over():
+    import numpy as np
+    from hanil_unfold import forming
+    V, F = _dome_mesh()
+    U0 = forming.arap(V, F, forming.lscm(V, F))
+    U, it = forming.one_step(V, F, U0, 0.21, 1.6)
+
+    def det(X):
+        P = X[F]
+        a, b = P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
+        return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+
+    d = det(U)
+    assert np.all(d > 0) or np.all(d < 0)          # 뒤집힌 삼각형 없음
+    m = (1, 1) if np.all(det(U0) > 0) else (1, -1)   # 방향을 맞춰 소성 일 비교
+    E0, _ = forming.plastic_work(V, F, U0 * m, 0.21, 1.6, grad=False)
+    E1, _ = forming.plastic_work(V, F, U * m, 0.21, 1.6, grad=False)
+    assert E1 < 0.95 * E0 and it > 0
+
+
+def test_keeler_flc0_and_limit_curve():
+    import numpy as np
+    from hanil_unfold import forming
+    # SPCC n=0.21, t=1.0: FLC0 = 23.3 + 14.13 = 37.43 % 공칭
+    assert forming.keeler_flc0(1.0, 0.21) == pytest.approx(math.log(1.3743), rel=1e-4)
+    f0 = forming.keeler_flc0(1.0, 0.21)
+    assert forming.flc_limit(np.array([-0.1, 0.0, 0.1]), f0) == pytest.approx([f0 + 0.1, f0, f0 + 0.06])
+    assert bc.MATERIAL_BY_CODE["AL5052"].flc0_for(1.0) == 0.18      # 알루미늄은 표의 대표값
+
+
+def test_forming_result_uses_one_step_and_flc():
+    from models import dish
+    r = unfold(solid(dish(150, 40, 1.2)), settings=bc.BendSettings(material="SPCC"))
+    fi = r.forming
+    assert fi.method.startswith("원스텝")
+    assert fi.flc0 == pytest.approx(bc.MATERIAL_BY_CODE["SPCC"].flc0_for(1.2))
+    split, marginal, wrinkle, top = fi.flc_summary
+    assert split == 0 and 0 < top < 0.8              # 얕은 접시는 한계까지 여유가 많다
+    assert "n=0.21" in r.settings_text
+
+
+def test_drawn_cup_one_step_beats_arap():
+    """딥 드로잉 컵: ARAP 은 바닥까지 30 % 넘게 얇아진다고 보고 블랭크를 작게 잡는다.
+    원스텝 역해석은 바닥 두께가 거의 그대로이고 블랭크가 같은 넓이 지름에 가깝다."""
+    import numpy as np
+    from models import drawn_cup
+    from hanil_unfold import forming
+    sol = solid(drawn_cup())
+    st = bc.BendSettings(material="SPCC")
+    r = unfold(sol, settings=st, mode="forming")
+    fi = r.forming
+    assert fi.method.startswith("원스텝")
+    d_equal = math.sqrt(4 * fi.product_area / math.pi)           # 같은 넓이 블랭크 (≈ 167.6)
+    d_one = max(r.size)
+    orig = forming.one_step
+    forming.one_step = lambda *a, **k: (_ for _ in ()).throw(ValueError("off"))
+    try:
+        ra = unfold(sol, settings=st, mode="forming")
+    finally:
+        forming.one_step = orig
+    assert ra.forming.method == "ARAP"
+    d_arap = max(ra.size)
+    assert abs(d_one - d_equal) < abs(d_arap - d_equal)
+    assert abs(d_one - d_equal) < 0.08 * d_equal
+    # 바닥(가운데 반지름 30 안) 두께 변화
+    U = fi.U
+    c = U[fi.F].mean(1) - U.mean(0)
+    bottom = np.linalg.norm(c, axis=1) < 30
+    assert abs(float(np.median(fi.thinning[bottom]))) < 0.05
+    ca = ra.forming.U[ra.forming.F].mean(1) - ra.forming.U.mean(0)
+    assert float(np.median(ra.forming.thinning[np.linalg.norm(ca, axis=1) < 30])) > 0.2

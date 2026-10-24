@@ -99,7 +99,15 @@ def summary_rows(d: ReportData):
             ("블랭크 / 제품 면적", f"{fi.blank_area / fi.product_area:.3f}"),
             ("최대 얇아짐", f"{max(hi, 0):.1%}  (두께 약 {r.thickness * (1 - max(hi, 0)):.2f} mm)"),
             ("최대 두꺼워짐", f"{max(-lo, 0):.1%}"),
+            ("전개 방법", fi.method),
         ]
+        if fi.flc0 > 0:
+            split, marginal, wrinkle, top = fi.flc_summary
+            rows += [
+                ("성형 한계 (FLC0)", f"진변형률 {fi.flc0:.3f}  ({fi.material}, 두께 {r.thickness:g} mm)"),
+                ("성형 한계 판정", f"최대 {top:.0%} — 넘음 {split:.1%} · 80 % 이상 {marginal:.1%} · "
+                                 f"주름 가능 {wrinkle:.1%}"),
+            ]
     else:
         rows.append(("절곡 수", f"{len(r.bends)}곳"))
     for txt in r.rolled:
@@ -133,6 +141,84 @@ def notes(d: ReportData):
 
 
 # ---------------------------------------------------------------- Qt 준비
+
+def render_fld(fi, w=900, h=700):
+    """성형 한계도 (FLD): 삼각형마다 (부 변형률, 주 변형률) 점과 성형 한계 곡선."""
+    import numpy as np
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
+
+    from .forming import flc_limit
+
+    ensure_gui()
+    img = QImage(w, h, QImage.Format_ARGB32)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    keep = fi.reliable if fi.reliable is not None and fi.reliable.any() else np.ones(len(fi.F), bool)
+    e1, e2 = fi.major[keep], fi.minor[keep]
+    top = max(0.1, fi.flc0 * 1.6, float(np.percentile(e1, 99.5)) * 1.15 if len(e1) else 0)
+    side = max(0.1, float(np.percentile(np.abs(e2), 99.5)) * 1.15 if len(e2) else 0, top * 0.6)
+    bottom = -max(0.05, top * 0.15)
+    L, T, R_, B = 80, 40, w - 30, h - 70
+
+    def pt(x, y):
+        return QPointF(L + (x + side) / (2 * side) * (R_ - L), B - (y - bottom) / (top - bottom) * (B - T))
+
+    p.setFont(_font(13))
+    p.setPen(QPen(QColor(200, 200, 200), 1))
+    for i in range(-4, 5):
+        x = side * i / 4
+        p.setPen(QPen(QColor(210, 210, 210), 1))
+        p.drawLine(pt(x, bottom), pt(x, top))
+        p.setPen(QColor(90, 90, 90))
+        p.drawText(QRectF(pt(x, bottom).x() - 40, B + 6, 80, 20), Qt.AlignCenter, f"{x:.2f}")
+    for i in range(0, 6):
+        y = bottom + (top - bottom) * i / 5
+        p.setPen(QPen(QColor(210, 210, 210), 1))
+        p.drawLine(pt(-side, y), pt(side, y))
+        p.setPen(QColor(90, 90, 90))
+        p.drawText(QRectF(0, pt(0, y).y() - 10, L - 8, 20), Qt.AlignRight | Qt.AlignVCenter, f"{y:.2f}")
+    p.setPen(QPen(QColor(60, 60, 60), 1.5))
+    p.drawLine(pt(-side, 0), pt(side, 0))
+    p.drawLine(pt(0, bottom), pt(0, top))
+    if fi.flc0 > 0:
+        rk = fi.risk[keep]
+        colors = [(rk >= 1, QColor(220, 30, 30)), ((rk >= 0.8) & (rk < 1), QColor(240, 170, 0)),
+                  (rk < 0.8, QColor(40, 150, 70))]
+    else:
+        colors = [(np.ones(len(e1), bool), QColor(40, 110, 200))]
+    wr = fi.wrinkle[keep]
+    step = max(1, len(e1) // 6000)
+    p.setClipRect(QRectF(L, T, R_ - L, B - T))
+    p.setPen(Qt.NoPen)
+    for sel, col in colors:
+        idx = np.nonzero(sel)[0][::step]
+        for i in idx:
+            c = QColor(150, 80, 200) if wr[i] else col
+            p.setBrush(c)
+            p.drawEllipse(pt(float(e2[i]), float(e1[i])), 2.2, 2.2)
+    if fi.flc0 > 0:
+        xs = np.linspace(-side, side, 81)
+        for scale, pen in ((1.0, QPen(QColor(200, 0, 0), 3)), (0.8, QPen(QColor(230, 150, 0), 2, Qt.DashLine))):
+            ys = flc_limit(xs, fi.flc0) * scale
+            p.setPen(pen)
+            p.setBrush(Qt.NoBrush)
+            p.drawPolyline(QPolygonF([pt(float(a), float(b)) for a, b in zip(xs, ys) if b <= top]))
+    p.setPen(QPen(QColor(150, 80, 200), 1.5, Qt.DotLine))       # 두께 일정 (ε1 = −ε2) 선
+    p.drawLine(pt(-min(side, top), min(side, top)), pt(0, 0))
+    p.setClipping(False)
+    p.setPen(QColor(30, 30, 30))
+    p.setFont(_font(15))
+    p.drawText(QRectF(0, 6, w, 28), Qt.AlignCenter,
+               f"성형 한계도 (FLD) — {fi.material}  FLC0 = {fi.flc0:.3f}" if fi.flc0 > 0 else "변형률 분포")
+    p.setFont(_font(13))
+    p.drawText(QRectF(0, h - 34, w, 24), Qt.AlignCenter,
+               "가로: 부 변형률 ε2   세로: 주 변형률 ε1 (진변형률)   빨강 실선 FLC · 주황 점선 80 % · "
+               "보라 = 두꺼워짐(주름 가능)")
+    p.end()
+    return img
+
 
 def ensure_gui():
     from PySide6.QtGui import QGuiApplication
@@ -527,7 +613,7 @@ def save_xlsx(d: ReportData, path: str):
 
     # 성형품 두께 변화 분포
     if d.result.forming is not None:
-        _thinning_sheet(wb, d, st)
+        tmps.append(_thinning_sheet(wb, d, st))
 
     wb.save(path)
     for t in tmps + [logo_tmp]:
@@ -568,6 +654,17 @@ def _thinning_sheet(wb, d, st):
     ws.cell(r + 1, 1, "최대 두꺼워짐")
     ws.cell(r + 1, 2, float(max(-lo, 0))).number_format = "0.0%"
     ws.cell(r + 2, 1, "(메시 조각 삼각형과 넓이 기준 위아래 0.5 % 는 뺀 값)")
+    ws.cell(r + 3, 1, "전개 방법")
+    ws.cell(r + 3, 2, fi.method)
+    if fi.flc0 > 0:
+        split, marginal, wrinkle, top = fi.flc_summary
+        for i, (k, v) in enumerate([("성형 한계 FLC0 (진변형률)", round(fi.flc0, 4)),
+                                    ("한계 넘음 (파단 위험)", split), ("한계 80 % 이상", marginal),
+                                    ("주름 가능 (5 % 넘게 두꺼워짐)", wrinkle), ("가장 큰 한계 비", top)]):
+            ws.cell(r + 5 + i, 1, k)
+            c = ws.cell(r + 5 + i, 2, v)
+            c.number_format = "0.000" if i == 0 else "0.0%"
+    return _add_image(ws, render_fld(fi, 900, 700), "F3", 600)
 
 
 def save_parts_list(items, path: str):

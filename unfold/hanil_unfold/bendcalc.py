@@ -63,6 +63,13 @@ class Material:
     air_ratio: float      # 에어 벤딩 자연 반지름 / V 폭  [3]
     note: str = ""
     density: float = 7.85  # g/cm³ (무게 계산용)
+    n: float = 0.20        # 가공 경화 지수 (성형품 원스텝 해석·성형 한계)
+    r: float = 1.0         # 수직 이방성 (랭크포드 값)
+    flc0: float = 0.0      # 평면 변형 성형 한계 (진변형률). 0 이면 Keeler 식
+
+    def flc0_for(self, t):
+        from .forming import keeler_flc0
+        return self.flc0 if self.flc0 > 0 else keeler_flc0(t, self.n)
 
 
 def _ratio(tensile_mpa):
@@ -71,22 +78,22 @@ def _ratio(tensile_mpa):
 
 # 대표 인장강도는 각 규격의 하한~일반 납품값 사이에서 고른 어림값이다.
 MATERIALS = [
-    Material("SPCC", "냉간압연강판 SPCC", MEDIUM, 414, 0.16, "[3] 냉연 연강 기준값 16%"),
-    Material("SPHC", "열간압연강판 SPHC (산세 포함)", MEDIUM, 400, 0.15, "[3] 열연 산세 14~16%"),
-    Material("SECC", "전기아연도금강판 SECC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판"),
-    Material("SGCC", "용융아연도금강판 SGCC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판으로 어림"),
-    Material("SS275", "일반구조용 SS275 (구 SS400)", MEDIUM, 450, _ratio(450), "[3] 인장강도 비례 어림"),
-    Material("SAPH440", "자동차 열연 SAPH440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림"),
-    Material("SGARC440", "자동차 합금화용융아연 SGARC440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림"),
-    Material("SPFC590", "자동차 고장력 냉연 SPFC590", HARD, 590, _ratio(590), "고장력강, 스프링백 큼"),
-    Material("SPFC980", "자동차 초고장력 냉연 SPFC980", HARD, 980, _ratio(980), "초고장력강, R 을 크게·스프링백 큼"),
-    Material("SUS304", "스테인리스 SUS304", HARD, 600, 0.21, "[3] 20~22%", density=7.93),
-    Material("SUS430", "스테인리스 SUS430", HARD, 480, _ratio(480), "[3] 인장강도 비례 어림", density=7.7),
-    Material("AL5052", "알루미늄 AL5052-H32", MEDIUM, 230, 0.12, "[3] 11~13%", density=2.68),
-    Material("AL1050", "알루미늄 AL1050-H24 (연질)", SOFT, 120, _ratio(120), "[3] 인장강도 비례 어림", density=2.71),
-    Material("AL6061", "알루미늄 AL6061-T6", HARD, 310, _ratio(310), "T6 는 균열 주의, R 을 크게", density=2.7),
-    Material("C1100", "동판 C1100 (1/2H)", SOFT, 270, _ratio(270), "[3] 인장강도 비례 어림", density=8.94),
-    Material("C2600", "황동 C2600", MEDIUM, 350, _ratio(350), "[3] 인장강도 비례 어림", density=8.53),
+    Material("SPCC", "냉간압연강판 SPCC", MEDIUM, 414, 0.16, "[3] 냉연 연강 기준값 16%", n=0.21, r=1.6),
+    Material("SPHC", "열간압연강판 SPHC (산세 포함)", MEDIUM, 400, 0.15, "[3] 열연 산세 14~16%", n=0.18, r=1.0),
+    Material("SECC", "전기아연도금강판 SECC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판", n=0.21, r=1.5),
+    Material("SGCC", "용융아연도금강판 SGCC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판으로 어림", n=0.20, r=1.4),
+    Material("SS275", "일반구조용 SS275 (구 SS400)", MEDIUM, 450, _ratio(450), "[3] 인장강도 비례 어림", n=0.17, r=1.0),
+    Material("SAPH440", "자동차 열연 SAPH440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림", n=0.16, r=0.9),
+    Material("SGARC440", "자동차 합금화용융아연 SGARC440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림", n=0.17, r=1.1),
+    Material("SPFC590", "자동차 고장력 냉연 SPFC590", HARD, 590, _ratio(590), "고장력강, 스프링백 큼", n=0.15, r=0.9),
+    Material("SPFC980", "자동차 초고장력 냉연 SPFC980", HARD, 980, _ratio(980), "초고장력강, R 을 크게·스프링백 큼", n=0.08, r=0.8),
+    Material("SUS304", "스테인리스 SUS304", HARD, 600, 0.21, "[3] 20~22%", density=7.93, n=0.45, r=1.0, flc0=0.40),
+    Material("SUS430", "스테인리스 SUS430", HARD, 480, _ratio(480), "[3] 인장강도 비례 어림", density=7.7, n=0.20, r=1.2, flc0=0.22),
+    Material("AL5052", "알루미늄 AL5052-H32", MEDIUM, 230, 0.12, "[3] 11~13%", density=2.68, n=0.13, r=0.7, flc0=0.18),
+    Material("AL1050", "알루미늄 AL1050-H24 (연질)", SOFT, 120, _ratio(120), "[3] 인장강도 비례 어림", density=2.71, n=0.10, r=0.6, flc0=0.20),
+    Material("AL6061", "알루미늄 AL6061-T6", HARD, 310, _ratio(310), "T6 는 균열 주의, R 을 크게", density=2.7, n=0.05, r=0.7, flc0=0.08),
+    Material("C1100", "동판 C1100 (1/2H)", SOFT, 270, _ratio(270), "[3] 인장강도 비례 어림", density=8.94, n=0.30, r=0.9, flc0=0.30),
+    Material("C2600", "황동 C2600", MEDIUM, 350, _ratio(350), "[3] 인장강도 비례 어림", density=8.53, n=0.40, r=0.9, flc0=0.35),
 ]
 MATERIAL_BY_CODE = {m.code: m for m in MATERIALS}
 

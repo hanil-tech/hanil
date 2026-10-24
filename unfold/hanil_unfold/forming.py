@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from scipy.sparse import coo_matrix, csc_matrix
+from scipy.sparse import coo_matrix, csc_matrix, identity
 from scipy.sparse.linalg import factorized, spsolve
 
 from OCP.BRep import BRep_Tool
@@ -317,6 +317,303 @@ def strains(V, F, U):
     return e1, e2, ratio
 
 
+# ------------------------------------------------------------------ 원스텝 역해석
+#
+# 성형 해석 프로그램(Dynaform MSTEP, ANSA Inverse Forming, AutoForm 등)의 "원스텝(역) 해석"은
+# 제품 형상에서 출발해, 평판 블랭크가 한 번에 제품으로 변형된다고 보고 (전변형 이론)
+# 그 변형에 드는 소성 일이 가장 작은 블랭크를 찾는다 (Lee & Huh 1998, KAIST 의 최소 소성 일 법).
+# 여기서는 마찰·블랭크 홀더 힘은 빼고, 판 두께 방향 이방성 r 이 있는 Hill(1948) 등가 변형률과
+# 멱법칙 경화 σ = K·ε^n 으로 소성 일 밀도  W = K·ε̄^(n+1)/(n+1)  을 쓴다.
+#   ε̄ = (1+r)/√(1+2r) · √(ε1² + ε2² + 2r/(1+r)·ε1·ε2)      (ε1, ε2 = 면 안 주 진변형률)
+# r = 1 이면 폰 미세스. 블랭크 좌표마다의 기울기를 직접 구해 L-BFGS 로 줄인다.
+# ARAP(길이 보존 최소 제곱)와 달리 두께 변화(넓이 변화)를 재료 성질대로 비싸게 보므로
+# 늘어남·줄어듦이 실제 성형처럼 재료가 흘러 들어오는 쪽으로 퍼지고, 블랭크 크기가 더 맞는다.
+
+_EPS = 1e-4          # ε̄ = 0 근처의 꺾임을 펴는 값 (n 이 작을 때 기울기 발산 방지)
+# 진변형률 |ε| 이 이 값을 넘으면 늘어남 비(e^|ε|)의 제곱으로 벌을 준다.
+# 로그 변형률 에너지는 가는 띠 삼각형 하나에 압축을 몰아 주는 쪽(주름을 한 곳에 접어 넣는 것)이
+# 고르게 줄이는 것보다 싸게 나와, 이것이 없으면 블랭크가 터무니없이 커진다.
+_CAP = 0.6
+_CAP_K = 1.0
+
+
+def plastic_work(Vm, F, U, n_exp, r_value=1.0, grad=True, q=None):
+    """(소성 일 합 / 제품 넓이, 기울기 (n,2)). 삼각형이 뒤집히면 (inf, None)."""
+    if q is None:
+        q = _local_frames(Vm, F)
+    Q = np.stack([q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]], axis=2)      # 제품 (m,2,2)
+    P = U[F]
+    D = np.stack([P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]], axis=2)       # 블랭크
+    det = D[:, 0, 0] * D[:, 1, 1] - D[:, 0, 1] * D[:, 1, 0]
+    if not np.all(det > 0):
+        return np.inf, None
+    Dinv = np.empty_like(D)
+    Dinv[:, 0, 0], Dinv[:, 1, 1] = D[:, 1, 1] / det, D[:, 0, 0] / det
+    Dinv[:, 0, 1], Dinv[:, 1, 0] = -D[:, 0, 1] / det, -D[:, 1, 0] / det
+    Fd = Q @ Dinv                                                       # 블랭크 → 제품
+    Uu, s, Vh = np.linalg.svd(Fd)
+    e = np.log(s)
+    k = (1 + r_value) ** 2 / (1 + 2 * r_value)
+    b = 2 * r_value / (1 + r_value)
+    eq = np.sqrt(k * (e[:, 0] ** 2 + e[:, 1] ** 2 + b * e[:, 0] * e[:, 1]) + _EPS ** 2)
+    p = n_exp + 1.0
+    phi = eq ** p / p
+    over = np.maximum(np.exp(np.abs(e)) - math.exp(_CAP), 0.0)
+    phi = phi + _CAP_K * np.sum(over ** 2, axis=1)
+    # 역해석은 제품(최종) 메시 위에서 적분한다: 블랭크 삼각형이 쪼그라들면 변형률이 무한으로 가
+    # 저절로 막힌다 (블랭크 넓이로 적분하면 넓이 0 으로 쪼그라드는 것이 공짜가 된다).
+    A = 0.5 * np.linalg.det(Q)
+    area = float(A.sum())
+    E = float(np.sum(A * phi)) / area
+    if not np.isfinite(E):
+        return np.inf, None
+    if not grad:
+        return E, None
+    dphi = eq ** (p - 1) * k / (2 * eq)
+    g = np.stack([dphi * (2 * e[:, 0] + b * e[:, 1]), dphi * (2 * e[:, 1] + b * e[:, 0])], axis=1)
+    g = (g + 2 * _CAP_K * over * np.exp(np.abs(e)) * np.sign(e)) / s
+    G = Uu * g[:, None, :] @ Vh                                         # dφ/dFd
+    dD = -A[:, None, None] * (np.transpose(Fd, (0, 2, 1)) @ G @ np.transpose(Dinv, (0, 2, 1)))
+    gU = np.zeros_like(U)
+    for c in range(2):
+        g1, g2 = dD[:, c, 0], dD[:, c, 1]
+        gU[:, c] += np.bincount(F[:, 1], g1, len(U)) + np.bincount(F[:, 2], g2, len(U)) \
+            - np.bincount(F[:, 0], g1 + g2, len(U))
+    return E, gU / area
+
+
+def _elem_grad(Qm, A, P, n_exp, r_value):
+    """삼각형별 A·φ 의 블랭크 세 꼭짓점 기울기 (m,3,2). 뒤집힌 삼각형은 NaN."""
+    D = np.stack([P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]], axis=2)
+    det = D[:, 0, 0] * D[:, 1, 1] - D[:, 0, 1] * D[:, 1, 0]
+    Dinv = np.empty_like(D)
+    Dinv[:, 0, 0], Dinv[:, 1, 1] = D[:, 1, 1] / det, D[:, 0, 0] / det
+    Dinv[:, 0, 1], Dinv[:, 1, 0] = -D[:, 0, 1] / det, -D[:, 1, 0] / det
+    Fd = Qm @ Dinv
+    Uu, s, Vh = np.linalg.svd(Fd)
+    e = np.log(s)
+    k = (1 + r_value) ** 2 / (1 + 2 * r_value)
+    b = 2 * r_value / (1 + r_value)
+    eq = np.sqrt(k * (e[:, 0] ** 2 + e[:, 1] ** 2 + b * e[:, 0] * e[:, 1]) + _EPS ** 2)
+    p = n_exp + 1.0
+    over = np.maximum(np.exp(np.abs(e)) - math.exp(_CAP), 0.0)
+    dphi = eq ** (p - 1) * k / (2 * eq)
+    g = np.stack([dphi * (2 * e[:, 0] + b * e[:, 1]), dphi * (2 * e[:, 1] + b * e[:, 0])], axis=1)
+    g = (g + 2 * _CAP_K * over * np.exp(np.abs(e)) * np.sign(e)) / s
+    G = Uu * g[:, None, :] @ Vh
+    dD = -A[:, None, None] * (np.transpose(Fd, (0, 2, 1)) @ G @ np.transpose(Dinv, (0, 2, 1)))
+    out = np.empty((len(P), 3, 2))
+    out[:, 1], out[:, 2] = dD[:, :, 0], dD[:, :, 1]
+    out[:, 0] = -(dD[:, :, 0] + dD[:, :, 1])
+    out[det <= 0] = np.nan
+    return out
+
+
+def _newton_dir(F, Qm, A, X, g, n_exp, r_value, extra=None):
+    """투영 뉴턴 방향: 삼각형마다 6x6 헤세 행렬(기울기 차분)을 양의 반정부호로 잘라 모은 뒤 푼다."""
+    from scipy.sparse.linalg import splu
+
+    m, n = len(F), len(X)
+    P = X[F]
+    scale = float(np.sqrt(np.mean(A))) * 1e-5
+    H = np.empty((m, 6, 6))
+    for j in range(6):
+        v, c = divmod(j, 2)
+        Pp, Pm = P.copy(), P.copy()
+        Pp[:, v, c] += scale
+        Pm[:, v, c] -= scale
+        H[:, :, j] = ((_elem_grad(Qm, A, Pp, n_exp, r_value) - _elem_grad(Qm, A, Pm, n_exp, r_value))
+                      .reshape(m, 6) / (2 * scale))
+    H = 0.5 * (H + np.transpose(H, (0, 2, 1)))
+    H[~np.isfinite(H).all(axis=(1, 2))] = 0.0
+    w, V = np.linalg.eigh(H)
+    w = np.maximum(w, 1e-8 * max(float(np.abs(w).max()), 1e-30))
+    H = (V * w[:, None, :]) @ np.transpose(V, (0, 2, 1))
+    idx = (2 * F[:, :, None] + np.arange(2)).reshape(m, 6)          # x 의 순서: (점, 좌표)
+    rows = np.repeat(idx, 6, axis=1).ravel()
+    cols = np.tile(idx, (1, 6)).ravel()
+    K = coo_matrix((H.ravel(), (rows, cols)), shape=(2 * n, 2 * n)).tocsc()
+    if extra is not None:
+        K = K + extra
+    K = K + 1e-8 * float(K.diagonal().mean()) * identity(2 * n, format="csc")
+    return -splu(K).solve(g)
+
+
+def _max_step(F, X, d):
+    """X + α·d 에서 삼각형이 처음 뒤집히는 α (넓이 = α 의 2 차식의 가장 작은 양의 근)."""
+    P, Dp = X[F], d[F]
+    a = P[:, 1] - P[:, 0]
+    b = P[:, 2] - P[:, 0]
+    da = Dp[:, 1] - Dp[:, 0]
+    db = Dp[:, 2] - Dp[:, 0]
+
+    def cr(u, v):
+        return u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+
+    A2, B2, C2 = cr(da, db), cr(a, db) + cr(da, b), cr(a, b)
+    best = np.inf
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lin = np.abs(A2) < 1e-14 * np.maximum(np.abs(B2), 1e-300)
+        r_lin = np.where(lin & (B2 != 0), -C2 / B2, np.inf)
+        disc = B2 ** 2 - 4 * A2 * C2
+        sq = np.sqrt(np.maximum(disc, 0))
+        r1 = np.where(~lin & (disc >= 0), (-B2 - sq) / (2 * A2), np.inf)
+        r2 = np.where(~lin & (disc >= 0), (-B2 + sq) / (2 * A2), np.inf)
+    for r in (r_lin, r1, r2):
+        r = r[np.isfinite(r) & (r > 0)]
+        if len(r):
+            best = min(best, float(r.min()))
+    return best
+
+
+def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
+    """ARAP 블랭크 U0 에서 시작해 소성 일이 가장 작은 블랭크로. (U, 반복 횟수).
+    seconds 가 지나면 그때까지 가장 좋은 블랭크를 쓴다 (조립품의 부품이 많을 때).
+
+    투영 뉴턴법: 삼각형마다 헤세 행렬을 양의 반정부호로 잘라 모아 풀고, 삼각형이 뒤집히지 않는
+    걸음 안에서 에너지가 줄 때까지 걸음을 줄인다. 뉴턴 걸음이 막히면 라플라시안으로 전처리한
+    기울기 쪽으로 한 걸음 간다. (scipy L-BFGS 는 뒤집힘(무한 에너지)을 만나면 멈추고,
+    촘촘한 메시에서는 수백 번을 돌아도 거의 줄지 않았다.)"""
+    import time
+
+    deadline = time.monotonic() + seconds
+    # 바늘 같은 조각 삼각형(가장 작은 각 < 1°)은 조금만 움직여도 뒤집혀 최적화를 막는다.
+    # 에너지·뒤집힘 검사에서 빼고, 그 변은 길이 용수철로만 잡아 둔다 (꼭짓점이 떠다니지 않게).
+    good = quality(Vm, F) > 1.0
+    if good.sum() < 0.5 * len(F):
+        raise ValueError("메시에 조각 삼각형이 너무 많습니다")
+    bad = F[~good]
+    E_ = np.vstack([bad[:, [0, 1]], bad[:, [1, 2]], bad[:, [2, 0]]]) if len(bad) else np.zeros((0, 2), int)
+    E_ = np.unique(np.sort(E_, axis=1), axis=0)
+    L_ = np.linalg.norm(Vm[E_[:, 0]] - Vm[E_[:, 1]], axis=1)
+    E_, L_ = E_[L_ > 1e-9], L_[L_ > 1e-9]
+    F = F[good]
+    nv = len(U0)
+    q = _local_frames(Vm, F)
+    Qm = np.stack([q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]], axis=2)
+    Ap = 0.5 * np.linalg.det(Qm)
+    total = float(Ap.sum())
+    w_spring = float(Ap.mean()) / total
+    U0 = np.asarray(U0, float)
+    P = U0[F]
+    a, c = P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
+    flip = (a[:, 0] * c[:, 1] - a[:, 1] * c[:, 0]).sum() < 0
+    x = (U0 * (1, -1) if flip else U0.copy()).ravel()
+
+    def fun(x):
+        X = x.reshape(-1, 2)
+        E, g = plastic_work(Vm, F, X, n_exp, r_value, q=q)
+        if g is None:
+            return E, None
+        if len(E_):
+            dv = X[E_[:, 0]] - X[E_[:, 1]]
+            ln = np.maximum(np.linalg.norm(dv, axis=1), 1e-12)
+            st = (ln - L_) / L_
+            E += w_spring * float(np.sum(st ** 2))
+            cc = (2 * w_spring * st / L_ / ln)[:, None] * dv
+            for k in range(2):
+                g[:, k] += np.bincount(E_[:, 0], cc[:, k], nv) - np.bincount(E_[:, 1], cc[:, k], nv)
+        return E, g.ravel()
+
+    # 용수철의 헤세 행렬 (가우스-뉴턴을 등방으로 어림, 늘 같다)
+    spring_H = None
+    if len(E_):
+        kk = 2 * w_spring / L_ ** 2
+        ii = np.stack([2 * E_[:, 0], 2 * E_[:, 0] + 1, 2 * E_[:, 1], 2 * E_[:, 1] + 1], axis=1)
+        block = np.kron(np.array([[1.0, -1.0], [-1.0, 1.0]]), np.eye(2))
+        spring_H = coo_matrix(((kk[:, None, None] * block[None]).ravel(),
+                               (np.repeat(ii, 4, axis=1).ravel(), np.tile(ii, (1, 4)).ravel())),
+                              shape=(2 * nv, 2 * nv)).tocsc()
+
+    # 뉴턴이 막혔을 때 쓸 전처리: 제품 메시의 cot 라플라시안
+    cots = np.clip(_cot_weights(q), 0.01, 100.0)
+    I, J, W = [], [], []
+    for k in range(3):
+        i_, j_ = F[:, (k + 1) % 3], F[:, (k + 2) % 3]
+        w = 0.5 * cots[:, k]
+        I += [i_, j_, i_, j_]
+        J += [j_, i_, i_, j_]
+        W += [-w, -w, w, w]
+    Lp = coo_matrix((np.concatenate(W), (np.concatenate(I), np.concatenate(J))), shape=(nv, nv)).tocsc()
+    Lp = Lp + 1e-6 * float(Lp.diagonal().mean()) * identity(nv, format="csc")
+    _check_finite(Lp, what="전처리 행렬")
+    lsolve = factorized(Lp.tocsc())
+    span = float(np.ptp(U0, axis=0).max()) or 1.0
+
+    def gradient_dir(g):
+        G = g.reshape(-1, 2)
+        d = -np.column_stack([lsolve(G[:, 0]), lsolve(G[:, 1])]).ravel()
+        return d * (0.01 * span / max(np.abs(d).max(), 1e-30))        # 가장 큰 이동 1 %
+
+    f0, g = fun(x)
+    if g is None:
+        raise ValueError("시작 블랭크에 뒤집힌 삼각형이 있습니다")
+    f, it, stall, fails = f0, 0, 0, 0
+    while it < maxiter and time.monotonic() < deadline:
+        it += 1
+        d = None
+        if fails == 0:
+            try:
+                d = _newton_dir(F, Qm, Ap / total, x.reshape(-1, 2), g, n_exp, r_value, spring_H)
+            except (RuntimeError, ValueError, np.linalg.LinAlgError):
+                d = None
+            if d is not None and not (np.all(np.isfinite(d)) and g @ d < 0):
+                d = None
+        if d is None:
+            d = gradient_dir(g)
+        slope = g @ d
+        step = min(1.0, 0.8 * _max_step(F, x.reshape(-1, 2), d.reshape(-1, 2)))
+        ok = False
+        for _ in range(30):
+            xn = x + step * d
+            fn, gn = fun(xn)
+            if gn is not None and fn <= f + 1e-4 * step * slope:
+                ok = True
+                break
+            step *= 0.5
+        if not ok:
+            fails += 1
+            if fails >= 2:
+                break
+            continue
+        fails = 0
+        stall = stall + 1 if f - fn < 1e-6 * f0 else 0
+        x, f, g = xn, fn, gn
+        if stall >= 3:
+            break
+    U = x.reshape(-1, 2)
+    if flip:
+        U = U * (1, -1)
+    _check_finite(U, what="원스텝 역해석 결과")
+    return U, it
+
+
+# ------------------------------------------------------------------ 성형 한계 (FLC)
+#
+# Keeler-Brazier 식 (North American Deep Drawing Research Group):
+#   FLC0 [% 공칭] = (23.3 + 14.13·t) · n / 0.21      (t: 두께 mm, 강판, t ≤ 약 3 mm)
+# 왼쪽(ε2 < 0)은 두께 감소가 FLC0 와 같은 선 (ε1 + ε2 = ε0, 진변형률),
+# 오른쪽(ε2 > 0)은 기울기 약 0.6 으로 올라간다. 알루미늄·스테인리스는 식이 맞지 않아
+# 재료 표의 대표 FLC0 를 쓴다.
+
+def keeler_flc0(t, n):
+    """FLC0 (진변형률)."""
+    t = min(max(float(t), 0.3), 3.0)
+    return math.log(1 + (23.3 + 14.13 * t) * n / 0.21 / 100)
+
+
+def flc_limit(minor, flc0):
+    """부 변형률마다 한계 주 변형률 (진변형률)."""
+    minor = np.asarray(minor, float)
+    return np.where(minor < 0, flc0 - minor, flc0 + 0.6 * minor)
+
+
+def flc_risk(major, minor, flc0):
+    """주 변형률 / 한계 (1 이상 = 파단 위험)."""
+    lim = flc_limit(minor, flc0)
+    return np.where(major > 0, major / lim, 0.0)
+
+
 def boundary_loops(F):
     """한 삼각형에만 속한 변을 이어 닫힌 경계들로."""
     count = {}
@@ -365,8 +662,10 @@ def _check_finite(*arrays, what="메시"):
                              "CAD 에서 형상을 확인해 주세요.")
 
 
-def flatten(V, F, thickness, iterations=60, N=None):
-    """제품 겉면 메시 → (가운데 면 메시, 펼친 좌표 U). N: 꼭짓점별 실제 곡면 법선."""
+def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, info=None):
+    """제품 겉면 메시 → (가운데 면 메시, 펼친 좌표 U). N: 꼭짓점별 실제 곡면 법선.
+    n_exp(가공 경화 지수 n)를 주면 ARAP 결과에서 시작해 소성 일 최소화(원스텝 역해석)로 다듬는다.
+    info(dict)에 쓴 방법·반복 횟수를 적어 준다."""
     if N is None:
         N = vertex_normals(V, F)
     V, F, N = _keep_largest_component(V, F, N)
@@ -387,6 +686,16 @@ def flatten(V, F, thickness, iterations=60, N=None):
     _check_finite(U, what="1차 펼침 결과")
     U = arap(Vm, F, U, iterations)
     _check_finite(U, what="펼침 결과")
+    if info is not None:
+        info["method"] = "ARAP"
+    if n_exp is not None:
+        try:
+            U2, it = one_step(Vm, F, U, n_exp, r_value)
+            U = U2
+            if info is not None:
+                info["method"], info["iterations"] = "원스텝 역해석 (소성 일 최소)", it
+        except (ValueError, FloatingPointError, np.linalg.LinAlgError):
+            pass                       # 다듬기에 실패하면 ARAP 결과를 그대로 쓴다
     span3 = float(np.linalg.norm(Vm.max(0) - Vm.min(0))) or 1.0
     if float(np.linalg.norm(U.max(0) - U.min(0))) < 0.05 * span3:
         raise ValueError("펼친 결과가 비정상입니다 (크기가 거의 0). 판금·성형품이 아닌 부품일 수 있습니다.")

@@ -13,8 +13,8 @@ import traceback
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QUrl, Signal
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath,
-                           QPen)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+                           QPen, QPixmap)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QMainWindow, QMessageBox,
                                QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout,
                                QWidget, QListWidget, QTabWidget, QPushButton)
@@ -205,6 +205,7 @@ class FlatView(QWidget):
     excludeToggled = Signal(bool)
     SNAP_PX = 12            # 이 픽셀 안에 끝점·원 중심이 있으면 거기에 붙는다
     exportRequested = Signal()
+    fldRequested = Signal()
     FILL = QColor(70, 130, 200, 110)
 
     def __init__(self, settings=None):
@@ -521,6 +522,8 @@ class FlatView(QWidget):
         c = m.addAction(f"찍은 치수 모두 지우기 ({len(self.user_dims)}개)", self.clear_dims)
         c.setEnabled(bool(self.user_dims))
         m.addSeparator()
+        if self.result is not None and self.result.forming is not None:
+            m.addAction("성형 한계도 (FLD) 보기…", self.fldRequested.emit)
         m.addAction("이 부품만 STEP 으로 저장…", self.exportRequested.emit)
         x = m.addAction("이 부품 제외 (전체 계산·철판 배치에서 뺌)")
         x.setCheckable(True)
@@ -744,6 +747,7 @@ class MainWindow(QMainWindow):
         self.flat_view = FlatView(self.settings)
         self.flat_view.excludeToggled.connect(self._exclude_current)
         self.flat_view.exportRequested.connect(lambda: self.export_part_step())
+        self.flat_view.fldRequested.connect(self.show_fld)
         self.excluded = set()          # 전체 계산·철판 배치에서 뺄 부품 번호 (0부터)
         views = QSplitter(Qt.Horizontal)
         self.views_split = views
@@ -764,7 +768,8 @@ class MainWindow(QMainWindow):
 
         self.info = QLabel()
         self.info.setWordWrap(True)
-        self.info.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.info.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+        self.info.linkActivated.connect(lambda link: self.show_fld() if link == "fld" else None)
 
         bottom = QWidget()
         bl = QHBoxLayout(bottom)
@@ -930,6 +935,25 @@ class MainWindow(QMainWindow):
         self.act_ai_bom.setEnabled(self.model is not None)
         self.act_zip.setEnabled(self.model is not None)
         self.solid_box.setEnabled(self.model is not None and len(self.model.solids) > 1)
+
+    def show_fld(self):
+        """성형 한계도 (FLD) 창."""
+        r = self.result
+        if r is None or r.forming is None:
+            return
+        img = report.render_fld(r.forming, 900, 700)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("성형 한계도 (FLD)")
+        lab = QLabel()
+        lab.setPixmap(QPixmap.fromImage(img))
+        note = QLabel("점 하나 = 메시 삼각형 하나의 (부 변형률, 주 변형률). 빨간 선(FLC)을 넘으면 터질 위험, "
+                      "보라 점은 두꺼워지는 곳(주름 가능). FLC 는 Keeler 식·재료 대표값이므로 "
+                      "금형 확정 전에는 성형 해석·시험으로 확인하세요.")
+        note.setWordWrap(True)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(lab)
+        lay.addWidget(note)
+        dlg.exec()
 
     def _set_info(self, text, error=False):
         color = "#e06060" if error else "inherit"
@@ -1344,6 +1368,12 @@ class MainWindow(QMainWindow):
                              "평면·원통·원뿔로 되돌려 계산했습니다.</span>")
             for txt in r.rolled:
                 lines.append(txt)
+            if r.forming is not None and r.forming.flc0 > 0:
+                split, marginal, wrinkle, top = r.forming.flc_summary
+                col = "#e05050" if split > 0.001 else "#e0a040" if marginal > 0.001 else "#60c060"
+                lines.append(f"<b>성형 한계</b> <span style='color:{col}'>최대 {top:.0%}</span> "
+                             f"(FLC0 {r.forming.flc0:.3f}) · 주름 가능 {wrinkle:.1%} · "
+                             "<a href='fld'>성형 한계도 보기</a>")
             for wmsg in r.warnings:
                 lines.append(f"<span style='color:#e0a040'>⚠ {wmsg}</span>")
             self._set_info("<br>".join(lines))
