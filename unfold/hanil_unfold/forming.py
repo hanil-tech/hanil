@@ -241,6 +241,7 @@ def lscm(V, F):
     free = np.setdiff1d(np.arange(2 * n), fixed_cols)
     rhs = -A[:, fixed_cols] @ fixed_vals
     Af = A[:, free]
+    _check_finite(Af, rhs, what="펼침 행렬")
     sol = spsolve((Af.T @ Af).tocsc(), Af.T @ rhs)
     x = np.zeros(2 * n)
     x[free] = sol
@@ -266,7 +267,9 @@ def arap(V, F, U, iterations=60):
     L = L.tolil()
     L[0, :] = 0
     L[0, 0] = 1
-    solve = factorized(L.tocsc())
+    L = L.tocsc()
+    _check_finite(L, what="펼침 행렬")
+    solve = factorized(L)
 
     size = float(np.linalg.norm(V.max(0) - V.min(0))) or 1.0
     for _ in range(iterations):
@@ -340,6 +343,28 @@ def boundary_loops(F):
     return loops
 
 
+def _drop_degenerate(V, F):
+    """넓이가 거의 0 인 삼각형(같은 점이 겹치거나 한 줄 위의 점)을 뺀다.
+    남겨 두면 행렬에 NaN 이 들어가 희소 행렬 분해가 멈추거나 프로그램이 죽는다."""
+    if not len(F):
+        return F
+    p0, p1, p2 = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    area2 = np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
+    scale = float(np.linalg.norm(V.max(0) - V.min(0))) or 1.0
+    shortest = np.minimum(np.minimum(np.linalg.norm(p1 - p0, axis=1), np.linalg.norm(p2 - p1, axis=1)),
+                          np.linalg.norm(p0 - p2, axis=1))
+    keep = np.isfinite(area2) & (area2 > 1e-10 * scale * scale) & (shortest > 1e-7 * scale)
+    return F[keep]
+
+
+def _check_finite(*arrays, what="메시"):
+    for a in arrays:
+        data = a.data if hasattr(a, "data") and not isinstance(a, np.ndarray) else a
+        if not np.all(np.isfinite(data)):
+            raise ValueError(f"{what}가 깨져 펼칠 수 없습니다 (겹친 점·넓이 0 인 면). "
+                             "CAD 에서 형상을 확인해 주세요.")
+
+
 def flatten(V, F, thickness, iterations=60, N=None):
     """제품 겉면 메시 → (가운데 면 메시, 펼친 좌표 U). N: 꼭짓점별 실제 곡면 법선."""
     if N is None:
@@ -349,9 +374,22 @@ def flatten(V, F, thickness, iterations=60, N=None):
     if bad.any():
         N[bad] = vertex_normals(V, F)[bad]
     Vm = V - 0.5 * thickness * N
+    _check_finite(Vm)
+    # 두께가 형상 크기만 한 부품(핀·봉·너트)은 가운데 면이 한 점·한 선으로 줄어든다: 판금이 아님
+    if float(np.linalg.norm(np.ptp(Vm, axis=0))) < 0.3 * float(np.linalg.norm(np.ptp(V, axis=0))):
+        raise ValueError("판금·성형품이 아닌 부품입니다 (두께가 형상 크기와 비슷함: 핀·봉·너트 등).")
     Vm, F = subdivide(Vm, F)
+    F = _drop_degenerate(Vm, F)
+    if len(F) < 2:
+        raise ValueError("펼칠 면이 없습니다 (메시가 비었거나 모두 넓이 0).")
+    Vm, F, _ = _keep_largest_component(Vm, F, np.zeros_like(Vm))
     U = lscm(Vm, F)
+    _check_finite(U, what="1차 펼침 결과")
     U = arap(Vm, F, U, iterations)
+    _check_finite(U, what="펼침 결과")
+    span3 = float(np.linalg.norm(Vm.max(0) - Vm.min(0))) or 1.0
+    if float(np.linalg.norm(U.max(0) - U.min(0))) < 0.05 * span3:
+        raise ValueError("펼친 결과가 비정상입니다 (크기가 거의 0). 판금·성형품이 아닌 부품일 수 있습니다.")
     # 바깥에서 본 모습이 되도록: 삼각형 방향이 뒤집혔으면 대칭
     P = U[F]
     a, b = P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]

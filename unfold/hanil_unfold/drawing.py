@@ -126,17 +126,18 @@ def paint_flat(p: QPainter, result, tf: FlatTransform, theme: Theme, strain=True
 
 
 def paint_dimensions(p: QPainter, result, tf: FlatTransform, theme: Theme, dims=None,
-                     line_width=0.8):
+                     line_width=0.8, chains_on=True, holes_on=True):
     """치수선: 절곡선까지 연속 치수(안쪽), 전체 길이(바깥쪽), 구멍 번호·지름.
 
-    dims 가 없으면 전체 가로·세로만 그린다.
+    dims 가 없으면 전체 가로·세로만 그린다. chains_on=False 면 연속 치수를 빼고 전체 크기만,
+    holes_on=False 면 구멍 번호·지름을 뺀다.
     """
     x0, y0, x1, y1 = result.bbox
     w, h = x1 - x0, y1 - y0
     fm = p.fontMetrics()
     gap = fm.height() * 1.3
     p.setPen(QPen(theme.dim, line_width))
-    chains = {c.axis: c for c in (dims.chains if dims else [])}
+    chains = {c.axis: c for c in (dims.chains if dims and chains_on else [])}
 
     # 가로 (아래): 연속 치수가 있으면 안쪽 줄, 전체는 바깥 줄
     level = 1
@@ -157,7 +158,7 @@ def paint_dimensions(p: QPainter, result, tf: FlatTransform, theme: Theme, dims=
     _vdim(p, tf.pt((x1, y0)), tf.pt((x1, y1)), gap * level, f"{h:.2f}", fm)
 
     # 구멍 번호와 지름
-    if dims:
+    if dims and holes_on:
         for hole in dims.holes:
             c = tf.pt((x0 + hole.center[0], y0 + hole.center[1]))
             txt = f"{hole.label} Ø{hole.diameter:.1f}" if hole.diameter else \

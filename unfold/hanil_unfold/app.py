@@ -213,6 +213,11 @@ class FlatView(QWidget):
         self.fill_color = c if c.isValid() else QColor(self.FILL)
         self.excluded = False
         self._fill_cache = None
+        # 보이기 설정: 연속 치수, 구멍 번호·지름, 절곡 번호, 요약 상자
+        self.show = {}
+        for key in ("chain", "holes", "bends", "summary"):
+            self.show[key] = (settings.value(f"flat_show_{key}", "true") == "true") if settings else True
+        self.holes_auto_hidden = False
         self.result = None
         self.dims = None
         self.show_dims = True
@@ -220,12 +225,61 @@ class FlatView(QWidget):
         self.offset = QPointF(0, 0)
         self._drag = None
         self.setMinimumSize(300, 300)
+        self._build_buttons()
+
+    MANY_HOLES = 60       # 구멍이 이보다 많으면 번호·지름은 처음에 숨긴다 (글씨가 겹쳐 안 보이므로)
+    TOGGLES = [("chain", "치수", "절곡선까지 연속 치수 (끄면 전체 크기만)"),
+               ("holes", "구멍", "구멍 번호·지름·좌표 글씨"),
+               ("bends", "절곡", "절곡 번호 B1, B2 …"),
+               ("summary", "요약", "두께·크기·면적·무게 상자")]
+
+    def _build_buttons(self):
+        from PySide6.QtWidgets import QToolButton
+        self.buttons = {}
+        for key, label, tip in self.TOGGLES:
+            b = QToolButton(self)
+            b.setText(label)
+            b.setToolTip(f"{tip} 보이기 / 숨기기")
+            b.setCheckable(True)
+            b.setChecked(self.show[key])
+            b.setStyleSheet("QToolButton{color:#ddd;background:rgba(40,44,52,210);border:1px solid #556;"
+                            "border-radius:3px;padding:1px 6px;} QToolButton:checked{background:#2f6fb0;color:white;}")
+            b.toggled.connect(lambda on, k=key: self.set_show(k, on))
+            self.buttons[key] = b
+        self._place_buttons()
+
+    def _place_buttons(self):
+        x = self.width() - 6
+        for key, _, _ in reversed(self.TOGGLES):
+            b = self.buttons[key]
+            b.adjustSize()
+            x -= b.width()
+            b.move(x, 6)
+            x -= 3
+
+    def set_show(self, key, on, remember=True):
+        self.show[key] = on
+        if key == "holes":
+            self.holes_auto_hidden = False
+        if remember and self.settings:
+            self.settings.setValue(f"flat_show_{key}", "true" if on else "false")
+        b = self.buttons.get(key)
+        if b is not None and b.isChecked() != on:
+            b.blockSignals(True)
+            b.setChecked(on)
+            b.blockSignals(False)
+        self.update()
 
     def set_result(self, result, dims=None, excluded=False):
         self.result = result
         self.dims = dims
         self.excluded = excluded
         self._fill_cache = None
+        # 구멍이 아주 많으면 번호 글씨는 처음에 숨긴다 (저장한 설정은 그대로)
+        many = dims is not None and len(dims.holes) > self.MANY_HOLES
+        want = self.settings.value("flat_show_holes", "true") == "true" if self.settings else True
+        self.set_show("holes", want and not many, remember=False)
+        self.holes_auto_hidden = want and many
         self.fit()
 
     def set_excluded(self, on):
@@ -296,6 +350,12 @@ class FlatView(QWidget):
 
         m.addAction("색 바꾸기…", pick)
         m.addSeparator()
+        for key, label, tip in self.TOGGLES:
+            t = m.addAction(f"{tip}")
+            t.setCheckable(True)
+            t.setChecked(self.show[key])
+            t.toggled.connect(lambda on, k=key: self.set_show(k, on))
+        m.addSeparator()
         x = m.addAction("이 부품 제외 (전체 계산·철판 배치에서 뺌)")
         x.setCheckable(True)
         x.setChecked(self.excluded)
@@ -329,6 +389,7 @@ class FlatView(QWidget):
 
     def resizeEvent(self, ev):
         self.fit()
+        self._place_buttons()
         super().resizeEvent(ev)
 
     def _pt(self, p):
@@ -351,7 +412,7 @@ class FlatView(QWidget):
         p.setFont(f)
         if self.fill_on and r.forming is None:
             self._paint_fill(p, tf)
-        paint_flat(p, r, tf, DARK)
+        paint_flat(p, r, tf, DARK, labels=self.show["bends"])
         if self.excluded:
             fx = QFont(self.font())
             fx.setPointSize(16)
@@ -367,8 +428,14 @@ class FlatView(QWidget):
         p.setPen(QColor(150, 150, 150))
         p.drawText(8, 18, r.settings_text)
         if self.show_dims and self.dims is not None:
-            paint_dimensions(p, r, tf, DARK, self.dims)
+            paint_dimensions(p, r, tf, DARK, self.dims, chains_on=self.show["chain"],
+                             holes_on=self.show["holes"])
+        if self.show["summary"] and self.dims is not None:
             paint_summary(p, self.dims.summary_lines(), 8, 26, DARK)
+        if self.holes_auto_hidden and self.dims is not None:
+            p.setPen(QColor(220, 170, 80))
+            p.drawText(self.rect().adjusted(0, 34, -8, 0), Qt.AlignRight | Qt.AlignTop,
+                       f"구멍 {len(self.dims.holes)}개 — 번호·지름은 [구멍] 을 눌러 보기")
         p.setPen(QColor(150, 150, 150))
         p.drawText(8, self.height() - 8, "휠로 확대 · 끌어서 이동 · 두 번 눌러 맞춤 · 오른쪽 단추: 색칠 · 제외")
 
