@@ -816,10 +816,9 @@ class MainWindow(QMainWindow):
     # ---- 화면 구성
 
     def _build_toolbar(self):
-        tb = QToolBar()
+        tb = QToolBar("작업 줄")
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self.addToolBar(tb)
 
         self.act_open = QAction("열기", self, shortcut="Ctrl+O", triggered=self.open_dialog)
         self.act_save = QAction("DXF 저장", self, shortcut="Ctrl+S", triggered=self.save_dxf)
@@ -845,23 +844,14 @@ class MainWindow(QMainWindow):
         self.act_ai_bom = QAction("AI BOM", self, triggered=self.show_ai_bom)
         self.act_ai_bom.setToolTip("2D 도면 PDF 와 3D 를 AI(Claude)로 맞춰 보고 BOM 엑셀을 만듭니다")
         self.act_nest.setToolTip("전개한 부품을 1219 × 2438 같은 철판 위에 늘어놓아 필요한 장 수를 셉니다")
-        tb.addAction(self.act_open)
-        tb.addAction(self.act_save)
-        tb.addAction(self.act_pdf)
-        tb.addAction(self.act_xlsx)
-        tb.addAction(self.act_assy)
-        tb.addAction(self.act_nest)
-        tb.addAction(self.act_quote)
-        tb.addAction(self.act_die)
-        tb.addAction(self.act_process)
-        tb.addAction(self.act_bom)
-        tb.addAction(self.act_ai_bom)
-        tb.addAction(self.act_batch)
-        tb.addAction(self.act_zip)
-        tb.addAction(self.act_history)
-        tb.addSeparator()
-
-        tb.addWidget(QLabel(" 전개 방식 "))
+        self.act_doc_log = QAction("견적·금형 기록", self, triggered=self.show_doc_log)
+        self.act_doc_log.setToolTip("저장한 생산 견적서·금형 견적서·금형 검토 기록 (찾기·메모·엑셀)")
+        self.act_quit = QAction("끝내기", self, triggered=self.close)
+        tb.setObjectName("작업 줄")
+        self._build_ribbon()
+        self.addToolBarBreak()
+        self.addToolBar(tb)
+        tb.addWidget(QLabel("  전개 방식 "))
         self.mode_box = QComboBox()
         for key, name in MODE_NAMES.items():
             self.mode_box.addItem(name, key)
@@ -905,18 +895,90 @@ class MainWindow(QMainWindow):
                                "화면이 깨지거나 원격 데스크톱이면 끄세요 (다시 시작하면 적용).")
         self.gl_box.setChecked(self.settings.value("use_gl", "true") == "true")
         self.gl_box.toggled.connect(self._gl_toggled)
-        tb.addWidget(self.gl_box)
         self.history_box = QCheckBox("전개 기록 남기기")
         self.history_box.setToolTip("전개한 부품의 수치와 DXF 사본을 자동으로 쌓아 둡니다.\n"
                                     "같은 날 같은 부품을 다시 전개하면 최신 값으로 갱신합니다.")
         self.history_box.setChecked(self.settings.value("history_on", "true") == "true")
         self.history_box.toggled.connect(
             lambda on: self.settings.setValue("history_on", "true" if on else "false"))
-        tb.addSeparator()
-        tb.addWidget(self.notes_box)
-        tb.addWidget(self.history_box)
-        tb.addSeparator()
-        tb.addAction(self.act_help)
+        self._fill_ribbon_options()
+
+    # ---- 큰 분류 (리본): 파일 · 전개 · 네스팅 · BOM · 금형 · 견적 · 기록 · 설정·도움말
+    CATEGORIES = [
+        ("파일", "3D 도면(STEP·IGES·STL …)을 열고, 여러 파일을 한꺼번에 전개하거나 압축합니다."),
+        ("전개", "판금 정확 전개 · 성형품 근사 전개 → 전개도 DXF, 보고서, 조립도"),
+        ("네스팅", "전개한 부품을 철판(1219 × 2438 등)에 늘어놓아 장 수·사용률을 셉니다."),
+        ("BOM", "같은 부품끼리 묶은 부품표(다단계 BOM), 도면 PDF 와 맞춘 AI BOM"),
+        ("금형", "하중·클리어런스·스프링백·설계 규칙, 자동 공정 설계, 금형 공정도"),
+        ("견적", "공정수·톤수·기계·자재비·가공비 → 생산 견적서, 금형 견적서"),
+        ("기록", "전개 기록, 견적·금형 기록 — 찾기·메모·엑셀로 내보내기"),
+        ("설정·도움말", "그래픽 가속, 도움말·바뀐 것"),
+    ]
+
+    def _build_ribbon(self):
+        from PySide6.QtWidgets import QMenuBar, QTabWidget
+        groups = {
+            "파일": [self.act_open, self.act_batch, self.act_zip],
+            "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_assy],
+            "네스팅": [self.act_nest],
+            "BOM": [self.act_bom, self.act_ai_bom],
+            "금형": [self.act_die, self.act_process],
+            "견적": [self.act_quote, self.act_doc_log],
+            "기록": [self.act_history, self.act_doc_log],
+            "설정·도움말": [self.act_help],
+        }
+        self.ribbon = QTabWidget()
+        self.ribbon.setDocumentMode(True)
+        self.ribbon.setStyleSheet("QTabBar::tab { padding: 5px 16px; font-weight: bold; }"
+                                  "QToolButton { padding: 3px 10px; }")
+        self.ribbon_bars = {}
+        menubar = QMenuBar(self)
+        for name, hint in self.CATEGORIES:
+            bar = QToolBar()
+            bar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            for act in groups[name]:
+                bar.addAction(act)
+            self.ribbon_bars[name] = bar
+            page = QWidget()
+            lay = QHBoxLayout(page)
+            lay.setContentsMargins(4, 0, 4, 2)
+            lay.addWidget(bar)
+            lay.addStretch(1)
+            tip = QLabel(hint)
+            tip.setStyleSheet("color:#888")
+            lay.addWidget(tip)
+            self.ribbon.addTab(page, name)
+            menu = menubar.addMenu(name)
+            for act in groups[name]:
+                menu.addAction(act)
+            if name == "파일":
+                menu.addSeparator()
+                menu.addAction(self.act_quit)
+        self.setMenuBar(menubar)
+        for acts in groups.values():                 # 단축키는 어느 분류를 보고 있어도
+            for act in acts:
+                if act not in self.actions():
+                    self.addAction(act)
+        self.ribbon.setCurrentIndex(int(self.settings.value("ribbon_tab", 1)))
+        self.ribbon.currentChanged.connect(lambda i: self.settings.setValue("ribbon_tab", i))
+        holder = QToolBar("분류")
+        holder.setObjectName("분류")
+        holder.setMovable(False)
+        holder.addWidget(self.ribbon)
+        self.addToolBar(holder)
+
+    def _fill_ribbon_options(self):
+        """분류에 맞는 설정 상자: 전개 → DXF 절곡 글씨, 기록 → 전개 기록 남기기, 설정 → 그래픽 가속."""
+        self.ribbon_bars["전개"].addSeparator()
+        self.ribbon_bars["전개"].addWidget(self.notes_box)
+        self.ribbon_bars["기록"].addSeparator()
+        self.ribbon_bars["기록"].addWidget(self.history_box)
+        self.ribbon_bars["설정·도움말"].addSeparator()
+        self.ribbon_bars["설정·도움말"].addWidget(self.gl_box)
+
+    def show_doc_log(self):
+        from .doc_history_dialog import DocHistoryDialog
+        DocHistoryDialog(self.history, open_source=self._open_part, parent=self).exec()
 
     def _gl_toggled(self, on):
         self.settings.setValue("use_gl", "true" if on else "false")
