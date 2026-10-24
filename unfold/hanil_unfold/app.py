@@ -127,6 +127,7 @@ class AssemblyView(QWidget):
         self._drag = None
         self._moved = False
         self._hits = []
+        self.show_numbers = True
         self.setMinimumSize(300, 300)
 
     def set_parts(self, parts):
@@ -146,7 +147,8 @@ class AssemblyView(QWidget):
             p.drawText(self.rect(), Qt.AlignCenter, "조립품 전체")
             return
         self._hits = paint_assembly(p, self.parts, QRectF(self.rect()), DARK, self.highlight,
-                                    self.yaw, self.pitch, self.zoom, (self.pan.x(), self.pan.y()))
+                                    self.yaw, self.pitch, self.zoom, (self.pan.x(), self.pan.y()),
+                                    balloons=self.show_numbers)
         p.setPen(QColor(150, 150, 150))
         p.setFont(QFont(self.font()))
         p.drawText(8, self.height() - 8, "번호를 누르면 그 부품 · 왼쪽 끌기 돌리기 · 오른쪽 끌기 이동 · 휠 확대")
@@ -309,6 +311,11 @@ class MainWindow(QMainWindow):
         self.part_list = QListWidget()
         self.part_list.currentRowChanged.connect(
             lambda row: row >= 0 and row != self.solid_box.currentIndex() and self.select_part(row))
+        if hasattr(self.assembly_view, "hide_part"):
+            self.part_list.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.part_list.customContextMenuRequested.connect(self._part_menu)
+            self.part_list.setToolTip("오른쪽 단추: 숨기기 · 보이기 · 이것만 보기")
+            self.assembly_view.hiddenChanged.connect(self._mark_hidden)
         side = QWidget()
         sl = QVBoxLayout(side)
         sl.setContentsMargins(0, 0, 0, 0)
@@ -326,7 +333,15 @@ class MainWindow(QMainWindow):
         self.all_balloons_box = QCheckBox("번호 모두 보기")
         self.all_balloons_box.setToolTip("끄면 고른 부품 번호만 보입니다 (부품이 많을 때)")
         self.all_balloons_box.toggled.connect(self._balloons_toggled)
-        sl.addWidget(self.all_balloons_box)
+        self.hide_balloons_box = QCheckBox("번호 숨기기")
+        self.hide_balloons_box.setToolTip("조립품 그림의 번호 풍선을 모두 숨깁니다")
+        self.hide_balloons_box.toggled.connect(self._hide_balloons)
+        nb = QHBoxLayout()
+        nb.addWidget(self.all_balloons_box)
+        nb.addWidget(self.hide_balloons_box)
+        sl.addLayout(nb)
+        if hasattr(self.assembly_view, "btn_num"):     # 3D 화면 위 [번호] 단추와 같이 움직임
+            self.assembly_view.btn_num.toggled.connect(lambda on: self.hide_balloons_box.setChecked(not on))
         self.assy_summary = QLabel("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
         self.assy_summary.setWordWrap(True)
         self.assy_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -385,6 +400,14 @@ class MainWindow(QMainWindow):
         # 상태 표시줄 오른쪽에 늘 버전을 보인다
         ver = QLabel(f"버전 {version_text(long=True)}")
         ver.setStyleSheet("color: #888; padding-right: 8px;")
+        from . import company
+        from PySide6.QtGui import QPixmap
+        logo = QLabel()
+        logo.setPixmap(QPixmap.fromImage(company.logo_image(18)))
+        maker = QLabel(company.MAKER)
+        maker.setStyleSheet("color:#555; font-weight:bold; padding-right:6px;")
+        self.statusBar().addPermanentWidget(logo)
+        self.statusBar().addPermanentWidget(maker)
         self.statusBar().addPermanentWidget(ver)
         self._update_actions()
 
@@ -647,9 +670,46 @@ class MainWindow(QMainWindow):
                                 self.bend_panel.settings().mat.code)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    def _hide_balloons(self, hide):
+        v = self.assembly_view
+        if hasattr(v, "btn_num"):
+            v.btn_num.blockSignals(True)
+            v.btn_num.setChecked(not hide)
+            v.btn_num.blockSignals(False)
+            v.set_balloons_visible(not hide)
+        else:
+            v.show_numbers = not hide
+            v.update()
+        self.all_balloons_box.setEnabled(not hide)
+
     def _balloons_toggled(self, on):
         if hasattr(self.assembly_view, "set_all_balloons"):
             self.assembly_view.set_all_balloons(on)
+
+    def _part_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        item = self.part_list.itemAt(pos)
+        v = self.assembly_view
+        m = QMenu(self)
+        if item is not None:
+            idx = self.part_list.row(item)
+            if idx in v.hidden:
+                m.addAction("보이기", lambda: v.show_part(idx))
+            else:
+                m.addAction("숨기기", lambda: v.hide_part(idx))
+            m.addAction("이것만 보기", lambda: v.isolate(idx))
+        m.addAction("모두 보이기", v.show_all)
+        m.exec(self.part_list.mapToGlobal(pos))
+
+    def _mark_hidden(self):
+        """숨긴 부품은 목록에서 흐리게."""
+        hidden = self.assembly_view.hidden
+        for i in range(self.part_list.count()):
+            it = self.part_list.item(i)
+            it.setForeground(QColor(150, 150, 150) if i in hidden else self.part_list.palette().text().color())
+            f = it.font()
+            f.setItalic(i in hidden)
+            it.setFont(f)
 
     def select_part(self, idx):
         if self.model is not None and 0 <= idx < len(self.model.solids):
@@ -887,8 +947,14 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         from .changes import text as changes_text
-        QMessageBox.information(self, "도움말", HELP_TEXT.format(version=version_text(long=True))
-                                + "\n\n최근 바뀐 것\n" + changes_text(limit=3))
+        from . import company
+        from PySide6.QtGui import QPixmap
+        box = QMessageBox(self)
+        box.setWindowTitle("도움말")
+        box.setIconPixmap(QPixmap.fromImage(company.logo_image(64)))
+        box.setText(HELP_TEXT.format(version=version_text(long=True)) + f"\n\n{company.MAKER}"
+                    + "\n\n최근 바뀐 것\n" + changes_text(limit=3))
+        box.exec()
 
     # ---- 끌어다 놓기
 

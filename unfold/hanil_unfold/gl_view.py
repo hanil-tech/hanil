@@ -336,6 +336,7 @@ class GLView(QOpenGLWidget):
     """
 
     partClicked = Signal(int)
+    hiddenChanged = Signal()
 
     def __init__(self, balloons=True, hint=""):
         super().__init__()
@@ -345,6 +346,8 @@ class GLView(QOpenGLWidget):
         self.setFormat(fmt)
         self.balloons = balloons
         self.all_balloons = True              # False 면 고른 부품 번호만
+        self.show_numbers = True              # False 면 번호 풍선을 모두 숨김
+        self.hidden = set()                   # 숨긴 부품 번호들
         self.hint = hint
         self.ok = True
         self.parts = []                       # [(삼각형 v, n, 선분)]
@@ -410,6 +413,20 @@ class GLView(QOpenGLWidget):
             lay.addWidget(b)
             return b
 
+        self.btn_num = toggle("번호", "부품 번호 풍선 보이기 / 숨기기", self.set_balloons_visible, True)
+        self.btn_num.setVisible(self.balloons)
+        def button(label, tip, slot):
+            b = QToolButton(bar)
+            b.setText(label)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            b.setVisible(self.balloons)       # 조립품 화면에서만
+            lay.addWidget(b)
+            return b
+
+        button("숨기기", "고른 부품을 숨깁니다 (H)", lambda: self.hide_part(self.highlight))
+        button("이것만", "고른 부품만 보이고 나머지는 숨깁니다", lambda: self.isolate(self.highlight))
+        button("모두 보이기", "숨긴 부품을 다시 모두 보입니다 (Shift+H)", self.show_all)
         self.btn_persp = toggle("원근", "원근(가까운 것이 크게) / 평행 보기", self.set_perspective)
         self.btn_sil = toggle("외곽선", "둥근 면이 돌아가는 가장자리에 선", self.set_silhouette, True)
         self.btn_xray = toggle("투명", "고른 부품만 또렷하게, 나머지는 반투명", self.set_xray)
@@ -440,6 +457,32 @@ class GLView(QOpenGLWidget):
         c.distance = target_h / math.tan(c.fov * 0.5) if on else target_h / 0.4
         self.cam.radius = self.radius
         self._changed()
+
+    # ---- 부품 숨기기
+
+    def set_hidden(self, idxs):
+        self.hidden = {i for i in idxs if 0 <= i < len(self.parts)}
+        self._balloon_cache = None
+        self.update()
+        self.hiddenChanged.emit()
+
+    def hide_part(self, idx):
+        if idx is not None:
+            self.set_hidden(self.hidden | {idx})
+
+    def show_part(self, idx):
+        self.set_hidden(self.hidden - {idx})
+
+    def isolate(self, idx):
+        if idx is not None:
+            self.set_hidden(set(range(len(self.parts))) - {idx})
+
+    def show_all(self):
+        self.set_hidden(set())
+
+    def set_balloons_visible(self, on):
+        self.show_numbers = on
+        self.update()
 
     def set_silhouette(self, on):
         self.silhouette = on
@@ -482,6 +525,7 @@ class GLView(QOpenGLWidget):
             self.center = (self.lo + self.hi) / 2
             self.radius = float(np.linalg.norm(self.hi - self.lo)) / 2 or 1.0
         self.cam.fit_box(self.lo, self.hi, self._aspect())
+        self.hidden = set()
         self._dirty_gpu = True
         self._balloon_cache = None
         self.update()
@@ -636,7 +680,7 @@ class GLView(QOpenGLWidget):
 
         def tri(i, c, alpha=1.0):
             t0, tn, _, _ = self._ranges[i]
-            if tn:
+            if tn and i not in self.hidden:
                 col = QColor(c)
                 col.setAlphaF(alpha)
                 p.setUniformValue(u["color"], col)
@@ -657,7 +701,7 @@ class GLView(QOpenGLWidget):
         if not id_mode:
             p.setUniformValue(u["lit"], 0.0)
             for i, (_, _, l0, ln) in enumerate(self._ranges):
-                if ln and not (see_through and i != self.highlight):
+                if ln and i not in self.hidden and not (see_through and i != self.highlight):
                     p.setUniformValue(u["color"], QColor(90, 40, 0) if i == self.highlight
                                       else QColor(25, 30, 40))
                     f.glDrawArrays(GL_LINES, l0, ln)
@@ -706,7 +750,7 @@ class GLView(QOpenGLWidget):
     def _overlay(self):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        if self.balloons and len(self.parts) > 1 and self._drag is None:
+        if self.balloons and self.show_numbers and len(self.parts) > 1 and self._drag is None:
             self._paint_balloons(p)
         self._paint_axes(p)
         p.setPen(QColor(150, 150, 150))
@@ -733,7 +777,7 @@ class GLView(QOpenGLWidget):
         c = self.cam
         return (round(c.yaw, 4), round(c.pitch, 4), round(c.distance, 4), round(c.fov, 3),
                 tuple(np.round(c.target, 3)), self.width(), self.height(), self.highlight,
-                self.all_balloons)
+                self.all_balloons, tuple(sorted(self.hidden)))
 
     def _paint_balloons(self, p):
         from .drawing import _spread_balloons
@@ -743,7 +787,7 @@ class GLView(QOpenGLWidget):
             r = fpx * 0.95
             anchors = []
             for idx, cand in enumerate(self._anchors):
-                if not len(cand):
+                if not len(cand) or idx in self.hidden:
                     continue
                 if not self.all_balloons and idx != self.highlight:
                     continue
@@ -777,7 +821,7 @@ class GLView(QOpenGLWidget):
         """(x, y) 픽셀에 보이는 부품 번호 (없으면 None)."""
         if not self.ok or not self.parts:
             return None
-        if self._balloon_cache:
+        if self._balloon_cache and self.show_numbers:
             for idx, a, b, r, _ in self._balloon_cache[1]:
                 if math.hypot(x - b[0], y - b[1]) <= r * 1.2:
                     return idx
@@ -847,7 +891,12 @@ class GLView(QOpenGLWidget):
     def keyPressEvent(self, ev):
         keys = {Qt.Key_F: "fit", Qt.Key_0: "iso", Qt.Key_1: "front", Qt.Key_7: "top",
                 Qt.Key_3: "right", Qt.Key_4: "left", Qt.Key_9: "back"}
-        if ev.key() in keys:
+        if ev.key() == Qt.Key_H and self.balloons:
+            if ev.modifiers() & Qt.ShiftModifier:
+                self.show_all()
+            else:
+                self.hide_part(self.highlight)
+        elif ev.key() in keys:
             self.go_view(keys[ev.key()])
         else:
             super().keyPressEvent(ev)

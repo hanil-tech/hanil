@@ -242,3 +242,28 @@ def bspline_panel(t=1.0):
     mk = BRepOffsetAPI_MakeThickSolid()
     mk.MakeThickSolidBySimple(face, t)
     return mk.Shape()
+
+
+def sharp_channel(w=100.0, h=40.0, t=3.2, length=300.0):
+    """R 없이 날카롭게 꺾은 ㄷ 형강 (바깥 치수 w × h). 바닥이 기준면."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakePolygon
+    pts = [(0, h), (0, 0), (w, 0), (w, h), (w - t, h), (w - t, t), (t, t), (t, h)]
+    mp = BRepBuilderAPI_MakePolygon()
+    for x, y in pts:
+        mp.Add(gp_Pnt(x, y, 0))
+    mp.Close()
+    f = BRepBuilderAPI_MakeFace(mp.Wire()).Face()
+    return BRepPrimAPI_MakePrism(f, gp_Vec(0, 0, length)).Shape()
+
+
+def sharp_hat(t=2.0, length=200.0):
+    """R 없는 모자 단면: 날개 30, 높이 40, 윗면 80 (바깥 치수). 볼록·오목 모서리가 섞인다."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakePolygon
+    pts = [(0, 0), (30 + t, 0), (30 + t, 40 - t), (110 - t, 40 - t), (110 - t, 0), (140, 0), (140, t),
+           (110, t), (110, 40), (30, 40), (30, t), (0, t)]
+    mp = BRepBuilderAPI_MakePolygon()
+    for x, y in pts:
+        mp.Add(gp_Pnt(x, y, 0))
+    mp.Close()
+    f = BRepBuilderAPI_MakeFace(mp.Wire()).Face()
+    return BRepPrimAPI_MakePrism(f, gp_Vec(0, 0, length)).Shape()

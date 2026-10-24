@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QRectF, QSettings, Qt, QUrl
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
@@ -20,16 +20,26 @@ from .drawing import DARK, paint_sheet, sheet_shapes
 
 
 class SheetView(QWidget):
+    """철판 한 장 그림. 휠로 커서 쪽 확대·축소, 끌어서 이동, 두 번 누르면 맞춤."""
+
     def __init__(self):
         super().__init__()
         self.setMinimumSize(500, 300)
+        self.setMouseTracking(False)
         self.result = None
         self.sheet = None
         self.shapes = None
+        self.zoom = 1.0
+        self.pan = QPointF(0, 0)
+        self._drag = None
 
     def show_sheet(self, result, sheet):
         self.result, self.sheet = result, sheet
         self.shapes = sheet_shapes(result, sheet) if sheet is not None else None
+        self.fit()
+
+    def fit(self):
+        self.zoom, self.pan = 1.0, QPointF(0, 0)
         self.update()
 
     def paintEvent(self, _):
@@ -40,14 +50,47 @@ class SheetView(QWidget):
             p.drawText(self.rect(), Qt.AlignCenter, "[배치하기] 를 누르면 철판 그림이 나옵니다")
             return
         r = QRectF(self.rect()).adjusted(10, 10, -10, -10)
-        paint_sheet(p, self.result, self.sheet, r, DARK, self.shapes)
+        # 맞춤 상자를 확대·이동한 상자에 그린다 (선 굵기·글씨 크기는 그대로)
+        z = QRectF(self.pan + r.topLeft() * self.zoom, r.size() * self.zoom)
+        s = 0.96 * min(z.width() / self.sheet.width, z.height() / self.sheet.height)
+        paint_sheet(p, self.result, self.sheet, z, DARK, self.shapes, font_px=max(9, min(18, s * 40)))
+        p.setPen(DARK.text)
+        p.drawText(QRectF(self.rect()).adjusted(8, 0, -8, -6), Qt.AlignBottom | Qt.AlignLeft,
+                   f"휠 확대·축소 ({self.zoom:.1f}배) · 끌어서 이동 · 두 번 눌러 맞춤")
         p.end()
+
+    def wheelEvent(self, ev):
+        if self.sheet is None:
+            return
+        f = 1.25 ** (ev.angleDelta().y() / 120)
+        nz = min(max(self.zoom * f, 0.5), 200.0)
+        f = nz / self.zoom
+        c = ev.position()
+        # 커서 아래 점이 그 자리에 머물게
+        self.pan = c - (c - self.pan) * f
+        self.zoom = nz
+        self.update()
+
+    def mousePressEvent(self, ev):
+        self._drag = ev.position()
+
+    def mouseMoveEvent(self, ev):
+        if self._drag is not None:
+            self.pan += ev.position() - self._drag
+            self._drag = ev.position()
+            self.update()
+
+    def mouseReleaseEvent(self, _):
+        self._drag = None
+
+    def mouseDoubleClickEvent(self, _):
+        self.fit()
 
 
 class NestDialog(QDialog):
     """items: [(번호 1부터, 이름, UnfoldResult)]. material: 재질 기호, density: g/cm³."""
 
-    COLS = ["넣기", "번호", "부품", "두께", "크기 (mm)", "면적 (m²)", "수량"]
+    COLS = ["넣기 ☑", "번호", "부품", "두께", "크기 (mm)", "면적 (m²)", "수량"]
 
     def __init__(self, items, material="", density=7.85, source_name="", parent=None):
         super().__init__(parent)
@@ -88,6 +131,8 @@ class NestDialog(QDialog):
             self.qty.append(sp)
             self.table.setCellWidget(row, 6, sp)
 
+        self.table.horizontalHeader().sectionClicked.connect(self._header_clicked)
+        self.table.horizontalHeaderItem(0).setToolTip("눌러서 모두 넣기 / 모두 빼기")
         all_on = QPushButton("모두 넣기")
         all_on.clicked.connect(lambda: [c.setChecked(True) for c in self.use])
         all_off = QPushButton("모두 빼기")
@@ -164,9 +209,13 @@ class NestDialog(QDialog):
         self.summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.btn_dxf = QPushButton("DXF 저장")
         self.btn_dxf.clicked.connect(self.save_dxf)
-        self.btn_pdf = QPushButton("PDF 저장")
+        self.btn_pdf = QPushButton("보고서 PDF")
+        self.btn_pdf.setToolTip("요약 · 부품별 수량 · 철판 한 장에 한 쪽 그림")
         self.btn_pdf.clicked.connect(self.save_pdf)
-        for b in (self.btn_dxf, self.btn_pdf):
+        self.btn_xlsx = QPushButton("보고서 엑셀")
+        self.btn_xlsx.setToolTip("요약 · 부품별 · 철판별 표와 철판 그림")
+        self.btn_xlsx.clicked.connect(self.save_xlsx)
+        for b in (self.btn_dxf, self.btn_pdf, self.btn_xlsx):
             b.setEnabled(False)
         side = QWidget()
         sv = QVBoxLayout(side)
@@ -178,7 +227,10 @@ class NestDialog(QDialog):
         scroll.setWidget(self.summary)
         sv.addWidget(scroll, 1)
         sv.addWidget(self.btn_dxf)
-        sv.addWidget(self.btn_pdf)
+        hb2 = QHBoxLayout()
+        hb2.addWidget(self.btn_pdf)
+        hb2.addWidget(self.btn_xlsx)
+        sv.addLayout(hb2)
 
         right = QSplitter(Qt.Horizontal)
         right.addWidget(self.view)
@@ -193,6 +245,14 @@ class NestDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.addWidget(split)
         self._index = []      # 목록 줄 → (결과, 철판)
+
+    def _header_clicked(self, col):
+        """[넣기] 머리를 누르면: 하나라도 빠져 있으면 모두 넣고, 모두 들어 있으면 모두 뺀다."""
+        if col != 0:
+            return
+        on = not all(c.isChecked() for c in self.use)
+        for c in self.use:
+            c.setChecked(on)
 
     # ---- 계산
 
@@ -267,7 +327,7 @@ class NestDialog(QDialog):
             sl = r.summary_lines(self.density)
             lines.append(f"<b>{sl[0]}</b><br>" + "<br>".join(sl[1:]))
         self.summary.setText("<br><br>".join(lines))
-        for b in (self.btn_dxf, self.btn_pdf):
+        for b in (self.btn_dxf, self.btn_pdf, self.btn_xlsx):
             b.setEnabled(total > 0)
         if self._index:
             self.sheet_list.setCurrentRow(0)
@@ -291,6 +351,17 @@ class NestDialog(QDialog):
             N.save_dxf(self.results, path)
             QMessageBox.information(self, "철판 배치", f"저장했습니다.\n{path}\n\n"
                                     "레이어: SHEET 철판 테두리, CUT 절단, BEND 절곡, NOTE 번호·설명")
+
+    def save_xlsx(self):
+        from . import report
+        path, _ = QFileDialog.getSaveFileName(self, "철판 배치 보고서 (엑셀)", self._base("xlsx"), "엑셀 (*.xlsx)")
+        if path:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                report.save_nesting_xlsx(self.results, path, self.source_name, self.density)
+            finally:
+                QApplication.restoreOverrideCursor()
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def save_pdf(self):
         from . import report

@@ -142,6 +142,12 @@ def ensure_gui():
     return QGuiApplication.instance()
 
 
+def _brand(p, rect):
+    """머리글 오른쪽: [로고] 제작사 : 한일특장(주). 쓴 너비(점)."""
+    from . import company
+    return company.paint_brand(p, rect, _font(8.5, True))
+
+
 def _font(size_pt, bold=False):
     from PySide6.QtGui import QFont
     f = QFont()
@@ -222,8 +228,11 @@ def save_pdf(d: ReportData, path: str):
         p.drawText(R(margin, y, inner_w, 9), Qt.AlignLeft | Qt.AlignVCenter, d.title)
         p.setFont(_font(8))
         p.setPen(gray)
-        p.drawText(R(margin, y, inner_w, 9), Qt.AlignRight | Qt.AlignVCenter,
-                   f"한일  ·  {d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}")
+        bw = _brand(p, R(margin, y + 1.5, inner_w, 6)) / k
+        p.setFont(_font(8))
+        p.setPen(gray)
+        p.drawText(R(margin, y, inner_w - bw - 4, 9), Qt.AlignRight | Qt.AlignVCenter,
+                   f"{d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}")
         p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
         p.drawLine(QPointF(margin * k, (y + 10) * k), QPointF((page_w - margin) * k, (y + 10) * k))
         return y + 13
@@ -389,6 +398,13 @@ def _xl_styles():
     }
 
 
+def _xl_font(base, **kw):
+    """openpyxl Font 를 바꿔 새로 (copy() 가 없는 판도 있다)."""
+    from openpyxl.styles import Font
+    return Font(name=base.name, size=base.sz, bold=kw.get("bold", base.b),
+                color=kw.get("color", base.color))
+
+
 def _add_image(ws, qimage, anchor, width_px):
     from openpyxl.drawing.image import Image as XLImage
 
@@ -413,9 +429,14 @@ def save_xlsx(d: ReportData, path: str):
     ws.column_dimensions["B"].width = 70
     ws["A1"] = d.title
     ws["A1"].font = st["title"]
-    ws["A2"] = f"한일  ·  {d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}"
-    ws["A2"].font = st["key"]
-    r = 4
+    from . import company
+    ws["A2"] = company.MAKER
+    ws["A2"].font = _xl_font(st["val"], bold=True)
+    ws["A3"] = f"{d.created:%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}"
+    ws["A3"].font = st["key"]
+    logo_tmp = _add_image(ws, company.logo_image(96), "B2", 40)
+    ws.row_dimensions[2].height = 32
+    r = 5
     for i, (k, v) in enumerate(summary_rows(d)):
         ws.cell(r, 1, k).font = st["key"]
         ws.cell(r, 2, v).font = st["val"]
@@ -504,7 +525,7 @@ def save_xlsx(d: ReportData, path: str):
         _thinning_sheet(wb, d, st)
 
     wb.save(path)
-    for t in tmps:
+    for t in tmps + [logo_tmp]:
         try:
             os.remove(t)
         except OSError:
@@ -636,7 +657,10 @@ def save_assembly_pdf(model, path: str, parts=None, yaw=None, pitch=None, highli
                    f"조립도  {name}" + (f"  ({sub})" if sub else ""))
         p.setFont(_font(8))
         p.setPen(gray)
-        p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignRight | Qt.AlignVCenter,
+        bw = _brand(p, R(margin, y + 1.5, page_w - 2 * margin, 6)) / k
+        p.setFont(_font(8))
+        p.setPen(gray)
+        p.drawText(R(margin, y, page_w - 2 * margin - bw - 4, 9), Qt.AlignRight | Qt.AlignVCenter,
                    f"부품 {len(model.solids)}개  ·  {_dt.datetime.now():%Y-%m-%d %H:%M}  ·  "
                    f"한일 판금 전개 {version_text()}")
         p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
@@ -728,7 +752,10 @@ def save_nesting_pdf(results, path: str, source_name: str = "", density=None):
                    "철판 배치" + (f"  {source_name}" if source_name else "") + (f"  ({sub})" if sub else ""))
         p.setFont(_font(8))
         p.setPen(gray)
-        p.drawText(R(margin, y, page_w - 2 * margin, 9), Qt.AlignRight | Qt.AlignVCenter,
+        bw = _brand(p, R(margin, y + 1.5, page_w - 2 * margin, 6)) / k
+        p.setFont(_font(8))
+        p.setPen(gray)
+        p.drawText(R(margin, y, page_w - 2 * margin - bw - 4, 9), Qt.AlignRight | Qt.AlignVCenter,
                    f"철판 {total}장  ·  {_dt.datetime.now():%Y-%m-%d %H:%M}  ·  한일 판금 전개 {version_text()}")
         p.setPen(QPen(QColor(20, 20, 20), 0.4 * k))
         p.drawLine(QPointF(margin * k, (y + 10) * k), QPointF((page_w - margin) * k, (y + 10) * k))
@@ -812,3 +839,150 @@ def save_nesting_pdf(results, path: str, source_name: str = "", density=None):
             box = R(margin, y + 7, page_w - 2 * margin, page_h - y - 7 - margin)
             paint_sheet(p, r, s, box, LIGHT, line_scale=0.25 * k, font_px=int(3.0 * k))
     p.end()
+
+
+def render_sheet_image(r, sheet, w=1600, h=820):
+    """철판 한 장 그림 (흰 바탕, 인쇄·엑셀용)."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from .drawing import LIGHT, paint_sheet
+    ensure_gui()
+    img = QImage(w, h, QImage.Format_RGB32)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    paint_sheet(p, r, sheet, QRectF(6, 6, w - 12, h - 12), LIGHT, font_px=14)
+    p.end()
+    return img
+
+
+def nesting_part_rows(results, density):
+    """부품별: (번호, 부품명, 두께, 크기, 면적 m², 수량, 배치 수, 철판, 개당 kg, 합계 kg)."""
+    rows = []
+    for r in results:
+        cnt = {}
+        for si, s in enumerate(r.sheets):
+            for pl in s.placements:
+                c = cnt.setdefault(pl.part, [0, set()])
+                c[0] += 1
+                c[1].add(si + 1)
+        for i, part in enumerate(r.parts):
+            n, sheets = cnt.get(i, [0, set()])
+            P = np.vstack([np.asarray(c, float) for c in part.cut])
+            w, h = np.ptp(P, axis=0)
+            kg = part.area * r.thickness / 1e6 * density
+            rows.append((part.label, part.name, r.thickness, f"{w:.0f} × {h:.0f}", part.area / 1e6,
+                         part.qty, n, ", ".join(str(x) for x in sorted(sheets)), kg, kg * n))
+    return rows
+
+
+def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
+    """철판 배치 보고서 (엑셀): 요약 · 부품별 · 철판별(그림)."""
+    from openpyxl import Workbook
+
+    st = _xl_styles()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "요약"
+
+    def head(sheet, row, names, widths=None):
+        for j, h in enumerate(names, 1):
+            c = sheet.cell(row, j, h)
+            c.font, c.fill, c.alignment, c.border = st["head"], st["head_fill"], st["center"], st["border"]
+            if widths:
+                sheet.column_dimensions[c.column_letter].width = widths[j - 1]
+
+    def put(sheet, row, vals, zebra=False, fmt=None):
+        for j, v in enumerate(vals, 1):
+            c = sheet.cell(row, j, v)
+            c.font, c.border = st["val"], st["border"]
+            if zebra:
+                c.fill = st["zebra"]
+            if fmt and fmt[j - 1]:
+                c.number_format = fmt[j - 1]
+
+    from . import company
+    ws.cell(1, 1, "철판 배치 보고서").font = st["title"]
+    ws.row_dimensions[1].height = 34
+    logo_tmp = _add_image(ws, company.logo_image(96), "D1", 44)
+    ws.cell(1, 5, company.MAKER).font = _xl_font(st["val"], bold=True)
+    info = [("제작사", company.NAME), ("도면", source_name), ("만든 때", f"{_dt.datetime.now():%Y-%m-%d %H:%M}"),
+            ("프로그램", f"한일 판금 전개 {version_text(long=True)}")]
+    if results:
+        r0 = results[0]
+        info += [("철판 크기", f"{r0.sheet_h:g} × {r0.sheet_w:g} mm"),
+                 ("부품 간격 / 가장자리 여유", f"{r0.gap:g} / {r0.margin:g} mm"),
+                 ("격자", f"{r0.resolution:g} mm")]
+    for i, (k, v) in enumerate(info, 3):
+        ws.cell(i, 1, k).font = st["key"]
+        ws.cell(i, 2, v).font = st["val"]
+
+    row = 3 + len(info) + 1
+    names = ["두께 (mm)", "재질", "철판 (장)", "배치 / 수량", "사용률", "철판 무게 (kg)", "부품 무게 (kg)",
+             "자투리 (kg)", "마지막 장 사용 길이 (mm)", "남는 철판 (mm)", "못 놓은 부품"]
+    head(ws, row, names, [24, 12, 10, 12, 10, 14, 14, 12, 22, 18, 40])
+    fmt = [None, None, "0", None, "0.0%", "0.0", "0.0", "0.0", "0", None, None]
+    tot = [0, 0.0, 0.0]
+    for i, r in enumerate(results):
+        row += 1
+        sw = r.sheet_weight_kg(density) * len(r.sheets)
+        pw = sum(s.used_area for s in r.sheets) * r.thickness / 1e6 * density
+        last = r.sheets[-1] if r.sheets else None
+        left = ", ".join(f"{r.parts[pi].label}×{n}" for pi, n, _ in r.unplaced)
+        put(ws, row, [r.thickness, r.material, len(r.sheets), f"{r.placed_count} / {r.total_qty}",
+                      r.utilization, sw, pw, sw - pw, last.used_length if last else 0,
+                      f"{r.sheet_h:g} × {max(0.0, r.sheet_w - last.used_length):.0f}" if last else "",
+                      left], i % 2 == 1, fmt)
+        tot[0] += len(r.sheets)
+        tot[1] += sw
+        tot[2] += pw
+    row += 1
+    put(ws, row, ["합계", "", tot[0], "", (tot[2] / tot[1]) if tot[1] else 0, tot[1], tot[2],
+                  tot[1] - tot[2], None, "", ""], False, fmt)
+    for j in range(1, len(names) + 1):
+        ws.cell(row, j).font = _xl_font(st["head"], color="000000")
+    ws.cell(row + 2, 1, f"무게는 밀도 {density:g} g/cm³ 기준. 사용률 = 부품 넓이 합 / 철판 넓이 합.").font = st["key"]
+    ws.freeze_panes = None
+
+    # 부품별
+    wp = wb.create_sheet("부품별")
+    names = ["번호", "부품명", "두께", "크기 (mm)", "면적 (m²)", "수량", "배치", "철판", "개당 무게 (kg)", "합계 (kg)"]
+    head(wp, 1, names, [8, 34, 8, 16, 12, 8, 8, 16, 14, 12])
+    fmt = [None, None, "0.0##", None, "0.0000", "0", "0", None, "0.000", "0.000"]
+    for i, vals in enumerate(nesting_part_rows(results, density), 2):
+        put(wp, i, list(vals), i % 2 == 1, fmt)
+        if vals[5] != vals[6]:
+            wp.cell(i, 7).font = _xl_font(st["val"], color="C00000", bold=True)
+    wp.freeze_panes = "A2"
+
+    # 철판별 + 그림
+    wsh = wb.create_sheet("철판별")
+    names = ["두께", "장", "부품 수", "사용률", "사용 길이 (mm)", "부품 번호"]
+    head(wsh, 1, names, [8, 8, 10, 10, 14, 90])
+    row = 1
+    tmps = []
+    for r in results:
+        for k, s in enumerate(r.sheets, 1):
+            row += 1
+            labels = {}
+            for pl in s.placements:
+                lb = r.parts[pl.part].label
+                labels[lb] = labels.get(lb, 0) + 1
+            put(wsh, row, [r.thickness, f"{k} / {len(r.sheets)}", len(s.placements), s.utilization,
+                           s.used_length, ", ".join(f"{a}×{n}" if n > 1 else a for a, n in labels.items())],
+                row % 2 == 1, [None, None, "0", "0.0%", "0", None])
+            wsh.cell(row, 6).alignment = st["wrap"]
+    pic = wb.create_sheet("그림")
+    prow = 1
+    for r in results:
+        for k, s in enumerate(r.sheets, 1):
+            pic.cell(prow, 1, f"t{r.thickness:g}  {k} / {len(r.sheets)}장 · 부품 {len(s.placements)}개 · "
+                              f"사용률 {s.utilization * 100:.1f}% · 사용 길이 {s.used_length:.0f} mm").font = st["val"]
+            tmps.append(_add_image(pic, render_sheet_image(r, s), f"A{prow + 1}", 1000))
+            prow += 28
+    wb.save(path)
+    for t in tmps + [logo_tmp]:
+        try:
+            os.remove(t)
+        except OSError:
+            pass

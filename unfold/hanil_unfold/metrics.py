@@ -86,12 +86,30 @@ def polygon_area(pts):
     return abs(s) / 2
 
 
+def _encloses(loop, bbox, rel=1e-3):
+    """닫힌 윤곽이 전개도 전체 상자를 감싸는가 (= 외곽선인가)."""
+    if not loop:
+        return False
+    x0, y0, x1, y1 = bbox
+    xs = [p[0] for p in loop]
+    ys = [p[1] for p in loop]
+    tol = rel * max(x1 - x0, y1 - y0) + 1e-6
+    return min(xs) - x0 < tol and x1 - max(xs) < tol and min(ys) - y0 < tol and y1 - max(ys) < tol
+
+
 def compute(result, density_g_cm3: float) -> Metrics:
     w, h = result.size
-    lps = loops(result.entities)
-    areas = sorted((polygon_area(lp) for lp in lps), reverse=True)
+    lps = sorted(loops(result.entities), key=polygon_area, reverse=True)
+    areas = [polygon_area(lp) for lp in lps]
     outer = areas[0] if areas else w * h
     blank = outer - sum(areas[1:])
+    if not _encloses(lps[0] if lps else None, result.bbox):
+        # 외곽선이 T 자로 만나거나 끊겨 닫힌 외곽이 없다: 격자로 칠해 센다 (철판 배치와 같은 방법)
+        from .nesting import NestPart
+        part = NestPart.from_result("", result)
+        blank = part.area
+        outer = blank + sum(polygon_area(hh) for hh in part.holes)
+        areas = [outer] + [polygon_area(hh) for hh in part.holes]
     cut = sum(_length(e) for e in result.entities if e.layer == "CUT")
     vol_cm3 = blank * result.thickness / 1000.0
     rect = w * h

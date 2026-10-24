@@ -127,3 +127,26 @@ def test_by_thickness_groups_and_saves(tmp_path):
     pdf = tmp_path / "n.pdf"
     report.save_nesting_pdf(rs, str(pdf), "test.stp", 7.85)
     assert pdf.stat().st_size > 1000
+
+
+def test_metrics_area_positive_for_broken_outline():
+    from hanil_unfold import metrics
+    ents = [Line((0, 0), (100, 0)), Line((100, 0), (200, 0)), Line((200, 0), (200, 100)),
+            Line((200, 100), (100, 100)), Line((100, 100), (0, 100)), Line((0, 100), (0, 0)),
+            Line((100, 0), (100, 100)), Arc((50, 50), 10, full=True)]
+    m = metrics.compute(flat(ents), 7.85)
+    assert m.blank_area == pytest.approx(20000 - math.pi * 100, rel=0.03)
+
+
+def test_nesting_excel_report(tmp_path):
+    import openpyxl
+    from hanil_unfold import report
+    parts = [N.NestPart.from_result("a", flat(rect(300, 200)), qty=3, number=1)]
+    rs = N.nest_by_thickness(parts, 1219, 2438)
+    out = tmp_path / "n.xlsx"
+    report.save_nesting_xlsx(rs, str(out), "test.stp", 7.85)
+    wb = openpyxl.load_workbook(out)
+    assert wb.sheetnames == ["요약", "부품별", "철판별", "그림"]
+    assert wb["요약"].cell(1, 5).value == "제작사 : 한일특장(주)"
+    assert wb["부품별"].cell(2, 7).value == 3
+    assert len(wb["그림"]._images) == 1

@@ -164,3 +164,46 @@ def test_tray_with_four_flanges():
     assert h == pytest.approx(80 + 2 * (allowance + 30), abs=1e-4)
     assert len(r.bends) == 4
     assert {b.direction for b in r.bends} == {r.bends[0].direction}
+
+
+# ---------------------------------------------------------------- R 없이 꺾은 모서리
+
+def test_sharp_channel_unfolds_with_zero_radius_bends():
+    from models import sharp_channel
+    t, k = 3.2, 0.44
+    r = unfold(solid(sharp_channel(t=t)), k_factor=k)
+    bd = 2 * t * math.tan(math.pi / 4) - math.pi / 2 * k * t       # R0 90° 연신
+    w, h = sorted(r.size)
+    assert w == pytest.approx(40 + 100 + 40 - 2 * bd, abs=1e-3)
+    assert h == pytest.approx(300, abs=1e-6)
+    assert len(r.bends) == 2 and all(b.kind == "날카로운 모서리" for b in r.bends)
+    assert all(b.deduction == pytest.approx(bd, abs=1e-6) for b in r.bends)
+    from hanil_unfold import metrics
+    m = metrics.compute(r, 7.85)
+    assert m.pierce == 1 and m.blank_area == pytest.approx(w * h, rel=1e-6)
+    assert not r.warnings
+
+
+def test_sharp_hat_mixes_outer_and_inner_corners():
+    from models import sharp_hat
+    t, k = 2.0, 0.44
+    r = unfold(solid(sharp_hat(t=t)), k_factor=k)
+    ba = math.pi / 2 * k * t
+    bd = 2 * t - ba
+    # 바깥 겉면: 윗면 80 + 벽 (40 − t) × 2 + 날개 30 × 2, 볼록 모서리 2곳은 겹치고 오목 2곳은 벌어진다
+    expect = 80 + 2 * (40 - t) + 2 * 30 - 2 * bd + 2 * ba
+    assert max(r.size) == pytest.approx(expect, abs=1e-3)
+    assert sorted(b.direction for b in r.bends) == ["DOWN", "DOWN", "UP", "UP"]
+
+
+def test_welded_t_joint_is_not_folded_and_warns():
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.gp import gp_Pnt
+    base = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 200, 100, 3).Shape()
+    rib = BRepPrimAPI_MakeBox(gp_Pnt(0, 48.5, 3), 200, 3, 40).Shape()
+    r = unfold(solid(BRepAlgoAPI_Fuse(base, rib).Shape()))
+    assert r.thickness == pytest.approx(3.0)
+    assert not r.bends
+    assert r.coverage == pytest.approx(60000 / 84000, rel=1e-3)
+    assert any("부피" in w for w in r.warnings)

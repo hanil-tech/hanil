@@ -37,7 +37,7 @@ from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_
 from OCP.GProp import GProp_GProps
 from OCP.gp import gp_Dir, gp_Lin, gp_Pnt, gp_Pnt2d, gp_Vec, gp_Vec2d
 from OCP.IntCurvesFace import IntCurvesFace_ShapeIntersector
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_IN, TopAbs_REVERSED
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_IN, TopAbs_REVERSED, TopAbs_VERTEX
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS
 
@@ -149,6 +149,7 @@ class UnfoldResult:
     rolled: list = field(default_factory=list)   # 말아 만든 원통·원뿔 설명
     mode: str = SHEET                             # 실제로 쓴 전개 방식
     forming: FormingInfo | None = None
+    coverage: float = 1.0                         # 펼친 겉면 넓이 × 두께 / 부품 부피
 
     @property
     def bbox(self):
@@ -362,23 +363,36 @@ class SheetMetalUnfolder:
         return max(self.info, key=lambda f: f.area)
 
     def _measure_thickness(self, root: _Face) -> float:
-        u, v = _interior_uv(root.face)
-        p = BRepAdaptor_Surface(root.face).Value(u, v)
-        n = _surface_normal(root.face, u, v)
-        # 바깥 법선 반대쪽(재료 안쪽)으로 빛을 쏴 반대편 면까지 거리를 잰다.
-        # 면 방향이 뒤집혀 저장된 파일도 있어, 안쪽에서 못 찾으면 반대쪽도 본다.
+        """기준면 여러 곳에서 재료 안쪽으로 빛을 쏴 반대편 면까지 거리를 재고 가운데 값.
+
+        한 곳만 재면 덧댄 판·리브 밑에서 두께가 크게 나온다."""
+        surf = BRepAdaptor_Surface(root.face)
+        u0, u1, v0, v1 = _uv_bounds(root.face)
+        pts = [_interior_uv(root.face)]
+        for i in range(3):
+            for j in range(3):
+                u = u0 + (u1 - u0) * (i + 0.5) / 3
+                v = v0 + (v1 - v0) * (j + 0.5) / 3
+                if _classify_in(root.face, u, v):
+                    pts.append((u, v))
         hit = IntCurvesFace_ShapeIntersector()
         hit.Load(self.solid, 1e-6)
-        dists = []
-        for sign in (-1.0, 1.0):
-            hit.Perform(gp_Lin(p, gp_Dir(*(sign * n))), 1e-4, 1e7)
-            dists = [hit.WParameter(i) for i in range(1, hit.NbPnt() + 1)]
-            dists = [d for d in dists if d > 1e-4]
-            if dists:
-                break
-        if not dists:
+        found = []
+        for u, v in pts:
+            p = surf.Value(u, v)
+            n = _surface_normal(root.face, u, v)
+            # 바깥 법선 반대쪽(재료 안쪽)으로. 면 방향이 뒤집혀 저장된 파일도 있어 반대쪽도 본다.
+            for sign in (-1.0, 1.0):
+                hit.Perform(gp_Lin(p, gp_Dir(*(sign * n))), 1e-4, 1e7)
+                dists = [hit.WParameter(i) for i in range(1, hit.NbPnt() + 1)]
+                dists = [d for d in dists if d > 1e-4]
+                if dists:
+                    found.append(min(dists))
+                    break
+        if not found:
             raise UnfoldError("두께를 잴 수 없습니다. 두께를 직접 입력해 주세요.")
-        return min(dists)
+        found.sort()
+        return found[(len(found) - 1) // 2]
 
     # ---- 단계 2: 스킨 모으기
 
@@ -398,7 +412,9 @@ class SheetMetalUnfolder:
             return False
         return float(na @ nb) > TANGENT_COS
 
-    def _collect_skin(self, root: _Face) -> set:
+    def _collect_skin(self, root: _Face, t: float | None = None) -> set:
+        """기준면과 이어진 겉면들. 둥근 절곡(접하는 모서리)으로 이어진 면, 그리고 t 를 주면
+        R 없이 날카롭게 꺾인 평면 플랜지(_sharp_flange)도 모은다."""
         skin = {root.index}
         queue = deque([root.index])
         while queue:
@@ -407,10 +423,101 @@ class SheetMetalUnfolder:
                 for fj in self.edge_faces[ei]:
                     if fj in skin or fj == fi:
                         continue
-                    if self._tangent(ei, fi, fj):
+                    if self._tangent(ei, fi, fj) or (t and self._sharp_flange(ei, fi, fj, t)):
                         skin.add(fj)
                         queue.append(fj)
         return skin
+
+    # ---- R 없이 꺾인 모서리 (날카로운 절곡)
+
+    def _ray_hit(self, p, d):
+        """p 에서 d 쪽으로 쏜 빛이 처음 닿는 면까지 거리 (없으면 None)."""
+        if not hasattr(self, "_hitter"):
+            self._hitter = IntCurvesFace_ShapeIntersector()
+            self._hitter.Load(self.solid, 1e-6)
+        h = self._hitter
+        h.Perform(gp_Lin(gp_Pnt(*p), gp_Dir(*d)), 1e-4, 1e7)
+        ds = [h.WParameter(i) for i in range(1, h.NbPnt() + 1)]
+        ds = [x for x in ds if x > 1e-4]
+        return min(ds) if ds else None
+
+    def _inside(self, p) -> bool:
+        from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+        c = BRepClass3d_SolidClassifier(self.solid, gp_Pnt(*p), 1e-6)
+        return c.State() == TopAbs_IN
+
+    def _sharp_flange(self, ei: int, fa: int, fb: int, t: float) -> bool:
+        """fa 에서 날카로운 직선 모서리 ei 를 건너 fb 로 가면 판을 접은 플랜지인가.
+
+        두께 면(옆면)과 가르는 법: 플랜지는 모서리에서 두께보다 훨씬 멀리 뻗고,
+        안쪽으로 두께만큼 들어가면 반대쪽 겉면이 있다. 옆면은 폭이 두께와 같고,
+        끝면(마구리)은 안쪽으로 부품 길이만큼 가야 반대편이 나온다."""
+        key = (ei, fb)
+        cache = self.__dict__.setdefault("_sharp_cache", {})
+        if key in cache:
+            return cache[key]
+        cache[key] = False
+        A, B = self.info[fa], self.info[fb]
+        if A.kind != "plane" or B.kind != "plane" or not self._is_straight(ei):
+            return False
+        edge = self.edges.items[ei]
+        try:
+            na = _surface_normal(A.face, *self._edge_uv_mid(edge, A.face))
+            nb = _surface_normal(B.face, *self._edge_uv_mid(edge, B.face))
+        except Exception:
+            return False
+        cosang = float(na @ nb)
+        if cosang > TANGENT_COS or cosang < math.cos(math.radians(150)):
+            return False           # 접하거나, 거의 겹쳐 접힌 것(헤밍)은 아님
+        c = BRepAdaptor_Curve(edge)
+        p0, p1 = _pnt(c.Value(c.FirstParameter())), _pnt(c.Value(c.LastParameter()))
+        e = p1 - p0
+        if np.linalg.norm(e) < 2 * t:
+            return False
+        e /= np.linalg.norm(e)
+        d = np.cross(nb, e)
+        d /= np.linalg.norm(d)
+        ext = [float((_pnt(BRep_Tool.Pnt_s(TopoDS.Vertex(v))) - p0) @ d)
+               for v in _explore(B.face, TopAbs_VERTEX)]
+        if not ext or max(abs(min(ext)), abs(max(ext))) < 1.5 * t:
+            return False           # 폭이 두께 정도: 옆면
+        # 기준 겉면이 모서리 너머로 이어지면 (용접한 T 자 이음) 접은 것이 아니다
+        ua, va = _interior_uv(A.face)
+        pa = _pnt(BRepAdaptor_Surface(A.face).Value(ua, va))
+        da = np.cross(na, e)
+        if float((pa - p0) @ da) < 0:
+            da = -da                # 모서리에서 A 안쪽으로
+        mid = 0.5 * (p0 + p1)
+        if self._inside(mid - 2 * t * da - 0.1 * t * na):
+            return False
+        u, v = _interior_uv(B.face)
+        pb = _pnt(BRepAdaptor_Surface(B.face).Value(u, v))
+        nbi = _surface_normal(B.face, u, v)
+        dist = self._ray_hit(pb, -nbi)
+        if dist is None or abs(dist - t) > 0.08 * t + 0.02:
+            return False           # 안쪽으로 두께만큼 가서 반대 겉면이 없다
+        cache[key] = True
+        return True
+
+    def _sharp_link(self, ei: int, parent: _Face, child: _Face, t: float):
+        """날카로운 절곡의 (각도, 볼록?, 절곡 계산, 펼친 틈)."""
+        edge = self.edges.items[ei]
+        na = _surface_normal(parent.face, *self._edge_uv_mid(edge, parent.face))
+        nb = _surface_normal(child.face, *self._edge_uv_mid(edge, child.face))
+        theta = math.acos(max(-1.0, min(1.0, float(na @ nb))))
+        c = BRepAdaptor_Curve(edge)
+        m = _pnt(c.Value(0.5 * (c.FirstParameter() + c.LastParameter())))
+        u, v = _interior_uv(child.face)
+        pb = _pnt(BRepAdaptor_Surface(child.face).Value(u, v))
+        # 플랜지가 기준 겉면의 바깥 법선 반대쪽으로 꺾이면, 이 겉면에서 보아 볼록 (바깥 꼭짓점)
+        convex = float((pb - m) @ na) < 0
+        calc = self.settings.resolve(theta, 0.0, t)
+        # 겉면 두 장은 바깥(볼록) 또는 안쪽(오목) 꼭짓점에서 만난다:
+        #   볼록: 펼친 길이 = 바깥 길이 합 − 연신  → 틈 = BA − 2 (r + t) tan(θ/2)  (보통 음수: 겹침)
+        #   오목: 펼친 길이 = 안쪽 길이 합 + BA − 2 r tan(θ/2)
+        r = calc.r
+        gap = calc.allowance - 2 * math.tan(theta / 2) * (r + (t if convex else 0.0))
+        return theta, convex, calc, gap
 
     # ---- 단계 3: 면마다 기본 전개 정하기
 
@@ -525,7 +632,7 @@ class SheetMetalUnfolder:
         if t <= 0:
             raise UnfoldError("두께가 0 입니다.")
 
-        skin = self._collect_skin(root)
+        skin = self._collect_skin(root, t)
         unsupported = [fi for fi in skin if self.info[fi].kind == "other"]
         if self.mode == FORMING or (self.mode == AUTO and unsupported):
             return self._unfold_forming(skin, t, len(unsupported))
@@ -544,6 +651,7 @@ class SheetMetalUnfolder:
 
         # 기준면부터 넓이 우선으로 이어 붙인다.
         self._place_root(root)
+        sharp = []        # 날카로운 절곡: (모서리 끝 두 점, 옮긴 두 점, Bend)
         placed = {root.index}
         tree_edges = set()
         queue = deque([root.index])
@@ -556,6 +664,8 @@ class SheetMetalUnfolder:
                     if not self._is_straight(ei):
                         continue
                     self._place_child(self.info[fi], self.info[fj], ei)
+                    if self._sharp_cache_get(ei, fi, fj):
+                        sharp.append(self._shift_sharp(ei, self.info[fi], self.info[fj], t))
                     self.info[fj].parent = fi
                     placed.add(fj)
                     tree_edges.add(ei)
@@ -576,8 +686,11 @@ class SheetMetalUnfolder:
                     continue
                 entities.extend(self._map_edge(edge, f))
 
-        entities = _join_collinear(_merge_duplicates(_fit_primitives(entities)))
+        entities = _close_sharp(_fit_primitives(entities), sharp)
+        entities = _join_collinear(_merge_duplicates(entities))
         bends, rolled = self._bends(placed, t)
+        if sharp:
+            bends = _renumber(bends + [b for _, _, b in sharp])
         for b in bends:
             entities.append(Line(*b.line, layer="BEND"))
         entities = _align_entities(entities, bends)
@@ -588,7 +701,57 @@ class SheetMetalUnfolder:
             settings_text=self.settings.describe(), rolled=rolled)
         result.entities = _normalize_origin(result)
         _check_overlap(result)
+        self._check_coverage(result, placed, t)
         return result
+
+    def _check_coverage(self, result, placed, t):
+        """펼친 겉면 넓이 × 두께가 부품 부피에 크게 못 미치면, 빠진 부분이 있다고 알린다."""
+        try:
+            g = GProp_GProps()
+            BRepGProp.VolumeProperties_s(self.solid, g)
+            vol = abs(g.Mass())
+        except Exception:
+            return
+        covered = sum(self.info[fi].area for fi in placed) * t
+        if vol <= 0:
+            return
+        ratio = covered / vol
+        result.coverage = ratio
+        if ratio > 1.2:
+            result.warnings.append(
+                f"펼친 면적×두께가 부품 부피의 {ratio:.0%} 입니다. 두께가 곳마다 다릅니다 "
+                "(두께를 잘못 쟀거나 판금이 아닌 부품). 두께를 직접 넣어 확인하세요.")
+        elif ratio < 0.85:
+            result.warnings.append(
+                f"펼친 면적×두께가 부품 부피의 {ratio:.0%} 뿐입니다. 전개에 들어가지 않은 부분이 있습니다 — "
+                "두께가 일정한 판금이 아니거나(블록·보스·용접 조립), 곡선을 따라 꺾인 플랜지일 수 있습니다. "
+                "[전개 방식] 을 [자동] 또는 [성형품 근사] 로 바꿔 보세요.")
+
+    def _sharp_cache_get(self, ei, fi, fj) -> bool:
+        c = self.__dict__.get("_sharp_cache", {})
+        return c.get((ei, fj), False) or c.get((ei, fi), False)
+
+    def _shift_sharp(self, ei: int, parent: _Face, child: _Face, t: float):
+        """_place_child 로 맞붙여 놓은 자식 면을 펼친 틈만큼 밀고, 절곡 하나를 만든다."""
+        edge = self.edges.items[ei]
+        P1, P2 = self._edge_canon(parent, edge)
+        F1, F2 = parent.C + parent.A @ P1, parent.C + parent.A @ P2
+        _, np_in = self._inward(parent, edge, P1, P2)
+        df = (F2 - F1) / np.linalg.norm(F2 - F1)
+        nf = parent.A @ np_in
+        nf -= (nf @ df) * df
+        nf /= np.linalg.norm(nf)
+        theta, convex, calc, gap = self._sharp_link(ei, parent, child, t)
+        child.C = child.C - nf * gap          # 부모 반대쪽(-nf)으로 gap 만큼
+        mid = -nf * (gap / 2)
+        line = (tuple(float(x) for x in F1 + mid), tuple(float(x) for x in F2 + mid))
+        b = Bend(number=0, kind="날카로운 모서리", angle_deg=math.degrees(theta),
+                 inner_radius=calc.r, model_radius=0.0, k=calc.k,
+                 direction="DOWN" if convex else "UP", length=float(np.linalg.norm(F2 - F1)),
+                 allowance=calc.allowance,
+                 deduction=calc.deduction, deduction90=calc.deduction90,
+                 source=f"R 없는 모서리, {calc.source}", line=line, radius_text=f"{calc.r:.2f}")
+        return ((tuple(F1), tuple(F2)), (tuple(F1 - nf * gap), tuple(F2 - nf * gap)), b)
 
     def _unfold_forming(self, skin, t, n_free) -> UnfoldResult:
         from . import forming
@@ -938,6 +1101,56 @@ def _curve_length_estimate(c, a, b, f):
         p = c.Value(a + (b - a) * i / 16)
         pts.append(f.to_flat(p.X(), p.Y()))
     return sum(float(np.linalg.norm(pts[i + 1] - pts[i])) for i in range(16))
+
+
+def _renumber(bends):
+    bends.sort(key=lambda b: (round(b.line[0][1], 3), round(b.line[0][0], 3)))
+    for i, b in enumerate(bends, 1):
+        b.number = i
+    return bends
+
+
+def _close_sharp(entities, sharp, tol=1e-4):
+    """날카로운 절곡에서 부모 면 끝(F)과 밀어 놓은 자식 면 끝(F')을 잇는다.
+
+    양쪽 옆선이 한 직선 위면 하나로 합치고 (틈이든 겹침이든), 아니면 F–F' 짧은 선을 넣는다."""
+    if not sharp:
+        return entities
+    ents = list(entities)
+
+    def find(pt, exclude=None):
+        for i, e in enumerate(ents):
+            if i == exclude or not isinstance(e, Line) or e.layer != "CUT":
+                continue
+            for a, b in ((e.p1, e.p2), (e.p2, e.p1)):
+                if abs(a[0] - pt[0]) < tol and abs(a[1] - pt[1]) < tol:
+                    return i, b
+        return None
+
+    for (F1, F2), (G1, G2), _ in sharp:
+        for F, G in ((F1, G1), (F2, G2)):
+            d = np.subtract(G, F)
+            n = float(np.linalg.norm(d))
+            if n < tol:
+                continue
+            d /= n
+            fa = find(F)
+            fb = find(G, exclude=fa[0] if fa else None)
+            if fa and fb:
+                P, Q = np.array(fa[1]), np.array(fb[1])
+                # 두 옆선이 F→G 와 같은 직선 위인가
+                def on_line(X):
+                    w = X - np.array(F)
+                    return abs(w[0] * d[1] - w[1] * d[0]) < 1e-3
+                if on_line(P) and on_line(Q) and float((P - np.array(F)) @ d) < 0 \
+                        and float((Q - np.array(G)) @ d) > 0:
+                    i, j = sorted((fa[0], fb[0]))
+                    del ents[j]
+                    del ents[i]
+                    ents.append(Line(tuple(P), tuple(Q)))
+                    continue
+            ents.append(Line(tuple(F), tuple(G)))
+    return ents
 
 
 def _merge_duplicates(entities):

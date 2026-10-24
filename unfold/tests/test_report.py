@@ -70,7 +70,7 @@ def test_excel_report_contents(reports):
     assert ws.cell(1, 1).value == "번호"
     assert [ws.cell(r, 3).value for r in (2, 3)] == pytest.approx([90, 45], abs=1e-6) or \
         sorted(ws.cell(r, 3).value for r in (2, 3)) == pytest.approx([45, 90], abs=1e-6)
-    assert len(wb["보고서"]._images) == 2
+    assert len(wb["보고서"]._images) == 3          # 전개도, 3D, 로고
 
     wb = openpyxl.load_workbook(out / "dish.xlsx")
     assert "두께 변화" in wb.sheetnames
