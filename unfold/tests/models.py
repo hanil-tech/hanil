@@ -267,3 +267,58 @@ def sharp_hat(t=2.0, length=200.0):
     mp.Close()
     f = BRepBuilderAPI_MakeFace(mp.Wire()).Face()
     return BRepPrimAPI_MakePrism(f, gp_Vec(0, 0, length)).Shape()
+
+
+def nested_assembly_step(path):
+    """시험용 다단계 STEP: TRUCK BOX ⊃ SIDE PANEL ASSY ×2 (패널·브래킷·NUT M8·와셔), FLOOR PLATE, BOSS."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPCAFControl import STEPCAFControl_Writer
+    from OCP.STEPControl import STEPControl_AsIs
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+    def ring(ro, ri, h):
+        return BRepAlgoAPI_Cut(BRepPrimAPI_MakeCylinder(ro, h).Shape(),
+                               BRepPrimAPI_MakeCylinder(ri, h).Shape()).Shape()
+
+    def at(x, y, z):
+        t = gp_Trsf()
+        t.SetTranslation(gp_Vec(x, y, z))
+        return TopLoc_Location(t)
+
+    doc = TDocStd_Document(TCollection_ExtendedString("MDTV-XCAF"))
+    st = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+
+    def named(label, name):
+        TDataStd_Name.Set_s(label, TCollection_ExtendedString(name))
+        return label
+
+    panel = named(st.AddShape(tray(), False), "SIDE PANEL")
+    bracket = named(st.AddShape(profile_part([("L", 50), ("B", 90, 2), ("L", 30)], 2.0, 40), False),
+                    "BRACKET")
+    nut = named(st.AddShape(ring(6.5, 4.0, 6.5), False), "NUT M8")
+    washer = named(st.AddShape(ring(8.0, 4.2, 1.6), False), "W1")
+    floor = named(st.AddShape(BRepPrimAPI_MakeBox(400, 300, 3.2).Shape(), False), "FLOOR PLATE")
+    boss = named(st.AddShape(ring(15, 8, 60), False), "BOSS")
+    sub = named(st.NewShape(), "SIDE PANEL ASSY")
+    st.AddComponent(sub, panel, at(0, 0, 0))
+    for k in range(2):
+        st.AddComponent(sub, bracket, at(200 + 60 * k, 0, 0))
+    for k in range(4):
+        st.AddComponent(sub, nut, at(20 * k, 200, 0))
+        st.AddComponent(sub, washer, at(20 * k, 230, 0))
+    top = named(st.NewShape(), "TRUCK BOX")
+    st.AddComponent(top, sub, at(0, 0, 0))
+    st.AddComponent(top, sub, at(0, 500, 0))
+    st.AddComponent(top, floor, at(0, 0, -50))
+    st.AddComponent(top, boss, at(500, 0, 0))
+    st.UpdateAssemblies()
+    w = STEPCAFControl_Writer()
+    w.Transfer(doc, STEPControl_AsIs)
+    assert w.Write(path) == IFSelect_RetDone
+    return path

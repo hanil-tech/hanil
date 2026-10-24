@@ -1095,14 +1095,16 @@ class MainWindow(QMainWindow):
         st = self.bend_panel.settings()
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            items = bom.build(self.model, self.assy_parts_result, st.mat.density, self.excluded)
+            items = bom.build(self.model, self.assy_parts_result, st.mat.density, self.excluded, st.mat.code)
+            rows = bom.build_tree(self.model, self.assy_parts_result, st.mat.density, self.excluded,
+                                  st.mat.code, items=items)
             name = os.path.basename(self.model.path)
             if path.lower().endswith(".pdf"):
-                bom.save_pdf(items, path, name, st.mat.code, st.mat.density)
+                bom.save_tree_pdf(rows, path, name, st.mat.code, st.mat.density)
             else:
                 if not path.lower().endswith(".xlsx"):
                     path += ".xlsx"
-                bom.save_xlsx(items, path, name, st.mat.code, st.mat.density)
+                bom.save_tree_xlsx(rows, path, name, st.mat.code, st.mat.density)
         except Exception as e:
             traceback.print_exc()
             QMessageBox.warning(self, "BOM 저장 실패", str(e))
@@ -1122,7 +1124,7 @@ class MainWindow(QMainWindow):
             if not self.assy_parts_result:
                 return
         st = self.bend_panel.settings()
-        items = bom.build(self.model, self.assy_parts_result, st.mat.density, self.excluded)
+        items = bom.build(self.model, self.assy_parts_result, st.mat.density, self.excluded, st.mat.code)
         AiBomDialog(items, self.model.path, st.mat.code, st.mat.density, self).exec()
 
     def save_assembly_xlsx(self):

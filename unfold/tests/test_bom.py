@@ -167,3 +167,47 @@ def test_ai_bom_without_pdf_sends_part_images(assy, tmp_path):
     fc2 = FakeClient(answer)
     ai_bom.analyze(None, items, client=fc2, images=False)
     assert not any(c["type"] == "image" for c in fc2.kw["messages"][0]["content"])
+
+
+def test_multilevel_bom_from_step_assembly(tmp_path):
+    import openpyxl
+    from models import nested_assembly_step
+    path = nested_assembly_step(str(tmp_path / "nested.stp"))
+    m = loader.load(path, use_cache=False)
+    assert m.paths and m.paths[0][0][0] == "TRUCK BOX"
+    parts = assembly_calc.compute_all(m, bc.BendSettings())
+    rows = bom.build_tree(m, parts, 7.85, material="SPCC")
+    by = {r.name: r for r in rows if r.kind != "rm"}
+    assert rows[0].level == 0 and rows[0].name == "TRUCK BOX" and rows[0].category == "완제품"
+    sa = by["SIDE PANEL ASSY"]
+    assert (sa.level, sa.qty, sa.total, sa.category) == (1, 2, 2, "반제품 (조립품)")
+    assert (by["SIDE PANEL"].level, by["SIDE PANEL"].qty, by["SIDE PANEL"].total) == (2, 1, 2)
+    assert (by["BRACKET"].qty, by["BRACKET"].total) == (2, 4)       # BRACKET #2 도 같은 부품
+    assert by["NUT M8"].category == "표준품" and by["NUT M8"].procure == "구매" and by["NUT M8"].total == 8
+    assert by["W1"].category.startswith("표준품") and by["W1"].spec == "Ø16.0 × 1.6"
+    assert by["BOSS"].category == "자작 부품 (선반 가공)"
+    assert by["FLOOR PLATE"].category == "자작 부품 (판재)" and by["FLOOR PLATE"].level == 1
+    rms = [r for r in rows if r.kind == "rm"]
+    assert {r.code for r in rms} == {"RM-SPCC-T1.6", "RM-SPCC-T2", "RM-SPCC-T3.2", "RM-SPCC-RB30"}
+    floor_rm = next(r for r in rms if r.code == "RM-SPCC-T3.2")
+    assert floor_rm.total == pytest.approx(400 * 300 * 3.2 * 7.85e-6, rel=1e-3)
+    summ = {c: kg for c, _, _, kg, _ in bom.material_summary(rows)}
+    side_rm = next(r for r in rms if r.tree_no == "1.1-R")
+    assert summ["RM-SPCC-T1.6"] == pytest.approx(side_rm.total, rel=1e-6)
+    out = tmp_path / "t.xlsx"
+    bom.save_tree_xlsx(rows, str(out), "nested.stp", "SPCC")
+    wb = openpyxl.load_workbook(out)
+    assert wb.sheetnames == ["BOM (계층)", "부품 합계", "원자재 소요량", "구매·표준품", "분류 기준"]
+    buy = [wb["구매·표준품"].cell(r, 2).value for r in range(2, wb["구매·표준품"].max_row + 1)]
+    assert set(buy) == {"NUT M8", "W1"}
+    bom.save_tree_pdf(rows, str(tmp_path / "t.pdf"), "nested.stp", "SPCC")
+    assert (tmp_path / "t.pdf").stat().st_size > 2000
+
+
+def test_flat_file_bom_tree_has_root_and_parts(assy):
+    m, parts = assy
+    m.path = "flat.stp"
+    rows = bom.build_tree(m, parts, 7.85, material="SPCC")
+    assert rows[0].name == "flat" and rows[0].level == 0
+    assert [r.level for r in rows if r.kind == "part"] == [1, 1]
+    assert all(r.level == 2 for r in rows if r.kind == "rm")

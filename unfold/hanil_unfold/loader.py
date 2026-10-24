@@ -112,6 +112,7 @@ class LoadedModel:
     shape: TopoDS_Shape
     solids: LazySolids
     names: list = None          # 부품 이름 (STEP 의 제품 이름, 없으면 "부품 N")
+    paths: list = None          # 부품마다 위 조립품들 [(이름, 놓인 자리 번호), ...] (STEP 조립 구조, 없으면 None)
     cache_dir: str = ""         # 다시 열 때 쓰는 보관 폴더 (메시 등도 여기에)
     from_cache: bool = False
 
@@ -141,16 +142,18 @@ def load(path: str, use_cache: bool = True) -> LoadedModel:
     if cdir:
         cached = _read_cache(cdir)
         if cached is not None:
-            solids, names = cached
+            solids, names, paths = cached
             return LoadedModel(path=path, shape=_compound(solids), solids=LazySolids(solids),
-                               names=names, cache_dir=cdir, from_cache=True)
+                               names=names, paths=paths, cache_dir=cdir, from_cache=True)
 
     names = None
+    paths = None
     if ext in (".stp", ".step"):
         parts = _read_step_parts(path)
         if parts is not None:
-            solids = [s for s, _ in parts]
-            names = _part_names([n for _, n in parts])
+            solids = [s for s, _, _ in parts]
+            names = _part_names([n for _, n, _ in parts])
+            paths = [list(map(list, pth)) for _, _, pth in parts]
             shape = _compound(solids)
         else:
             shape = _read_step(path)
@@ -181,16 +184,18 @@ def load(path: str, use_cache: bool = True) -> LoadedModel:
             "파일 안에 솔리드(두께가 있는 3D 형상)가 없습니다.\n"
             "곡면(서피스)만 들어 있는 파일이면 CAD 에서 솔리드로 저장해 주세요."
         )
+    if paths is not None and (len(paths) != len(solids) or not any(paths)):
+        paths = None
     if cdir:
-        _write_cache(cdir, solids, names)
+        _write_cache(cdir, solids, names, paths)
     # 평면·절곡 R 까지 자유곡면으로 저장된 파일은 부품을 꺼낼 때 원래 모양으로 되돌린다.
     return LoadedModel(path=path, shape=shape, solids=LazySolids(solids), names=names,
-                       cache_dir=cdir)
+                       paths=paths, cache_dir=cdir)
 
 
 # ---------------------------------------------------------------- 다시 열기 보관 (캐시)
 
-CACHE_VERSION = "2"
+CACHE_VERSION = "3"
 
 
 def cache_root():
@@ -224,13 +229,20 @@ def _read_cache(cdir):
             names = json.load(f)
         if not solids or len(names) != len(solids):
             return None
+        paths = None
+        pp = os.path.join(cdir, "paths.json")
+        if os.path.exists(pp):
+            with open(pp, encoding="utf-8") as f:
+                paths = json.load(f)
+            if paths is not None and len(paths) != len(solids):
+                paths = None
         os.utime(cdir, None)       # 최근에 쓴 보관 폴더로 표시 (오래된 것부터 지운다)
-        return solids, names
+        return solids, names, paths
     except Exception:
         return None
 
 
-def _write_cache(cdir, solids, names, keep=15):
+def _write_cache(cdir, solids, names, paths=None, keep=15):
     import json
     import shutil
     try:
@@ -239,6 +251,8 @@ def _write_cache(cdir, solids, names, keep=15):
         BinTools.Write_s(_compound(solids), os.path.join(cdir, "shape.bin"))
         with open(os.path.join(cdir, "names.json"), "w", encoding="utf-8") as f:
             json.dump(names, f, ensure_ascii=False)
+        with open(os.path.join(cdir, "paths.json"), "w", encoding="utf-8") as f:
+            json.dump(paths, f, ensure_ascii=False)
         # 보관 폴더는 최근 keep 개만 남긴다
         root = cache_root()
         dirs = sorted((os.path.join(root, d) for d in os.listdir(root)),
@@ -284,7 +298,9 @@ def _part_names(raw):
 
 
 def _read_step_parts(path):
-    """조립 구조를 살려 읽는다: [(솔리드, 부품 이름)]. 실패하면 None (일반 읽기로)."""
+    """조립 구조를 살려 읽는다: [(솔리드, 부품 이름, 위 조립품 경로)]. 실패하면 None (일반 읽기로).
+
+    경로는 ((조립품 이름, 놓인 자리 번호), ...) — 같은 하위 조립품을 두 번 놓으면 이름은 같고 번호가 다르다."""
     try:
         from OCP.collections import Sequence_TDF_Label
         from OCP.STEPCAFControl import STEPCAFControl_Reader
@@ -321,10 +337,14 @@ def _read_step_parts(path):
         tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
         out = []
 
-        def walk(label, loc, name, depth=0):
+        counter = [0]
+
+        def walk(label, loc, name, path, depth=0):
             if depth > 50:
                 return
             if XCAFDoc_ShapeTool.IsAssembly_s(label):
+                counter[0] += 1
+                here = path + ((name or name_of(label) or "조립품", counter[0]),)
                 comps = Sequence_TDF_Label()
                 XCAFDoc_ShapeTool.GetComponents_s(label, comps, False)
                 for i in range(1, comps.Length() + 1):
@@ -332,19 +352,19 @@ def _read_step_parts(path):
                     ref = TDF_Label()
                     XCAFDoc_ShapeTool.GetReferredShape_s(comp, ref)
                     walk(ref, loc.Multiplied(XCAFDoc_ShapeTool.GetLocation_s(comp)),
-                         name_of(ref) or name_of(comp), depth + 1)
+                         name_of(ref) or name_of(comp), here, depth + 1)
             else:
                 shape = XCAFDoc_ShapeTool.GetShape_s(label)
                 if not loc.IsIdentity():
                     shape = shape.Moved(loc)
                 for s in list_solids(shape):
-                    out.append((s, name or name_of(label)))
+                    out.append((s, name or name_of(label), path))
 
         free = Sequence_TDF_Label()
         tool.GetFreeShapes(free)
         for i in range(1, free.Length() + 1):
             label = free.Value(i)
-            walk(label, TopLoc_Location(), name_of(label))
+            walk(label, TopLoc_Location(), name_of(label), ())
         return out or None
     except ValueError:
         raise

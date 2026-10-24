@@ -190,13 +190,14 @@ def bom_cli(argv):
     st = bc.BendSettings(method=bc.K_MATERIAL, material=args.material)
     model = loader.load(args.file)
     parts = assembly_calc.compute_all(model, st)
-    items = bom.build(model, parts, st.mat.density)
+    items = bom.build(model, parts, st.mat.density, material=st.mat.code)
+    rows = bom.build_tree(model, parts, st.mat.density, material=st.mat.code, items=items)
     out = args.output or os.path.splitext(args.file)[0] + "_BOM.xlsx"
     name = os.path.basename(args.file)
     if out.lower().endswith(".pdf"):
-        bom.save_pdf(items, out, name, st.mat.code, st.mat.density)
+        bom.save_tree_pdf(rows, out, name, st.mat.code, st.mat.density)
     else:
-        bom.save_xlsx(items, out, name, st.mat.code, st.mat.density)
+        bom.save_tree_xlsx(rows, out, name, st.mat.code, st.mat.density)
     print(f"[완료] {out}  {len(items)} 품목, {sum(i.qty for i in items)} 개")
     return 0
 
@@ -214,7 +215,7 @@ def ai_bom_cli(argv):
     args = ap.parse_args(argv)
     st = bc.BendSettings(method=bc.K_MATERIAL, material=args.material)
     model = loader.load(args.model)
-    items = bom.build(model, assembly_calc.compute_all(model, st), st.mat.density)
+    items = bom.build(model, assembly_calc.compute_all(model, st), st.mat.density, material=st.mat.code)
     if not args.pdf:
         from . import report
         report.ensure_gui()          # 부품 그림을 그리려면

@@ -100,6 +100,7 @@ def parts_summary(items):
             ext = []
         out.append({
             "no": it.no, "name_in_3d": it.name, "qty": it.qty, "kind": it.kind,
+            "category_guess": it.category, "make_or_buy_guess": it.procure,
             "thickness_mm": round(it.thickness, 2) if it.thickness else None,
             "flat_size_mm": [round(it.flat_w, 1), round(it.flat_h, 1)] if it.flat_w else None,
             "bbox_mm_sorted": ext, "weight_kg": round(it.weight, 3), "bends": it.bends,
