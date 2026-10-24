@@ -8,7 +8,7 @@
       → 모든 부품을 전개해 철판에 배치 (두께별), 배치 DXF·PDF
   python -m hanil_unfold bom 조립품.stp [-o BOM.xlsx | BOM.pdf]
       → 같은 부품끼리 묶은 BOM
-  python -m hanil_unfold ai-bom 조립품.stp 도면.pdf [-o AI_BOM.xlsx]
+  python -m hanil_unfold ai-bom 조립품.stp [도면.pdf] [-o AI_BOM.xlsx]
       → 도면 PDF 와 3D 를 AI(Claude)로 맞춰 본 BOM (ANTHROPIC_API_KEY 필요)
 """
 import argparse
@@ -207,18 +207,24 @@ def ai_bom_cli(argv):
     ap = argparse.ArgumentParser(prog="HanilUnfold ai-bom",
                                  description="2D 도면 PDF + 3D → AI(Claude) 분석 BOM 엑셀 (ANTHROPIC_API_KEY 필요)")
     ap.add_argument("model", help="3D STEP / IGES")
-    ap.add_argument("pdf", help="2D 도면 PDF")
+    ap.add_argument("pdf", nargs="?", default=None, help="2D 도면 PDF (없으면 3D 와 부품 그림만으로)")
+    ap.add_argument("--no-images", action="store_true", help="도면이 없을 때 부품 그림을 보내지 않기")
     ap.add_argument("--material", choices=list(bc.MATERIAL_BY_CODE), default="SPCC")
     ap.add_argument("-o", "--output", help="저장할 .xlsx")
     args = ap.parse_args(argv)
     st = bc.BendSettings(method=bc.K_MATERIAL, material=args.material)
     model = loader.load(args.model)
     items = bom.build(model, assembly_calc.compute_all(model, st), st.mat.density)
-    ai = ai_bom.analyze(args.pdf, items)
+    if not args.pdf:
+        from . import report
+        report.ensure_gui()          # 부품 그림을 그리려면
+    ai = ai_bom.analyze(args.pdf, items, images=not args.no_images,
+                        source_name=os.path.basename(args.model), material=st.mat.code)
     out = args.output or os.path.splitext(args.model)[0] + "_AI_BOM.xlsx"
     rows, unmatched = ai_bom.save_xlsx(ai, items, out, os.path.basename(args.model),
-                                       os.path.basename(args.pdf), st.mat.code, st.mat.density)
-    print(f"[완료] {out}  도면 {len(rows)} 줄, 3D 에만 {len(unmatched)} 품목")
+                                       os.path.basename(args.pdf) if args.pdf else "", st.mat.code,
+                                       st.mat.density)
+    print(f"[완료] {out}  BOM {len(rows)} 줄, 3D 에만 {len(unmatched)} 품목")
     return 0
 
 

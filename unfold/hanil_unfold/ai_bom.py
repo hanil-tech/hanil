@@ -1,4 +1,5 @@
 """AI BOM: 2D 도면 PDF 와 3D 조립품을 함께 Claude 에게 보여 주고, BOM 을 엑셀로 만든다.
+도면 PDF 가 없으면 3D 목록과 부품 그림만으로 부품명·구분·규격·재질을 추정한다.
 
   1. 3D 에서 같은 부품끼리 묶은 목록(bom.build) 을 요약한다: 품번·수량·구분·두께·전개 크기·
      바깥 크기(작은 것부터)·무게.
@@ -107,29 +108,74 @@ def parts_summary(items):
     return out
 
 
-def analyze(pdf_path, items, api_key=None, client=None, effort="high"):
-    """도면 PDF + 3D 목록 → SCHEMA 모양의 dict. client 를 주면 그것을 쓴다 (시험용)."""
+SYSTEM_3D = (
+    "당신은 판금·용접 제조 회사의 생산기술 담당자입니다. 도면 없이 조립품 3D 모델에서 뽑은 부품 목록과 "
+    "부품마다의 3D 그림만 보고 BOM 을 만듭니다.\n"
+    "- 3D 목록의 줄마다 BOM 한 줄을 만드세요 (같은 순서, item_no 는 1 부터, matched_3d 는 그 줄의 3D 품번 하나).\n"
+    "- name: 모양·크기·두께를 보고 현장에서 부르는 한국어 부품명 (예: 브래킷, 보강판, 사이드 패널, 부싱, 핀, "
+    "너트, 와셔). 3D 이름이 '부품 N' 같은 뜻 없는 이름이 아니면 그 이름을 살리세요.\n"
+    "- kind: 판금·성형품은 대개 제작품, 너트·볼트·와셔·핀은 표준품, 부싱·축 같은 가공품은 제작품 또는 구매품.\n"
+    "- spec: 판금은 'PL t두께 × 가로 × 세로 (전개)', 표준품은 'M8 너트' 처럼 추정 규격, 봉·관은 '지름 × 길이'.\n"
+    "- material: 지정 재질이 주어지면 판금에 그것을, 표준품은 비우거나 'SWCH' 같은 일반 재질 추정.\n"
+    "- part_no 는 빈 글로. 모두 추정이므로 confidence 를 솔직하게, remark 에 근거를 짧게.\n"
+    "- drawing 칸은 title 에 조립품 이름(파일 이름에서) 만 넣고 나머지는 빈 글로.\n"
+    "- 답은 한국어로."
+)
+
+MAX_IMAGES = 80        # 그림을 함께 보낼 품목 수 (넘으면 숫자만)
+
+
+def _png_b64(qimage):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    ba = QByteArray()
+    buf = QBuffer(ba)
+    buf.open(QIODevice.WriteOnly)
+    qimage.save(buf, "PNG")
+    return base64.standard_b64encode(bytes(ba)).decode("ascii")
+
+
+def analyze(pdf_path, items, api_key=None, client=None, effort="high", images=True,
+            source_name="", material=""):
+    """도면 PDF(없으면 None) + 3D 목록 → SCHEMA 모양의 dict. client 를 주면 그것을 쓴다 (시험용).
+
+    PDF 가 없으면 3D 목록과 부품 그림만으로 이름·구분·규격을 추정한다."""
     import anthropic
 
-    with open(pdf_path, "rb") as f:
-        data = f.read()
-    if len(data) > MAX_PDF_BYTES:
-        raise ValueError(f"PDF 가 너무 큽니다 ({len(data) / 1e6:.0f} MB). 30 MB 이하로 나눠 주세요.")
     if client is None:
         client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
     summary = json.dumps(parts_summary(items), ensure_ascii=False)
-    content = [
-        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
-                                        "data": base64.standard_b64encode(data).decode("ascii")}},
-        {"type": "text", "text": "다음은 같은 조립품의 3D 모델에서 같은 부품끼리 묶은 목록입니다 "
-                                 "(no = 3D 품번, 크기는 mm, 무게는 kg):\n" + summary +
-                                 "\n\n도면의 부품표와 표제란을 읽고, 3D 목록과 짝지어 BOM 을 만들어 주세요."},
-    ]
-    # 긴 PDF 는 응답이 길어질 수 있어 스트리밍으로 받는다. 정책 거절 시 서버가 다른 모델로 다시 시도.
+    if pdf_path:
+        with open(pdf_path, "rb") as f:
+            data = f.read()
+        if len(data) > MAX_PDF_BYTES:
+            raise ValueError(f"PDF 가 너무 큽니다 ({len(data) / 1e6:.0f} MB). 30 MB 이하로 나눠 주세요.")
+        system = SYSTEM
+        content = [
+            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
+                                            "data": base64.standard_b64encode(data).decode("ascii")}},
+            {"type": "text", "text": "다음은 같은 조립품의 3D 모델에서 같은 부품끼리 묶은 목록입니다 "
+                                     "(no = 3D 품번, 크기는 mm, 무게는 kg):\n" + summary +
+                                     "\n\n도면의 부품표와 표제란을 읽고, 3D 목록과 짝지어 BOM 을 만들어 주세요."},
+        ]
+    else:
+        system = SYSTEM_3D
+        content = []
+        if images and len(items) <= MAX_IMAGES:
+            from . import bom
+            for it in items:
+                content.append({"type": "text", "text": f"3D 품번 {it.no} ({it.name}, {it.qty}개, {it.kind}):"})
+                content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                            "data": _png_b64(bom.thumb(it, 320, 200))}})
+        content.append({"type": "text", "text":
+                        f"조립품: {source_name or '(이름 없음)'}. 판금 지정 재질: {material or '(없음)'}.\n"
+                        "도면은 없습니다. 다음은 3D 모델에서 같은 부품끼리 묶은 목록입니다 "
+                        "(no = 3D 품번, 크기는 mm, 무게는 kg, kind 는 프로그램이 나눈 판금/성형품/기타):\n"
+                        + summary + "\n\n이 목록으로 BOM 을 만들어 주세요."})
+    # 응답이 길 수 있어 스트리밍으로 받는다. 정책 거절 시 서버가 다른 모델로 다시 시도.
     with client.beta.messages.stream(
         model=MODEL,
         max_tokens=64000,
-        system=SYSTEM,
+        system=system,
         messages=[{"role": "user", "content": content}],
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": SCHEMA}},
         betas=["server-side-fallback-2026-07-01"],
@@ -137,9 +183,9 @@ def analyze(pdf_path, items, api_key=None, client=None, effort="high"):
     ) as stream:
         msg = stream.get_final_message()
     if msg.stop_reason == "refusal":
-        raise RuntimeError("AI 가 이 요청을 처리하지 않았습니다 (거절). 도면 파일을 확인해 주세요.")
+        raise RuntimeError("AI 가 이 요청을 처리하지 않았습니다 (거절). 파일을 확인해 주세요.")
     if msg.stop_reason == "max_tokens":
-        raise RuntimeError("AI 답이 너무 길어 잘렸습니다. 도면을 나눠서 다시 해 주세요.")
+        raise RuntimeError("AI 답이 너무 길어 잘렸습니다. 부품을 나눠서 다시 해 주세요.")
     text = next((b.text for b in msg.content if b.type == "text"), "")
     return json.loads(text)
 
@@ -172,7 +218,7 @@ def save_xlsx(ai, items, path, source_3d="", source_pdf="", material="", density
     wb = Workbook()
     ws = wb.active
     ws.title = "AI BOM"
-    ws.cell(1, 1, "BOM (도면 + 3D, AI 분석)").font = st["title"]
+    ws.cell(1, 1, "BOM (도면 + 3D, AI 분석)" if source_pdf else "BOM (3D, AI 분석)").font = st["title"]
     ws.row_dimensions[1].height = 34
     tmps = [_add_image(ws, company.logo_image(96), "M1", 100)]
     ws.cell(1, 15, company.MAKER).font = _xl_font(st["val"], bold=True)
@@ -180,7 +226,7 @@ def save_xlsx(ai, items, path, source_3d="", source_pdf="", material="", density
     d = ai.get("drawing", {})
     info = [("도번 / 도면 이름", f"{d.get('drawing_no', '')}  {d.get('title', '')}".strip()),
             ("개정 / 날짜", f"{d.get('revision', '')}  {d.get('date', '')}".strip()),
-            ("도면 PDF", source_pdf), ("3D", source_3d),
+            ("도면 PDF", source_pdf or "(없음 — 3D 와 부품 그림만으로 AI 가 추정)"), ("3D", source_3d),
             ("만든 때", f"{_dt.datetime.now():%Y-%m-%d %H:%M}  ·  AI {MODEL}  ·  한일 판금 전개 {version_text()}")]
     for i, (k, v) in enumerate(info, 2):
         ws.cell(i, 1, k).font = st["key"]

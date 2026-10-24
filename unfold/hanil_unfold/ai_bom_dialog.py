@@ -1,4 +1,4 @@
-"""AI BOM 창: 도면 PDF 를 고르고, Claude 로 분석해 BOM 엑셀을 저장한다."""
+"""AI BOM 창: 도면 PDF 를 고르고 (없어도 됨), Claude 로 분석해 BOM 엑셀을 저장한다."""
 from __future__ import annotations
 
 import os
@@ -16,13 +16,16 @@ class _Worker(QThread):
     done = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, pdf, items, key):
+    def __init__(self, pdf, items, key, images, source_name, material):
         super().__init__()
         self.pdf, self.items, self.key = pdf, items, key
+        self.images, self.source_name, self.material = images, source_name, material
 
     def run(self):
         try:
-            self.done.emit(ai_bom.analyze(self.pdf, self.items, api_key=self.key or None))
+            self.done.emit(ai_bom.analyze(self.pdf or None, self.items, api_key=self.key or None,
+                                          images=self.images, source_name=self.source_name,
+                                          material=self.material))
         except Exception as e:
             traceback.print_exc()
             self.failed.emit(_explain(e))
@@ -58,7 +61,7 @@ class AiBomDialog(QDialog):
         self.st = QSettings("Hanil", "SheetUnfold")
 
         self.pdf = QLineEdit()
-        self.pdf.setPlaceholderText("2D 도면 PDF (부품표·표제란이 있는 조립도)")
+        self.pdf.setPlaceholderText("없어도 됩니다 — 비우면 3D 와 부품 그림만으로 AI 가 이름·구분·규격을 붙입니다")
         guess = os.path.splitext(source_3d)[0] + ".pdf"
         if os.path.exists(guess):
             self.pdf.setText(guess)
@@ -72,15 +75,18 @@ class AiBomDialog(QDialog):
         self.key.setEchoMode(QLineEdit.Password)
         self.key.setPlaceholderText("sk-ant-…  (비우면 ANTHROPIC_API_KEY 환경 변수)")
         self.save_key = QCheckBox("이 PC 에 키 저장")
+        self.images = QCheckBox("도면이 없을 때 부품 그림도 보내기 (이름 짓기가 정확해짐, 요금 조금 더)")
+        self.images.setChecked(self.st.value("ai_bom_images", "true") == "true")
         self.save_key.setChecked(bool(self.key.text()))
 
         form = QFormLayout()
-        form.addRow("도면 PDF", row)
+        form.addRow("도면 PDF (선택)", row)
         form.addRow("3D", QLabel(f"{os.path.basename(source_3d)}  ·  {len(items)} 품목 / "
                                  f"{sum(i.qty for i in items)} 개"))
         form.addRow("Anthropic API 키", self.key)
         form.addRow("", self.save_key)
-        note = QLabel(f"도면과 3D 부품 목록을 Claude ({ai_bom.MODEL}) 에 보내 분석합니다. "
+        form.addRow("", self.images)
+        note = QLabel(f"도면(있으면)과 3D 부품 목록을 Claude ({ai_bom.MODEL}) 에 보내 분석합니다. "
                       "요금은 API 사용량대로 나가며, 결과는 AI 가 읽은 값이므로 도면과 한 번 맞춰 보세요.")
         note.setWordWrap(True)
         note.setStyleSheet("color:#777")
@@ -102,20 +108,23 @@ class AiBomDialog(QDialog):
 
     def run(self):
         pdf = self.pdf.text().strip()
-        if not os.path.isfile(pdf):
-            QMessageBox.warning(self, "AI BOM", "도면 PDF 를 골라 주세요.")
+        if pdf and not os.path.isfile(pdf):
+            QMessageBox.warning(self, "AI BOM", "도면 PDF 파일이 없습니다. 비워 두면 3D 만으로 만듭니다.")
             return
+        self.st.setValue("ai_bom_images", "true" if self.images.isChecked() else "false")
         key = self.key.text().strip()
         if not key and not os.environ.get("ANTHROPIC_API_KEY"):
             QMessageBox.warning(self, "AI BOM", "Anthropic API 키를 넣어 주세요.")
             return
         self.st.setValue("anthropic_api_key", key if self.save_key.isChecked() else "")
-        self._prog = QProgressDialog("AI 가 도면을 읽고 3D 와 맞춰 보는 중… (1~3분)", None, 0, 0, self)
+        msg = "AI 가 도면을 읽고 3D 와 맞춰 보는 중… (1~3분)" if pdf else "AI 가 3D 부품을 보고 BOM 을 만드는 중… (1~3분)"
+        self._prog = QProgressDialog(msg, None, 0, 0, self)
         self._prog.setWindowTitle("AI BOM")
         self._prog.setMinimumDuration(0)
         self._prog.setWindowModality(Qt.WindowModal)
         self._prog.show()
-        self._worker = _Worker(pdf, self.items, key)
+        self._worker = _Worker(pdf, self.items, key, self.images.isChecked(),
+                               os.path.basename(self.source_3d), self.material)
         self._worker.done.connect(lambda ai: self._done(ai, pdf))
         self._worker.failed.connect(self._failed)
         self._worker.start()
@@ -133,12 +142,13 @@ class AiBomDialog(QDialog):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             rows, unmatched = ai_bom.save_xlsx(ai, self.items, path, os.path.basename(self.source_3d),
-                                               os.path.basename(pdf), self.material, self.density)
+                                               os.path.basename(pdf) if pdf else "", self.material,
+                                               self.density)
         finally:
             QApplication.restoreOverrideCursor()
         bad = sum(1 for r in rows if not r["qty_ok"])
         QMessageBox.information(
             self, "AI BOM",
-            f"도면 {len(rows)} 줄 · 수량이 다르거나 짝 없는 줄 {bad} · 3D 에만 있는 품목 {len(unmatched)}\n{path}")
+            f"BOM {len(rows)} 줄 · 수량이 다르거나 짝 없는 줄 {bad} · 3D 에만 있는 품목 {len(unmatched)}\n{path}")
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         self.accept()

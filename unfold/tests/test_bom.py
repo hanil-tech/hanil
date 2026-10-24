@@ -139,3 +139,31 @@ def test_ai_bom_refusal_is_reported(assy, tmp_path):
         "get_final_message": lambda s: _Msg("", "refusal")})()
     with pytest.raises(RuntimeError):
         ai_bom.analyze(str(pdf), items, client=fc)
+
+
+def test_ai_bom_without_pdf_sends_part_images(assy, tmp_path):
+    import openpyxl
+    m, parts = assy
+    items = bom.build(m, parts, 7.85)
+    answer = {"drawing": {"drawing_no": "", "title": "t", "revision": "", "company": "", "date": "", "scale": ""},
+              "items": [{"item_no": str(i), "part_no": "", "name": n, "material": "SPCC", "spec": "PL t2",
+                         "qty": q, "kind": "제작품", "matched_3d": [i], "confidence": "보통", "remark": ""}
+                        for i, n, q in ((1, "트레이", 2), (2, "브래킷", 2))],
+              "notes": []}
+    fc = FakeClient(answer)
+    ai = ai_bom.analyze(None, items, client=fc, source_name="t.stp", material="SPCC")
+    content = fc.kw["messages"][0]["content"]
+    assert not any(c["type"] == "document" for c in content)
+    imgs = [c for c in content if c["type"] == "image"]
+    assert len(imgs) == 2 and imgs[0]["source"]["media_type"] == "image/png"
+    assert "도면은 없습니다" in content[-1]["text"]
+    assert fc.kw["system"] == ai_bom.SYSTEM_3D
+    rows, unmatched = ai_bom.merge(ai, items)
+    assert all(r["qty_ok"] for r in rows) and not unmatched
+    out = tmp_path / "ai3d.xlsx"
+    ai_bom.save_xlsx(ai, items, str(out), "t.stp", "", "SPCC")
+    ws = openpyxl.load_workbook(out)["AI BOM"]
+    assert ws.cell(1, 1).value == "BOM (3D, AI 분석)"
+    fc2 = FakeClient(answer)
+    ai_bom.analyze(None, items, client=fc2, images=False)
+    assert not any(c["type"] == "image" for c in fc2.kw["messages"][0]["content"])
