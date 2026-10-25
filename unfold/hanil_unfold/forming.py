@@ -335,6 +335,13 @@ _EPS = 1e-4          # ε̄ = 0 근처의 꺾임을 펴는 값 (n 이 작을 때
 # 고르게 줄이는 것보다 싸게 나와, 이것이 없으면 블랭크가 터무니없이 커진다.
 _CAP = 0.6
 _CAP_K = 1.0
+# 소성 일을 어느 형상 위에서 적분할지: 0 = 제품(최종) 넓이, 1 = 블랭크(처음 부피) 넓이.
+# 비례 변형 경로의 일은 중간 형상에서 재는 것이 맞으므로 (중점 규칙) 두 넓이의 기하 평균 = 0.5.
+# 제품 넓이만 쓰면 얇아진 곳을 1/(1-얇아짐) 만큼 무겁게 세어 블랭크가 커지고 (원통 컵 +12 %),
+# 블랭크 넓이만 쓰면 반대로 늘림이 싸져 작아진다 (-5 %). 0.5 에서 컵 넓이 비 1.00~1.03.
+VOLUME_WEIGHT = 0.5
+# 금형 작용 (펀치 면 마찰 · 블랭크 홀더 마찰 · 다이 R 굽힘-펴짐) 을 등가 외력으로 넣는다
+TOOL_LOADS = True
 
 
 def plastic_work(Vm, F, U, n_exp, r_value=1.0, grad=True, q=None):
@@ -362,8 +369,9 @@ def plastic_work(Vm, F, U, n_exp, r_value=1.0, grad=True, q=None):
     phi = phi + _CAP_K * np.sum(over ** 2, axis=1)
     # 역해석은 제품(최종) 메시 위에서 적분한다: 블랭크 삼각형이 쪼그라들면 변형률이 무한으로 가
     # 저절로 막힌다 (블랭크 넓이로 적분하면 넓이 0 으로 쪼그라드는 것이 공짜가 된다).
-    A = 0.5 * np.linalg.det(Q)
-    area = float(A.sum())
+    Aq = 0.5 * np.linalg.det(Q)
+    area = float(Aq.sum())
+    A = Aq * (0.5 * det / Aq) ** VOLUME_WEIGHT if VOLUME_WEIGHT else Aq
     E = float(np.sum(A * phi)) / area
     if not np.isfinite(E):
         return np.inf, None
@@ -373,7 +381,10 @@ def plastic_work(Vm, F, U, n_exp, r_value=1.0, grad=True, q=None):
     g = np.stack([dphi * (2 * e[:, 0] + b * e[:, 1]), dphi * (2 * e[:, 1] + b * e[:, 0])], axis=1)
     g = (g + 2 * _CAP_K * over * np.exp(np.abs(e)) * np.sign(e)) / s
     G = Uu * g[:, None, :] @ Vh                                         # dφ/dFd
-    dD = -A[:, None, None] * (np.transpose(Fd, (0, 2, 1)) @ G @ np.transpose(Dinv, (0, 2, 1)))
+    DinvT = np.transpose(Dinv, (0, 2, 1))
+    dD = -A[:, None, None] * (np.transpose(Fd, (0, 2, 1)) @ G @ DinvT)
+    if VOLUME_WEIGHT:                                                   # d(블랭크 넓이)/dD
+        dD = dD + (VOLUME_WEIGHT * phi * A)[:, None, None] * DinvT
     gU = np.zeros_like(U)
     for c in range(2):
         g1, g2 = dD[:, c, 0], dD[:, c, 1]
@@ -401,7 +412,13 @@ def _elem_grad(Qm, A, P, n_exp, r_value):
     g = np.stack([dphi * (2 * e[:, 0] + b * e[:, 1]), dphi * (2 * e[:, 1] + b * e[:, 0])], axis=1)
     g = (g + 2 * _CAP_K * over * np.exp(np.abs(e)) * np.sign(e)) / s
     G = Uu * g[:, None, :] @ Vh
-    dD = -A[:, None, None] * (np.transpose(Fd, (0, 2, 1)) @ G @ np.transpose(Dinv, (0, 2, 1)))
+    DinvT = np.transpose(Dinv, (0, 2, 1))
+    if VOLUME_WEIGHT:        # A 는 (제품 넓이 / 전체) → (중간 형상 넓이) / 전체 로
+        A = A * (det / np.linalg.det(Qm)) ** VOLUME_WEIGHT
+    dD = -A[:, None, None] * (np.transpose(Fd, (0, 2, 1)) @ G @ DinvT)
+    if VOLUME_WEIGHT:
+        phi = eq ** p / p + _CAP_K * np.sum(over ** 2, axis=1)
+        dD = dD + (VOLUME_WEIGHT * phi * A)[:, None, None] * DinvT
     out = np.empty((len(P), 3, 2))
     out[:, 1], out[:, 2] = dD[:, :, 0], dD[:, :, 1]
     out[:, 0] = -(dD[:, :, 0] + dD[:, :, 1])
@@ -466,7 +483,80 @@ def _max_step(F, X, d):
     return best
 
 
-def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
+def _tool_setup(Vm, F, F_all, Ap, tools, n_exp):
+    """금형 작용을 등가 외력으로 (Batoz·Guo, Naceur 의 역해석처럼): 펀치 면 마찰과 끌려 들어오는
+    가장자리의 저항(블랭크 홀더 마찰 · 다이 R 굽힘-펴짐). 쓸 수 없으면 None."""
+    a = Vm[F[:, 1]] - Vm[F[:, 0]]
+    b = Vm[F[:, 2]] - Vm[F[:, 0]]
+    nrm = np.cross(a, b)
+    nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
+    zsum = (Ap[:, None] * nrm).sum(0)
+    if np.linalg.norm(zsum) < 0.3 * Ap.sum():          # 프레스 방향이 뚜렷하지 않음 (관·닫힌 꼴)
+        return None
+    z = zsum / np.linalg.norm(zsum)                     # 투영 넓이가 가장 큰 방향 = 프레스 방향
+    e1 = np.cross(z, [1.0, 0, 0] if abs(z[0]) < 0.9 else [0, 1.0, 0])
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(z, e1)
+    proj = Vm @ np.column_stack([e1, e2])
+    nv = len(Vm)
+    t = tools["thickness"]
+    n = max(n_exp, 0.02)
+    sig_k = 0.2 ** n                                     # 흐름 응력 / K (변형률 0.2 근처)
+    mu = tools.get("mu", 0.1)
+    cap = math.exp(mu * math.pi / 2)                     # 다이 R 를 감아 도는 마찰 (캡스턴)
+    # 펀치 면 (프레스 방향에 거의 수직인 면) 마찰: 접촉 압력 p ≈ 4·t·σ_벽/d  →  p/(K·t) = 2·(σ/K)/R
+    contact = (nrm @ z) > math.cos(math.radians(10))
+    wc = np.zeros(nv)
+    for k in range(3):
+        wc += np.bincount(F[contact, k], Ap[contact] / 3, nv)
+    a_c = float(Ap[contact].sum())
+    p_hat = 2 * 0.5 * sig_k / max(math.sqrt(a_c / math.pi), 1.0) if a_c > 0 else 0.0
+    # 바깥 가장자리 (구멍은 빼고): 다이 R 굽힘-펴짐 σ·t/(2r+t) (Swift), 블랭크 홀더 마찰 μ·p_bh
+    loops = boundary_loops(F_all)
+    wb = np.zeros(nv)
+    if loops:
+        def length(lp):
+            P = Vm[lp]
+            return float(np.linalg.norm(P - np.roll(P, -1, axis=0), axis=1).sum())
+        outer = max(loops, key=length)
+        P = Vm[outer]
+        seg = np.linalg.norm(P - np.roll(P, -1, axis=0), axis=1)
+        w = 0.5 * (seg + np.roll(seg, 1))
+        np.add.at(wb, outer, w)
+    rd = tools.get("die_r", 5 * t)
+    sb_hat = sig_k * t / (2 * rd + t) * cap
+    k_e = tools["tensile"] * (math.e / n) ** n
+    c_bh = mu * tools.get("p_bh", 2.5) * cap / (k_e * t)
+    return dict(proj=proj, wc=wc * mu * p_hat, wb1=wb * sb_hat, wb2=wb * c_bh,
+                wfit=wc + wb, total=float(Ap.sum()))
+
+
+def _tool_energy(T, X, grad=True):
+    """금형 작용 에너지 (/ 제품 넓이) 와 기울기, 꼭짓점별 헤세 대각 (2x2 등방)."""
+    W = T["wfit"]
+    sel = W > 0
+    if sel.sum() < 3:
+        return 0.0, np.zeros_like(X), np.zeros(len(X))
+    # 블랭크 좌표에 맞춘 제품 투영 (가중 프로크루스테스, 뒤집힘 허용)
+    P, Xs, w = T["proj"][sel], X[sel], W[sel][:, None]
+    pc = (w * P).sum(0) / w.sum()
+    xc = (w * Xs).sum(0) / w.sum()
+    H = ((P - pc) * w).T @ (Xs - xc)
+    u_, _, vt = np.linalg.svd(H)
+    R = (u_ @ vt).T
+    Qp = (T["proj"] - pc) @ R.T + xc
+    d = X - Qp
+    r = np.sqrt((d ** 2).sum(1) + 1e-4)
+    tot = T["total"]
+    E = float((T["wc"] * r).sum() + (T["wb1"] * r).sum() + (T["wb2"] * r ** 2).sum()) / tot
+    if not grad:
+        return E, None, None
+    coef = (T["wc"] + T["wb1"]) / r + 2 * T["wb2"]
+    g = coef[:, None] * d / tot
+    return E, g, coef / tot
+
+
+def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0, tools=None):
     """ARAP 블랭크 U0 에서 시작해 소성 일이 가장 작은 블랭크로. (U, 반복 횟수).
     seconds 가 지나면 그때까지 가장 좋은 블랭크를 쓴다 (조립품의 부품이 많을 때).
 
@@ -477,6 +567,7 @@ def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
     import time
 
     deadline = time.monotonic() + seconds
+    F_in = F
     # 바늘 같은 조각 삼각형(가장 작은 각 < 1°)은 조금만 움직여도 뒤집혀 최적화를 막는다.
     # 에너지·뒤집힘 검사에서 빼고, 그 변은 길이 용수철로만 잡아 둔다 (꼭짓점이 떠다니지 않게).
     good = quality(Vm, F) > 1.0
@@ -499,12 +590,18 @@ def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
     a, c = P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
     flip = (a[:, 0] * c[:, 1] - a[:, 1] * c[:, 0]).sum() < 0
     x = (U0 * (1, -1) if flip else U0.copy()).ravel()
+    F_all = F_in
+    T = _tool_setup(Vm, F, F_all, Ap, tools, n_exp) if tools else None
 
     def fun(x):
         X = x.reshape(-1, 2)
         E, g = plastic_work(Vm, F, X, n_exp, r_value, q=q)
         if g is None:
             return E, None
+        if T is not None:
+            et, gt, _ = _tool_energy(T, X)
+            E += et
+            g = g + gt
         if len(E_):
             dv = X[E_[:, 0]] - X[E_[:, 1]]
             ln = np.maximum(np.linalg.norm(dv, axis=1), 1e-12)
@@ -554,7 +651,13 @@ def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
         d = None
         if fails == 0:
             try:
-                d = _newton_dir(F, Qm, Ap / total, x.reshape(-1, 2), g, n_exp, r_value, spring_H)
+                extra = spring_H
+                if T is not None:
+                    _, _, hd = _tool_energy(T, x.reshape(-1, 2))
+                    from scipy.sparse import diags
+                    Ht = diags(np.repeat(hd, 2), format="csc")
+                    extra = Ht if extra is None else extra + Ht
+                d = _newton_dir(F, Qm, Ap / total, x.reshape(-1, 2), g, n_exp, r_value, extra)
             except (RuntimeError, ValueError, np.linalg.LinAlgError):
                 d = None
             if d is not None and not (np.all(np.isfinite(d)) and g @ d < 0):
@@ -663,7 +766,7 @@ def _check_finite(*arrays, what="메시"):
                              "CAD 에서 형상을 확인해 주세요.")
 
 
-def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, info=None):
+def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, info=None, tools=None):
     """제품 겉면 메시 → (가운데 면 메시, 펼친 좌표 U). N: 꼭짓점별 실제 곡면 법선.
     n_exp(가공 경화 지수 n)를 주면 ARAP 결과에서 시작해 소성 일 최소화(원스텝 역해석)로 다듬는다.
     info(dict)에 쓴 방법·반복 횟수를 적어 준다."""
@@ -691,7 +794,7 @@ def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, inf
         info["method"] = "ARAP"
     if n_exp is not None:
         try:
-            U2, it = one_step(Vm, F, U, n_exp, r_value)
+            U2, it = one_step(Vm, F, U, n_exp, r_value, tools=tools)
             U = U2
             if info is not None:
                 info["method"], info["iterations"] = "원스텝 역해석 (소성 일 최소)", it

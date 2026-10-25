@@ -324,7 +324,7 @@ def test_drawn_cup_one_step_beats_arap():
     assert ra.forming.method == "ARAP"
     d_arap = max(ra.size)
     assert abs(d_one - d_equal) < abs(d_arap - d_equal)
-    assert abs(d_one - d_equal) < 0.08 * d_equal
+    assert abs(d_one - d_equal) < 0.03 * d_equal                 # 1.24: 중간 형상 적분 + 금형 작용
     # 바닥(가운데 반지름 30 안) 두께 변화
     U = fi.U
     c = U[fi.F].mean(1) - U.mean(0)

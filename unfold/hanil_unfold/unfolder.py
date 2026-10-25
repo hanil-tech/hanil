@@ -804,7 +804,10 @@ class SheetMetalUnfolder:
         V, F, N = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
         mat = self.settings.mat
         how = {}
-        Vm, F, U = forming.flatten(V, F, t, N=N, n_exp=mat.n, r_value=mat.r, info=how)
+        from .diecalc import HOLDER_P, _family
+        tools = dict(thickness=t, tensile=mat.tensile_mpa, mu=0.1, p_bh=HOLDER_P[_family(mat.code)],
+                     die_r=max(5 * t, 3.0)) if forming.TOOL_LOADS else None
+        Vm, F, U = forming.flatten(V, F, t, N=N, n_exp=mat.n, r_value=mat.r, info=how, tools=tools)
         major, minor, ratio = forming.strains(Vm, F, U)
 
         entities = []
