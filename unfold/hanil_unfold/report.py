@@ -614,6 +614,13 @@ def save_xlsx(d: ReportData, path: str):
     # 성형품 두께 변화 분포
     if d.result.forming is not None:
         tmps.append(_thinning_sheet(wb, d, st))
+    # 제품 성형 해석 (성형성 존·절곡 균열·하중)
+    try:
+        from . import formsim
+        tmps += formsim.add_sheets(wb, formsim.analyze(d.result, d.settings), d.part_title or d.part_name)
+    except Exception:
+        import traceback
+        traceback.print_exc()
 
     wb.save(path)
     for t in tmps + [logo_tmp]:

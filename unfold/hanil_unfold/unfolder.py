@@ -119,6 +119,7 @@ class FormingInfo:
     method: str = "ARAP"
     flc0: float = 0.0        # 평면 변형 성형 한계 (진변형률), 0 = 판정 안 함
     material: str = ""
+    V: np.ndarray | None = None   # 제품 (두께 가운데 면) 꼭짓점 (n, 3) — 성형 해석 3D 그림
 
     def _weights(self):
         w = _tri_areas2(self.U, self.F)
@@ -806,7 +807,8 @@ class SheetMetalUnfolder:
         how = {}
         from .diecalc import HOLDER_P, _family
         tools = dict(thickness=t, tensile=mat.tensile_mpa, mu=0.1, p_bh=HOLDER_P[_family(mat.code)],
-                     die_r=max(5 * t, 3.0)) if forming.TOOL_LOADS else None
+                     die_r=max(5 * t, 3.0)) if forming.TOOL_LOADS and n_free else None
+        # 평면·원통·원뿔뿐인 부품은 굽힘으로 만들어 끌려 들어오는 저항(누르개·다이 R)이 없다
         Vm, F, U = forming.flatten(V, F, t, N=N, n_exp=mat.n, r_value=mat.r, info=how, tools=tools)
         major, minor, ratio = forming.strains(Vm, F, U)
 
@@ -825,7 +827,7 @@ class SheetMetalUnfolder:
         fi = FormingInfo(U=U, F=F, ratio=ratio, major=major, minor=minor,
                          product_area=area3d, blank_area=area2d,
                          reliable=forming.quality(Vm, F) > 5.0, method=how.get("method", "ARAP"),
-                         flc0=mat.flc0_for(t), material=mat.code)
+                         flc0=mat.flc0_for(t), material=mat.code, V=Vm)
         notes = []
         if n_free:
             notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")

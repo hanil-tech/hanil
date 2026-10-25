@@ -769,7 +769,8 @@ class MainWindow(QMainWindow):
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.info.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
-        self.info.linkActivated.connect(lambda link: self.show_fld() if link == "fld" else None)
+        self.info.linkActivated.connect(lambda link: self.show_fld() if link == "fld" else
+                                        self.show_formsim() if link == "sim" else None)
 
         bottom = QWidget()
         bl = QHBoxLayout(bottom)
@@ -833,6 +834,9 @@ class MainWindow(QMainWindow):
         self.act_quote = QAction("견적", self, shortcut="Ctrl+E", triggered=self.show_quote)
         self.act_quote.setToolTip("도면(3D)으로 공정수·재료비·가공비·부자재를 계산해 견적서 초안 (엑셀·PDF)")
         self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
+        self.act_sim = QAction("성형 해석", self, shortcut="Ctrl+M", triggered=self.show_formsim)
+        self.act_sim.setToolTip("제품 3D 위에 성형성 존(파단·위험·얇아짐·주름)·두께·변형률, 성형 한계도, "
+                                "절곡 균열·스프링백, 프레스 하중 — 엑셀·PDF")
         self.act_process = QAction("금형 공정", self, shortcut="Ctrl+J", triggered=lambda: self.show_die(4))
         self.act_process.setToolTip("3D 를 보고 문헌 규칙으로 금형 형식·공정 순서를 자동으로 (AI 도면 검토 선택), "
                                     "순차 금형 스트립 공정도 — PDF·DXF")
@@ -909,7 +913,7 @@ class MainWindow(QMainWindow):
     # ---- 큰 분류 (리본): 파일 · 전개 · 네스팅 · BOM · 금형 · 견적 · 기록 · 설정·도움말
     CATEGORIES = [
         ("파일", "3D 도면(STEP·IGES·STL …)을 열고, 여러 파일을 한꺼번에 전개하거나 압축합니다."),
-        ("전개", "판금 정확 전개 · 성형품 근사 전개 → 전개도 DXF, 보고서, 조립도"),
+        ("전개", "판금 정확 전개 · 성형품 근사 전개 → 전개도 DXF, 보고서, 조립도 · 제품 성형 해석"),
         ("네스팅", "전개한 부품을 철판(1219 × 2438 등)에 늘어놓아 장 수·사용률을 셉니다."),
         ("BOM", "같은 부품끼리 묶은 부품표(다단계 BOM), 도면 PDF 와 맞춘 AI BOM"),
         ("금형", "하중·클리어런스·스프링백·설계 규칙, 자동 공정 설계, 금형 공정도"),
@@ -922,10 +926,10 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QMenuBar, QTabWidget
         groups = {
             "파일": [self.act_open, self.act_package, self.act_batch, self.act_zip],
-            "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_assy],
+            "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_sim, self.act_assy],
             "네스팅": [self.act_nest],
             "BOM": [self.act_bom, self.act_ai_bom],
-            "금형": [self.act_die, self.act_process],
+            "금형": [self.act_sim, self.act_die, self.act_process],
             "견적": [self.act_package, self.act_quote, self.act_doc_log],
             "기록": [self.act_history, self.act_doc_log],
             "설정·도움말": [self.act_help],
@@ -1009,6 +1013,7 @@ class MainWindow(QMainWindow):
         self.act_nest.setEnabled(self.model is not None)
         self.act_bom.setEnabled(self.model is not None)
         self.act_die.setEnabled(self.result is not None)
+        self.act_sim.setEnabled(self.result is not None)
         self.act_quote.setEnabled(self.model is not None)
         self.act_package.setEnabled(self.model is not None)
         self.act_process.setEnabled(self.result is not None)
@@ -1195,6 +1200,23 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         dlg.tabs.setCurrentIndex(tab if isinstance(tab, int) else 0)
+        dlg.exec()
+
+    def show_formsim(self):
+        """성형 해석 창 (지금 부품)."""
+        from .formsim_dialog import FormSimDialog
+        if self.result is None:
+            QMessageBox.information(self, "성형 해석", "먼저 부품을 전개하세요.")
+            return
+        idx = max(self.solid_box.currentIndex(), 0)
+        name = self.model.names[idx] if self.model and self.model.names else ""
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            dlg = FormSimDialog(self.result, self.bend_panel.settings(), name, self,
+                                history=self.history if self.history_box.isChecked() else None,
+                                source_path=self.model.path if self.model else "")
+        finally:
+            QApplication.restoreOverrideCursor()
         dlg.exec()
 
     def show_nesting(self):
@@ -1493,12 +1515,11 @@ class MainWindow(QMainWindow):
                              "평면·원통·원뿔로 되돌려 계산했습니다.</span>")
             for txt in r.rolled:
                 lines.append(txt)
-            if r.forming is not None and r.forming.flc0 > 0:
-                split, marginal, wrinkle, top = r.forming.flc_summary
-                col = "#e05050" if split > 0.001 else "#e0a040" if marginal > 0.001 else "#60c060"
-                lines.append(f"<b>성형 한계</b> <span style='color:{col}'>최대 {top:.0%}</span> "
-                             f"(FLC0 {r.forming.flc0:.3f}) · 주름 가능 {wrinkle:.1%} · "
-                             "<a href='fld'>성형 한계도 보기</a>")
+            try:
+                from . import formsim
+                lines.append(formsim.summary_html(formsim.analyze(r, self.bend_panel.settings())))
+            except Exception:
+                traceback.print_exc()
             for wmsg in r.warnings:
                 lines.append(f"<span style='color:#e0a040'>⚠ {wmsg}</span>")
             self._set_info("<br>".join(lines))

@@ -98,27 +98,82 @@ def _face_normal(face, u, v):
     return -n if face.Orientation() == TopAbs_REVERSED else n
 
 
-def subdivide(V, F, target=6000):
-    """삼각형이 target 개쯤 될 때까지 4 등분한다 (변형 분포를 고르게 보려고)."""
-    while len(F) * 4 <= target * 1.5 and len(F) < target:
-        mids = {}
-        newV = list(V)
+def subdivide(V, F, target=6000, N=None):
+    """긴 모서리 나누기로 삼각형 크기를 고르게 (target 개쯤).
+    CAD 메시는 원통 벽 같은 곳에 벽 높이만큼 긴 바늘 삼각형을 만든다. 4 등분은 모양이 그대로라
+    변형률이 이웃끼리 번갈아 튀므로 (체커보드), 기준 길이 h 보다 긴 모서리를 모두 가운데서 나눈다
+    (나뉜 모서리 수 1·2·3 에 따라 2·3·4 조각 — 이웃과 저절로 맞물림).
+    N (꼭짓점 법선) 을 주면 새 점을 곡면 위로 올린다: 원호의 화살 높이 = (n1 − n0)·d / 8
+    (절곡 R 의 현 가운데 점을 그대로 쓰면 호 길이가 짧아진다). 이때 (V, F, N) 을 돌려준다."""
+    V = np.asarray(V, float)
+    F = np.asarray(F, int)
+    if N is not None:
+        N = np.asarray(N, float)
+    a = V[F[:, 1]] - V[F[:, 0]]
+    b = V[F[:, 2]] - V[F[:, 0]]
+    area = 0.5 * float(np.linalg.norm(np.cross(a, b), axis=1).sum())
+    if area <= 0 or len(F) >= target:
+        return (V, F) if N is None else (V, F, N)
+    h = math.sqrt(4 * area / (math.sqrt(3) * target)) * 2.0      # 정삼각형 target 개 변 길이의 2 배 (길쭉한 것만 나뉘게)
+    for _ in range(12):
+        e = np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), axis=1)
+        e = np.unique(e, axis=0)
+        L = np.linalg.norm(V[e[:, 0]] - V[e[:, 1]], axis=1)
+        long_ = e[L > h]
+        if not len(long_) or len(F) > 3 * target:
+            break
+        mid = {(int(i), int(j)): len(V) + k for k, (i, j) in enumerate(long_)}
+        p0, p1 = V[long_[:, 0]], V[long_[:, 1]]
+        pm = 0.5 * (p0 + p1)
+        if N is not None:
+            n0, n1 = N[long_[:, 0]], N[long_[:, 1]]
+            nm = n0 + n1
+            nm /= np.maximum(np.linalg.norm(nm, axis=1), 1e-30)[:, None]
+            sag = np.einsum("ij,ij->i", n1 - n0, p1 - p0) / 8.0
+            pm = pm + sag[:, None] * nm
+            N = np.vstack([N, nm])
+        V = np.vstack([V, pm])
+        Lv = {}
 
-        def mid(a, b):
-            key = (a, b) if a < b else (b, a)
-            i = mids.get(key)
-            if i is None:
-                i = len(newV)
-                newV.append(0.5 * (V[a] + V[b]))
-                mids[key] = i
-            return i
+        def m(i, j):
+            return mid.get((i, j) if i < j else (j, i))
+
+        def ln(i, j):
+            key = (i, j) if i < j else (j, i)
+            if key not in Lv:
+                Lv[key] = float(np.linalg.norm(V[i] - V[j]))
+            return Lv[key]
 
         nf = []
-        for a, b, c in F:
-            ab, bc, ca = mid(a, b), mid(b, c), mid(c, a)
-            nf += [(a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca)]
-        V, F = np.array(newV), np.array(nf, int)
-    return V, F
+        for tri in F.tolist():
+            ms = [m(tri[k], tri[(k + 1) % 3]) for k in range(3)]
+            cnt = sum(x is not None for x in ms)
+            if cnt == 0:
+                nf.append(tri)
+                continue
+            if cnt == 3:
+                A, B, C = tri
+                ab, bc, ca = ms
+                nf += [[A, ab, ca], [ab, B, bc], [ca, bc, C], [ab, bc, ca]]
+                continue
+            # 나뉜 모서리가 첫 모서리 (A→B) 가 되도록 돌린다
+            k0 = next(k for k in range(3) if ms[k] is not None)
+            if cnt == 2 and ms[(k0 + 2) % 3] is not None:
+                k0 = (k0 + 2) % 3
+            A, B, C = tri[k0], tri[(k0 + 1) % 3], tri[(k0 + 2) % 3]
+            ab = ms[k0]
+            if cnt == 1:
+                nf += [[A, ab, C], [ab, B, C]]
+            else:                                   # A→B, B→C 가 나뉨
+                bc = ms[(k0 + 1) % 3]
+                nf.append([ab, B, bc])
+                # 남은 사각형 A-ab-bc-C 는 짧은 대각선으로
+                if ln(A, bc) < ln(ab, C):
+                    nf += [[A, ab, bc], [A, bc, C]]
+                else:
+                    nf += [[A, ab, C], [ab, bc, C]]
+        F = np.array(nf, int)
+    return (V, F) if N is None else (V, F, N)
 
 
 def quality(V, F):
@@ -781,7 +836,7 @@ def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, inf
     # 두께가 형상 크기만 한 부품(핀·봉·너트)은 가운데 면이 한 점·한 선으로 줄어든다: 판금이 아님
     if float(np.linalg.norm(np.ptp(Vm, axis=0))) < 0.3 * float(np.linalg.norm(np.ptp(V, axis=0))):
         raise ValueError("판금·성형품이 아닌 부품입니다 (두께가 형상 크기와 비슷함: 핀·봉·너트 등).")
-    Vm, F = subdivide(Vm, F)
+    Vm, F, _ = subdivide(Vm, F, N=N)
     F = _drop_degenerate(Vm, F)
     if len(F) < 2:
         raise ValueError("펼칠 면이 없습니다 (메시가 비었거나 모두 넓이 0).")

@@ -65,7 +65,7 @@ def test_excel_report_contents(reports):
     import openpyxl
     out, items = reports
     wb = openpyxl.load_workbook(out / "sheet.xlsx")
-    assert wb.sheetnames == ["보고서", "절곡표", "치수"]
+    assert wb.sheetnames == ["보고서", "절곡표", "치수", "성형 해석"]
     ws = wb["절곡표"]
     assert ws.cell(1, 1).value == "번호"
     assert [ws.cell(r, 3).value for r in (2, 3)] == pytest.approx([90, 45], abs=1e-6) or \
