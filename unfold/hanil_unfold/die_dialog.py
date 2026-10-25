@@ -126,7 +126,9 @@ class DieDialog(QDialog):
             f"(다이 = 펀치 + {2 * rep.clearance_mm:.3f} mm)<br>"
             f"<span style='color:#555'>독일 VDI 3368: u = 0.01 · s · √(0.1·τ) = {rep.vdi_clearance_mm:.3f} mm (깨끗한 절단, "
             f"버 허용이면 최대 ×3.5) · 다이 두께 어림 H ≈ ∛(0.1·F) = {rep.die_plate_mm:.0f} mm · "
-            f"보통 공차 JIS B 0408-B / ISO 2768-m</span>"))
+            f"보통 공차 JIS B 0408-B / ISO 2768-m<br>"
+            f"전단력이 프레스에 버거우면 펀치·다이 날에 시어 각 (경사) 을 주세요 — 시험에서 펀치 각 16° 로 전단력 최대 80 % 감소 "
+            f"(DC01, Trans. FAMENA 2016). 드로잉은 하사점 위에서 힘이 커서 크랭크 프레스 톤수 곡선으로 고릅니다.</span>"))
         l1.addWidget(_table(["하중", "길이 mm", "힘 kN", "톤 (tf)", "비고"], load_rows(rep)))
         if rep.bends:
             l1.addWidget(QLabel("절곡별 굽힘력 · 스프링백 (추정 — 시험 절곡으로 확정)"))

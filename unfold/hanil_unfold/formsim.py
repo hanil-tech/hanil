@@ -37,6 +37,11 @@ ZONES = [
 MIN_BEND_RT = {"SPCC": 0.0, "SECC": 0.0, "SGCC": 0.0, "SPHC": 0.5, "SS275": 1.0, "SAPH440": 0.5,
                "SGARC440": 0.5, "SPFC590": 1.0, "SPFC980": 2.0, "SUS304": 0.5, "SUS430": 1.0,
                "AL5052": 1.0, "AL1050": 0.0, "AL6061": 2.5, "C1100": 0.0, "C2600": 0.5}
+# 가장자리 늘림 한계 = 구멍 확장률 HER (ISO 16630, 펀칭한 10 mm 구멍을 60° 원뿔로 넓혀 균열까지):
+# 연강·일반 고장력강 100 % 넘음, AHSS (DP·TRIP 등) 약 50 % (AHSS Insights · The Fabricator 「edge cracking
+# in hole flanging of AHSS」). 그 밖 재질은 공개값을 못 찾아 판정하지 않음 (None).
+HER = {"SPCC": 1.0, "SECC": 1.0, "SGCC": 1.0, "SPHC": 1.0, "SS275": 1.0, "SAPH440": 1.0, "SGARC440": 1.0,
+       "SPFC590": 0.5, "SPFC980": 0.5}
 THIN_MAX = 0.25        # 과도 얇아짐 기준 (문헌 관례 25 % 또는 30 %)
 STRETCH_MIN = 0.03     # 늘림 부족: 얇아짐·주 변형률 3 % 미만 (스프링백·면 결함 기준 3~5 %)
 MARGIN = 0.20          # 파단 위험 = FLC 아래 20 % 안 (LS-DYNA 기본 안전 여유 20 %, 문헌 10~20 %)
@@ -83,6 +88,8 @@ class FormAnalysis:
     fi: object = None
     fields: tuple = ()               # 고른 (ε1, ε2, 두께 감소율, 한계 비)
     ldr: tuple = ()                  # (이 제품 드로잉비 β, 한계 드로잉비 LDR)
+    edge: tuple = ()                 # (가장자리 늘림 최대, 어디, HER 한계 또는 None)
+    edge_verdict: str = OK
 
     @property
     def t_min(self):
@@ -216,6 +223,7 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                                                               "(블랭크 − 펀치 투영)"))
                 fa.messages.append(f"성형 깊이 {depth:.1f} mm · 펀치 투영 넓이 {proj:,.0f} mm² · "
                                    f"블랭크 {fi.blank_area:,.0f} mm²")
+    _edge_stretch(fa, fi, mat)
     fr = dict(zip(range(len(ZONES)), fa.zone_frac))
     if fr[0] > 0.001:
         fa.messages.append(f"파단 {fr[0]:.1%}: 성형 한계를 넘습니다 — R 을 키우거나, 깊이를 나누거나 (다단 드로잉), "
@@ -235,6 +243,47 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
     fa.verdict = NG if NG in worst else WARN if WARN in worst else OK
     if fa.ldr and fa.ldr[0] > fa.ldr[1] and fa.verdict == OK:     # 한 번에 못 당김 → 다단 (주의)
         fa.verdict = WARN
+    order = [OK, WARN, NG]
+    if order.index(fa.edge_verdict) > order.index(fa.verdict):
+        fa.verdict = fa.edge_verdict
+
+
+def _edge_stretch(fa, fi, mat):
+    """잘린 가장자리 (메시 경계: 외곽 트림선·구멍) 의 둘레 방향 늘림 = 제품 길이 / 블랭크 길이 − 1.
+    이웃 5 모서리 평균 (메시 조각 영향 줄임) 의 최대를 구멍 확장률 HER 과 견준다 — 구멍 버링·스트레치 플랜지 균열."""
+    from .forming import boundary_loops
+    if fi.V is None:
+        return
+    worst, where = 0.0, ""
+    for k, loop in enumerate(boundary_loops(fi.F)):
+        if len(loop) < 6:
+            continue
+        P3, P2 = fi.V[loop], fi.U[loop]
+        l3 = np.linalg.norm(np.roll(P3, -1, axis=0) - P3, axis=1)
+        l2 = np.linalg.norm(np.roll(P2, -1, axis=0) - P2, axis=1)
+        ker = np.ones(5) / 5
+        s3 = np.convolve(np.concatenate([l3[-2:], l3, l3[:2]]), ker, "valid")
+        s2 = np.convolve(np.concatenate([l2[-2:], l2, l2[:2]]), ker, "valid")
+        e = s3 / np.maximum(s2, 1e-12) - 1
+        if e.max() > worst:
+            worst = float(e.max())
+            where = "바깥 트림선" if l2.sum() == max(np.linalg.norm(np.roll(fi.U[lp], -1, axis=0) - fi.U[lp], axis=1).sum()
+                                                 for lp in boundary_loops(fi.F)) else "구멍 가장자리"
+    fa.edge = (worst, where, HER.get(mat.code))
+    lim = HER.get(mat.code)
+    if worst <= 0.02:
+        return
+    if lim is None:
+        fa.messages.append(f"가장자리 늘림 최대 {worst:.0%} ({where}) — {mat.code} 의 구멍 확장률 (HER) 값이 없어 판정하지 않음")
+    elif worst >= lim:
+        fa.messages.append(f"가장자리 늘림 {worst:.0%} ({where}) ≥ 구멍 확장률 HER {lim:.0%} — 가장자리 균열 (버링·스트레치 "
+                           "플랜지): 펀칭 대신 레이저·리밍, 버를 안쪽으로, 플랜지 높이 줄이기")
+        fa.edge_verdict = NG
+    elif worst >= 0.8 * lim:
+        fa.messages.append(f"가장자리 늘림 {worst:.0%} ({where}) — HER {lim:.0%} 의 80 % 이상 (가장자리 균열 주의)")
+        fa.edge_verdict = WARN
+    elif worst > 0.05:
+        fa.messages.append(f"가장자리 늘림 {worst:.0%} ({where}) < 구멍 확장률 HER {lim:.0%} — 여유 있음")
 
 
 def _sheet(fa: FormAnalysis, result, settings: bc.BendSettings, mat: bc.Material):

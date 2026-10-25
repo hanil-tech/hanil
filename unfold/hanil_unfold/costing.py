@@ -29,12 +29,12 @@ PRESS, BRAKE, LASER, MACHINING = "프레스", "절곡기", "레이저", "가공�
 
 # 예시 기계 (회사 기계로 바꿀 것). capacity: 프레스·절곡기 톤, 레이저 최대 두께 mm
 DEFAULT_MACHINES = [
-    {"name": "프레스 60톤", "kind": PRESS, "capacity": 60, "length": 0, "rate": 40000, "spm": 35, "setup_min": 30},
-    {"name": "프레스 110톤", "kind": PRESS, "capacity": 110, "length": 0, "rate": 50000, "spm": 30, "setup_min": 40},
-    {"name": "프레스 200톤", "kind": PRESS, "capacity": 200, "length": 0, "rate": 70000, "spm": 22, "setup_min": 60},
-    {"name": "프레스 300톤", "kind": PRESS, "capacity": 300, "length": 0, "rate": 90000, "spm": 18, "setup_min": 60},
-    {"name": "프레스 500톤", "kind": PRESS, "capacity": 500, "length": 0, "rate": 130000, "spm": 12, "setup_min": 90},
-    {"name": "프레스 800톤", "kind": PRESS, "capacity": 800, "length": 0, "rate": 200000, "spm": 10, "setup_min": 120},
+    {"name": "프레스 60톤", "kind": PRESS, "capacity": 60, "length": 0, "stroke": 120, "rate": 40000, "spm": 35, "setup_min": 30},
+    {"name": "프레스 110톤", "kind": PRESS, "capacity": 110, "length": 0, "stroke": 150, "rate": 50000, "spm": 30, "setup_min": 40},
+    {"name": "프레스 200톤", "kind": PRESS, "capacity": 200, "length": 0, "stroke": 200, "rate": 70000, "spm": 22, "setup_min": 60},
+    {"name": "프레스 300톤", "kind": PRESS, "capacity": 300, "length": 0, "stroke": 250, "rate": 90000, "spm": 18, "setup_min": 60},
+    {"name": "프레스 500톤", "kind": PRESS, "capacity": 500, "length": 0, "stroke": 300, "rate": 130000, "spm": 12, "setup_min": 90},
+    {"name": "프레스 800톤", "kind": PRESS, "capacity": 800, "length": 0, "stroke": 400, "rate": 200000, "spm": 10, "setup_min": 120},
     {"name": "절곡기 100톤 3m", "kind": BRAKE, "capacity": 100, "length": 3100, "rate": 35000, "spm": 0,
      "setup_min": 10, "sec_per_op": 18},
     {"name": "절곡기 220톤 4m", "kind": BRAKE, "capacity": 220, "length": 4100, "rate": 45000, "spm": 0,
@@ -146,13 +146,43 @@ class OpCost:
         return self.force_n / dc.TON
 
 
-def pick(machines, kind, need_ton=0.0, length=0.0):
-    """조건에 맞는 가장 작은 기계 (없으면 가장 큰 것, 주의 표시용 False)."""
+def default_stroke(capacity):
+    """프레스 행정 어림 (mm) — 표에 행정이 없을 때."""
+    return float(np.interp(capacity, [60, 110, 200, 300, 500, 800], [120, 150, 200, 250, 300, 400]))
+
+
+RATED_ANGLE = 30.0     # 크랭크 프레스 정격 톤수 각도 (하사점 앞 30°, ISO)
+
+
+def press_factor(m, height):
+    """하사점 위 height mm 에서 쓸 수 있는 힘 / 정격 톤수. 크랭크 F(α) = P · sin 30° / sin α (α > 30°)
+    (α: 하사점에서 잰 크랭크 각, h = S/2 · (1 − cos α)). 미국 The Fabricator 「Understanding press tonnage」."""
+    S = float(m.get("stroke") or default_stroke(m.get("capacity", 100)))
+    if height <= 0 or S <= 0:
+        return 1.0
+    if height >= S:
+        return 0.0
+    a = math.degrees(math.acos(1 - 2 * height / S))
+    if a <= RATED_ANGLE:
+        return 1.0
+    return math.sin(math.radians(RATED_ANGLE)) / math.sin(math.radians(min(a, 90.0)))
+
+
+def pick(machines, kind, need_ton=0.0, length=0.0, height=0.0, depth=0.0):
+    """조건에 맞는 가장 작은 기계 (없으면 가장 큰 것, 주의 표시용 False).
+    프레스에 height (힘이 가장 큰 때 하사점 위 높이) 를 주면 톤수 곡선으로 깎은 힘, depth 를 주면
+    행정 ≥ 2 × 깊이 (부품을 빼내는 관례) 도 본다."""
     cands = [m for m in machines if m["kind"] == kind]
     if not cands:
         return None, False
-    ok = [m for m in cands if m["capacity"] >= need_ton and (not length or not m.get("length")
-                                                               or m["length"] >= length)]
+
+    def fits(m):
+        if m["capacity"] * (press_factor(m, height) if kind == PRESS else 1.0) < need_ton:
+            return False
+        if kind == PRESS and depth and float(m.get("stroke") or default_stroke(m["capacity"])) < 2 * depth:
+            return False
+        return not length or not m.get("length") or m["length"] >= length
+    ok = [m for m in cands if fits(m)]
     if ok:
         return min(ok, key=lambda m: (m["capacity"], m.get("length", 0))), True
     return max(cands, key=lambda m: (m["capacity"], m.get("length", 0))), False
@@ -226,8 +256,19 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
     n_bend = max(sum(o.startswith("절곡") or "예비 굽힘" in o for o in ops), 1)
     forming = r.forming is not None
     draw_n = 0.0
+    depth = h_peak = 0.0
     if forming:
         draw_n = rep.loads[0].length * t * mat.tensile_mpa * 0.7 * 1.3     # + 홀더 30 %
+        try:
+            from .formsim import press_direction
+            fi = r.forming
+            z, _ = press_direction(fi.V, fi.F)
+            if z is not None:
+                depth = float(np.ptp(fi.V @ z))
+        except Exception:
+            depth = 0.0
+        # 드로잉력이 가장 큰 때: 펀치가 펀치 R + 다이 R (≈ 10 t) 만큼 들어간 뒤 → 하사점 위 깊이 − 10 t
+        h_peak = max(0.5 * depth, depth - 10 * t) if depth > 3 * t else 0.0
     forces = []
     for o in ops:
         if o.startswith("DR"):
@@ -246,9 +287,17 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
             f = 0.0
         forces.append(f)
     one_press = "순차" in method or "트랜스퍼" in method or "복합" in method
+    def curve_note(m):
+        if not h_peak or not m:
+            return ""
+        fac = press_factor(m, h_peak)
+        S = float(m.get("stroke") or default_stroke(m["capacity"]))
+        return f" · 깊이 {depth:.0f} mm: 하사점 위 {h_peak:.0f} mm 에서 쓸 수 있는 힘 {fac:.0%} (행정 {S:.0f})"
+
     if one_press:
         total = sum(forces)
-        m, ok = pick(machines, PRESS, total / dc.TON * sf)
+        m, ok = pick(machines, PRESS, total / dc.TON * sf, height=h_peak if draw_n else 0.0,
+                     depth=depth if draw_n else 0.0)
         spm = (m.get("spm") or 20) if m else 20
         if "트랜스퍼" in method:
             spm *= 0.6
@@ -257,16 +306,19 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
         for i, (o, f) in enumerate(zip(ops, forces)):
             out.append(OpCost(o, PRESS, f, m["name"] if m else "-", sec if i == 0 else 0.0,
                               cost if i == 0 else 0.0,
-                              (f"한 프레스에서 전 공정 합 {total / dc.TON:.1f} tf × {sf:g}" + ("" if ok else " ⚠ 용량 초과"))
+                              (f"한 프레스에서 전 공정 합 {total / dc.TON:.1f} tf × {sf:g}" + curve_note(m)
+                               + ("" if ok else " ⚠ 용량 초과"))
                               if i == 0 else "같은 프레스"))
     else:
         for o, f in zip(ops, forces):
-            m, ok = pick(machines, PRESS, f / dc.TON * sf)
+            drawing = o.startswith("DR")
+            m, ok = pick(machines, PRESS, f / dc.TON * sf, height=h_peak if drawing else 0.0,
+                         depth=depth if drawing else 0.0)
             spm = (m.get("spm") or 20) if m else 20
             sec = 60 / spm * 1.5            # 단발: 넣고 빼기 포함
             out.append(OpCost(o, PRESS, f, m["name"] if m else "-", sec,
                               (sec * m["rate"] / 3600 + _setup_cost(m, lot)) if m else 0.0,
-                              "" if ok else "⚠ 용량 초과"))
+                              (curve_note(m).lstrip(" ·") if drawing else "") + ("" if ok else " ⚠ 용량 초과")))
     return out
 
 
@@ -451,6 +503,7 @@ DIE_NAMES = {
 STRUCTURES = ["자동 (크기·무게로)", "강판 다이 세트", "주물 (FC300·FCD)"]
 
 MACHINE_COLS = [("name", "기계 이름"), ("kind", "종류"), ("capacity", "용량 (톤 / 레이저 최대 t)"),
+                ("stroke", "행정 mm (프레스)"),
                 ("length", "길이 mm (절곡기)"), ("rate", "임률 원/시간"), ("spm", "SPM (프레스)"),
                 ("setup_min", "준비 분"), ("sec_per_op", "1 회 초 (절곡기)"), ("speed_1mm", "1 mm 속도 m/분 (레이저)"),
                 ("sec_per_kg", "초/kg (가공기)")]

@@ -357,3 +357,38 @@ def drawn_cup(R=50.0, H=50.0, rf=8.0, t=1.0):
     mk = BRepOffsetAPI_MakeThickSolid()
     mk.MakeThickSolidByJoin(s, top, -t, 1e-4)
     return mk.Shape()
+
+
+def burring(R=20.0, H=8.0, R_out=50.0, t=1.0, ri=2.0):
+    """구멍 버링 (플랜지 구멍): 평판 Ø2R_out 가운데 구멍 가장자리를 높이 H 로 세움 (안쪽 R ri) — 단면을 돌려 만듦.
+    펼치면 세운 벽이 구멍 안쪽으로 눕혀져 가장자리가 R / (R − H) 배쯤 늘어난다."""
+    import math
+
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol
+    from OCP.GC import GC_MakeArcOfCircle
+    from OCP.gp import gp, gp_Pnt
+
+    ro = ri + t
+    c = math.cos(math.pi / 4)
+
+    def P(x, z):
+        return gp_Pnt(x, 0, z)
+
+    def seg(a, b):
+        return BRepBuilderAPI_MakeEdge(P(*a), P(*b)).Edge()
+
+    def arc(a, m, b):
+        return BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(P(*a), P(*m), P(*b)).Value()).Edge()
+
+    x0 = R - t
+    edges = [seg((R_out, 0), (x0 + ro, 0)),
+             arc((x0 + ro, 0), (x0 + ro - ro * c, ro - ro * c), (x0, ro)),
+             seg((x0, ro), (x0, H)), seg((x0, H), (R, H)), seg((R, H), (R, t + ri)),
+             arc((R, t + ri), (R + ri - ri * c, t + ri - ri * c), (R + ri, t)),
+             seg((R + ri, t), (R_out, t)), seg((R_out, t), (R_out, 0))]
+    w = BRepBuilderAPI_MakeWire()
+    for e in edges:
+        w.Add(e)
+    face = BRepBuilderAPI_MakeFace(w.Wire()).Face()
+    return BRepPrimAPI_MakeRevol(face, gp.OZ_s(), 2 * math.pi).Shape()

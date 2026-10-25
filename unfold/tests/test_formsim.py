@@ -114,3 +114,36 @@ def test_dialog_builds(cup):
     assert dlg.fa.verdict in (fs.OK, fs.WARN, fs.NG)
     dlg.view.set_view(fs.VIEWS[1])
     dlg.close()
+
+
+def test_burring_edge_stretch_vs_hole_expansion_ratio():
+    """구멍 버링: 세운 가장자리 늘림 ≈ R/(R−H) − 1 을 구멍 확장률 HER (ISO 16630) 과 견줌."""
+    from models import burring
+    sh = burring()
+    out = {}
+    for mat in ("SPCC", "SPFC590"):
+        st = bc.BendSettings(material=mat)
+        r = unfold(solid(sh), settings=st, mode="forming")
+        out[mat] = fs.analyze(r, st)
+    e, where, lim = out["SPCC"].edge
+    assert where == "구멍 가장자리" and 0.4 < e < 0.7 and lim == 1.0
+    assert out["SPCC"].edge_verdict == fs.OK
+    assert out["SPFC590"].edge_verdict == fs.NG and out["SPFC590"].verdict == fs.NG
+    assert any("HER" in m for m in out["SPFC590"].messages)
+
+
+def test_press_tonnage_curve():
+    """크랭크 프레스: 하사점 앞 30° 까지 정격, 그 위는 sin 30° / sin α 로 줄어듦."""
+    import math
+    from hanil_unfold import costing as cs
+    m = {"capacity": 200, "stroke": 200}
+    h30 = 100 * (1 - math.cos(math.radians(30)))
+    assert cs.press_factor(m, h30 * 0.99) == 1.0
+    assert cs.press_factor(m, 100) == pytest.approx(0.5)               # 90°
+    h60 = 100 * (1 - math.cos(math.radians(60)))
+    assert cs.press_factor(m, h60) == pytest.approx(0.5 / math.sin(math.radians(60)))
+    # 깊은 드로잉은 같은 힘이라도 더 큰 프레스 (또는 긴 행정)
+    ms = cs.default_costing()["machines"]
+    a, _ = cs.pick(ms, cs.PRESS, 50)
+    b, _ = cs.pick(ms, cs.PRESS, 50, height=40, depth=50)
+    assert b["capacity"] > a["capacity"] and b["stroke"] >= 100
