@@ -71,7 +71,7 @@ class PartPackageDialog(QDialog):
                          "<li>전개도 DXF · 전개 보고서 (PDF·엑셀)</li><li>성형 해석 (성형성 존·두께·FLD / 절곡 균열·스프링백)</li>"
                          "<li>금형 검토 (하중·클리어런스·설계 규칙·스트립·드로잉·자동 공정 설계)</li><li>금형 공정도 (PDF·DXF)</li>"
                          "<li>생산 견적서 · 금형 견적서 (금형 간략도, 큰 금형은 주물)</li><li>원가계산서 (수량별 단가표)</li>"
-                         "<li>생산 계획 (설비 부하·인원·소재·금형 → 양산 일정)</li><li>품질 문서 (공정 흐름도·PFMEA·관리계획서)</li>"
+                         "<li>생산 계획 (설비 부하·인원·소재·금형 → 양산 일정)</li><li>품질 문서 (공정 흐름도·PFMEA·관리계획서)</li><li>검사 성적서 양식 (측정값만 넣으면 판정·Cpk)</li>"
                          "<li>첫 장: 한 쪽 요약</li></ol>")
         run = QPushButton("한 번에 분석")
         run.setStyleSheet("QPushButton { font-weight: bold; padding: 6px 18px; }")

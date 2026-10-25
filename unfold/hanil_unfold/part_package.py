@@ -169,6 +169,14 @@ def run(result, settings: bc.BendSettings, name, folder, annual=100_000, rates=N
     qd.save_pdf(docs, out("08_{}_품질문서.pdf"), title)
     nh = sum(f.ap == "H" for f in docs[0].fmea)
     summ["PFMEA"] = f"{len(docs[0].fmea)} 줄 · 조치 우선순위 H {nh} · M {sum(f.ap == 'M' for f in docs[0].fmea)}"
+    # 8. 검사 성적서 양식 (측정값 칸만 채우면 판정·Cpk)
+    step("검사 성적서 양식")
+    from . import inspection as ip
+    ins = ip.build(result, settings, solid, fa, title)
+    ins.customer = customer
+    ip.save_xlsx(ins, out("09_{}_검사성적서.xlsx"), append=False)
+    summ["검사 항목"] = (f"{len(ins.chars)} 항목 (" + " · ".join(f"{g} {n}" for g in ip.GROUPS
+                                                     if (n := sum(c.group == g for c in ins.chars))) + ") — 09 양식에 측정값")
     # 0. 요약
     step("요약")
     f0 = os.path.join(folder, f"00_{title}_요약.pdf")

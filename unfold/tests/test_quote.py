@@ -389,11 +389,11 @@ def test_part_package_one_part(tmp_path):
     assert names[0] == "00_tray_요약.pdf"
     for want in ("01_tray_전개도.dxf", "01_tray_전개보고서.pdf", "02_tray_성형해석.pdf", "03_tray_금형검토.xlsx",
                  "04_tray_금형공정도.pdf", "04_tray_금형공정도.dxf", "05_tray_생산견적서.pdf", "05_tray_금형견적서.pdf",
-                 "06_tray_원가계산서.xlsx", "07_tray_생산계획.pdf", "08_tray_품질문서.xlsx"):
+                 "06_tray_원가계산서.xlsx", "07_tray_생산계획.pdf", "08_tray_품질문서.xlsx", "09_tray_검사성적서.xlsx"):
         assert want in names, want
     assert all(os.path.getsize(f) > 1000 for f in files)
-    assert len(steps) == 8
-    for k in ("전개 크기", "성형 해석", "금형 형식", "금형비", "판매 단가", "설비 부하", "양산 일정", "PFMEA"):
+    assert len(steps) == 9
+    for k in ("검사 항목", "전개 크기", "성형 해석", "금형 형식", "금형비", "판매 단가", "설비 부하", "양산 일정", "PFMEA"):
         assert k in summ
     assert "순차" in summ["금형 형식"] and summ["성형 해석"].startswith("적합")
 

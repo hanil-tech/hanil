@@ -866,6 +866,9 @@ class MainWindow(QMainWindow):
                                   "견적 리비전 비교, 수주율")
         self.act_quality = QAction("품질 문서", self, triggered=lambda: self.show_quote(tab="품질 문서"))
         self.act_quality.setToolTip("수주 후 양산 승인 (PPAP) 초안: 공정 흐름도 (PFD) · PFMEA (AIAG-VDA AP) · 관리계획서")
+        self.act_inspect = QAction("검사 성적서", self, shortcut="Ctrl+Shift+I", triggered=self.show_inspection)
+        self.act_inspect.setToolTip("도면 치수·보통 공차 (JIS B 0408 · ISO 2768) 로 검사 항목 → 측정값 넣어 합격·불합격, "
+                                    "Cp·Cpk, 초도품 (ISIR)·정기·출하 성적서 엑셀·PDF (회차마다 시트로 이력)")
         self.act_doc_log = QAction("견적·금형 기록", self, triggered=self.show_doc_log)
         self.act_doc_log.setToolTip("저장한 생산 견적서·금형 견적서·금형 검토 기록 (찾기·메모·엑셀)")
         self.act_quit = QAction("끝내기", self, triggered=self.close)
@@ -951,7 +954,7 @@ class MainWindow(QMainWindow):
             "금형": [self.act_part_pkg, self.act_sim, self.act_die, self.act_process, self.act_die_cost],
             "견적": [self.act_items, self.act_part_pkg, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
                    self.act_die_cost, self.act_doc_log],
-            "품질": [self.act_sim, self.act_quality],
+            "품질": [self.act_sim, self.act_quality, self.act_inspect],
             "기록": [self.act_history, self.act_doc_log, self.act_items],
             "설정·도움말": [self.act_help, self.act_about],
         }
@@ -1045,6 +1048,7 @@ class MainWindow(QMainWindow):
         self.act_bom.setEnabled(self.model is not None)
         self.act_die.setEnabled(self.result is not None)
         self.act_sim.setEnabled(self.result is not None)
+        self.act_inspect.setEnabled(self.result is not None)
         self.act_die_cost.setEnabled(self.result is not None)
         self.act_quote.setEnabled(self.model is not None)
         self.act_package.setEnabled(self.model is not None)
@@ -1283,6 +1287,31 @@ class MainWindow(QMainWindow):
             dlg = FormSimDialog(self.result, self.bend_panel.settings(), name, self,
                                 history=self.history if self.history_box.isChecked() else None,
                                 source_path=self.model.path if self.model else "")
+        finally:
+            QApplication.restoreOverrideCursor()
+        dlg.exec()
+
+    def show_inspection(self):
+        """검사 성적서 창 (지금 부품)."""
+        from . import formsim, inspection
+        from .inspection_dialog import InspectionDialog
+        if self.result is None:
+            QMessageBox.information(self, "검사 성적서", "먼저 부품을 전개하세요.")
+            return
+        idx = max(self.solid_box.currentIndex(), 0)
+        name = self.model.names[idx] if self.model and self.model.names else ""
+        name = name or os.path.splitext(os.path.basename(self.model.path))[0]
+        r, st, solid = self.result, self.bend_panel.settings(), self.current_solid()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            fa = formsim.analyze(r, st) if r.mode == "forming" else None
+
+            def rebuild(cls):
+                return inspection.build(r, st, solid, fa, name, cls)
+            ins = rebuild("B")
+            dlg = InspectionDialog(ins, self, history=self.history if self.history_box.isChecked() else None,
+                                   items_db=self.history, source_path=self.model.path if self.model else "")
+            dlg.rebuild = rebuild
         finally:
             QApplication.restoreOverrideCursor()
         dlg.exec()

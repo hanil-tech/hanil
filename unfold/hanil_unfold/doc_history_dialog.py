@@ -17,7 +17,7 @@ SHOW = ["id", "created", "kind", "title", "customer", "material", "sets", "annua
         "die_total", "max_tonf", "total_ops", "machines", "note"]
 NUMS = {"id", "sets", "annual", "unit_price", "total", "die_total", "max_tonf", "total_ops"}
 KINDS = ["", "부품 분석", "전체 분석", "생산 견적", "생산 견적 (설비·일정)", "원가계산서", "금형 견적", "금형 검토", "성형 해석",
-         "품질 문서"]
+         "품질 문서", "검사 성적서"]
 
 
 class DocHistoryDialog(QDialog):
