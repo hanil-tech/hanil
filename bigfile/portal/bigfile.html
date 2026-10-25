@@ -5,124 +5,105 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>대용량 파일 — 한일</title>
 <style>
-:root{--bg:#f3f5f9;--card:#fff;--fg:#1d2433;--sub:#6a7385;--line:#e3e7ef;--acc:#1f5eff;--acc2:#e8eeff;--ok:#1a7f37;--ok2:#e6f4e6;--bad:#b3261e;--bad2:#fdeeee;--warn:#d97a00;--bar:#dfe5f1;--chk:#0f8a8a;
-  --c-wait:#dfe5f1;--c-run:#1f5eff;--c-done:#7fb4ff;--c-retry:#f08c00;--c-ok:#2da44e;--c-bad:#d1242f}
-@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2030;--fg:#e6e9f0;--sub:#9aa3b5;--line:#2c3346;--acc:#5b8cff;--acc2:#24304f;--ok:#4cc26b;--ok2:#17301f;--bad:#ff7a70;--bad2:#3a1d1d;--warn:#e0a040;--bar:#2c3346;--chk:#3cc4c4;
-  --c-wait:#2c3346;--c-run:#5b8cff;--c-done:#34528f;--c-retry:#e0a040;--c-ok:#3fb950;--c-bad:#ff6a69}}
+/* 포털에 붙이는 단순한 모양 — 색은 여기 몇 줄만 바꾸면 포털에 맞춰진다 */
+:root{--bg:#fff;--fg:#222;--sub:#777;--line:#ddd;--head:#f5f5f5;--acc:#2f5bd3;--ok:#1e7e34;--bad:#c62828;
+  --c-wait:#e6e6e6;--c-run:#2f5bd3;--c-done:#9db4ea;--c-retry:#ef8f00;--c-ok:#43a047;--c-bad:#e53935}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
 a{color:var(--acc)}
-.wrap{max-width:1100px;margin:0 auto;padding:16px}
-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-header h1{font-size:20px;margin:0;flex:1}
-header .who{color:var(--sub);font-size:13px}
-.home{text-decoration:none;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
-#drop{border:2px dashed var(--line);border-radius:12px;padding:28px 12px;text-align:center;cursor:pointer;transition:.15s}
-#drop.on{border-color:var(--acc);background:var(--acc2)}
-#drop .big{font-size:36px}
-#drop b{font-size:16px}
-#drop .sub{color:var(--sub);font-size:13px;margin-top:4px}
-button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:6px 10px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
-button:hover,.btn:hover{border-color:var(--acc)}
+.wrap{max-width:1100px;margin:0 auto;padding:12px 16px}
+header{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid var(--fg);padding-bottom:6px;margin-bottom:12px}
+header h1{font-size:16px;margin:0;flex:1}
+header .who{color:var(--sub)}
+.home{font-size:12px;color:var(--sub);text-decoration:none}
+.box{border:1px solid var(--line);margin-bottom:14px}
+.box > h2{margin:0;padding:6px 10px;font-size:13px;background:var(--head);border-bottom:1px solid var(--line)}
+.inner{padding:10px}
+#drop{border:1px dashed #bbb;padding:18px 10px;text-align:center;cursor:pointer;color:var(--sub)}
+#drop b{color:var(--fg);font-size:13px}
+#drop.on{border-color:var(--acc);background:#f3f6fd}
+#drop .sub{font-size:12px;margin-top:2px}
+button,.btn{font:inherit;font-size:12px;border:1px solid #bbb;background:#fff;color:var(--fg);border-radius:2px;padding:3px 8px;cursor:pointer;text-decoration:none;white-space:nowrap}
+button:hover{border-color:var(--acc);color:var(--acc)}
 button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
 button:disabled{opacity:.5;cursor:default}
 
-/* ── 주고받는 줄 ── */
-.up{border-top:1px solid var(--line);padding:12px 0}
-.up:first-child{border-top:0}
+/* 주고받는 줄 */
+.up{border-top:1px solid var(--line);padding:10px 0}
+#ups .up:first-child{border-top:0}
+#ups:not(:empty){margin-top:10px}
 .up .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.up .nm{flex:1;min-width:160px;font-weight:600;word-break:break-all}
-.up .dir{font-size:12px;font-weight:700;padding:1px 7px;border-radius:5px;background:var(--acc2);color:var(--acc)}
-.up .dir.down{background:var(--ok2);color:var(--ok)}
-.up .dir.check{background:#e0f4f4;color:var(--chk)}
-@media (prefers-color-scheme:dark){.up .dir.check{background:#123333}}
-.up .st{color:var(--sub);font-size:12.5px;margin-top:4px;font-variant-numeric:tabular-nums}
+.up .nm{flex:1;min-width:140px;font-weight:bold;word-break:break-all}
+.up .dir{font-size:11px;border:1px solid var(--line);padding:0 5px;color:var(--sub)}
+.up .ctl{display:flex;gap:4px}
+.up .st{color:var(--sub);font-size:12px;margin-top:3px;font-variant-numeric:tabular-nums}
 .st.bad{color:var(--bad)}.st.ok{color:var(--ok)}
 
-/* 그림 — 내 PC ⇄ 포털 서버 */
-.flow{display:flex;align-items:center;gap:8px;margin:10px 0 6px}
-.node{width:76px;flex:none;text-align:center;font-size:12px;color:var(--sub)}
-.node .ic{font-size:28px;line-height:1.2;display:block;transition:transform .3s}
-.flow.run .node.to .ic{animation:bump 1s ease-in-out infinite}
-@keyframes bump{50%{transform:scale(1.08)}}
-.pipe{flex:1;position:relative;height:30px;border-radius:15px;background:var(--bar);overflow:hidden}
-.pipe .fill{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,var(--c-done),var(--c-run));opacity:.35;transition:width .3s}
-.flow.down .pipe .fill{inset:0 0 0 auto;background:linear-gradient(270deg,var(--c-ok),var(--c-ok));}
-.pipe .dots{position:absolute;inset:0;
-  background-image:radial-gradient(circle at 50% 50%,var(--c-run) 0 5px,transparent 6px);
-  background-size:34px 30px;background-repeat:repeat-x;opacity:0;transition:opacity .3s}
-.flow.down .pipe .dots{background-image:radial-gradient(circle at 50% 50%,var(--c-ok) 0 5px,transparent 6px)}
-.flow.check .pipe .dots{background-image:radial-gradient(circle at 50% 50%,var(--chk) 0 4px,transparent 5px);background-size:22px 30px}
-.flow.run .pipe .dots{opacity:1;animation:flowR .8s linear infinite}
-.flow.run.down .pipe .dots{animation-name:flowL}
-.flow.run.check .pipe .dots{animation-duration:1.6s}
-@keyframes flowR{from{background-position:0 0}to{background-position:34px 0}}
-@keyframes flowL{from{background-position:34px 0}to{background-position:0 0}}
-.pipe .lab{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;color:var(--fg);text-shadow:0 0 4px var(--card),0 0 4px var(--card);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
-.flow.fail .pipe{background:var(--bad2)}
-.flow.good .pipe{background:var(--ok2)}
-.flow.good .pipe .fill{background:var(--c-ok)}
+/* 그림 — 내 PC ─▶ 포털 서버 막대 + 조각 지도 */
+.flow{display:flex;align-items:center;gap:6px;margin:6px 0 4px;font-size:11px;color:var(--sub);white-space:nowrap}
+.pipe{flex:1;height:8px;background:var(--c-wait);position:relative;overflow:hidden}
+.pipe .fill{position:absolute;top:0;bottom:0;left:0;width:0;background:var(--c-run);transition:width .3s}
+.flow.down .pipe .fill{left:auto;right:0}
+.flow.check .pipe .fill,.flow.good .pipe .fill{background:var(--c-ok)}
+.flow.fail .pipe .fill{background:var(--c-bad)}
+canvas.map{display:block;width:100%;height:auto}
+.legend{font-size:11px;color:var(--sub);margin-top:3px}
+.legend span{margin-right:10px}
+.legend i{display:inline-block;width:8px;height:8px;margin-right:3px;vertical-align:0}
 
-/* 조각 지도 */
-canvas.map{display:block;width:100%;height:auto;margin-top:4px;border-radius:6px}
-.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--sub);margin-top:4px}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+/* 검사 결과 — 합격이면 접어 둠 */
+.rep{margin-top:6px;border:1px solid var(--line)}
+.rep summary{padding:5px 8px;cursor:pointer;font-weight:bold}
+.rep.ok summary{color:var(--ok)}.rep.bad summary{color:var(--bad)}
+.rep table{width:100%;border-collapse:collapse;font-size:12px}
+.rep td,.rep th{padding:4px 8px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+.rep th{background:var(--head);font-weight:normal;color:var(--sub)}
+.rep td.v{font-family:Consolas,monospace;word-break:break-all}
+.rep td.k{white-space:nowrap}
+.rep td.j{white-space:nowrap;text-align:center;width:40px}
+.j.o{color:var(--ok)}.j.x{color:var(--bad);font-weight:bold}.j.n{color:#aaa}
 
-/* 검사 결과표 */
-.rep{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.rep .hd{padding:10px 12px;font-weight:700}
-.rep .hd.ok{background:var(--ok2);color:var(--ok)}
-.rep .hd.bad{background:var(--bad2);color:var(--bad)}
-.rep table{width:100%;border-collapse:collapse;font-size:12.5px}
-.rep td,.rep th{padding:6px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
-.rep th{color:var(--sub);font-weight:600;background:var(--bg)}
-.rep td.v{font-family:ui-monospace,Consolas,monospace;word-break:break-all}
-.rep td.k{white-space:nowrap;font-weight:600}
-.rep td.j{white-space:nowrap;text-align:center;width:44px}
-
-.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-.tabs button.on{background:var(--acc2);border-color:var(--acc);color:var(--acc);font-weight:700}
-.tabs input{flex:1;min-width:140px;font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-#ftab{width:100%;border-collapse:collapse}
-#ftab th,#ftab td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
-#ftab th{color:var(--sub);font-weight:600;font-size:12.5px;border-top:0}
-#ftab td.n{word-break:break-all;font-weight:600}
+/* 파일 목록 */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.tabs button.on{background:var(--fg);border-color:var(--fg);color:#fff}
+.tabs input{flex:1;min-width:140px;font:inherit;padding:3px 8px;border:1px solid #bbb}
+#ftab{width:100%;border-collapse:collapse;border-top:1px solid var(--fg)}
+#ftab th,#ftab td{text-align:left;padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
+#ftab th{background:var(--head);font-weight:normal;color:var(--sub);font-size:12px}
+#ftab td.n{word-break:break-all}
 #ftab td.r,#ftab th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 #ftab td.a{white-space:nowrap;text-align:right}
-.tag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:5px;margin-left:4px;vertical-align:1px}
-.tag.pub{background:#e6f4e6;color:#1a7f37}.tag.part{background:#fff4d6;color:#9a6700}.tag.lnk{background:var(--acc2);color:var(--acc)}
-.tag.vok{background:#e0f4f4;color:#0f7a7a}.tag.vbad{background:var(--bad2);color:var(--bad)}
-@media (prefers-color-scheme:dark){.tag.pub{background:#18361f;color:#7fdc95}.tag.part{background:#3a3016;color:#e9c46a}.tag.vok{background:#123333;color:#6fdada}}
-.muted{color:var(--sub);font-size:12.5px}
-.empty{text-align:center;color:var(--sub);padding:26px 0}
-footer{color:var(--sub);font-size:12.5px;text-align:center;margin:8px 0 30px}
-dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--fg);padding:18px;max-width:520px;width:calc(100% - 32px)}
-dialog::backdrop{background:#0006}
-dialog h3{margin:0 0 6px;font-size:16px;word-break:break-all}
-dialog label{display:inline-flex;gap:6px;align-items:center;margin:6px 12px 6px 0}
-dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
-.lk{display:flex;gap:6px;align-items:center;border-top:1px solid var(--line);padding:8px 0;flex-wrap:wrap}
-.lk input{flex:1;min-width:180px;font:12.5px monospace;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
-#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2433;color:#fff;padding:9px 16px;border-radius:10px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;max-width:calc(100% - 32px);z-index:10}
+#ftab td.a button{margin-left:2px}
+.tag{font-size:11px;margin-left:4px;color:var(--sub)}
+.tag.vbad{color:var(--bad)}.tag.vok{color:var(--ok)}.tag.part{color:var(--c-retry)}
+.muted{color:var(--sub);font-size:12px}
+.empty{text-align:center;color:var(--sub);padding:20px 0}
+footer{color:var(--sub);font-size:11px;margin:4px 0 20px}
+dialog{border:1px solid #999;background:#fff;color:var(--fg);padding:14px;max-width:500px;width:calc(100% - 32px)}
+dialog::backdrop{background:#0004}
+dialog h3{margin:0 0 4px;font-size:14px;word-break:break-all}
+dialog label{display:inline-flex;gap:4px;align-items:center;margin:4px 10px 4px 0}
+dialog select{font:inherit}
+.lk{display:flex;gap:4px;align-items:center;border-top:1px solid var(--line);padding:6px 0;flex-wrap:wrap}
+.lk input{flex:1;min-width:180px;font:12px Consolas,monospace;padding:3px 6px;border:1px solid #bbb}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#333;color:#fff;padding:7px 14px;font-size:12px;opacity:0;transition:.2s;pointer-events:none;max-width:calc(100% - 32px);z-index:10}
 #toast.on{opacity:1}
-/* 폰 — 파일 표를 카드처럼 */
+/* 폰 */
 @media (max-width:700px){
+  .wrap{padding:10px}
   #ftab thead{display:none}
   #ftab,#ftab tbody,#ftab tr,#ftab td{display:block;width:100%}
-  #ftab tr{border-top:1px solid var(--line);padding:8px 0}
-  #ftab td{border:0;padding:2px 0;text-align:left!important}
-  #ftab td.r{display:inline-block;width:auto;margin-right:10px;color:var(--sub);font-size:12.5px}
-  #ftab td.a{white-space:normal;margin-top:4px}
-  .node{width:58px}.node .ic{font-size:24px}
-  /* 검사 결과표 — 한 항목을 여러 줄로 */
+  #ftab tr{border-bottom:1px solid var(--line);padding:6px 0}
+  #ftab td{border:0;padding:1px 0;text-align:left!important}
+  #ftab td.r{display:inline-block;width:auto;margin-right:10px;color:var(--sub);font-size:12px}
+  #ftab td.a{white-space:normal;margin-top:3px}
   .rep tr.h{display:none}
   .rep table,.rep tbody,.rep tr,.rep td{display:block;width:100%}
-  .rep tr{position:relative;border-top:1px solid var(--line);padding:6px 10px}
+  .rep tr{position:relative;border-top:1px solid var(--line);padding:4px 8px}
   .rep td{border:0;padding:1px 0}
-  .rep td.k{padding-right:40px}
-  .rep td.j{position:absolute;top:6px;right:8px;width:auto}
-  .rep td.v[data-l]::before{content:attr(data-l) " ";color:var(--sub);font-family:system-ui,sans-serif;font-size:11.5px}
+  .rep td.k{padding-right:40px;font-weight:bold}
+  .rep td.j{position:absolute;top:4px;right:6px;width:auto}
+  .rep td.v[data-l]::before{content:attr(data-l) " ";color:var(--sub);font-family:inherit;font-size:11px}
   .rep td.v.e{display:none}
 }
 </style>
@@ -130,35 +111,34 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
 <body>
 <div class="wrap">
   <header>
-    <h1>📦 대용량 파일</h1>
+    <h1>대용량 파일</h1>
     <span class="who" id="who"></span>
-    <a class="home" href="/">← 포털</a>
+    <a class="home" href="/">포털로</a>
   </header>
 
-  <div class="card">
+  <div class="box"><h2>파일 올리기</h2><div class="inner">
     <div id="drop" tabindex="0" role="button">
-      <div class="big">⬆</div>
-      <b>여기에 파일을 끌어다 놓거나 눌러서 고르세요</b>
-      <div class="sub" id="limits">설치할 것 없이 브라우저에서 바로 — 여러 개를 한꺼번에 골라도 됩니다</div>
+      <b>파일을 여기에 끌어다 놓거나 눌러서 고르세요</b>
+      <div class="sub" id="limits">여러 개를 한꺼번에 골라도 됩니다</div>
     </div>
     <input type="file" id="pick" multiple hidden>
     <div id="ups"></div>
-  </div>
+  </div></div>
 
-  <div class="card">
+  <div class="box"><h2>파일 목록</h2><div class="inner">
     <div class="tabs" id="tabs">
       <button data-t="mine" class="on">내 파일</button>
       <button data-t="pub">사내 공개</button>
       <button data-t="all" id="tabAll" hidden>전체(관리자)</button>
       <input id="q" type="search" placeholder="이름·올린 사람 찾기">
-      <button id="reload" title="새로 고침">↻</button>
+      <button id="reload">새로 고침</button>
     </div>
     <table id="ftab">
       <thead><tr><th>이름</th><th class="r">크기</th><th class="r">올린 날</th><th>올린 사람</th><th class="r">받음</th><th></th></tr></thead>
       <tbody id="list"></tbody>
     </table>
     <div class="empty" id="empty" hidden>파일이 없습니다</div>
-  </div>
+  </div></div>
   <footer id="foot"></footer>
 </div>
 
@@ -168,7 +148,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   <div style="margin:10px 0">
     <label>기한 <select id="dDays"><option value="1">1일</option><option value="3">3일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select></label>
     <label>받는 횟수 <select id="dMax"><option value="0">제한 없음</option><option value="1">1번</option><option value="3">3번</option><option value="5">5번</option><option value="10">10번</option></select></label>
-    <button class="pri" id="dMake">🔗 링크 만들기</button>
+    <button class="pri" id="dMake">링크 만들기</button>
   </div>
   <div id="dLinks"></div>
   <div style="text-align:right;margin-top:10px"><button id="dClose">닫기</button></div>
@@ -299,23 +279,22 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     var sm = it.samples;
     return sm.length > 1 ? (sm[sm.length - 1][1] - sm[0][1]) / Math.max(0.001, (sm[sm.length - 1][0] - sm[0][0]) / 1000) : 0;
   }
-  var DIRNAME = { up: '⬆ 올리기', down: '⬇ 받기', check: '🔍 서버 검사' };
+  var DIRNAME = { up: '올리기', down: '받기', check: '서버 검사' };
+  var ENDS = { up: ['내 PC', '→ 포털 서버'], down: ['내 PC ←', '포털 서버'], check: ['검사', '포털 서버'] };
   function drawUp(it) {
     if (!it.el) {
       it.el = document.createElement('div');
       it.el.className = 'up';
       it.el.innerHTML = '<div class="row"><span class="dir"></span><span class="nm"></span><span class="ctl"></span></div>' +
-        '<div class="flow"><div class="node pc"><span class="ic">💻</span>내 PC</div>' +
-        '<div class="pipe"><div class="fill"></div><div class="dots"></div><div class="lab"></div></div>' +
-        '<div class="node sv"><span class="ic">🗄</span>포털 서버</div></div>' +
+        '<div class="flow"><span class="e1"></span><div class="pipe"><div class="fill"></div></div><span class="e2"></span></div>' +
         '<canvas class="map" height="1"></canvas><div class="legend"></div><div class="st"></div><div class="rp"></div>';
       var ups = $('ups'); ups.insertBefore(it.el, ups.firstChild);
       it.el.querySelector('.dir').textContent = DIRNAME[it.dir];
       it.el.querySelector('.dir').className = 'dir ' + it.dir;
       if (it.dir === 'down') it.el.querySelector('.flow').classList.add('down');
       if (it.dir === 'check') it.el.querySelector('.flow').classList.add('check');
-      //  받을 때는 서버 → 내 PC 가 「받는 쪽」
-      it.el.querySelector(it.dir === 'up' ? '.node.sv' : '.node.pc').classList.add('to');
+      it.el.querySelector('.e1').textContent = ENDS[it.dir][0];
+      it.el.querySelector('.e2').textContent = ENDS[it.dir][1];
       var lg = [['--c-wait', '기다림'], ['--c-run', it.dir === 'down' ? '받는 중' : '보내는 중'], ['--c-done', it.dir === 'down' ? '받음' : '보냄'], ['--c-retry', '다시'], ['--c-ok', '검사 통과'], ['--c-bad', '검사 틀림']];
       if (it.dir === 'check') lg = [['--c-wait', '아직'], ['--c-ok', '검사 통과'], ['--c-bad', '틀림']];
       it.el.querySelector('.legend').innerHTML = lg.map(function (x) { return '<span><i style="background:var(' + x[0] + ')"></i>' + x[1] + '</span>'; }).join('');
@@ -332,22 +311,15 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     fl.classList.toggle('fail', it.state === 'error' || !!(it.report && !it.report.ok));
     fl.classList.toggle('good', !!(it.report && it.report.ok));
     it.el.querySelector('.pipe .fill').style.width = (it.state === 'done' && !verifying ? 100 : pct).toFixed(1) + '%';
-    var sp = speed(it), lab = '';
-    if (it.state === 'run') lab = (it.dir === 'down' ? '⬇ ' : '⬆ ') + pct.toFixed(1) + '%' + (sp > 0 ? ' · ' + human(sp) + '/초' : '');
-    else if (verifying) lab = '🔍 ' + (it.vmsg || '검사 중') + ' ' + pct.toFixed(0) + '%';
-    else if (it.state === 'done') lab = it.report ? (it.report.ok ? '✅ 검사 합격' : '❌ 검사 불합격') : '✅ 끝';
-    else if (it.state === 'error') lab = '❌ 멈춤';
-    else if (it.state === 'pause') lab = '⏸ ' + pct.toFixed(1) + '%';
-    else lab = '⏳ 기다리는 중';
-    it.el.querySelector('.pipe .lab').textContent = lab;
+    var sp = speed(it);
     drawMap(it);
     //  글
     var st = it.el.querySelector('.st'), s = '';
     if (it.state === 'done') s = (it.dir === 'up' ? '다 올렸습니다' : it.dir === 'down' ? '다 받았습니다' + (it.saved ? ' — ' + it.saved : '') : '검사를 마쳤습니다') + ' · ' + human(size) + (it.t0 ? ' · ' + dur(((it.t1 || Date.now()) - it.t0) / 1000) : '');
-    else if (it.state === 'error') s = '❌ ' + it.err;
-    else if (it.state === 'pause') s = '⏸ 멈춤 · ' + human(cur) + ' / ' + human(size);
-    else if (it.state === 'wait') s = '⏳ ' + (it.msg || '기다리는 중') + ' · ' + human(size);
-    else if (verifying) s = '🔍 ' + (it.vmsg || '검사 중') + ' · ' + human(it.vdone) + ' / ' + human(size);
+    else if (it.state === 'error') s = '오류: ' + it.err;
+    else if (it.state === 'pause') s = '멈춤 · ' + human(cur) + ' / ' + human(size);
+    else if (it.state === 'wait') s = (it.msg || '기다리는 중') + ' · ' + human(size);
+    else if (verifying) s = (it.vmsg || '검사 중') + ' · ' + (size ? Math.floor(it.vdone / size * 100) : 100) + '% · ' + human(it.vdone) + ' / ' + human(size);
     else s = pct.toFixed(1) + '% · ' + human(cur) + ' / ' + human(size) + (sp > 0 ? ' · ' + human(sp) + '/초 · 남은 시간 ' + dur((size - cur) / sp) : '') + (it.msg ? ' · ' + it.msg : '');
     st.textContent = s;
     st.className = 'st' + (it.state === 'error' ? ' bad' : it.state === 'done' ? ' ok' : '');
@@ -360,12 +332,12 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     if (!it.cells) { cv.style.display = 'none'; return; }
     cv.style.display = '';
     var W = Math.max(200, Math.round(cv.clientWidth || it.el.clientWidth || 600)), dpr = window.devicePixelRatio || 1;
-    var n = it.cells.length, gap = 2, cell = 12;
+    var n = it.cells.length, gap = 1, cell = 8;
     var cols = Math.max(1, Math.floor((W + gap) / (cell + gap)));
-    var maxRows = 8, per = Math.max(1, Math.ceil(n / (cols * maxRows)));
+    var maxRows = 6, per = Math.max(1, Math.ceil(n / (cols * maxRows)));
     var boxes = Math.ceil(n / per), rows = Math.max(1, Math.ceil(boxes / cols));
     if (rows === 1) cols = boxes;
-    var cw = Math.min(28, (W - gap * (cols - 1)) / cols), H = rows * (cell + gap) - gap;
+    var cw = Math.min(16, (W - gap * (cols - 1)) / cols), H = rows * (cell + gap) - gap;
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px'; }
     var g = cv.getContext('2d'), css = getComputedStyle(document.documentElement);
     var col = ['--c-wait', '--c-run', '--c-done', '--c-retry', '--c-ok', '--c-bad'].map(function (v) { return css.getPropertyValue(v).trim(); });
@@ -398,14 +370,15 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     box._r = it.report;
     var r = it.report, mine = it.dir === 'down' ? '받은 것' : it.dir === 'check' ? '올릴 때 받은 값' : '내 PC';
     var srv = it.dir === 'check' ? '지금 서버 디스크' : '포털 서버';
-    box.innerHTML = '<div class="rep"><div class="hd ' + (r.ok ? 'ok' : 'bad') + '">' + esc(r.title) + '</div><table>' +
+    box.innerHTML = '<details class="rep ' + (r.ok ? 'ok' : 'bad') + '"' + (r.ok ? '' : ' open') + '><summary class="hd">' + esc(r.title) + '</summary><table>' +
       '<tr class="h"><th>검사 항목</th><th>' + mine + '</th><th>' + srv + '</th><th>결과</th></tr>' +
       r.rows.map(function (x) {
         //  폰에서는 칸 이름(data-l)을 값 앞에 붙여 줄줄이 — 빈 값(—)은 숨김
         var v = function (val, l) { return '<td class="v' + (val === '—' ? ' e' : '') + '" data-l="' + esc(l) + '">' + esc(val) + '</td>'; };
-        return '<tr><td class="k">' + esc(x[0]) + '</td>' + v(x[1], mine) + v(x[2], srv) + '<td class="j">' +
-          (x[3] === true ? '✅' : x[3] === false ? '❌' : '<span class="muted">참고</span>') + '</td></tr>';
-      }).join('') + '</table></div>';
+        return '<tr><td class="k">' + esc(x[0]) + '</td>' + v(x[1], mine) + v(x[2], srv) +
+          (x[3] === true ? '<td class="j o">맞음' : x[3] === false ? '<td class="j x">틀림' : '<td class="j n">참고') +
+          '' + '</td></tr>';
+      }).join('') + '</table></details>';
   }
   function drawCtl(it) {
     //  단추는 상태가 바뀔 때만 새로 — 진행률마다 새로 만들면 누르는 사이에 단추가 바뀌어 안 눌린다
@@ -415,18 +388,18 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     var c = it.el.querySelector('.ctl');
     c.innerHTML = '';
     function b(label, fn, title) { var x = document.createElement('button'); x.textContent = label; if (title) x.title = title; x.onclick = fn; c.appendChild(x); }
-    if (it.state === 'run' && it.dir !== 'check') b('⏸ 멈춤', function () { it.state = 'pause'; abortAll(it); drawUp(it); });
-    if ((it.state === 'pause' || it.state === 'error') && it.dir === 'up') b('▶ 이어 올리기', function () { it.state = 'wait'; it.inflight = {}; drawUp(it); run(); });
-    if ((it.state === 'pause' || it.state === 'error') && it.dir === 'down' && it.resume) b('▶ 이어 받기', function () { it.resume(); });
-    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'up') b('🔧 다시 보내기', function () {
+    if (it.state === 'run' && it.dir !== 'check') b('멈춤', function () { it.state = 'pause'; abortAll(it); drawUp(it); });
+    if ((it.state === 'pause' || it.state === 'error') && it.dir === 'up') b('이어 올리기', function () { it.state = 'wait'; it.inflight = {}; drawUp(it); run(); });
+    if ((it.state === 'pause' || it.state === 'error') && it.dir === 'down' && it.resume) b('이어 받기', function () { it.resume(); });
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'up') b('다시 보내기', function () {
       it.round = 0; it.report = null; it.reopen = { id: it.id, chunks: it.lastBad || 'all' }; it.state = 'wait'; drawUp(it); run();
     }, '틀린 조각을 다시 보내고 다시 검사');
-    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'check' && it.mine) b('🔧 다시 올려 고치기', function () {
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'check' && it.mine) b('다시 올려 고치기', function () {
       FIX_FOR = { id: it.id, name: it.name, size: it.size, chunks: it.fixChunks };
       toast('내 PC 에서 같은 파일(' + it.name + ')을 골라 주세요 — 틀린 조각만 다시 보냅니다'); pick.click();
     }, '내 PC 의 같은 파일에서 틀린 조각만 다시 보냄');
-    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'down' && it.retry) b('🔁 다시 받기', function () { it.retry(); });
-    if (it.state !== 'done' && it.state !== 'verify') b('✕', function () {
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'down' && it.retry) b('다시 받기', function () { it.retry(); });
+    if (it.state !== 'done' && it.state !== 'verify') b('취소', function () {
       if (it.dir === 'up' && !confirm(it.name + ' 올리기를 그만둘까요?\n(서버에 받아 둔 조각도 지웁니다)')) return;
       it.state = 'cancel'; abortAll(it);
       if (it.dir === 'up' && it.id) api('DELETE', '/bigfile/api/file/' + it.id).then(loadList, loadList);
@@ -610,7 +583,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
           (it.fixLog = it.fixLog || []).push(it.round + '번째: ' + (which === 'all' ? '전부' : '조각 ' + (bad.length > 8 ? bad.slice(0, 8).join(', ') + ' … (' + bad.length + '개)' : which.split(',').join(', '))));
           it.reopen = { id: it.id, chunks: which };
           it.state = 'wait';
-          it.msg = '❌ 검사 불합격 → ' + (which === 'all' ? '전부' : '틀린 조각 ' + which.split(',').length + '개') + ' 다시 보내기 (' + it.round + '/' + FIX_MAX + ')';
+          it.msg = '검사 불합격 → ' + (which === 'all' ? '전부' : '틀린 조각 ' + which.split(',').length + '개') + ' 다시 보내기 (' + it.round + '/' + FIX_MAX + ')';
           toast(f.name + ' — 검사 불합격, 틀린 조각을 다시 보냅니다');
           drawUp(it);
           return;
@@ -645,7 +618,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   }
   function finishReport(it, rows, good, badMsg) {
     var ok = rows.every(function (x) { return x[3] !== false; });
-    it.report = { ok: ok, rows: rows, title: ok ? '✅ 검사 합격 — ' + good : '❌ 검사 불합격 — ' + badMsg };
+    it.report = { ok: ok, rows: rows, title: ok ? '검사 합격 — ' + good : '검사 불합격 — ' + badMsg };
     it.state = 'done'; it.vmsg = '';
     drawUp(it);
   }
@@ -662,6 +635,8 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     var pick = fsOk ? window.showSaveFilePicker({ suggestedName: f.name }).then(function (h) { return h.createWritable().then(function (w) { return { w: w, name: h.name }; }); }) : Promise.resolve(null);
     pick.then(function (out) { runDownload(f, url, out); }, function (e) {
       if (e && e.name === 'AbortError') return;            //  사용자가 「취소」
+      //  고르는 창이 막힌 곳(다른 주소의 iframe 등) — 모아 저장하기엔 크면 보통 내려받기로
+      if (f.size > BLOB_MAX) { toast('이 화면에서는 저장 위치를 고를 수 없어 보통 내려받기로 받습니다'); plain(url); return; }
       runDownload(f, url, null);
     });
   }
@@ -700,7 +675,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
           it.round = (it.round || 0) + 1;
           (it.fixLog = it.fixLog || []).push(it.round + '번째: 조각 ' + bad.slice(0, 8).join(', ') + (bad.length > 8 ? ' …' : ''));
           bad.forEach(function (i) { it.cells[i] = WAIT; it.sent -= Math.min(it.chunk, f.size - i * it.chunk); });
-          it.msg = '❌ 틀린 조각 ' + bad.length + '개 다시 받기 (' + it.round + '/' + FIX_MAX + ')';
+          it.msg = '검사 불합격 → 틀린 조각 ' + bad.length + '개 다시 받기 (' + it.round + '/' + FIX_MAX + ')';
           return go();
         }
         it.t1 = Date.now();
@@ -752,7 +727,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
           if (e.crc) crcBad++;
           //  CRC 만 계속 틀리면 망 문제가 아니라 서버의 파일이 상한 것 — 오래 기다리지 않고 알린다
           if (crcBad >= 3) throw new Error('조각 ' + i + ' 가 ' + crcBad + '번 모두 서버 기록과 다르게 옵니다 — 서버의 파일이 상했을 수 있습니다. ' +
-            '목록의 🔍 로 검사하고, 올린 사람이 「🔧 다시 올려 고치기」를 하면 됩니다');
+            '목록의 [검사]로 확인하고, 올린 사람이 [다시 올려 고치기]를 하면 됩니다');
           if (e.fatal || ++tries > 8) throw e;
           it.retries++;
           var wait = Math.min(30, Math.pow(2, tries - 1));
@@ -790,7 +765,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
         ['걸린 시간 · 평균 속도', dur(sec) + ' · ' + human(f.size / Math.max(sec, 0.001)) + '/초', '—', null],
         ['다시 받은 조각(받는 중)', it.retries + '번', '—', null],
         ['검사 불합격 → 다시 받음', it.fixLog ? it.fixLog.join(' · ') : '없음', '—', null],
-      ]), '받은 파일이 서버의 파일과 똑같습니다' + (it.fixLog ? ' (틀린 조각을 다시 받아 고침)' : ''), '받은 파일이 서버와 다릅니다 — 「🔁 다시 받기」를 눌러 주세요');
+      ]), '받은 파일이 서버의 파일과 똑같습니다' + (it.fixLog ? ' (틀린 조각을 다시 받아 고침)' : ''), '받은 파일이 서버와 다릅니다 — [다시 받기]를 눌러 주세요');
     }
     getCrcs().then(function (c) {
       srv = c; srv.crcs = b64u32(c.crcs, c.n);
@@ -818,7 +793,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
         ['전체 CRC32', '—', r.crc, null],
         ['SHA-256', '—', r.sha256, null],
         ['검사 시간', '—', dur(r.ms / 1000), null],
-      ], '서버의 파일이 올릴 때 그대로입니다', '서버의 파일이 올릴 때와 다릅니다 — ' + (it.mine ? '「🔧 다시 올려 고치기」로 틀린 조각만 다시 보내세요' : '올린 사람에게 다시 올려 달라고 해 주세요'));
+      ], '서버의 파일이 올릴 때 그대로입니다', '서버의 파일이 올릴 때와 다릅니다 — ' + (it.mine ? '[다시 올려 고치기]로 틀린 조각만 다시 보내세요' : '올린 사람에게 다시 올려 달라고 해 주세요'));
       loadList();
     }).catch(function (e) { it.state = 'error'; it.err = e.message || String(e); drawUp(it); });
   }
@@ -860,7 +835,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       INFO = r;
       $('who').textContent = r.user + ' 님';
       $('tabAll').hidden = !r.admin;
-      $('limits').textContent = '설치할 것 없이 브라우저에서 바로 · 파일 하나 ' + human(r.max) + ' 까지 · 끊겨도 같은 파일을 다시 고르면 이어 올립니다 · 다 올리면 자동으로 검사';
+      $('limits').textContent = '파일 하나 ' + human(r.max) + ' 까지 · 끊기면 같은 파일을 다시 고르면 이어 올림 · 다 올리면 자동 검사';
       var s = [];
       s.push('내가 쓰는 자리 ' + human(r.used) + (r.quota ? ' / ' + human(r.quota) : ''));
       if (r.free >= 0) s.push('서버 남은 자리 ' + human(r.free));
@@ -884,16 +859,16 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     $('empty').hidden = rows.length > 0;
     $('list').innerHTML = rows.map(function (f) {
       var part = f.state !== 'done';
-      var tags = (f.pub ? '<span class="tag pub">사내 공개</span>' : '') + (f.shares.length ? '<span class="tag lnk">링크 ' + f.shares.length + '</span>' : '') +
-        (f.v ? (f.v.ok ? '<span class="tag vok" title="' + day(f.v.at) + ' 검사">검사 ✓</span>' : '<span class="tag vbad">검사 ✕</span>') : '') +
-        (part ? '<span class="tag part">' + (up[f.id] ? '올리는 중' : '다 못 올림 ' + Math.floor(f.got / f.n * 100) + '%') + '</span>' : '');
+      var tags = (f.pub ? '<span class="tag pub">[사내 공개]</span>' : '') + (f.shares.length ? '<span class="tag lnk">[링크 ' + f.shares.length + ']</span>' : '') +
+        (f.v ? (f.v.ok ? '<span class="tag vok" title="' + day(f.v.at) + ' 검사">[검사 합격]</span>' : '<span class="tag vbad">[검사 불합격]</span>') : '') +
+        (part ? '<span class="tag part">[' + (up[f.id] ? '올리는 중' : '다 못 올림 ' + Math.floor(f.got / f.n * 100) + '%') + ']</span>' : '');
       var act = part
-        ? (up[f.id] ? '' : '<button data-a="resume" data-id="' + f.id + '">▶ 이어 올리기</button>') + '<button data-a="del" data-id="' + f.id + '">🗑</button>'
-        : '<button class="pri" data-a="dl" data-id="' + f.id + '" title="받으면서 조각마다 검사">⬇ 받기</button>' +
-          '<button data-a="check" data-id="' + f.id + '" title="서버의 파일이 올릴 때 그대로인지 다시 읽어 검사">🔍</button>' +
-          (f.mine || INFO.admin ? '<button data-a="share" data-id="' + f.id + '" title="바깥 사람용 링크">🔗</button>' +
-            '<button data-a="pub" data-id="' + f.id + '" title="' + (f.pub ? '사내 공개 끄기' : '로그인한 직원 누구나 받게') + '">' + (f.pub ? '🔒' : '🏢') + '</button>' +
-            '<button data-a="del" data-id="' + f.id + '" title="지우기">🗑</button>' : '') +
+        ? (up[f.id] ? '' : '<button data-a="resume" data-id="' + f.id + '">이어 올리기</button>') + '<button data-a="del" data-id="' + f.id + '">삭제</button>'
+        : '<button class="pri" data-a="dl" data-id="' + f.id + '" title="받으면서 조각마다 검사">받기</button>' +
+          '<button data-a="check" data-id="' + f.id + '" title="서버의 파일이 올릴 때 그대로인지 다시 읽어 검사">검사</button>' +
+          (f.mine || INFO.admin ? '<button data-a="share" data-id="' + f.id + '" title="로그인 없이 받는 링크">링크</button>' +
+            '<button data-a="pub" data-id="' + f.id + '" title="로그인한 직원 누구나 받게">' + (f.pub ? '공개 끄기' : '사내 공개') + '</button>' +
+            '<button data-a="del" data-id="' + f.id + '">삭제</button>' : '') +
           '<div class="muted" style="margin-top:2px"><a href="/bigfile/api/file/' + f.id + '/dl" download>브라우저로 바로 받기</a></div>';
       return '<tr><td class="n">' + esc(f.name) + tags + '</td><td class="r">' + human(f.size) + '</td><td class="r">' + day(f.t1 || f.t0) +
         '</td><td>' + esc(f.owner) + '</td><td class="r">' + (part ? '' : f.dl + '번 받음') + '</td><td class="a">' + act + '</td></tr>';
@@ -926,7 +901,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   // ── 공유 링크 ────────────────────────────────────────────
   var DF = null, dlg = $('dlg');
   function openShare(f) {
-    DF = f; $('dName').textContent = '🔗 ' + f.name;
+    DF = f; $('dName').textContent = '링크 — ' + f.name;
     $('dDays').innerHTML = [1, 3, 7, 14, 30].filter(function (d) { return d <= (INFO.shareDaysMax || 30); })
       .map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + '일</option>'; }).join('');
     drawLinks();

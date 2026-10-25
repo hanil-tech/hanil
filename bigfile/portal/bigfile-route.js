@@ -442,18 +442,17 @@ module.exports = function mountBigfile(app, ctx) {
     const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     const body = r
       ? '<div class="nm">' + esc(r.m.name) + '</div><div class="sub">' + esc(human(r.m.size)) + ' · 올린 사람 ' + esc(r.m.ownerName) + '</div>' +
-        '<a class="btn" href="/bigfile/s/' + esc(r.s.tok) + '/dl">⬇ 내려받기</a>' +
+        '<a class="btn" href="/bigfile/s/' + esc(r.s.tok) + '/dl">내려받기</a>' +
         '<div class="sub">' + esc(new Date(r.s.exp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })) + ' 까지' +
         (r.s.max ? ' · ' + (r.s.max - (r.s.used || 0)) + '번 더 받을 수 있음' : '') + '</div>'
       : '<div class="nm">' + esc(msg) + '</div><div class="sub">보낸 분께 새 링크를 부탁하세요.</div>';
     return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
       '<meta name="robots" content="noindex"><title>파일 받기 — 한일</title><style>' +
-      'body{margin:0;font:15px/1.5 system-ui,"Malgun Gothic",sans-serif;background:#f3f5f9;color:#1d2433;display:flex;min-height:100vh;align-items:center;justify-content:center}' +
-      '.c{background:#fff;border-radius:14px;box-shadow:0 4px 24px #0001;padding:28px 24px;max-width:440px;width:calc(100% - 32px);text-align:center}' +
-      '.nm{font-weight:700;font-size:17px;word-break:break-all;margin:6px 0}.sub{color:#6a7385;font-size:13px;margin:8px 0}' +
-      '.btn{display:inline-block;margin:14px 0 4px;padding:12px 28px;border-radius:10px;background:#1f5eff;color:#fff;text-decoration:none;font-weight:700}' +
-      '@media (prefers-color-scheme:dark){body{background:#12151c;color:#e6e9f0}.c{background:#1b2030;box-shadow:none}.sub{color:#9aa3b5}}' +
-      '</style></head><body><div class="c"><div style="font-size:34px">📦</div>' + body + '</div></body></html>';
+      'body{margin:0;font:13px/1.5 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;background:#fff;color:#222}' +
+      '.c{max-width:440px;margin:40px auto;padding:0 16px}.c h1{font-size:15px;border-bottom:2px solid #222;padding-bottom:6px;margin:0 0 14px}' +
+      '.nm{font-weight:bold;word-break:break-all}.sub{color:#777;font-size:12px;margin:6px 0}' +
+      '.btn{display:inline-block;margin:12px 0 6px;padding:6px 18px;background:#2f5bd3;color:#fff;text-decoration:none;border-radius:2px}' +
+      '</style></head><body><div class="c"><h1>파일 받기</h1>' + body + '</div></body></html>';
   }
 
   // ── 치우기 — 한 시간마다 ─────────────────────────────────────────
