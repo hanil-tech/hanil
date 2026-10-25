@@ -852,6 +852,17 @@ class MainWindow(QMainWindow):
         self.act_ai_bom = QAction("AI BOM", self, triggered=self.show_ai_bom)
         self.act_ai_bom.setToolTip("2D 도면 PDF 와 3D 를 AI(Claude)로 맞춰 보고 BOM 엑셀을 만듭니다")
         self.act_nest.setToolTip("전개한 부품을 1219 × 2438 같은 철판 위에 늘어놓아 필요한 장 수를 셉니다")
+        self.act_prod = QAction("생산 견적", self, triggered=lambda: self.show_quote(tab="생산 견적"))
+        self.act_prod.setToolTip("받은 수량을 우리 설비로 만들 수 있나: 기계별 부하율·필요 대수, 인원, 사이클타임·하루 생산량, "
+                                 "코일·소재 소요, 금형 제작 → 양산 일정 (간트)")
+        self.act_costsheet = QAction("원가계산서", self, triggered=lambda: self.show_quote(tab="원가계산서"))
+        self.act_costsheet.setToolTip("자동차 협력사 양식 원가계산서 (재료비·노무비·경비·불량·관리비·이윤·포장운반·금형 상각), "
+                                      "수량별 단가표, 연차별 단가 인하, 철강 시세 민감도")
+        self.act_items = QAction("아이템 대장", self, shortcut="Ctrl+I", triggered=self.show_items)
+        self.act_items.setToolTip("받은 아이템 (견적 요청): 고객·차종·품번·도면 Rev·연간 수량·양산 시기·견적 마감·상태, "
+                                  "견적 리비전 비교, 수주율")
+        self.act_quality = QAction("품질 문서", self, triggered=lambda: self.show_quote(tab="품질 문서"))
+        self.act_quality.setToolTip("수주 후 양산 승인 (PPAP) 초안: 공정 흐름도 (PFD) · PFMEA (AIAG-VDA AP) · 관리계획서")
         self.act_doc_log = QAction("견적·금형 기록", self, triggered=self.show_doc_log)
         self.act_doc_log.setToolTip("저장한 생산 견적서·금형 견적서·금형 검토 기록 (찾기·메모·엑셀)")
         self.act_quit = QAction("끝내기", self, triggered=self.close)
@@ -921,7 +932,8 @@ class MainWindow(QMainWindow):
         ("네스팅", "전개한 부품을 철판(1219 × 2438 등)에 늘어놓아 장 수·사용률을 셉니다."),
         ("BOM", "같은 부품끼리 묶은 부품표(다단계 BOM), 도면 PDF 와 맞춘 AI BOM"),
         ("금형", "하중·클리어런스·스프링백·설계 규칙, 자동 공정 설계, 금형 공정도"),
-        ("견적", "공정수·톤수·기계·자재비·가공비 → 생산 견적서, 금형 견적서"),
+        ("견적", "아이템 대장 → 원가·견적서 → 생산 견적 (설비 부하·인원·일정) · 원가계산서 · 금형 견적서"),
+        ("품질", "성형 해석, 수주 후 양산 승인 문서 초안 — 공정 흐름도 · PFMEA · 관리계획서"),
         ("기록", "전개 기록, 견적·금형 기록 — 찾기·메모·엑셀로 내보내기"),
         ("설정·도움말", "그래픽 가속, 도움말·바뀐 것"),
     ]
@@ -934,8 +946,10 @@ class MainWindow(QMainWindow):
             "네스팅": [self.act_nest],
             "BOM": [self.act_bom, self.act_ai_bom],
             "금형": [self.act_sim, self.act_die, self.act_process, self.act_die_cost],
-            "견적": [self.act_package, self.act_quote, self.act_die_cost, self.act_doc_log],
-            "기록": [self.act_history, self.act_doc_log],
+            "견적": [self.act_items, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
+                   self.act_die_cost, self.act_doc_log],
+            "품질": [self.act_sim, self.act_quality],
+            "기록": [self.act_history, self.act_doc_log, self.act_items],
             "설정·도움말": [self.act_help, self.act_about],
         }
         self.ribbon = QTabWidget()
@@ -1031,6 +1045,8 @@ class MainWindow(QMainWindow):
         self.act_die_cost.setEnabled(self.result is not None)
         self.act_quote.setEnabled(self.model is not None)
         self.act_package.setEnabled(self.model is not None)
+        for a in (self.act_prod, self.act_costsheet, self.act_quality):
+            a.setEnabled(self.model is not None)
         self.act_process.setEnabled(self.result is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
         self.act_zip.setEnabled(self.model is not None)
@@ -1172,7 +1188,16 @@ class MainWindow(QMainWindow):
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
 
-    def show_quote(self, package=False):
+    def show_items(self):
+        from .items_dialog import ItemsDialog
+
+        def quote_item(path, rid):
+            if not self.model or os.path.abspath(self.model.path) != os.path.abspath(path):
+                self.open_file(path)
+            self.show_quote(item_id=rid)
+        ItemsDialog(self.history, self, quote_item, self.model.path if self.model else "").exec()
+
+    def show_quote(self, package=False, tab=None, item_id=None):
         """견적 창. 아직 [전체 계산] 을 안 했으면 먼저 한다. package: 전체 분석 단추를 앞에 (수량 넣고 누름)."""
         from .quote_dialog import QuoteDialog
         if self.model is None:
@@ -1186,13 +1211,20 @@ class MainWindow(QMainWindow):
         try:
             dlg = QuoteDialog(self.model, self.assy_parts_result, self.bend_panel.settings(), self.excluded,
                               os.path.splitext(os.path.basename(self.model.path))[0], self,
-                              history=self.history if self.history_box.isChecked() else None)
+                              history=self.history if self.history_box.isChecked() else None,
+                              items_db=self.history)
         except Exception as e:
             traceback.print_exc()
             QMessageBox.warning(self, "견적", str(e))
             return
         finally:
             QApplication.restoreOverrideCursor()
+        if item_id is not None:
+            dlg.select_item(item_id)
+        if tab:
+            for i in range(dlg.tabs.count()):
+                if dlg.tabs.tabText(i) == tab:
+                    dlg.tabs.setCurrentIndex(i)
         if package is True:
             dlg.setWindowTitle(dlg.windowTitle() + " — 전체 분석: 수량·생산량·수신을 넣고 [전체 분석 (한 번에)] 를 누르세요")
             dlg.pkg_btn.setFocus()

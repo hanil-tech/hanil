@@ -223,6 +223,34 @@ def run(q: qt_.Quote, model, parts, settings: bc.BendSettings, folder, items=Non
             f = os.path.join(folder, name.format(title))
             fn(q, f)
             files.append(f)
+    step("생산 견적 (설비 부하·인원·일정)")
+    from . import costsheet as cst
+    from . import production as prod
+    from . import qualitydocs as qd
+    pl = prod.plan(q)
+    for fn, name in ((prod.save_xlsx, "06_{}_생산계획.xlsx"), (prod.save_pdf, "06_{}_생산계획.pdf")):
+        f = os.path.join(folder, name.format(title))
+        fn(pl, f, q.title)
+        files.append(f)
+    step("원가계산서")
+    lots = max(prod.params(q.rates)["lots_per_year"], 1)        # 원가계산서는 양산 로트 기준
+    qm = qt_.build(model, parts, settings, q.rates, max(int(q.annual / lots), 1), q.annual, title=q.title, items=items)
+    qm.subs, qm.extra, qm.customer = q.subs, q.extra, q.customer
+    for a, b in zip(qm.parts, q.parts):
+        a.process_override, a.material_override = b.process_override, b.material_override
+    cs_ = cst.compute(qm)
+    for fn, name in ((cst.save_xlsx, "07_{}_원가계산서.xlsx"), (cst.save_pdf, "07_{}_원가계산서.pdf")):
+        f = os.path.join(folder, name.format(title))
+        fn(cs_, qm, f, None, q.title)
+        files.append(f)
+    step("품질 문서 (공정 흐름도·PFMEA·관리계획서)")
+    byno = {it.no: it for it in items}
+    docs = [qd.build(pc, getattr(byno.get(pc.no), "result", None), settings, q.customer,
+                     getattr(byno.get(pc.no), "code", "") or "") for pc in q.parts]
+    for fn, name in ((qd.save_xlsx, "08_{}_품질문서.xlsx"), (qd.save_pdf, "08_{}_품질문서.pdf")):
+        f = os.path.join(folder, name.format(title))
+        fn(docs, f, q.title)
+        files.append(f)
     step("자재비")
     f = os.path.join(folder, f"02_{title}_자재비.xlsx")
     save_material_xlsx(q, settings, f, [f] + files)

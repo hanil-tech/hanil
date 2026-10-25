@@ -199,8 +199,11 @@ def test_full_analysis_package(assy, tmp_path):
     names = [os.path.basename(f) for f in files]
     assert names == ["01_TRUCK_BOX_BOM.xlsx", "02_TRUCK_BOX_자재비.xlsx", "03_TRUCK_BOX_공정도.pdf",
                      "04_TRUCK_BOX_생산견적서.xlsx", "04_TRUCK_BOX_생산견적서.pdf",
-                     "05_TRUCK_BOX_금형견적서.xlsx", "05_TRUCK_BOX_금형견적서.pdf"]
-    assert all(os.path.getsize(f) > 1000 for f in files) and len(steps) == 5
+                     "05_TRUCK_BOX_금형견적서.xlsx", "05_TRUCK_BOX_금형견적서.pdf",
+                     "06_TRUCK_BOX_생산계획.xlsx", "06_TRUCK_BOX_생산계획.pdf",
+                     "07_TRUCK_BOX_원가계산서.xlsx", "07_TRUCK_BOX_원가계산서.pdf",
+                     "08_TRUCK_BOX_품질문서.xlsx", "08_TRUCK_BOX_품질문서.pdf"]
+    assert all(os.path.getsize(f) > 1000 for f in files) and len(steps) == 8
     wb = openpyxl.load_workbook(files[1])
     assert wb.sheetnames == ["요약", "부품별 자재비", "재질별 소요량", "부자재"]
     ws = wb["부품별 자재비"]
@@ -211,7 +214,7 @@ def test_full_analysis_package(assy, tmp_path):
     # 금형이 필요 없으면 금형 견적서는 안 만든다
     low = q.build(m, parts, st, q.load_rates(None), sets=10, annual=1000, title="T")
     names = [os.path.basename(f) for f in package.run(low, m, parts, st, str(tmp_path / "low"))]
-    assert not any("금형견적서" in n for n in names) and len(names) == 5
+    assert not any("금형견적서" in n for n in names) and len(names) == 11
 
 
 def test_die_sketch(assy):
@@ -279,3 +282,94 @@ def test_die_cost_dialog_and_maker_stamp(tmp_path):
     q.save_die_pdf(dlg.q, str(tmp_path / "d.pdf"))
     dlg.close()
     assert not company.splash_pixmap("1.0").isNull()
+
+
+def test_production_plan_and_costsheet(assy, tmp_path):
+    from hanil_unfold import costsheet as cst
+    from hanil_unfold import production as prod
+    m, parts, st = assy
+    rates = q.load_rates(None)
+    qt = q.build(m, parts, st, rates, sets=8000, annual=100_000, title="TRUCK")
+    pl = prod.plan(qt)
+    p = pl.p
+    avail = p["days"] * p["shifts"] * p["shift_hours"]
+    assert pl.machines and all(ml.available == avail for ml in pl.machines)
+    # 부하 = (개수 × 사이클 ÷ OEE + 준비) ÷ 가능 시간
+    ml = pl.machines[0]
+    assert ml.load == pytest.approx(ml.total / avail)
+    pc = next(pc for pc in qt.parts if any(o.machine == ml.name and o.seconds for o in pc.opc))
+    flow = next(f for f in pl.flows if f.no == pc.no)
+    assert flow.pieces == pytest.approx(100_000 * pc.qty * (1 + p["defect_pct"] / 100), abs=1)
+    assert pl.headcount > 0
+    assert pl.phases and pl.phases[-1].name.startswith("양산") and pl.sop_week > 4
+    # 생산량을 크게 늘리면 부하가 넘쳐 대수가 늘어난다
+    big = prod.plan(q.build(m, parts, st, rates, sets=8000, annual=5_000_000, title="TRUCK"))
+    assert big.overloaded and big.overloaded[0].units >= 2 and any("대 필요" in n for n in big.notes)
+    # 원가계산서: 재료비 + 가공비 = 견적과 같고, 노무비 + 경비 = 가공비
+    cs_ = cst.compute(qt)
+    for ps, pc in zip(cs_.parts, qt.parts):
+        assert ps.material == pytest.approx(pc.material, rel=1e-6)
+        assert ps.labor + ps.expense == pytest.approx(pc.process_cost)
+        assert ps.price >= ps.manufacturing
+    assert cs_.set_price > 0
+    sens = cst.sensitivity(qt)
+    assert sens[0][1] < sens[2][1] < sens[4][1]               # 철강값이 오르면 단가도 오른다
+    yrs = cst.year_table(cs_)
+    assert yrs[1][1] == pytest.approx(yrs[0][1] * 0.97)
+    qty = cst.qty_table(lambda a: q.build(m, parts, st, rates, sets=max(a // 12, 1), annual=a, title="T"),
+                        {"qty_list": "1000,100000"}, qt)
+    assert qty[0][1] > qty[1][1]                              # 적게 만들면 비싸다
+    for mod, args in ((prod, (pl,)), (cst, (cs_, qt))):
+        mod.save_xlsx(*args, str(tmp_path / f"{mod.__name__}.xlsx"))
+        mod.save_pdf(*args, str(tmp_path / f"{mod.__name__}.pdf"))
+        assert os.path.getsize(tmp_path / f"{mod.__name__}.pdf") > 5000
+
+
+def test_quality_docs_and_items(assy, tmp_path):
+    from openpyxl import load_workbook
+
+    from hanil_unfold import bom
+    from hanil_unfold import qualitydocs as qd
+    from hanil_unfold.history import History
+    m, parts, st = assy
+    rates = q.load_rates(None)
+    qt = q.build(m, parts, st, rates, sets=8000, annual=100_000, title="TRUCK")
+    items = {it.no: it for it in bom.build(m, parts, st.mat.density, (), st.mat.code)}
+    docs = [qd.build(pc, items[pc.no].result, st, "고객") for pc in qt.parts]
+    d = docs[0]
+    names = [s.name for s in d.pfd]
+    assert names[:3] == ["원자재 입고", "수입검사", "자재 보관"] and names[-3:] == ["최종 검사", "포장", "출하"]
+    assert len(d.pfd) == 6 + len(qt.parts[0].opc)
+    assert all(1 <= f.s <= 10 and 1 <= f.o <= 10 and 1 <= f.d <= 10 for f in d.fmea)
+    assert all(f.ap in "HML" and f.rpn == f.s * f.o * f.d for f in d.fmea)
+    assert qd.action_priority(9, 5, 3) == "H" and qd.action_priority(3, 2, 2) == "L"
+    assert any(c.special == "◇" for c in d.cp)
+    x = str(tmp_path / "qd.xlsx")
+    qd.save_xlsx(docs, x)
+    assert load_workbook(x).sheetnames == ["공정 흐름도", "PFMEA", "관리계획서"]
+    qd.save_pdf(docs, str(tmp_path / "qd.pdf"))
+    # 아이템 대장: 등록 → 견적 리비전 R0, R1 → 수주
+    h = History(str(tmp_path / "h"))
+    rid = h.add_item({"customer": "A사", "part_no": "123", "part_name": "BOX", "annual": 100000})
+    assert h.get_item(rid).data["status"] == "접수"
+    assert h.add_revision(rid, qt.unit_price, qt.die_total, 100000) == "R0"
+    assert h.add_revision(rid, qt.unit_price * 0.95, qt.die_total, 100000) == "R1"
+    it = h.get_item(rid).data
+    assert it["status"] == "제출" and it["unit_price"] == pytest.approx(qt.unit_price * 0.95)
+    h.update_item(rid, {"status": "수주"})
+    h.add_revision(rid, 1, 1)
+    assert h.get_item(rid).data["status"] == "수주"               # 수주·실주는 리비전으로 안 바뀜
+    stats, rate = h.item_stats()
+    assert stats["수주"][0] == 1 and rate == 1.0
+    h.export_items_xlsx(str(tmp_path / "items.xlsx"))
+    assert load_workbook(str(tmp_path / "items.xlsx")).sheetnames == ["아이템 대장", "견적 리비전"]
+
+
+def test_quote_dialog_new_tabs(assy):
+    from hanil_unfold.quote_dialog import QuoteDialog
+    m, parts, st = assy
+    dlg = QuoteDialog(m, parts, st, title="TRUCK")
+    tabs = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
+    assert {"생산 견적", "원가계산서", "품질 문서"} <= set(tabs)
+    assert dlg.t_load.rowCount() > 0 and dlg.t_cost.rowCount() > 10 and dlg.t_fmea.rowCount() > 0
+    dlg.close()

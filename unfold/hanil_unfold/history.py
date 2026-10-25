@@ -245,7 +245,10 @@ class _DocsMixin:
         wb.save(path)
 
 
-class History(_DocsMixin):
+from .items import _ItemsMixin, ensure_table as _ensure_items  # noqa: E402
+
+
+class History(_DocsMixin, _ItemsMixin):
     def __init__(self, folder: str | None = None):
         self.folder = folder or default_dir()
         os.makedirs(self.folder, exist_ok=True)
@@ -267,6 +270,7 @@ class History(_DocsMixin):
             if name not in have:
                 self.db.execute(f"ALTER TABLE docs ADD COLUMN {name} {typ}")
         self.db.commit()
+        _ensure_items(self.db)          # 아이템 (견적 요청) 대장
 
     def close(self):
         self.db.close()

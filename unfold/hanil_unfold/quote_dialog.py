@@ -43,13 +43,14 @@ def _table(head):
 
 
 class QuoteDialog(QDialog):
-    def __init__(self, model, parts, settings, excluded=(), title="", parent=None, history=None):
+    def __init__(self, model, parts, settings, excluded=(), title="", parent=None, history=None, items_db=None):
         super().__init__(parent)
         from . import bom
         self.setWindowTitle(f"견적 — {title}")
         self.resize(1200, 760)
         self.model, self.parts, self.settings, self.title = model, parts, settings, title
         self.history = history
+        self.items_db = items_db if items_db is not None else history     # 아이템 대장 (기록을 꺼도 씀)
         self.st = QSettings("Hanil", "SheetUnfold")
         self.rates = qt_.load_rates(self.st.value("quote_rates", ""))
         self.items = bom.build(model, parts, settings.mat.density, excluded, settings.mat.code)
@@ -80,8 +81,17 @@ class QuoteDialog(QDialog):
         self.extra.setDecimals(0)
         self.extra.setGroupSeparatorShown(True)
         self.extra.setSuffix(" 원/세트")
+        self.item_box = QComboBox()
+        self.item_box.setToolTip("아이템 대장의 아이템 — 견적서를 저장하면 그 아이템에 견적 리비전 (R0, R1 …) 이 쌓입니다")
+        self.item_box.addItem("(아이템 대장과 잇지 않음)", None)
+        if self.items_db is not None:
+            for r in self.items_db.search_items():
+                d = r.data
+                self.item_box.addItem(f"{d.get('customer') or ''} {d.get('part_no') or ''} {d.get('part_name') or ''} "
+                                      f"[{d.get('status')}]".strip(), r.id)
+        self.item_box.currentIndexChanged.connect(self._item_changed)
         for lab, w in (("견적 수량", self.sets), ("연간 생산량", self.annual), ("수신", self.customer),
-                       ("조립·용접·도장 등", self.extra)):
+                       ("조립·용접·도장 등", self.extra), ("아이템", self.item_box)):
             top.addWidget(QLabel(lab))
             top.addWidget(w)
         top.addWidget(self.amort)
@@ -125,6 +135,9 @@ class QuoteDialog(QDialog):
 
         tabs.addTab(self._machine_tab(), "기계·임률")
         tabs.addTab(self._die_tab(), "금형 견적")
+        tabs.addTab(self._prod_tab(), "생산 견적")
+        tabs.addTab(self._cost_tab(), "원가계산서")
+        tabs.addTab(self._quality_tab(), "품질 문서")
         tabs.addTab(self._rates_tab(), "자재 단가·관리비")
 
         btns = QHBoxLayout()
@@ -160,6 +173,336 @@ class QuoteDialog(QDialog):
             w.valueChanged.connect(self.recalc)
         self.amort.toggled.connect(self.recalc)
         self.recalc()
+
+    # ---- 아이템 대장
+    def select_item(self, rid):
+        i = self.item_box.findData(rid)
+        if i >= 0:
+            self.item_box.setCurrentIndex(i)
+
+    def _item_changed(self, *_):
+        rid = self.item_box.currentData()
+        if rid is None or self.items_db is None:
+            return
+        it = self.items_db.get_item(rid)
+        if it is None:
+            return
+        d = it.data
+        if d.get("annual"):
+            self.annual.setValue(int(d["annual"]))
+        if d.get("customer"):
+            self.customer.setText(d["customer"])
+        if d.get("status") == "접수":
+            self.items_db.update_item(rid, {"status": "견적 중"})
+
+    def _item_revision(self, files):
+        rid = self.item_box.currentData()
+        if rid is None or self.items_db is None:
+            return ""
+        try:
+            return self.items_db.add_revision(rid, self.q.unit_price, self.q.die_total, self.q.annual,
+                                             f"{self.q.sets:,} 세트 · {len(self.q.parts)} 부품", files)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            return ""
+
+    # ---- 생산 견적 · 원가계산서 · 품질 문서
+    def _param_form(self, names, values, slot, text_keys=()):
+        form = QFormLayout()
+        spins = {}
+        for k, label in names.items():
+            v = values[k]
+            if k in text_keys:
+                w = QLineEdit(str(v))
+                w.editingFinished.connect(slot)
+            else:
+                w = QDoubleSpinBox()
+                w.setRange(0, 1e9)
+                w.setDecimals(2 if isinstance(v, float) and v < 10 else 0)
+                w.setGroupSeparatorShown(True)
+                w.setValue(float(v))
+                w.valueChanged.connect(slot)
+            spins[k] = w
+            form.addRow(label, w)
+        box = QWidget()
+        box.setLayout(form)
+        from PySide6.QtWidgets import QScrollArea
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setWidget(box)
+        sc.setMinimumWidth(400)
+        return sc, spins
+
+    def _prod_tab(self):
+        from . import production as prod
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        left = QVBoxLayout()
+        self.prod_label = QLabel()
+        self.prod_label.setWordWrap(True)
+        self.prod_label.setTextFormat(Qt.RichText)
+        left.addWidget(self.prod_label)
+        self.t_load = _table(prod.MACHINE_HEAD)
+        self.t_load.setEditTriggers(QTableWidget.NoEditTriggers)
+        left.addWidget(QLabel("설비 부하 (1 년)"))
+        left.addWidget(self.t_load, 2)
+        self.t_flow = _table(prod.FLOW_HEAD)
+        self.t_flow.setEditTriggers(QTableWidget.NoEditTriggers)
+        left.addWidget(QLabel("부품별 사이클타임 · 하루 생산량 · 소재"))
+        left.addWidget(self.t_flow, 2)
+        self.gantt = QLabel()
+        self.gantt.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        from PySide6.QtWidgets import QScrollArea
+        gs = QScrollArea()
+        gs.setWidget(self.gantt)
+        gs.setWidgetResizable(True)
+        left.addWidget(gs, 3)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        for text_, kind in (("생산 견적 엑셀…", "xlsx"), ("생산 견적 PDF…", "pdf")):
+            b = QPushButton(text_)
+            b.clicked.connect(lambda _=False, k_=kind: self.save_doc("prod", k_))
+            row.addWidget(b)
+        left.addLayout(row)
+        lay.addLayout(left, 3)
+        self.rates.setdefault("production", {})
+        sc, self.prod_spins = self._param_form(prod.NAMES, prod.params(self.rates), self._prod_edited)
+        lay.addWidget(sc, 1)
+        return w
+
+    def _prod_edited(self, *_):
+        if self._busy:
+            return
+        self.rates["production"] = {k: s.value() for k, s in self.prod_spins.items()}
+        self._save_rates()
+        self.recalc()
+
+    def _cost_tab(self):
+        from . import costsheet as cst
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        left = QVBoxLayout()
+        self.cost_label = QLabel()
+        self.cost_label.setWordWrap(True)
+        self.cost_label.setTextFormat(Qt.RichText)
+        left.addWidget(self.cost_label)
+        self.t_cost = _table(["항목"])
+        self.t_cost.setEditTriggers(QTableWidget.NoEditTriggers)
+        left.addWidget(self.t_cost, 3)
+        row = QHBoxLayout()
+        qb = QPushButton("수량별 단가표 계산")
+        qb.setToolTip("수량마다 공정 방식(레이저·단발·순차)과 금형이 바뀌므로 다시 설계해서 계산합니다")
+        qb.clicked.connect(self._calc_qty)
+        row.addWidget(qb)
+        row.addStretch(1)
+        for text_, kind in (("원가계산서 엑셀…", "xlsx"), ("원가계산서 PDF…", "pdf")):
+            b = QPushButton(text_)
+            b.clicked.connect(lambda _=False, k_=kind: self.save_doc("cost", k_))
+            row.addWidget(b)
+        left.addLayout(row)
+        self.t_qty = _table(cst.QTY_HEAD)
+        self.t_year = _table(cst.YEAR_HEAD)
+        self.t_sens = _table(cst.SENS_HEAD)
+        bottom = QHBoxLayout()
+        for t, lab in ((self.t_qty, "수량별 단가"), (self.t_year, "연차별 단가"), (self.t_sens, "철강 시세 민감도")):
+            t.setEditTriggers(QTableWidget.NoEditTriggers)
+            col = QVBoxLayout()
+            col.addWidget(QLabel(lab))
+            col.addWidget(t)
+            bottom.addLayout(col)
+        left.addLayout(bottom, 2)
+        lay.addLayout(left, 3)
+        self.rates.setdefault("costsheet", {})
+        self.qty_rows = None
+        sc, self.cost_spins = self._param_form(cst.NAMES, cst.params(self.rates), self._cost_edited, ("qty_list",))
+        lay.addWidget(sc, 1)
+        return w
+
+    def _cost_edited(self, *_):
+        if self._busy:
+            return
+        self.rates["costsheet"] = {k: (s.text() if isinstance(s, QLineEdit) else s.value())
+                                   for k, s in self.cost_spins.items()}
+        self._save_rates()
+        self.qty_rows = None
+        self.recalc()
+
+    def quote_for(self, annual):
+        """양산 견적: 로트 = 연간 수량 ÷ 1 년 로트 수 (준비 시간을 양산 로트로 나눔)."""
+        from . import production as prod
+        lots = max(prod.params(self.rates)["lots_per_year"], 1)
+        q = qt_.build(self.model, self.parts, self.settings, self.rates, max(int(annual / lots), 1), annual,
+                      title=self.title, items=self.items, cache=self.cache)
+        for p in q.parts:
+            p.process_override = self.overrides.get(p.no)
+            p.material_override = self.mat_overrides.get(p.no)
+        for s in q.subs:
+            s.unit_price = float(self.sub_prices.get(s.name, 0.0))
+        q.subs += self.extra_subs
+        q.extra = self.extra.value()
+        q.customer = self.customer.text().strip()
+        return q
+
+    def _calc_qty(self):
+        from PySide6.QtWidgets import QApplication
+
+        from . import costsheet as cst
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.qty_rows = cst.qty_table(self.quote_for, cst.params(self.rates), self.q_mass)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._fill_rows(self.t_qty, [[f"{a:,}", qt_.won(b), qt_.won(c), qt_.won(d), e] for a, b, c, d, e in self.qty_rows])
+
+    def _quality_tab(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.addWidget(QLabel("수주 후 양산 승인 (PPAP) 용 초안 — 공정 흐름도 (PFD) · PFMEA (AIAG-VDA 조치 우선순위 AP) · "
+                             "관리계획서. 공정은 이 견적의 공정 설계, 발생도는 성형 해석 판정으로 정합니다."))
+        self.q_tabs = QTabWidget()
+        from . import qualitydocs as qd
+        self.t_pfd, self.t_fmea, self.t_cp = _table(qd.PFD_HEAD), _table(qd.FMEA_HEAD), _table(qd.CP_HEAD)
+        for t, lab in ((self.t_pfd, "공정 흐름도"), (self.t_fmea, "PFMEA"), (self.t_cp, "관리계획서")):
+            t.setEditTriggers(QTableWidget.NoEditTriggers)
+            self.q_tabs.addTab(t, lab)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("부품"))
+        self.q_part = QComboBox()
+        self.q_part.currentIndexChanged.connect(self._fill_quality)
+        row.addWidget(self.q_part)
+        row.addStretch(1)
+        for text_, kind in (("품질 문서 엑셀 (모든 부품)…", "xlsx"), ("품질 문서 PDF (모든 부품)…", "pdf")):
+            b = QPushButton(text_)
+            b.clicked.connect(lambda _=False, k_=kind: self.save_doc("quality", k_))
+            row.addWidget(b)
+        lay.addLayout(row)
+        lay.addWidget(self.q_tabs, 1)
+        self.qdocs = []
+        return w
+
+    def quality_docs(self):
+        from . import qualitydocs as qd
+        byno = {it.no: it for it in self.items}
+        out = []
+        for pc in self.q.parts:
+            it = byno.get(pc.no)
+            res = it.result if it is not None else None
+            out.append(qd.build(pc, res, self.settings, self.q.customer, getattr(it, "code", "") or ""))
+        return out
+
+    def _fill_quality(self, *_):
+        from . import qualitydocs as qd
+        i = self.q_part.currentIndex()
+        if not (0 <= i < len(self.qdocs)):
+            return
+        d = self.qdocs[i]
+        self._fill_rows(self.t_pfd, qd.pfd_rows(d))
+        self._fill_rows(self.t_fmea, qd.fmea_rows(d), color_col=11)
+        self._fill_rows(self.t_cp, qd.cp_rows(d))
+
+    def _fill_rows(self, t, rows, color_col=None):
+        t.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            for j, v in enumerate(r):
+                it = _item(v if isinstance(v, str) else (f"{v:,.1f}" if isinstance(v, float) else str(v)),
+                           right=not isinstance(v, str))
+                if color_col == j:
+                    it.setBackground({"H": QColor(244, 182, 182), "M": QColor(251, 227, 166),
+                                      "L": QColor(207, 232, 207)}.get(str(v), QColor(255, 255, 255)))
+                t.setItem(i, j, it)
+
+    def _fill_extra(self, q):
+        """생산 견적 · 원가계산서 · 품질 문서 탭."""
+        from PySide6.QtGui import QPixmap
+
+        from . import costsheet as cst
+        from . import production as prod
+        self.pl = pl = prod.plan(q)
+        self.prod_label.setText("<b>" + "</b><br>".join(prod.summary_lines(pl)[:3]) + "</b><br>"
+                                + "<br>".join(("⚠ " if "부하" in n and "%" in n and "필요" in n else "") + n
+                                              for n in prod.summary_lines(pl)[3:]))
+        self._fill_rows(self.t_load, [[r[0], r[1], r[2], r[3], r[4], r[5], f"{r[6]:.0%}", r[7], r[8], r[9]]
+                                      for r in prod.machine_rows(pl)])
+        for i, m in enumerate(pl.machines):
+            if m.load > 1:
+                self.t_load.item(i, 6).setForeground(QColor(220, 40, 40))
+        self._fill_rows(self.t_flow, prod.flow_rows(pl))
+        if pl.phases:
+            self.gantt.setPixmap(QPixmap.fromImage(prod.render_gantt(pl, 1100)))
+        else:
+            self.gantt.setText("금형이 없어 금형 제작 일정이 없습니다.")
+        self.q_mass = qm = self.quote_for(q.annual)       # 원가계산서는 양산 로트 기준
+        self.cs = cs_ = cst.compute(qm)
+        head = cst.sheet_head(cs_)
+        self.t_cost.setColumnCount(len(head))
+        self.t_cost.setHorizontalHeaderLabels(head)
+        self._fill_rows(self.t_cost, [[r[0]] + [qt_.won(v) if isinstance(v, float) else v for v in r[1:]]
+                                      for r in cst.sheet_rows(cs_)])
+        self.cost_label.setText(f"<h3>원가계산서 세트 판매 단가 {qt_.won(cs_.set_price)} 원 "
+                                f"(양산 로트 {qm.sets:,} 세트 기준 · 이 견적 {q.sets:,} 세트의 견적서 단가 "
+                                f"{qt_.won(q.unit_price)} 원)</h3>"
+                                + "<br>".join(cs_.notes)
+                                + "<br><span style='color:#888'>원가계산서는 불량 로스·포장·운반·금형 상각까지 넣고, 이윤을 "
+                                  "가공비+관리비에만 붙입니다 (자동차 협력사 양식).</span>")
+        self._fill_rows(self.t_year, [[a, qt_.won(b), qt_.won(c), d] for a, b, c, d in cst.year_table(cs_)])
+        self._fill_rows(self.t_sens, [[a, qt_.won(b), f"{c:+,.0f}", f"{d:+.1%}"] for a, b, c, d in cst.sensitivity(qm)])
+        if self.qty_rows:
+            self._fill_rows(self.t_qty, [[f"{a:,}", qt_.won(b), qt_.won(c), qt_.won(d), e] for a, b, c, d, e in self.qty_rows])
+        try:
+            self.qdocs = self.quality_docs()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            self.qdocs = []
+        cur = self.q_part.currentIndex()
+        self.q_part.blockSignals(True)
+        self.q_part.clear()
+        for d in self.qdocs:
+            self.q_part.addItem(f"{d.part_no} {d.part_name}")
+        self.q_part.setCurrentIndex(min(max(cur, 0), len(self.qdocs) - 1))
+        self.q_part.blockSignals(False)
+        self._fill_quality()
+
+    def save_doc(self, what, kind):
+        from . import costsheet as cst
+        from . import production as prod
+        from . import qualitydocs as qd
+        self.recalc()
+        name = {"prod": "생산견적", "cost": "원가계산서", "quality": "품질문서"}[what]
+        base = os.path.splitext(self.model.path)[0] + f"_{name}.{kind}"
+        path, _ = QFileDialog.getSaveFileName(self, f"{name} 저장", base,
+                                              "엑셀 (*.xlsx)" if kind == "xlsx" else "PDF (*.pdf)")
+        if not path:
+            return
+        try:
+            if what == "prod":
+                (prod.save_xlsx if kind == "xlsx" else prod.save_pdf)(self.pl, path, self.title)
+            elif what == "cost":
+                (cst.save_xlsx if kind == "xlsx" else cst.save_pdf)(self.cs, self.q_mass, path, self.qty_rows, self.title)
+            else:
+                (qd.save_xlsx if kind == "xlsx" else qd.save_pdf)(self.qdocs, path, self.title)
+        except Exception as e:
+            QMessageBox.warning(self, f"{name} 저장 실패", str(e))
+            return
+        if self.history is not None:
+            try:
+                v = qt_.record_values(self.q)
+                v["material"] = self.settings.mat.code
+                if what == "prod":
+                    v["summary"] = " · ".join(prod.summary_lines(self.pl)[:3])
+                elif what == "cost":
+                    v["unit_price"] = self.cs.set_price
+                    v["summary"] = f"원가계산서 세트 단가 {qt_.won(self.cs.set_price)} 원 · " + " · ".join(self.cs.notes)
+                else:
+                    v["summary"] = f"품질 문서 {len(self.qdocs)} 부품 · PFMEA AP H " \
+                                   f"{sum(f.ap == 'H' for d in self.qdocs for f in d.fmea)} 건"
+                self.history.add_doc({"prod": "생산 견적 (설비·일정)", "cost": "원가계산서", "quality": "품질 문서"}[what],
+                                     [path], self.model.path, v, None)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     # ---- 기계·임률
     def _machine_tab(self):
@@ -377,6 +720,7 @@ class QuoteDialog(QDialog):
         try:
             self._fill_parts(q)
             self._fill_subs(q)
+            self._fill_extra(q)
         finally:
             self._busy = False
         r = q.rates
@@ -591,6 +935,8 @@ class QuoteDialog(QDialog):
         QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(jobs[0][1])))
 
     def _log(self, die, files):
+        if not die:
+            self._item_revision(files)
         if self.history is None:
             return
         try:
