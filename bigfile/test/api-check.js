@@ -81,5 +81,20 @@ const ok=(c,m)=>{console.log((c?'✅ ':'❌ ')+m); if(c) good++; else { bad++; p
  for(let k=0;k<100&&v.state==='work';k++){await new Promise(z=>setTimeout(z,50)); v=await (await f('GET',`/bigfile/api/verify/${r.id}`)).json();}
  ok(v.result&&!v.result.ok&&v.result.badCount===1&&v.result.bad[0]===3,'디스크에서 깨진 조각 3 을 찾아냄');
  l=await (await f('GET','/bigfile/api/list')).json(); ok(l.files.find(x=>x.id===r.id).v.ok===false,'목록에 검사 결과');
+ // 🔧 틀린 조각 다시 받기 — 디스크가 깨진 조각 3 만 다시 연다
+ ck=other; ok((await f('POST',`/bigfile/api/reopen/${r.id}?chunks=3`)).status===404,'남의 파일은 다시 열 수 없음'); ck=mine;
+ ok((await f('POST',`/bigfile/api/reopen/${r.id}?chunks=9`)).status===400,'없는 조각 번호 400');
+ const ro=await (await f('POST',`/bigfile/api/reopen/${r.id}?chunks=3`)).json();
+ ok(ro.reopened===1&&Buffer.from(ro.have,'base64')[0]===0b110111,'조각 3 만 「안 받음」으로');
+ ok((await f('GET',`/bigfile/api/file/${r.id}/dl`)).status===404,'고치는 동안은 받기 안 됨');
+ ok((await put(3,ch(3))).status===200,'조각 3 다시 보냄');
+ ok((await f('POST','/bigfile/api/done/'+r.id)).status===200,'다시 완료');
+ v=await (await f('POST',`/bigfile/api/verify/${r.id}`)).json();
+ for(let k=0;k<100&&v.state==='work';k++){await new Promise(z=>setTimeout(z,50)); v=await (await f('GET',`/bigfile/api/verify/${r.id}`)).json();}
+ ok(v.result&&v.result.ok&&v.result.sha256===sha,'고친 뒤 검사 합격 · SHA-256 = 원본');
+ // 디스크가 더 길어졌으면 잘라 낸다
+ fs.appendFileSync(bin,Buffer.alloc(100));
+ await f('POST',`/bigfile/api/reopen/${r.id}?chunks=5`); await put(5,ch(5)); await f('POST','/bigfile/api/done/'+r.id);
+ ok(fs.statSync(bin).size===data.length,'디스크 꼬리 잘라 냄');
  ok((await f('DELETE',`/bigfile/api/file/${r.id}`)).status===200,'지우기');
 })().catch((e)=>{console.error(e);process.exitCode=1;}).finally(()=>{console.log(`\n✅ ${good} · ❌ ${bad}`);srv.close();fs.rmSync(STORE,{recursive:true,force:true});process.exit();});

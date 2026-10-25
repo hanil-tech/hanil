@@ -179,7 +179,8 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
 'use strict';
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var INFO = null, FILES = [], TAB = 'mine', UPS = [], RUNNING = false, RESUME_FOR = null;
+  var INFO = null, FILES = [], TAB = 'mine', UPS = [], RUNNING = false, RESUME_FOR = null, FIX_FOR = null;
+  var FIX_MAX = 3;          //  검사 불합격이면 틀린 조각만 다시 보내고 다시 검사 — 이만큼까지
   var IN_APP = /HanilPortalApp\//.test(navigator.userAgent);
   //  화면 안에서 받기(그림·검사) — 고른 자리에 바로 쓰는 기능(크롬·엣지, https 또는 localhost)이 없으면
   //  받은 것을 브라우저가 들고 있다가 한 번에 저장한다 → 그때는 크기를 제한(그보다 크면 보통 내려받기)
@@ -345,7 +346,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     if (it.state === 'done') s = (it.dir === 'up' ? '다 올렸습니다' : it.dir === 'down' ? '다 받았습니다' + (it.saved ? ' — ' + it.saved : '') : '검사를 마쳤습니다') + ' · ' + human(size) + (it.t0 ? ' · ' + dur(((it.t1 || Date.now()) - it.t0) / 1000) : '');
     else if (it.state === 'error') s = '❌ ' + it.err;
     else if (it.state === 'pause') s = '⏸ 멈춤 · ' + human(cur) + ' / ' + human(size);
-    else if (it.state === 'wait') s = '⏳ 기다리는 중 · ' + human(size);
+    else if (it.state === 'wait') s = '⏳ ' + (it.msg || '기다리는 중') + ' · ' + human(size);
     else if (verifying) s = '🔍 ' + (it.vmsg || '검사 중') + ' · ' + human(it.vdone) + ' / ' + human(size);
     else s = pct.toFixed(1) + '% · ' + human(cur) + ' / ' + human(size) + (sp > 0 ? ' · ' + human(sp) + '/초 · 남은 시간 ' + dur((size - cur) / sp) : '') + (it.msg ? ' · ' + it.msg : '');
     st.textContent = s;
@@ -417,7 +418,14 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     if (it.state === 'run' && it.dir !== 'check') b('⏸ 멈춤', function () { it.state = 'pause'; abortAll(it); drawUp(it); });
     if ((it.state === 'pause' || it.state === 'error') && it.dir === 'up') b('▶ 이어 올리기', function () { it.state = 'wait'; it.inflight = {}; drawUp(it); run(); });
     if ((it.state === 'pause' || it.state === 'error') && it.dir === 'down' && it.resume) b('▶ 이어 받기', function () { it.resume(); });
-    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'up') b('🔍 다시 검사', function () { checkFile({ id: it.id, name: it.name, size: it.size }, true); });
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'up') b('🔧 다시 보내기', function () {
+      it.round = 0; it.report = null; it.reopen = { id: it.id, chunks: it.lastBad || 'all' }; it.state = 'wait'; drawUp(it); run();
+    }, '틀린 조각을 다시 보내고 다시 검사');
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'check' && it.mine) b('🔧 다시 올려 고치기', function () {
+      FIX_FOR = { id: it.id, name: it.name, size: it.size, chunks: it.fixChunks };
+      toast('내 PC 에서 같은 파일(' + it.name + ')을 골라 주세요 — 틀린 조각만 다시 보냅니다'); pick.click();
+    }, '내 PC 의 같은 파일에서 틀린 조각만 다시 보냄');
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'down' && it.retry) b('🔁 다시 받기', function () { it.retry(); });
     if (it.state !== 'done' && it.state !== 'verify') b('✕', function () {
       if (it.dir === 'up' && !confirm(it.name + ' 올리기를 그만둘까요?\n(서버에 받아 둔 조각도 지웁니다)')) return;
       it.state = 'cancel'; abortAll(it);
@@ -484,7 +492,12 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   function upload(it) {
     it.state = 'run'; it.msg = '준비 중'; it.err = ''; drawUp(it);
     var f = it.f;
-    return api('POST', '/bigfile/api/init?' + qs({ name: f.name, size: f.size, type: f.type || '', lm: f.lastModified || 0 })).then(function (r) {
+    var start = it.reopen
+      ? api('POST', '/bigfile/api/reopen/' + it.reopen.id + '?chunks=' + it.reopen.chunks)
+      : api('POST', '/bigfile/api/init?' + qs({ name: f.name, size: f.size, type: f.type || '', lm: f.lastModified || 0 }));
+    var fixing = !!it.reopen;
+    it.reopen = null;
+    return start.then(function (r) {
       it.id = r.id;
       setCells(it, r.n, r.chunk);
       if (!it.crcs) { it.crcs = new Uint32Array(r.n); it.ck = new Uint8Array(r.n); }
@@ -494,9 +507,10 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
         if ((have.charCodeAt(i >> 3) >> (i & 7)) & 1) { it.sent += Math.min(r.chunk, f.size - i * r.chunk); it.cells[i] = DONE; }
         else { todo.push(i); it.cells[i] = WAIT; }
       }
-      if (r.resumed && it.sent) toast(f.name + ' — 받아 둔 ' + human(it.sent) + ' 다음부터 이어 올립니다');
+      if (fixing) { it.msg = '틀린 조각 ' + todo.length + '개를 다시 보내는 중'; for (i = 0; i < r.n; i++) it.ck[i] = it.cells[i] === DONE ? it.ck[i] : 0; }
+      else if (r.resumed && it.sent) toast(f.name + ' — 받아 둔 ' + human(it.sent) + ' 다음부터 이어 올립니다');
       if (!it.t0) it.t0 = Date.now();
-      it.samples = []; it.msg = ''; drawUp(it); loadList();
+      it.samples = []; if (!fixing) it.msg = ''; drawUp(it); loadList();
       var next = 0, fail = null;
       function worker() {
         if (fail || it.state !== 'run' || next >= todo.length) return Promise.resolve();
@@ -584,8 +598,24 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       var srvCrcs = b64u32(c.crcs, it.n), diff = [];
       for (var i = 0; i < it.n; i++) if (srvCrcs[i] !== it.crcs[i]) diff.push(i);
       var mineCrc = hex8(wholeCrc(it.crcs, f.size, it.chunk));
-      var bad = diff.concat(sr.bad || []);
+      var bad = diff.concat(sr.bad || []).filter(function (x, k, a) { return a.indexOf(x) === k; });
       colorAfter(it, bad);
+      var allOk = !bad.length && !sr.badCount && f.size === sr.disk && f.size === sr.size && mineCrc === sr.crc;
+      it.lastBad = allOk ? '' : fixWhich(it, bad, sr, mineCrc);
+      //  🔧 불합격 → 틀린 조각만 다시 보내고 다시 검사(FIX_MAX 번까지)
+      if (!allOk && (it.round || 0) < FIX_MAX) {
+        it.round = (it.round || 0) + 1;
+        var which = fixWhich(it, bad, sr, mineCrc);
+        if (which) {
+          (it.fixLog = it.fixLog || []).push(it.round + '번째: ' + (which === 'all' ? '전부' : '조각 ' + (bad.length > 8 ? bad.slice(0, 8).join(', ') + ' … (' + bad.length + '개)' : which.split(',').join(', '))));
+          it.reopen = { id: it.id, chunks: which };
+          it.state = 'wait';
+          it.msg = '❌ 검사 불합격 → ' + (which === 'all' ? '전부' : '틀린 조각 ' + which.split(',').length + '개') + ' 다시 보내기 (' + it.round + '/' + FIX_MAX + ')';
+          toast(f.name + ' — 검사 불합격, 틀린 조각을 다시 보냅니다');
+          drawUp(it);
+          return;
+        }
+      }
       var sec = ((it.t1 || Date.now()) - it.t0) / 1000;
       var rows = [
         ['파일 이름', f.name, sr.name, f.name === sr.name],
@@ -596,11 +626,22 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       ].concat(rowsCommon({ mineCrc: mineCrc, srvCrc: sr.crc, sha256: sr.sha256 })).concat([
         ['수정 시각(내 PC)', f.lastModified ? day(f.lastModified) : '—', '—', null],
         ['걸린 시간 · 평균 속도', dur(sec) + ' · ' + human(f.size / Math.max(sec, 0.001)) + '/초', '서버 검사 ' + dur(sr.ms / 1000), null],
-        ['다시 보낸 조각', it.retries + '번', '—', null],
+        ['다시 보낸 조각(보내는 중)', it.retries + '번', '—', null],
+        ['검사 불합격 → 다시 보냄', it.fixLog ? it.fixLog.join(' · ') : '없음', '—', null],
       ]);
-      finishReport(it, rows, '서버에 올라간 파일이 내 PC 의 파일과 똑같습니다', '올라간 파일이 내 파일과 다릅니다 — 지우고 다시 올려 주세요');
+      finishReport(it, rows, '서버에 올라간 파일이 내 PC 의 파일과 똑같습니다' + (it.fixLog ? ' (틀린 조각을 다시 보내 고침)' : ''),
+        '틀린 조각을 ' + FIX_MAX + '번 다시 보내도 고쳐지지 않습니다 — 서버 디스크를 점검해 달라고 관리자에게 알려 주세요');
       loadList();
     });
+  }
+  //  다시 보낼 조각 — 틀린 조각 번호들. 서버는 50개까지만 알려 주므로 그보다 많으면 전부.
+  //  조각은 다 맞는데 디스크 크기만 다르면 마지막 조각(서버가 잘라 내고 다시 받음), 전체 CRC 만 다르면 전부.
+  function fixWhich(it, bad, sr, mineCrc) {
+    if (sr.badCount > 50 || bad.length > 500) return 'all';
+    if (bad.length) return bad.join(',');
+    if (sr.disk !== it.size) return String(it.n - 1);
+    if (mineCrc !== sr.crc) return 'all';
+    return '';
   }
   function finishReport(it, rows, good, badMsg) {
     var ok = rows.every(function (x) { return x[3] !== false; });
@@ -652,6 +693,16 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       return Promise.all(ws).then(function () {
         if (fail) throw fail;
         if (it.state !== 'run') return;
+        //  🔧 받은 조각을 서버 값과 한 번 더 — 틀린 것이 있으면 그 조각만 다시 받는다(FIX_MAX 번까지)
+        var bad = [];
+        for (var i = 0; i < it.n; i++) if (it.got[i] !== srv.crcs[i]) bad.push(i);
+        if (bad.length && (it.round || 0) < FIX_MAX) {
+          it.round = (it.round || 0) + 1;
+          (it.fixLog = it.fixLog || []).push(it.round + '번째: 조각 ' + bad.slice(0, 8).join(', ') + (bad.length > 8 ? ' …' : ''));
+          bad.forEach(function (i) { it.cells[i] = WAIT; it.sent -= Math.min(it.chunk, f.size - i * it.chunk); });
+          it.msg = '❌ 틀린 조각 ' + bad.length + '개 다시 받기 (' + it.round + '/' + FIX_MAX + ')';
+          return go();
+        }
         it.t1 = Date.now();
         return save().then(report);
       }).catch(function (e) {
@@ -660,8 +711,9 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       });
     }
     it.resume = go;
+    it.retry = function () { UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove(); download(f); };
     function getChunk(i) {
-      var a = i * it.chunk, b = Math.min(f.size, a + it.chunk), tries = 0;
+      var a = i * it.chunk, b = Math.min(f.size, a + it.chunk), tries = 0, crcBad = 0;
       function once() {
         if (it.state !== 'run') return Promise.resolve();
         mark(it, i, tries ? RETRY : RUN);
@@ -683,7 +735,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
         }).then(function () {
           if (got !== buf.length) throw new Error('조각이 덜 왔습니다(' + got + '/' + buf.length + ')');
           var c = crc32(buf);
-          if (c !== srv.crcs[i]) { var e = new Error('조각 ' + i + ' 가 깨져서 왔습니다(CRC)'); throw e; }
+          if (c !== srv.crcs[i]) { var e = new Error('조각 ' + i + ' 가 깨져서 왔습니다(CRC)'); e.crc = true; throw e; }
           it.got[i] = c;
           if (out) return out.w.write({ type: 'write', position: a, data: buf });
           parts[i] = new Blob([buf]);
@@ -697,6 +749,10 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
           delete it.inflight[i];
           if (it.state !== 'run') { mark(it, i, WAIT); return; }
           mark(it, i, RETRY);
+          if (e.crc) crcBad++;
+          //  CRC 만 계속 틀리면 망 문제가 아니라 서버의 파일이 상한 것 — 오래 기다리지 않고 알린다
+          if (crcBad >= 3) throw new Error('조각 ' + i + ' 가 ' + crcBad + '번 모두 서버 기록과 다르게 옵니다 — 서버의 파일이 상했을 수 있습니다. ' +
+            '목록의 🔍 로 검사하고, 올린 사람이 「🔧 다시 올려 고치기」를 하면 됩니다');
           if (e.fatal || ++tries > 8) throw e;
           it.retries++;
           var wait = Math.min(30, Math.pow(2, tries - 1));
@@ -732,8 +788,9 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       ].concat(rowsCommon({ mineCrc: hex8(mine), srvCrc: srvWhole, sha256: srv.sha256 })).concat([
         ['저장한 곳', it.saved, '—', null],
         ['걸린 시간 · 평균 속도', dur(sec) + ' · ' + human(f.size / Math.max(sec, 0.001)) + '/초', '—', null],
-        ['다시 받은 조각', it.retries + '번', '—', null],
-      ]), '받은 파일이 서버의 파일과 똑같습니다', '받은 파일이 서버와 다릅니다 — 다시 받아 주세요');
+        ['다시 받은 조각(받는 중)', it.retries + '번', '—', null],
+        ['검사 불합격 → 다시 받음', it.fixLog ? it.fixLog.join(' · ') : '없음', '—', null],
+      ]), '받은 파일이 서버의 파일과 똑같습니다' + (it.fixLog ? ' (틀린 조각을 다시 받아 고침)' : ''), '받은 파일이 서버와 다릅니다 — 「🔁 다시 받기」를 눌러 주세요');
     }
     getCrcs().then(function (c) {
       srv = c; srv.crcs = b64u32(c.crcs, c.n);
@@ -748,8 +805,10 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     var it = newItem('check', f.name, f.size);
     it.t0 = Date.now(); it.state = 'verify'; drawUp(it);
     setCells(it, Math.max(1, Math.ceil(f.size / INFO.chunk)), INFO.chunk);
+    it.id = f.id; it.mine = !!f.mine;
     serverVerify(it, f.id, again !== false).then(function (r) {
       setCells(it, r.n, r.chunk);
+      it.fixChunks = r.badCount > 50 ? 'all' : r.bad.length ? r.bad.join(',') : String(r.n - 1);
       colorAfter(it, r.bad);
       it.t1 = Date.now();
       finishReport(it, [
@@ -759,21 +818,26 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
         ['전체 CRC32', '—', r.crc, null],
         ['SHA-256', '—', r.sha256, null],
         ['검사 시간', '—', dur(r.ms / 1000), null],
-      ], '서버의 파일이 올릴 때 그대로입니다', '서버의 파일이 올릴 때와 다릅니다 — 다시 올려 주세요');
+      ], '서버의 파일이 올릴 때 그대로입니다', '서버의 파일이 올릴 때와 다릅니다 — ' + (it.mine ? '「🔧 다시 올려 고치기」로 틀린 조각만 다시 보내세요' : '올린 사람에게 다시 올려 달라고 해 주세요'));
       loadList();
     }).catch(function (e) { it.state = 'error'; it.err = e.message || String(e); drawUp(it); });
   }
 
   // ── 끌어다 놓기·고르기 ───────────────────────────────────
   var drop = $('drop'), pick = $('pick');
-  drop.onclick = function () { RESUME_FOR = null; pick.click(); };
+  drop.onclick = function () { RESUME_FOR = null; FIX_FOR = null; pick.click(); };
   drop.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); drop.click(); } };
   pick.onchange = function () {
     var list = [].slice.call(pick.files);
     pick.value = '';
-    if (RESUME_FOR) {
-      var p = RESUME_FOR; RESUME_FOR = null;
-      if (list.length !== 1 || list[0].name !== p.name || list[0].size !== p.size) { toast('올리다 만 파일(' + p.name + ', ' + human(p.size) + ')과 같은 파일을 골라 주세요'); return; }
+    if (RESUME_FOR || FIX_FOR) {
+      var p = RESUME_FOR || FIX_FOR, fix = FIX_FOR; RESUME_FOR = null; FIX_FOR = null;
+      if (fix && list.length === 1 && list[0].name === fix.name && list[0].size === fix.size) {
+        var it = newItem('up', fix.name, fix.size);
+        it.f = list[0]; it.reopen = { id: fix.id, chunks: fix.chunks };
+        run(); return;
+      }
+      if (list.length !== 1 || list[0].name !== p.name || list[0].size !== p.size) { toast((fix ? '고칠 파일(' : '올리다 만 파일(') + p.name + ', ' + human(p.size) + ')과 같은 파일을 골라 주세요'); return; }
     }
     addFiles(list);
   };

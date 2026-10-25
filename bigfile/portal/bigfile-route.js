@@ -217,6 +217,28 @@ module.exports = function mountBigfile(app, ctx) {
     });
   });
 
+  //  🔧 검사에서 틀린 조각을 다시 받게 연다 — ?chunks=3,17,20 또는 all
+  //   그 조각들만 「안 받음」으로 돌리고 올리기 중(part)으로 되돌린다 → 올린 사람이 그 조각만 다시 보낸 뒤 done·검사
+  //   디스크 파일이 적어 둔 크기보다 길면 잘라 낸다. 답은 init 과 같은 모양(have)이라 화면이 그대로 이어 올린다.
+  app.post('/bigfile/api/reopen/:id', apiAuth, (req, res) => {
+    const m = ID.test(req.params.id) && files.get(req.params.id);
+    if (!m || m.owner !== req.bf.id) return res.status(404).json({ error: '다시 보낼 수 있는 파일이 아닙니다(올린 사람만)' });
+    const vj = vjobs.get(m.id);
+    if (vj && vj.state === 'work') return res.status(409).json({ error: '검사하는 중입니다 — 끝난 뒤 다시' });
+    const q = String(req.query.chunks || '');
+    const list = q === 'all' ? Array.from({ length: m.n }, (x, i) => i) : q.split(',').filter(Boolean).map(Number);
+    if (!list.length || list.some((i) => !Number.isInteger(i) || i < 0 || i >= m.n)) return res.status(400).json({ error: '조각 번호가 이상합니다' });
+    for (const i of list) { m.got[i >> 3] &= ~(1 << (i & 7)); m.ck[i >> 3] &= ~(1 << (i & 7)); }
+    if (m.size === 0) { m.got[0] = 1; m.ck[0] = 1; }
+    m.state = 'part'; m.tl = Date.now(); delete m.verify;
+    fs.stat(binOf(m.id), (e, st) => {
+      const go = () => save(m).then(() => res.json({ id: m.id, chunk: m.chunk, n: m.n, have: m.got.toString('base64'), resumed: true, reopened: list.length }));
+      if (!e && st.size > m.size) return fs.truncate(binOf(m.id), m.size, go);
+      if (e) fs.writeFileSync(binOf(m.id), '');
+      go();
+    });
+  });
+
   app.delete('/bigfile/api/file/:id', apiAuth, (req, res) => {
     const m = ID.test(req.params.id) && files.get(req.params.id);
     if (!m || !canEdit(req.bf, m)) return res.status(404).json({ error: '없는 파일입니다' });
