@@ -140,11 +140,15 @@ class QuoteDialog(QDialog):
         allb = QPushButton("엑셀 + PDF 모두 저장…")
         allb.setToolTip("생산 견적서와 (금형이 있으면) 금형 견적서를 엑셀·PDF 로 한 번에")
         allb.clicked.connect(self.save_all)
+        self.pkg_btn = QPushButton("전체 분석 (한 번에)…")
+        self.pkg_btn.setStyleSheet("QPushButton { font-weight: bold; padding: 4px 12px; }")
+        self.pkg_btn.setToolTip("BOM · 자재비 · 부품별 공정도 · 생산 견적서 · 금형 견적서를 한 폴더에")
+        self.pkg_btn.clicked.connect(self.save_package)
         logb = QPushButton("견적·금형 기록…")
         logb.setToolTip("지금까지 저장한 견적서·금형 견적서·금형 검토 기록")
         logb.clicked.connect(self.show_log)
         btns.addStretch(1)
-        for b in (logb, xl, pdf, dxl, dpdf, allb):
+        for b in (logb, xl, pdf, dxl, dpdf, allb, self.pkg_btn):
             btns.addWidget(b)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
@@ -501,6 +505,54 @@ class QuoteDialog(QDialog):
         if self.extra_subs:
             self.extra_subs.pop()
             self.recalc()
+
+    def save_package(self):
+        """전체 분석: 고른 폴더 안에 '제품_분석_날짜시각' 폴더를 만들고 BOM·자재비·공정도·견적서를 모두."""
+        import datetime as _dt
+
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+
+        from . import package
+        self.recalc()
+        self.st.setValue("quote_annual", self.annual.value())
+        self.st.setValue("quote_customer", self.customer.text())
+        start = self.st.value("package_dir", "") or os.path.dirname(self.model.path)
+        root = QFileDialog.getExistingDirectory(self, "전체 분석 결과를 둘 폴더", start)
+        if not root:
+            return
+        self.st.setValue("package_dir", root)
+        folder = os.path.join(root, f"{package._safe(self.title)}_분석_{_dt.datetime.now():%Y%m%d_%H%M}")
+        prog = QProgressDialog("전체 분석 중…", None, 0, 0, self)
+        prog.setWindowTitle("전체 분석")
+        prog.setMinimumDuration(0)
+        prog.setWindowModality(Qt.WindowModal)
+        prog.show()
+
+        def step(text):
+            prog.setLabelText(f"전체 분석 중… {text}")
+            QApplication.processEvents()
+
+        try:
+            files = package.run(self.q, self.model, self.parts, self.settings, folder, self.items, step)
+        except Exception as e:
+            prog.close()
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, "전체 분석 실패", str(e))
+            return
+        prog.close()
+        if self.history is not None:
+            try:
+                v = qt_.record_values(self.q)
+                v["material"] = self.settings.mat.code
+                v["summary"] = "전체 분석 · " + v["summary"]
+                self.history.add_doc("전체 분석", files, self.model.path, v, qt_.record_detail(self.q))
+            except Exception:
+                import traceback
+                traceback.print_exc()
+        QMessageBox.information(self, "전체 분석", f"{len(files)}개 파일을 만들었습니다.\n{folder}\n\n"
+                                + "\n".join(os.path.basename(f) for f in files))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     def save_all(self):
         self.recalc()                 # 수신 업체 등 마지막 입력을 반영

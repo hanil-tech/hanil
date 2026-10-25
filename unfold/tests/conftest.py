@@ -10,3 +10,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 _app = QApplication.instance() or QApplication([])
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """시험에서 만든 창을 먼저 지우고 끝낸다 (QApplication 이 먼저 없어지면 끝날 때 죽는다)."""
+    import gc
+    for w in _app.topLevelWidgets():
+        w.close()
+        w.deleteLater()
+    _app.processEvents()
+    gc.collect()

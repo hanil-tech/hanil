@@ -185,3 +185,28 @@ def test_dialog_save_all_records_latest_customer(assy, tmp_path, monkeypatch):
     assert {r.data["kind"] for r in rows} == {"생산 견적", "금형 견적"}
     assert all(r.data["customer"] == "마바상사" for r in rows)
     assert (tmp_path / "T_견적서.pdf").exists() and (tmp_path / "T_금형견적서.xlsx").exists()
+
+
+def test_full_analysis_package(assy, tmp_path):
+    import openpyxl
+    from hanil_unfold import package
+    m, parts, st = assy
+    qt = q.build(m, parts, st, q.load_rates(None), sets=10, annual=300_000, title="TRUCK/BOX")
+    steps = []
+    files = package.run(qt, m, parts, st, str(tmp_path / "out"), progress=steps.append)
+    names = [os.path.basename(f) for f in files]
+    assert names == ["01_TRUCK_BOX_BOM.xlsx", "02_TRUCK_BOX_자재비.xlsx", "03_TRUCK_BOX_공정도.pdf",
+                     "04_TRUCK_BOX_생산견적서.xlsx", "04_TRUCK_BOX_생산견적서.pdf",
+                     "05_TRUCK_BOX_금형견적서.xlsx", "05_TRUCK_BOX_금형견적서.pdf"]
+    assert all(os.path.getsize(f) > 1000 for f in files) and len(steps) == 5
+    wb = openpyxl.load_workbook(files[1])
+    assert wb.sheetnames == ["요약", "부품별 자재비", "재질별 소요량", "부자재"]
+    ws = wb["부품별 자재비"]
+    total = sum(ws.cell(r, 10).value for r in range(2, ws.max_row + 1))
+    assert total == pytest.approx(qt.material, abs=len(qt.parts))
+    pdf = open(files[2], "rb").read()
+    assert pdf.count(b"/Type /Page") >= 1 + len(qt.parts)          # 차례 + 부품마다
+    # 금형이 필요 없으면 금형 견적서는 안 만든다
+    low = q.build(m, parts, st, q.load_rates(None), sets=10, annual=1000, title="T")
+    names = [os.path.basename(f) for f in package.run(low, m, parts, st, str(tmp_path / "low"))]
+    assert not any("금형견적서" in n for n in names) and len(names) == 5

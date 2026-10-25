@@ -847,6 +847,9 @@ class MainWindow(QMainWindow):
         self.act_doc_log = QAction("견적·금형 기록", self, triggered=self.show_doc_log)
         self.act_doc_log.setToolTip("저장한 생산 견적서·금형 견적서·금형 검토 기록 (찾기·메모·엑셀)")
         self.act_quit = QAction("끝내기", self, triggered=self.close)
+        self.act_package = QAction("전체 분석", self, shortcut="Ctrl+Shift+A", triggered=lambda: self.show_quote(True))
+        self.act_package.setToolTip("3D 조립품 → 부품 분리 → 전개 → 자재비 → 부품별 공정도 → 생산 견적 → 금형 견적을 "
+                                    "한 폴더에 (견적 창에서 수량을 넣고 [전체 분석])")
         tb.setObjectName("작업 줄")
         self._build_ribbon()
         self.addToolBarBreak()
@@ -918,12 +921,12 @@ class MainWindow(QMainWindow):
     def _build_ribbon(self):
         from PySide6.QtWidgets import QMenuBar, QTabWidget
         groups = {
-            "파일": [self.act_open, self.act_batch, self.act_zip],
+            "파일": [self.act_open, self.act_package, self.act_batch, self.act_zip],
             "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_assy],
             "네스팅": [self.act_nest],
             "BOM": [self.act_bom, self.act_ai_bom],
             "금형": [self.act_die, self.act_process],
-            "견적": [self.act_quote, self.act_doc_log],
+            "견적": [self.act_package, self.act_quote, self.act_doc_log],
             "기록": [self.act_history, self.act_doc_log],
             "설정·도움말": [self.act_help],
         }
@@ -1007,6 +1010,7 @@ class MainWindow(QMainWindow):
         self.act_bom.setEnabled(self.model is not None)
         self.act_die.setEnabled(self.result is not None)
         self.act_quote.setEnabled(self.model is not None)
+        self.act_package.setEnabled(self.model is not None)
         self.act_process.setEnabled(self.result is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
         self.act_zip.setEnabled(self.model is not None)
@@ -1148,8 +1152,8 @@ class MainWindow(QMainWindow):
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
 
-    def show_quote(self):
-        """견적 창. 아직 [전체 계산] 을 안 했으면 먼저 한다."""
+    def show_quote(self, package=False):
+        """견적 창. 아직 [전체 계산] 을 안 했으면 먼저 한다. package: 전체 분석 단추를 앞에 (수량 넣고 누름)."""
         from .quote_dialog import QuoteDialog
         if self.model is None:
             QMessageBox.information(self, "견적", "먼저 3D 도면을 여세요.")
@@ -1169,6 +1173,10 @@ class MainWindow(QMainWindow):
             return
         finally:
             QApplication.restoreOverrideCursor()
+        if package is True:
+            dlg.setWindowTitle(dlg.windowTitle() + " — 전체 분석: 수량·생산량·수신을 넣고 [전체 분석 (한 번에)] 를 누르세요")
+            dlg.pkg_btn.setFocus()
+            dlg.pkg_btn.setDefault(True)
         dlg.exec()
 
     def show_die(self, tab=0):

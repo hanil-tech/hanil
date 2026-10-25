@@ -604,25 +604,74 @@ def summary_lines(plan):
     return out + [f"⚠ {n}" for n in plan.notes]
 
 
-def save_pdf(plan, path, name="", route=None):
-    from PySide6.QtCore import QMarginsF, QPointF, QRectF, Qt
-    from PySide6.QtGui import QColor, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
+def _open_pdf(path, title):
+    from PySide6.QtCore import QMarginsF, QRectF
+    from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPdfWriter
 
-    from .report import _brand, _font, ensure_gui, version_text
+    from .report import ensure_gui, version_text
     ensure_gui()
     pdf = QPdfWriter(path)
     pdf.setResolution(300)
     pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A3), QPageLayout.Landscape, QMarginsF(0, 0, 0, 0)))
-    pdf.setTitle(f"금형 공정도 - {name}")
+    pdf.setTitle(title)
     pdf.setCreator(f"한일 판금 전개 {version_text()}")
     k = 300 / 25.4
-    W, H, m = 420.0, 297.0, 12.0
 
     def R(x, y, w, h):
         return QRectF(x * k, y * k, w * k, h * k)
 
     p = QPainter(pdf)
     p.setRenderHint(QPainter.Antialiasing)
+    return pdf, p, R, k, 420.0, 297.0, 12.0
+
+
+def save_pdf(plan, path, name="", route=None):
+    pdf, p, R, k, W, H, m = _open_pdf(path, f"금형 공정도 - {name}")
+    _plan_page(p, R, k, W, H, m, plan, name)
+    if route is not None:
+        pdf.newPage()
+        _route_page(p, R, k, W, H, m, route, name)
+    p.end()
+
+
+def save_pdf_many(items, path, title=""):
+    """여러 부품의 공정도를 한 권으로. items: [(이름, 공정도 plan 또는 None, 공정 설계 route 또는 None)].
+    첫 쪽은 차례 (부품·금형 형식·공정수)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+
+    from .report import _brand, _font
+    pdf, p, R, k, W, H, m = _open_pdf(path, f"금형 공정도 - {title}")
+    p.setPen(QColor(20, 20, 20))
+    p.setFont(_font(18, True))
+    p.drawText(R(m, m, W - 2 * m, 10), Qt.AlignLeft | Qt.AlignVCenter, f"금형 공정도 (초안) — {title}")
+    p.setFont(_font(8))
+    _brand(p, R(m, m + 2, W - 2 * m, 6))
+    rows = []
+    page = 2
+    for name, plan, rt in items:
+        n_pages = (1 if plan is not None else 0) + (1 if rt is not None else 0)
+        ops = len(plan.stations) if plan is not None else (len(rt.steps) if rt else 0)
+        rows.append([name[:30], rt.die_type if rt else "-", str(ops),
+                     f"{plan.press_tonf:.0f}" if plan is not None else "-", f"{page}"])
+        page += n_pages
+    _table(p, R, k, m, m + 16, [("부품", 90), ("금형 형식 / 공정", 110), ("공정수", 22), ("프레스 tf", 26),
+                                ("쪽", 16)], rows, 9, maxy=H - m - 10)
+    for name, plan, rt in items:
+        if plan is not None:
+            pdf.newPage()
+            _plan_page(p, R, k, W, H, m, plan, name)
+        if rt is not None:
+            pdf.newPage()
+            _route_page(p, R, k, W, H, m, rt, name)
+    p.end()
+
+
+def _plan_page(p, R, k, W, H, m, plan, name):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QColor, QPen
+
+    from .report import _brand, _font, version_text
     p.setPen(QColor(20, 20, 20))
     p.setFont(_font(16, True))
     kind = "순차 금형 스트립 공정도" if plan.kind == "progressive" else "드로잉 공정도"
@@ -686,10 +735,7 @@ def save_pdf(plan, path, name="", route=None):
     p.drawText(R(m, H - m - 6, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter,
                "자동으로 만든 초안입니다. 공정 순서·캐리어·파일럿·빈 공정·하중은 금형 설계자가 확정하세요. "
                "하중: 전단 τ = 인장강도 × 0.8, 굽힘 F = 1.33·σb·L·t²/V.")
-    if route is not None:
-        pdf.newPage()
-        _route_page(p, R, k, W, H, m, route, name)
-    p.end()
+
 
 
 def _table(p, R, k, x, y, cols, rows, size=9, maxy=280.0):
