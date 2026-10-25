@@ -92,6 +92,8 @@ class FormAnalysis:
     box: tuple = ()                  # 사각 드로잉 (귀 R, 깊이, 깊이/R)
     box_ng: bool = False
     edge_verdict: str = OK
+    edge_pt: object = None           # 가장자리 늘림이 가장 큰 점 (제품 3D)
+    explain: object = None           # formexplain.Explanation (문제 부위별 설명)
 
     @property
     def t_min(self):
@@ -313,6 +315,7 @@ def _edge_stretch(fa, fi, mat):
         e = (c3[hi] - c3[lo]) / np.maximum(c2[hi] - c2[lo], 1e-12) - 1
         if e.max() > worst:
             worst = float(e.max())
+            fa.edge_pt = P3[int(e.argmax())].copy()
             where = "바깥 트림선" if l2.sum() == max(np.linalg.norm(np.roll(fi.U[lp], -1, axis=0) - fi.U[lp], axis=1).sum()
                                                  for lp in boundary_loops(fi.F)) else "구멍 가장자리"
     fa.edge = (worst, where, HER.get(mat.code))
@@ -391,6 +394,12 @@ def analyze(result, settings: bc.BendSettings) -> FormAnalysis:
     peak = max((f for _, f, _ in fa.loads), default=0.0)
     total = sum(f for name, f, _ in fa.loads if not name.startswith("굽힘")) if fi is not None else peak
     fa.press_tonf = total * 1.3 / dc.TON
+    from . import formexplain
+    try:
+        fa.explain = formexplain.explain(fa)
+    except Exception:                         # 설명은 덤 — 해석 결과는 그대로 쓴다
+        import traceback
+        traceback.print_exc()
     return fa
 
 
@@ -466,7 +475,7 @@ def tri_colors(fa: FormAnalysis, view: str):
     return cols, leg
 
 
-def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, title=True):
+def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, title=True, marks=True):
     """제품 3D 메시를 색 지도로 (화가 알고리즘 + 평면 음영)."""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QPen, QPolygonF
@@ -519,6 +528,26 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
         tri = F[i]
         p.drawPolygon(QPolygonF([QPointF(X[tri[0]], Y[tri[0]]), QPointF(X[tri[1]], Y[tri[1]]),
                                  QPointF(X[tri[2]], Y[tri[2]])]))
+    if marks and fa.explain is not None:              # 문제 부위 번호 (설명 표와 같은 번호)
+        from . import formexplain
+        r_ = max(9.0, min(16.0, rect.width() / 70))
+        p.setFont(_font(max(7.0, r_ * 0.75), True))
+        placed = []
+        for txt, P, rgb in formexplain.marks(fa.explain):
+            Pm = (P - fi.V.mean(0))
+            if z0 is not None:
+                Pm = Pm @ np.column_stack([xx, yy, zz])
+            w_ = Pm @ Rz.T
+            w_ = np.array([w_[0], w_[2], -w_[1]]) @ Rx.T
+            px, py = cx + (w_[0] - mid[0]) * s, cy - (w_[1] - mid[1]) * s
+            while any(math.hypot(px - qx, py - qy) < 2.1 * r_ for qx, qy in placed):   # 겹치면 옆으로
+                px += 2.2 * r_
+            placed.append((px, py))
+            p.setPen(QPen(QColor(20, 20, 20), 1.6))
+            p.setBrush(QColor(255, 255, 255, 235))
+            p.drawEllipse(QPointF(px, py), r_, r_)
+            p.setPen(QColor(*[int(v * 0.8) for v in rgb]))
+            p.drawText(QRectF(px - r_, py - r_, 2 * r_, 2 * r_), Qt.AlignCenter, txt)
     if title:
         p.setPen(QColor(30, 30, 30))
         p.setFont(_font(12, True))
@@ -605,6 +634,7 @@ def add_sheets(wb, fa: FormAnalysis, name="", first=False):
     r += len(fa.messages) + 2
     for i, line in enumerate(NOTES, 0):
         ws.cell(r + i, 1, line)
+    _explain_sheet(wb, fa, name)
     tmps = []
     if fa.mode == "forming":
         pic = wb.create_sheet("제품 그림")
@@ -613,6 +643,90 @@ def add_sheets(wb, fa: FormAnalysis, name="", first=False):
         if not any(ws_.title == "두께 변화" for ws_ in wb.worksheets):
             tmps.append(_add_image(wb.create_sheet("성형 한계도"), render_fld(fa.fi, 900, 700), "A1", 700))
     return tmps
+
+
+def _explain_sheet(wb, fa: FormAnalysis, name=""):
+    """[해석 설명] 시트: 판정 이유 · 문제 부위 표 (위치·값·뜻·원인·대책) · 위치별 두께 · 두께 분포 · 그림 읽는 법."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    from . import formexplain as fx
+    ex = fa.explain
+    if ex is None:
+        return
+    ws = wb.create_sheet("해석 설명")
+    hf, hfill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F4E8C")
+    wrap = Alignment(wrap_text=True, vertical="top")
+    for col, wd in zip("ABCDEFGHI", (7, 14, 34, 9, 34, 8, 50, 55, 60)):
+        ws.column_dimensions[col].width = wd
+    ws["A1"] = f"성형 해석 설명 — {name}  ({fa.material}, t {fa.thickness:g})"
+    ws["A1"].font = Font(bold=True, size=13)
+    ws["A2"] = ex.headline
+    ws["A2"].font = Font(bold=True, color={OK: "2A8C3C", WARN: "C87F00", NG: "D22828"}[ex.verdict])
+    r = 4
+    ws.cell(r, 1, "판정 이유").font = Font(bold=True)
+    for t_ in ex.reasons:
+        r += 1
+        ws.cell(r, 1, "• " + t_)
+    if ex.advice:
+        r += 2
+        ws.cell(r, 1, "먼저 해 볼 대책").font = Font(bold=True)
+        for k, a in enumerate(ex.advice, 1):
+            r += 1
+            ws.cell(r, 1, f"{k}. {a}")
+    if ex.issues:
+        r += 2
+        head = fx.ISSUE_HEAD + ["뜻", "원인", "대책"]
+        for j, h in enumerate(head, 1):
+            c = ws.cell(r, j, h)
+            c.font, c.fill = hf, hfill
+        for i in ex.issues:
+            r += 1
+            row = [i.no, i.zone_name, i.region, i.frac if i.frac else "—", i.value, i.verdict, i.meaning, i.cause,
+                   "\n".join(f"- {a}" for a in i.actions)]
+            for j, v in enumerate(row, 1):
+                c = ws.cell(r, j, v)
+                c.alignment = wrap
+                if j == 4 and isinstance(v, float):
+                    c.number_format = "0.0%"
+            rgb = ZONES[i.zone][1]
+            ws.cell(r, 2).fill = PatternFill("solid", fgColor="%02X%02X%02X" % rgb)
+            ws.cell(r, 2).font = Font(bold=True, color="FFFFFF" if i.zone in (0, 6) else "000000")
+            ws.row_dimensions[r].height = max(60, 15 * (len(i.actions) + 1), 15 * (len(i.cause) // 45 + 1))
+    if ex.regions:
+        r += 2
+        for j, h in enumerate(fx.REGION_HEAD, 1):
+            c = ws.cell(r, j, h)
+            c.font, c.fill = hf, hfill
+        for row in ex.regions:
+            r += 1
+            for j, v in enumerate(row, 1):
+                c = ws.cell(r, j, v)
+                if isinstance(v, float):
+                    c.number_format = "0.0%" if j in (2, 3, 6) else "0.000"
+    if ex.thickness:
+        r += 2
+        for j, h in enumerate(["두께 변화 구간", "넓이 비"], 1):
+            c = ws.cell(r, j, h)
+            c.font, c.fill = hf, hfill
+        for nm, f in ex.thickness:
+            r += 1
+            ws.cell(r, 1, nm)
+            ws.cell(r, 2, f).number_format = "0.0%"
+    if ex.process:
+        r += 2
+        for j, h in enumerate(["공정 · 하중", "값", "설명"], 1):
+            c = ws.cell(r, j, h)
+            c.font, c.fill = hf, hfill
+        for row in ex.process:
+            r += 1
+            for j, v in enumerate(row, 1):
+                ws.cell(r, j, v).alignment = wrap
+    if fa.mode == "forming":
+        r += 2
+        ws.cell(r, 1, "그림 읽는 법").font = Font(bold=True)
+        for v in fx.VIEW_HELP.values():
+            r += 1
+            ws.cell(r, 1, v)
 
 
 def save_xlsx(fa: FormAnalysis, path, name=""):
@@ -639,6 +753,47 @@ NOTES = ["원스텝 (한 번에 성형) 해석입니다: 다단 공정 이력·�
          "위 끝이 약 10 % 두꺼워진다 — 두꺼워짐은 맞고 얇아짐은 실험보다 작다.",
          "절곡: 바깥 면 공칭 변형률 1/(2R/t+1) 을 재질의 최소 굽힘 R/t (90°, 압연 방향과 직각) 에서의 값과 비교 "
          "(Datsko·Yang, Kalpakjian). 스프링백은 가공 경화 유동 응력의 탄성-소성 식."]
+
+
+def _explain_pages(p, pdf, R, k, W, H, m, header, fa, name):
+    """설명 쪽: 왼쪽 번호 붙은 성형성 존 그림, 오른쪽·다음 쪽에 글 (줄 바꿈)."""
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor
+
+    from . import formexplain as fx
+    from .report import _font
+    lines = fx.text_lines(fa)
+    if not lines:
+        return
+    pdf.newPage()
+    y = header(f"해석 설명 (어디서 · 얼마나 · 왜 · 대책) — {name}")
+    x0 = m
+    if fa.mode == "forming":
+        p.drawImage(R(m, y, 150, 114), render_product(fa, VIEWS[0], 1200, 912))
+        x0 = m + 156
+    top = y
+    col_w = W - m - x0
+    flags = Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap
+    for kind, txt in lines:
+        size, bold, gap = {"h": (11, True, 3.0), "i": (9.5, True, 2.0)}.get(kind, (8.5, False, 0.6))
+        p.setFont(_font(size, bold))
+        br = p.boundingRect(QRectF(0, 0, col_w * k, 2000 * k), flags, txt)
+        h = br.height() / k
+        if y + gap + h > H - m:
+            pdf.newPage()
+            y = header(f"해석 설명 (이어서) — {name}")
+            x0, col_w = m, W - 2 * m
+            top = y
+            br = p.boundingRect(QRectF(0, 0, col_w * k, 2000 * k), flags, txt)
+            h = br.height() / k
+        y += gap if y > top else 0
+        if kind == "i":
+            p.fillRect(R(x0, y - 0.5, col_w, h + 1), QColor(236, 240, 247))
+        p.setPen(QColor(31, 78, 140) if kind == "h" else QColor(25, 25, 25))
+        p.drawText(R(x0 + (1 if kind == "i" else 0), y, col_w - 1, h + 1), flags, txt)
+        y += h
+        if x0 > m and y > top + 118:              # 그림 아래부터는 넓게
+            x0, col_w = m, W - 2 * m
 
 
 def save_pdf(fa: FormAnalysis, path, name=""):
@@ -707,4 +862,5 @@ def save_pdf(fa: FormAnalysis, path, name=""):
         p.drawImage(R(m, y, 196, 148), render_product(fa, VIEWS[1], 1200, 900))
         p.drawImage(R(m + 200, y, 196, 148), render_product(fa, VIEWS[4], 1200, 900))
         p.drawImage(R(m + 60, y + 150, 140, 109), render_fld(fa.fi, 900, 700))
+    _explain_pages(p, pdf, R, k, W, H, m, header, fa, name)
     p.end()

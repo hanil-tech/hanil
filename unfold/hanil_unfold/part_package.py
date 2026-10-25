@@ -92,6 +92,9 @@ def run(result, settings: bc.BendSettings, name, folder, annual=100_000, rates=N
     else:
         body = "평판"
     summ["성형 해석"] = f"{fa.verdict} — {body}"
+    if fa.explain is not None:                 # 어디가 문제이고 무엇부터 할지 (자세한 것은 02 성형 해석의 설명 쪽)
+        ex = fa.explain
+        summ["성형 설명"] = ex.headline.split(" — ", 1)[-1] + (f" → {ex.advice[0]}" if ex.advice else "")
     # 3. 금형 검토 · 공정 설계 · 공정도
     step("금형 검토 · 자동 공정 설계 · 공정도")
     rep = dc.review(result, settings)

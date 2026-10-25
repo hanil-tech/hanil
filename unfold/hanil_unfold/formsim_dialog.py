@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QHBoxLayout, QLa
                                QSplitter, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import bendcalc as bc
+from . import formexplain as fx
 from . import formsim as fs
 from .die_dialog import VERDICT_COLOR, _table
 
@@ -87,6 +88,10 @@ class FormSimDialog(QDialog):
                       + ("원스텝 역해석 (제품 메시 위 변형률)" if fa.mode == "forming" else "판금 절곡 해석"))
 
         info = QTabWidget()
+        # 설명: 어디가 · 얼마나 · 왜 · 어떻게
+        self.explain = QTextBrowser()
+        self.explain.setHtml(fx.html(fa))
+        info.addTab(self.explain, "설명 (원인 · 대책)")
         # 요약
         w = QWidget()
         lw = QVBoxLayout(w)
@@ -111,13 +116,24 @@ class FormSimDialog(QDialog):
             lab = QLabel()
             lab.setPixmap(QPixmap.fromImage(render_fld(fa.fi, 760, 600)))
             lab.setAlignment(Qt.AlignCenter)
-            info.addTab(lab, "성형 한계도 (FLD)")
+            fw = QWidget()
+            fl = QVBoxLayout(fw)
+            fl.addWidget(lab, 1)
+            hl = QLabel(fx.VIEW_HELP["FLD"])
+            hl.setWordWrap(True)
+            hl.setStyleSheet("color:#444; background:#f4f6fa; padding:4px")
+            fl.addWidget(hl)
+            info.addTab(fw, "성형 한계도 (FLD)")
 
         if fa.mode == "forming":
             self.view = ProductView(fa)
             box = QComboBox()
             box.addItems(fs.VIEWS)
             box.currentTextChanged.connect(self.view.set_view)
+            self.view_help = QLabel(fx.VIEW_HELP[fs.VIEWS[0]])
+            self.view_help.setWordWrap(True)
+            self.view_help.setStyleSheet("color:#444; background:#f4f6fa; padding:4px")
+            box.currentTextChanged.connect(lambda v: self.view_help.setText(fx.VIEW_HELP.get(v, "")))
             left = QWidget()
             ll = QVBoxLayout(left)
             row = QHBoxLayout()
@@ -127,6 +143,7 @@ class FormSimDialog(QDialog):
             row.addWidget(QLabel("<span style='color:#888'>끌어서 돌리기 · 두 번 눌러 처음 방향</span>"))
             ll.addLayout(row)
             ll.addWidget(self.view, 1)
+            ll.addWidget(self.view_help)
             split = QSplitter()
             split.addWidget(left)
             split.addWidget(info)

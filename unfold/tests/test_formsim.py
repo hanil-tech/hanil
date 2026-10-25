@@ -147,3 +147,48 @@ def test_press_tonnage_curve():
     a, _ = cs.pick(ms, cs.PRESS, 50)
     b, _ = cs.pick(ms, cs.PRESS, 50, height=40, depth=50)
     assert b["capacity"] > a["capacity"] and b["stroke"] >= 100
+
+
+def test_explanation_locates_problems_and_gives_actions(cup, tmp_path):
+    """성형 해석 설명: 문제 부위마다 위치 · 값 · 뜻 · 원인 · 대책, 그림 읽는 법, 엑셀 [해석 설명] 시트 · PDF 설명 쪽."""
+    from openpyxl import load_workbook
+
+    from hanil_unfold import formexplain as fx
+    r, st, fa = cup
+    ex = fa.explain
+    assert ex is not None and ex.headline and ex.reasons
+    kinds = {row[0] for row in ex.regions}
+    assert {"바닥 (펀치 면)", "벽"} <= kinds                      # 컵: 바닥 · 벽 을 나눔
+    assert sum(f for _, f in ex.thickness) == pytest.approx(1.0, abs=0.01)
+    for i in ex.issues:
+        assert i.region and i.value and i.meaning and i.cause and i.actions
+    assert set(fx.VIEW_HELP) >= set(fs.VIEWS)
+    assert "그림 읽는 법" in fx.html(fa)
+    fs.save_xlsx(fa, tmp_path / "e.xlsx", "cup")
+    assert "해석 설명" in load_workbook(tmp_path / "e.xlsx").sheetnames
+    fs.save_pdf(fa, str(tmp_path / "e.pdf"), "cup")
+    assert (tmp_path / "e.pdf").stat().st_size > 10_000
+
+
+def test_explanation_sheet_bends():
+    """절곡 부품: 최소 R 보다 작은 절곡마다 원인 · 대책 설명."""
+    from models import tray
+    st = bc.BendSettings(material="SPFC980")
+    fa = fs.analyze(unfold(solid(tray(r=1.0)), settings=st), st)
+    ex = fa.explain
+    assert fa.verdict == fs.NG and ex.headline.startswith("부적합")
+    assert ex.issues and all(i.region.startswith("절곡 B") and "최소 R" in i.cause for i in ex.issues)
+    assert any("스프링백" in row[0] for row in ex.process)
+
+
+def test_explanation_deep_oil_pan_corner():
+    """깊은 오일 팬: 파단을 귀 (모서리) 로 찾고 다단 드로잉 · 귀 R 대책."""
+    from models import oil_pan
+    st = bc.BendSettings(material="SPCC")
+    fa = fs.analyze(unfold(solid(oil_pan(H=160, r_corner=15, flange=0)), settings=st), st)
+    ex = fa.explain
+    crack = [i for i in ex.issues if i.zone == 0]
+    assert crack and crack[0].corner and "귀 R" in " ".join(crack[0].actions)
+    assert any("다단" in a for a in ex.advice)
+    img = fs.render_product(fa, fs.VIEWS[0], 400, 300)           # 번호 표시 포함
+    assert not img.isNull()
