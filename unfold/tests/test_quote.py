@@ -373,3 +373,41 @@ def test_quote_dialog_new_tabs(assy):
     assert {"생산 견적", "원가계산서", "품질 문서"} <= set(tabs)
     assert dlg.t_load.rowCount() > 0 and dlg.t_cost.rowCount() > 10 and dlg.t_fmea.rowCount() > 0
     dlg.close()
+
+
+def test_part_package_one_part(tmp_path):
+    """부품 하나 한 번에 분석: 전개·성형 해석·금형·견적·원가·생산·품질 파일과 요약."""
+    from models import tray
+    from hanil_unfold import part_package as ppk
+    st = bc.BendSettings(material="SPCC")
+    sol = loader.list_solids(tray())[0]
+    r = unfold(sol, settings=st)
+    steps = []
+    files, summ = ppk.run(r, st, "tray.step", str(tmp_path / "pkg"), 100_000, customer="A사", solid=sol,
+                          progress=steps.append)
+    names = [os.path.basename(f) for f in files]
+    assert names[0] == "00_tray_요약.pdf"
+    for want in ("01_tray_전개도.dxf", "01_tray_전개보고서.pdf", "02_tray_성형해석.pdf", "03_tray_금형검토.xlsx",
+                 "04_tray_금형공정도.pdf", "04_tray_금형공정도.dxf", "05_tray_생산견적서.pdf", "05_tray_금형견적서.pdf",
+                 "06_tray_원가계산서.xlsx", "07_tray_생산계획.pdf", "08_tray_품질문서.xlsx"):
+        assert want in names, want
+    assert all(os.path.getsize(f) > 1000 for f in files)
+    assert len(steps) == 8
+    for k in ("전개 크기", "성형 해석", "금형 형식", "금형비", "판매 단가", "설비 부하", "양산 일정", "PFMEA"):
+        assert k in summ
+    assert "순차" in summ["금형 형식"] and summ["성형 해석"].startswith("적합")
+
+
+def test_part_package_dialog(assy, tmp_path):
+    from hanil_unfold.part_package_dialog import PartPackageDialog
+    m, parts, st = assy
+    seen = []
+
+    def select(i):
+        seen.append(i)
+        return parts[i].result, m.solids[i], m.names[i]
+    dlg = PartPackageDialog(m, 0, select, lambda: st)
+    assert dlg.part.count() == len(m.solids) and seen == [0]
+    dlg.part.setCurrentIndex(1)
+    assert seen == [0, 1]
+    dlg.close()

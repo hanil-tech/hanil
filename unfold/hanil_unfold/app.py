@@ -852,6 +852,9 @@ class MainWindow(QMainWindow):
         self.act_ai_bom = QAction("AI BOM", self, triggered=self.show_ai_bom)
         self.act_ai_bom.setToolTip("2D 도면 PDF 와 3D 를 AI(Claude)로 맞춰 보고 BOM 엑셀을 만듭니다")
         self.act_nest.setToolTip("전개한 부품을 1219 × 2438 같은 철판 위에 늘어놓아 필요한 장 수를 셉니다")
+        self.act_part_pkg = QAction("부품 한 번에 분석", self, shortcut="Ctrl+Shift+P", triggered=self.show_part_package)
+        self.act_part_pkg.setToolTip("도면에서 부품 하나를 골라 전개 · 성형 해석 · 금형 검토·공정 설계·공정도 · 금형 견적 · "
+                                     "원가계산서 · 생산 계획 · 품질 문서를 한 폴더에 (첫 장 한 쪽 요약)")
         self.act_prod = QAction("생산 견적", self, triggered=lambda: self.show_quote(tab="생산 견적"))
         self.act_prod.setToolTip("받은 수량을 우리 설비로 만들 수 있나: 기계별 부하율·필요 대수, 인원, 사이클타임·하루 생산량, "
                                  "코일·소재 소요, 금형 제작 → 양산 일정 (간트)")
@@ -941,12 +944,12 @@ class MainWindow(QMainWindow):
     def _build_ribbon(self):
         from PySide6.QtWidgets import QMenuBar, QTabWidget
         groups = {
-            "파일": [self.act_open, self.act_package, self.act_batch, self.act_zip],
+            "파일": [self.act_open, self.act_part_pkg, self.act_package, self.act_batch, self.act_zip],
             "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_sim, self.act_assy],
             "네스팅": [self.act_nest],
             "BOM": [self.act_bom, self.act_ai_bom],
-            "금형": [self.act_sim, self.act_die, self.act_process, self.act_die_cost],
-            "견적": [self.act_items, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
+            "금형": [self.act_part_pkg, self.act_sim, self.act_die, self.act_process, self.act_die_cost],
+            "견적": [self.act_items, self.act_part_pkg, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
                    self.act_die_cost, self.act_doc_log],
             "품질": [self.act_sim, self.act_quality],
             "기록": [self.act_history, self.act_doc_log, self.act_items],
@@ -1045,7 +1048,7 @@ class MainWindow(QMainWindow):
         self.act_die_cost.setEnabled(self.result is not None)
         self.act_quote.setEnabled(self.model is not None)
         self.act_package.setEnabled(self.model is not None)
-        for a in (self.act_prod, self.act_costsheet, self.act_quality):
+        for a in (self.act_prod, self.act_costsheet, self.act_quality, self.act_part_pkg):
             a.setEnabled(self.model is not None)
         self.act_process.setEnabled(self.result is not None)
         self.act_ai_bom.setEnabled(self.model is not None)
@@ -1187,6 +1190,24 @@ class MainWindow(QMainWindow):
                          f"{g.weight_kg:.3f} kg")
         lines.append(f"<span style='color:#999'>재질 {settings.mat.code} 기준 무게</span>")
         self.assy_summary.setText("<br>".join(lines))
+
+    def show_part_package(self):
+        from .part_package_dialog import PartPackageDialog
+        if self.model is None:
+            QMessageBox.information(self, "부품 한 번에 분석", "먼저 3D 도면을 여세요.")
+            return
+
+        def select(i):
+            if self.solid_box.currentIndex() != i:
+                self.solid_box.setCurrentIndex(i)
+            name = self.model.names[i] if self.model.names else ""
+            if not name:
+                name = os.path.splitext(os.path.basename(self.model.path))[0] + (
+                    f"_{i + 1}" if len(self.model.solids) > 1 else "")
+            return self.result, self.current_solid(), name
+        PartPackageDialog(self.model, max(self.solid_box.currentIndex(), 0), select, self.bend_panel.settings, self,
+                          history=self.history if self.history_box.isChecked() else None,
+                          items_db=self.history).exec()
 
     def show_items(self):
         from .items_dialog import ItemsDialog
