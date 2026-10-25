@@ -240,6 +240,8 @@ class _DocsMixin:
                 w2.append([r.id, r.data.get("kind"), r.data.get("title"), p.get("no"), p.get("name"), p.get("qty"),
                            p.get("spec"), p.get("method"), p.get("n_ops"), p.get("ops"), p.get("tonf"),
                            p.get("machines"), p.get("material"), p.get("process"), p.get("die")])
+        from .company import stamp_workbook
+        stamp_workbook(wb)
         wb.save(path)
 
 
@@ -415,6 +417,8 @@ class History(_DocsMixin):
                 ws[f"{col}{n + 1}"] = f"=SUM({col}2:{col}{n})"
                 ws[f"{col}{n + 1}"].number_format = "#,##0.000"
         ws.freeze_panes = "A2"
+        from .company import stamp_workbook
+        stamp_workbook(wb)
         wb.save(path)
 
 

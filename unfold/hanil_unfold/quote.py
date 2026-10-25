@@ -518,6 +518,8 @@ def save_xlsx(q: Quote, path: str):
     for k in RATE_NAMES:
         w3.append([RATE_NAMES[k], q.rates[k]])
     w3.append(["기계 선택 여유 (배)", q.rates["costing"].get("safety", cs.SAFETY)])
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t in tmp:
         try:
@@ -686,6 +688,13 @@ def die_total_with_vat(q: Quote):
     return supply, vat, supply + vat
 
 
+def _body(d):
+    """금형 몸체 글: 강판 다이 세트 / 주물 (까닭)."""
+    if getattr(d, "structure", "강판") == "주물":
+        return f"주물 FC300·FCD {d.cast_kg:,.0f} kg"
+    return "강판 다이 세트"
+
+
 def save_die_xlsx(q: Quote, path: str):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -738,7 +747,7 @@ def save_die_xlsx(q: Quote, path: str):
     r = 1
     for d in q.dies:
         ws2.cell(r, 1, f"{d.part_name} — {d.die_type}, {d.stations} 공정, "
-                       f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm").font = Font(bold=True)
+                       f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm, 금형 몸체 {_body(d)}").font = Font(bold=True)
         r += 1
         for name, formula, amt in d.lines:
             ws2.cell(r, 1, name)
@@ -753,7 +762,7 @@ def save_die_xlsx(q: Quote, path: str):
     ws2.column_dimensions["C"].width = 16
     ws3 = wb.create_sheet("금형 단가")
     for k, v in q.rates["costing"]["die"].items():
-        ws3.append([cs.DIE_NAMES.get(k, k), v])
+        ws3.append([cs.DIE_NAMES.get(k, k), cs.STRUCTURES[int(v)] if k == "structure" else v])
     ws3.column_dimensions["A"].width = 34
     tmps = []
     if q.dies:
@@ -768,6 +777,8 @@ def save_die_xlsx(q: Quote, path: str):
             except Exception:
                 pass
             row += 34
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t_ in tmps:
         try:
@@ -821,7 +832,7 @@ def save_die_pdf(q: Quote, path: str):
             pdf.newPage()
             y = m
         text(m, y, W - 2 * m, 7, f"{d.part_name} — {short_method(d.die_type)}, {d.stations} 공정, "
-                                 f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm", 10.5, True,
+                                 f"{d.size[0]:.0f}×{d.size[1]:.0f}×{d.size[2]:.0f} mm · {_body(d)}", 10.5, True,
              color=QColor(31, 78, 140))
         y += 8
         for name, formula, amt in d.lines:

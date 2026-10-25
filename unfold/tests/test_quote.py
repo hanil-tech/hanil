@@ -11,6 +11,7 @@ from models import nested_assembly_step  # noqa: E402
 from hanil_unfold import assembly_calc, loader  # noqa: E402
 from hanil_unfold import bendcalc as bc  # noqa: E402
 from hanil_unfold import quote as q  # noqa: E402
+from hanil_unfold.unfolder import unfold  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -228,3 +229,53 @@ def test_die_sketch(assy):
     comp = next(d for d in qt.dies if "복합" in d.die_type)
     assert comp.plan is None and comp.outline is not None
     diesketch.render(comp, 800, 500)
+
+
+def test_large_die_switches_to_casting():
+    """대형 금형: 공정 하나 몸체 긴 변이 1000 mm 를 넘으면 주물 (FC300·FCD) 로 계산한다."""
+    from models import drawn_cup, tray
+    from hanil_unfold import costing as cs, procplan as pp
+    from hanil_unfold.die_cost_dialog import part_item
+    st = bc.BendSettings(material="SPCC")
+    out = {}
+    for key, shape in (("small", tray()), ("big", drawn_cup(300, 150, 20, 1.6))):
+        r = unfold(loader.list_solids(shape)[0], settings=st)
+        it = part_item(r, key, 7.85)
+        rt = pp.route(r, st, 100_000)
+        out[key] = cs.die_quote(it, rt.die_type, [s.op for s in rt.steps], cs.default_costing(), st)
+    small, big = out["small"], out["big"]
+    assert small.structure == "강판" and small.cast_kg == 0
+    assert big.structure == "주물" and big.cast_kg > 1000 and "1,000" in big.reason
+    names = [x[0] for x in big.lines]
+    assert any("FC300" in n for n in names) and any("FCD" in n for n in names)
+    assert any("모형" in n for n in names) and any("NC" in n for n in names)
+    # 무게 × 단가: 주물 줄 금액 = kg × 원/kg
+    fc = next(x for x in big.lines if "FC300" in x[0])
+    assert fc[2] == pytest.approx(float(fc[1].split("=")[-1].split("kg")[0].replace(",", "")) * 3000, rel=0.01)
+    # 직접 고르기: 강판 고정이면 큰 금형도 강판, 주물 고정이면 작은 금형도 주물
+    c = cs.default_costing()
+    c["die"]["structure"] = 1
+    r = unfold(loader.list_solids(drawn_cup(300, 150, 20, 1.6))[0], settings=st)
+    rt = pp.route(r, st, 100_000)
+    assert cs.die_quote(part_item(r, "b", 7.85), rt.die_type, [s.op for s in rt.steps], c, st).structure == "강판"
+
+
+def test_die_cost_dialog_and_maker_stamp(tmp_path):
+    from openpyxl import load_workbook
+    from models import drawn_cup
+    from hanil_unfold import company
+    from hanil_unfold import quote as q
+    from hanil_unfold.die_cost_dialog import DieCostDialog
+    st = bc.BendSettings(material="SPCC")
+    r = unfold(loader.list_solids(drawn_cup(300, 150, 20, 1.6))[0], settings=st)
+    dlg = DieCostDialog(r, st, "big_cup.step")
+    assert dlg.q.dies and dlg.q.dies[0].structure == "주물"
+    assert "주물" in dlg.text.toPlainText()
+    x = str(tmp_path / "d.xlsx")
+    q.save_die_xlsx(dlg.q, x)
+    wb = load_workbook(x)
+    assert wb.properties.creator == company.NAME
+    assert company.MAKER in wb.worksheets[0].oddFooter.center.text
+    q.save_die_pdf(dlg.q, str(tmp_path / "d.pdf"))
+    dlg.close()
+    assert not company.splash_pixmap("1.0").isNull()

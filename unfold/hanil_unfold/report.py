@@ -622,6 +622,8 @@ def save_xlsx(d: ReportData, path: str):
         import traceback
         traceback.print_exc()
 
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t in tmps + [logo_tmp]:
         try:
@@ -713,6 +715,8 @@ def save_parts_list(items, path: str):
         c.value = f"=SUM({col}2:{col}{n})"
         c.number_format = "#,##0.000"
     ws.freeze_panes = "A2"
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
 
 
@@ -1117,6 +1121,8 @@ def save_nesting_xlsx(results, path: str, source_name: str = "", density=7.85):
                               f"사용률 {s.utilization * 100:.1f}% · 사용 길이 {s.used_length:.0f} mm").font = st["val"]
             tmps.append(_add_image(pic, render_sheet_image(r, s), f"A{prow + 1}", 1000))
             prow += 28
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t in tmps + [logo_tmp]:
         try:

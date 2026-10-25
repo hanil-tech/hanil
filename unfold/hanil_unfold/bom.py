@@ -580,6 +580,8 @@ def save_tree_xlsx(rows, path, source_name="", material="", density=7.85):
     for k, (a, b) in enumerate(CLASS_RULES, 1):
         wr.cell(k, 1, a).font = _xl_font(st["val"], bold=True)
         wr.cell(k, 2, b).alignment = Alignment(wrap_text=True)
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t in tmps:
         try:
@@ -761,6 +763,8 @@ def save_xlsx(items, path, source_name="", material="", density=7.85):
             c.font, c.border = st["val"], st["border"]
             c.number_format = ["@", "0.0#", "0", "0.0000", "0.000"][j - 1]
     wm.cell(len(rows) + 3, 1, "판금·성형품만 (기타·제외 빼고). 블랭크 무게 = 블랭크 면적 × 두께 × 밀도.").font = st["key"]
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t in tmps:
         try:

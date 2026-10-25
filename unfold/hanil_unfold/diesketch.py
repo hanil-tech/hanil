@@ -14,6 +14,9 @@ import numpy as np
 # 정면도 판 쌓기 비율 (전체 두께 T 에 대한), 아래부터
 STACK = [("아래 다이 세트", 0.26), ("다이 받침판", 0.06), ("다이 플레이트", 0.10), ("열림 높이", 0.15),
          ("스트리퍼", 0.08), ("펀치 플레이트", 0.08), ("펀치 받침판", 0.05), ("위 다이 세트", 0.22)]
+# 주물 금형 (대형 라인 금형): 아랫형·윗형이 리브 구조 주물 덩어리, 칼날은 인서트로 붙임
+STACK_CAST = [("아랫형 주물 FC300", 0.40), ("칼날·형면 인서트", 0.06), ("열림 높이", 0.16),
+              ("패드·누르개", 0.08), ("윗형 주물 FC300", 0.30)]
 POST_D = 38.0
 POST_INSET = 55.0
 
@@ -42,7 +45,7 @@ def paint_die(p, rect, dq, fp=14.0):
     _font(p, fp, True)
     p.setPen(QColor(20, 20, 20))
     p.drawText(QRectF(plan_r.left(), plan_r.top(), plan_r.width(), fp * 1.5), Qt.AlignLeft | Qt.AlignVCenter,
-               "평면도 (아래 다이, 위에서 봄)")
+               "평면도 (아랫형 주물, 위에서 봄)" if getattr(dq, "structure", "강판") == "주물" else "평면도 (아래 다이, 위에서 봄)")
     top = plan_r.top() + fp * 2.0
     avail_w, avail_h = plan_r.width() - fp * 4, plan_r.height() - fp * 6
     sc = min(avail_w / L, avail_h / W)
@@ -159,7 +162,8 @@ def paint_die(p, rect, dq, fp=14.0):
     y = 0.0
     p.setPen(QPen(ink, lw))
     last_label = None                     # 얇은 판 글씨가 겹치지 않게 (아래부터 쌓으며 위로 밀기)
-    for name, k in STACK:
+    cast = getattr(dq, "structure", "강판") == "주물"
+    for name, k in (STACK_CAST if cast else STACK):
         h = k * T
         r = QRectF(sx0, sy0 - (y + h) * s2, L * s2, h * s2)
         if name == "열림 높이":
@@ -178,8 +182,15 @@ def paint_die(p, rect, dq, fp=14.0):
                        QPointF(sx0 + L * s2 + fp * 0.5, sy0 - (y + h * 0.02) * s2))      # 스트립
             p.setPen(QPen(ink, lw))
         else:
-            p.setBrush(QColor(205, 212, 225) if "세트" in name else QColor(225, 230, 238))
+            p.setBrush(QColor(205, 212, 225) if "세트" in name else QColor(190, 185, 175) if "주물" in name
+                       else QColor(225, 230, 238))
             p.drawRect(r)
+            if "주물" in name:                     # 리브 (주물 속 빈 곳)
+                p.setPen(QPen(QColor(120, 110, 95), lw * 0.6, Qt.DashLine))
+                for j in range(1, 6):
+                    xr = sx0 + L * s2 * j / 6
+                    p.drawLine(QPointF(xr, r.top() + r.height() * 0.15), QPointF(xr, r.bottom() - r.height() * 0.15))
+                p.setPen(QPen(ink, lw))
         _font(p, fp * 0.72)
         p.setPen(QColor(40, 40, 40))
         cy = r.center().y()
@@ -194,12 +205,13 @@ def paint_die(p, rect, dq, fp=14.0):
     p.setBrush(QColor(255, 255, 255))
     for x in (POST_INSET, L - POST_INSET):
         p.drawRect(QRectF(sx0 + (x - POST_D / 2) * s2, sy0 - T * 0.93 * s2, POST_D * s2, T * 0.68 * s2))
-    p.setBrush(QColor(205, 212, 225))
-    p.drawRect(QRectF(sx0 + (L / 2 - 30) * s2, sy0 - (T + T * 0.1) * s2, 60 * s2, T * 0.1 * s2))
-    _font(p, fp * 0.72)
-    p.setPen(QColor(40, 40, 40))
-    p.drawText(QRectF(sx0 + (L / 2 + 34) * s2, sy0 - (T * 1.1) * s2, label_w, T * 0.1 * s2),
-               Qt.AlignLeft | Qt.AlignVCenter, "생크")
+    if not cast:                           # 대형 주물 금형은 생크 없이 클램프로 고정
+        p.setBrush(QColor(205, 212, 225))
+        p.drawRect(QRectF(sx0 + (L / 2 - 30) * s2, sy0 - (T + T * 0.1) * s2, 60 * s2, T * 0.1 * s2))
+        _font(p, fp * 0.72)
+        p.setPen(QColor(40, 40, 40))
+        p.drawText(QRectF(sx0 + (L / 2 + 34) * s2, sy0 - (T * 1.1) * s2, label_w, T * 0.1 * s2),
+                   Qt.AlignLeft | Qt.AlignVCenter, "생크")
     p.setPen(QPen(QColor(200, 40, 40), lw))
     _font(p, fp * 0.85)
     xx = sx0 - fp * 0.6
@@ -219,8 +231,12 @@ def paint_die(p, rect, dq, fp=14.0):
              ("크기 (길이×폭×닫힌 높이)", f"{L:,.0f} × {W:,.0f} × {T:,.0f} mm"),
              ("공정", f"{dq.stations} 공정" + (f" × {dq.sets} 벌" if dq.sets > 1 else "")),
              ("필요 프레스", f"{dq.press_tonf:,.0f} tf 이상" if dq.press_tonf else "-"),
-             ("무게 어림", f"다이 세트 {dq.steel_kg:,.0f} kg · 인서트 {dq.insert_kg:,.0f} kg"),
-             ("금형비 (VAT 별도)", f"{dq.cost:,.0f} 원"), ("비고", "견적용 간략도 — 금형 설계 후 확정")]
+             ("무게 어림", f"주물 {dq.cast_kg:,.0f} kg · 칼날 인서트 {dq.insert_kg:,.0f} kg"
+              if getattr(dq, "structure", "강판") == "주물" else
+              f"다이 세트 {dq.steel_kg:,.0f} kg · 인서트 {dq.insert_kg:,.0f} kg"),
+             ("금형비 (VAT 별도)", f"{dq.cost:,.0f} 원"),
+             ("비고", f"주물 금형 ({dq.reason}) — 견적용 간략도" if getattr(dq, "structure", "강판") == "주물"
+              else "견적용 간략도 — 금형 설계 후 확정")]
     cols = 4
     cw = tr.width() / cols
     ch = title_h / 2

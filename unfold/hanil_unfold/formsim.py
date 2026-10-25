@@ -511,6 +511,8 @@ def save_xlsx(fa: FormAnalysis, path, name=""):
     from openpyxl import Workbook
     wb = Workbook()
     tmps = add_sheets(wb, fa, name, first=True)
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t_ in tmps:
         try:

@@ -11,7 +11,7 @@ import sys
 import traceback
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QUrl, Signal
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath,
                            QPen, QPixmap)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDou
                                QWidget, QListWidget, QTabWidget, QPushButton)
 
 from . import __version__, version_text, dxf_export, loader
-from . import report
+from . import company, report
 from .bend_panel import BendPanel
 from .history import History
 from .history_dialog import HistoryDialog
@@ -673,7 +673,7 @@ class FlatView(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME}  v{__version__}")
+        self.setWindowTitle(f"{APP_NAME}  v{__version__}  —  {company.MAKER}")
         self.resize(1300, 820)
         self.setAcceptDrops(True)
         self.settings = QSettings("Hanil", "SheetUnfold")
@@ -800,7 +800,6 @@ class MainWindow(QMainWindow):
         # 상태 표시줄 오른쪽에 늘 버전을 보인다
         ver = QLabel(f"버전 {version_text(long=True)}")
         ver.setStyleSheet("color: #888; padding-right: 8px;")
-        from . import company
         from PySide6.QtGui import QPixmap
         brand = QPushButton(QIcon(QPixmap.fromImage(company.logo_image(36))), " " + company.MAKER)
         brand.setIconSize(QPixmap.fromImage(company.logo_image(18)).size())
@@ -825,6 +824,11 @@ class MainWindow(QMainWindow):
         self.act_save = QAction("DXF 저장", self, shortcut="Ctrl+S", triggered=self.save_dxf)
         self.act_batch = QAction("여러 파일 한꺼번에", self, triggered=self.batch)
         self.act_help = QAction("도움말", self, triggered=self.show_help)
+        self.act_about = QAction("프로그램 정보", self, triggered=self.show_about)
+        self.act_about.setToolTip("제작사 · 버전 · 저작권")
+        self.act_die_cost = QAction("금형비 계산", self, shortcut="Ctrl+Shift+K", triggered=self.show_die_cost)
+        self.act_die_cost.setToolTip("지금 부품의 금형비: 자동 공정 설계 → 금형 형식·공정수 → 설계·강재(또는 주물)·인서트·"
+                                     "가공·표준 부품·조립·트라이 — 큰 금형은 주물(FC300·FCD)로 자동 계산")
         self.act_pdf = QAction("보고서 PDF", self, triggered=lambda: self.save_report("pdf"))
         self.act_xlsx = QAction("보고서 엑셀", self, triggered=lambda: self.save_report("xlsx"))
         self.act_history = QAction("전개 기록", self, shortcut="Ctrl+H", triggered=self.show_history)
@@ -929,10 +933,10 @@ class MainWindow(QMainWindow):
             "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_sim, self.act_assy],
             "네스팅": [self.act_nest],
             "BOM": [self.act_bom, self.act_ai_bom],
-            "금형": [self.act_sim, self.act_die, self.act_process],
-            "견적": [self.act_package, self.act_quote, self.act_doc_log],
+            "금형": [self.act_sim, self.act_die, self.act_process, self.act_die_cost],
+            "견적": [self.act_package, self.act_quote, self.act_die_cost, self.act_doc_log],
             "기록": [self.act_history, self.act_doc_log],
-            "설정·도움말": [self.act_help],
+            "설정·도움말": [self.act_help, self.act_about],
         }
         self.ribbon = QTabWidget()
         self.ribbon.setDocumentMode(True)
@@ -966,6 +970,16 @@ class MainWindow(QMainWindow):
             for act in acts:
                 if act not in self.actions():
                     self.addAction(act)
+        # 분류 탭 오른쪽 끝에 늘 제작사 (어느 탭을 보고 있어도)
+        corner = QPushButton(QIcon(QPixmap.fromImage(company.logo_image(40))), "  " + company.MAKER)
+        corner.setIconSize(QPixmap.fromImage(company.logo_image(20)).size())
+        corner.setFlat(True)
+        corner.setCursor(Qt.PointingHandCursor)
+        corner.setToolTip(f"{company.NAME} — 프로그램 정보")
+        corner.setStyleSheet("QPushButton{color:#1f4e8c; font-weight:bold; font-size:13px; border:none; padding:2px 10px;}"
+                             "QPushButton:hover{text-decoration:underline;}")
+        corner.clicked.connect(self.show_about)
+        self.ribbon.setCornerWidget(corner, Qt.TopRightCorner)
         self.ribbon.setCurrentIndex(int(self.settings.value("ribbon_tab", 1)))
         self.ribbon.currentChanged.connect(lambda i: self.settings.setValue("ribbon_tab", i))
         holder = QToolBar("분류")
@@ -1014,6 +1028,7 @@ class MainWindow(QMainWindow):
         self.act_bom.setEnabled(self.model is not None)
         self.act_die.setEnabled(self.result is not None)
         self.act_sim.setEnabled(self.result is not None)
+        self.act_die_cost.setEnabled(self.result is not None)
         self.act_quote.setEnabled(self.model is not None)
         self.act_package.setEnabled(self.model is not None)
         self.act_process.setEnabled(self.result is not None)
@@ -1068,7 +1083,7 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
 
         self.model = model
-        self.setWindowTitle(f"{APP_NAME}  v{__version__} — {os.path.basename(path)}")
+        self.setWindowTitle(f"{APP_NAME}  v{__version__} — {os.path.basename(path)}  —  {company.MAKER}")
         self.solid_box.blockSignals(True)
         self.part_list.blockSignals(True)
         self.solid_box.clear()
@@ -1217,6 +1232,48 @@ class MainWindow(QMainWindow):
                                 source_path=self.model.path if self.model else "")
         finally:
             QApplication.restoreOverrideCursor()
+        dlg.exec()
+
+    def show_die_cost(self):
+        """금형비 계산 창 (지금 부품)."""
+        from .die_cost_dialog import DieCostDialog
+        if self.result is None:
+            QMessageBox.information(self, "금형비 계산", "먼저 부품을 전개하세요.")
+            return
+        idx = max(self.solid_box.currentIndex(), 0)
+        name = self.model.names[idx] if self.model and self.model.names else ""
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            dlg = DieCostDialog(self.result, self.bend_panel.settings(), name, self,
+                                history=self.history if self.history_box.isChecked() else None,
+                                source_path=self.model.path if self.model else "")
+        except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(self, "금형비 계산", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        dlg.exec()
+
+    def show_about(self):
+        """프로그램 정보: 로고 · 이름 · 제작사 · 버전 · 홈페이지 · 저작권."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"프로그램 정보 — {company.NAME}")
+        lab = QLabel()
+        lab.setPixmap(company.splash_pixmap(f"버전 {version_text(long=True)}"))
+        info = QLabel(f"<b style='font-size:15px'>{company.PRODUCT}</b> (HanilUnfold) {version_text(long=True)}<br>"
+                      f"<b style='font-size:15px'>{company.MAKER}</b><br>"
+                      f"<a href='{company.HOMEPAGE}'>{company.HOMEPAGE}</a><br><br>"
+                      f"<span style='color:#888'>{company.COPYRIGHT}<br>"
+                      "이 프로그램과 계산 방법, 화면, 보고서 양식의 저작권은 제작사에 있습니다.</span>")
+        info.setOpenExternalLinks(True)
+        info.setTextFormat(Qt.RichText)
+        ok = QPushButton("닫기")
+        ok.clicked.connect(dlg.accept)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(lab)
+        lay.addWidget(info)
+        lay.addWidget(ok, 0, Qt.AlignRight)
         dlg.exec()
 
     def show_nesting(self):
@@ -1698,7 +1755,6 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         from .changes import text as changes_text
-        from . import company
         from PySide6.QtGui import QPixmap
         box = QMessageBox(self)
         box.setWindowTitle("도움말")
@@ -1777,6 +1833,7 @@ def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports
 
 HELP_TEXT = """\
 한일 판금 전개  {version}
+제작사 : 한일특장(주)
 
 1. [열기] 로 STEP(.stp) 파일을 엽니다. 창에 끌어다 놓아도 됩니다.
    솔리드웍스·NX·CATIA 파일은 각 프로그램에서 STEP 으로 저장해서 여세요.
@@ -1818,8 +1875,13 @@ def main():
     icon = os.path.join(os.path.dirname(__file__), "icon.ico")
     if os.path.exists(icon):
         app.setWindowIcon(QIcon(icon))
+    from PySide6.QtWidgets import QSplashScreen
+    splash = QSplashScreen(company.splash_pixmap(f"버전 {version_text(long=True)}"))
+    splash.show()
+    app.processEvents()
     w = MainWindow()
     w.show()
+    QTimer.singleShot(1200, lambda: splash.finish(w))
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         w.open_file(sys.argv[1])
     sys.exit(app.exec())

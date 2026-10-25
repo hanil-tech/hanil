@@ -64,6 +64,19 @@ DEFAULT_DIE = {
     "margin": 90,                       # 스트립·부품 둘레 여유 mm
     "overhead_pct": 10.0,
     "profit_pct": 10.0,
+    # 대형 금형은 다이 몸체를 주물(회주철 FC300=GC300, 드로우 펀치·누르개는 구상흑연주철 FCD)로 만든다.
+    # 견적은 "금형 무게 × kg 단가 + 금형 가공" (다이 베이스 + 공구실 비용, aPriori·현장 관례). 단가는 업체 견적으로 고칠 것.
+    "structure": 0,                     # 0 자동 (크기·무게로), 1 강판 다이 세트, 2 주물
+    "cast_size_mm": 1000,               # 금형 긴 변이 이 값을 넘으면 주물
+    "cast_kg_limit": 2000,              # 강판 다이 세트 1 벌 무게가 이 값을 넘으면 주물
+    "cast_kg": 3_000,                   # FC300 (GC300) 주물 원/kg
+    "cast_fcd_kg": 4_000,               # FCD 주물 원/kg (고순도 선철 — FC 보다 비쌈)
+    "pattern_kg": 600,                  # 발포(스티로폼) 모형 원/kg (주물 무게당, 주물값의 약 20 %)
+    "cast_fill": 0.35,                  # 외형 덩어리 대비 실제 주물 무게 (리브·빈 곳 구조)
+    "cast_margin": 200,                 # 주물 금형 둘레 여유 mm (가이드·스토퍼·쿠션 핀 자리)
+    "nc_hours_m2": 40,                  # 형면 NC 가공 시간 (형면 1 m² · 면 하나당, 황삭~정삭)
+    "nc_rate": 90_000,                  # NC 가공 임률 원/시간
+    "edge_kg_m": 28,                    # 트림·피어스 칼날 인서트 (60×60 SKD11) kg/m
 }
 
 SAFETY = 1.3
@@ -230,6 +243,9 @@ class DieQuote:
     press_tonf: float = 0.0
     steel_kg: float = 0.0
     insert_kg: float = 0.0
+    structure: str = "강판"   # "강판" (다이 세트·플레이트) / "주물" (FC300·FCD 몸체)
+    cast_kg: float = 0.0
+    reason: str = ""          # 주물로 한 까닭
 
     @property
     def cost(self):
@@ -267,20 +283,40 @@ def die_quote(item, method, ops, costing, settings: bc.BendSettings, plan=None, 
     T = d["plate_thickness"]
     steel_kg = L * W * T * 7.85e-6 * 0.55 * (sets if sets > 1 else 1)     # 빈 곳 빼고 55 %
     insert_kg = d["insert_kg_per_station"] * n * max(t / 2, 0.6)
-    lines = [
-        ("설계", f"{n} 공정 × {d['design_per_station']:,}", n * d["design_per_station"] * (1 if sets == 1 else 1.2)),
-        ("다이 세트·플레이트", f"{L:.0f}×{W:.0f}×{T:.0f} mm{' × ' + str(sets) + ' 벌' if sets > 1 else ''} ≈ "
-                           f"{steel_kg:,.0f} kg × {d['steel_kg']:,}", steel_kg * d["steel_kg"]),
-        ("인서트 (SKD11)", f"{insert_kg:,.0f} kg × {d['insert_steel_kg']:,}", insert_kg * d["insert_steel_kg"]),
-        ("열처리", f"{insert_kg:,.0f} kg × {d['heat_kg']:,}", insert_kg * d["heat_kg"]),
-        ("가공 (와이어·MCT·연삭)", f"{n} 공정 × {d['machining_per_station']:,}" + (f" × {k_form:g}" if k_form != 1 else ""),
-         n * d["machining_per_station"] * k_form),
-        ("표준 부품", f"{sets} 벌 × {d['std_parts_base']:,} + {n} × {d['std_parts_per_station']:,}",
-         sets * d["std_parts_base"] + n * d["std_parts_per_station"]),
-        ("조립·트라이", f"{sets} × {d['assembly_base']:,} + {n} × {d['assembly_per_station']:,}"
-                     + (f" × {k_form:g}" if k_form != 1 else ""),
-         (sets * d["assembly_base"] + n * d["assembly_per_station"]) * k_form),
-    ]
+    mode = int(d.get("structure", 0))
+    per_set = steel_kg / max(sets, 1)
+    reason = ""
+    if mode == 2:
+        reason = "직접 고름"
+    # 금형 몸체 하나의 크기: 순차·복합은 금형 전체, 트랜스퍼·탠덤은 공정 하나
+    one = max(L, W) if ("순차" in method or "복합" in method) else max(w, h) + 2 * mg
+    if mode == 2:
+        pass
+    elif mode == 0 and one > d.get("cast_size_mm", 1000):
+        reason = f"금형 몸체 긴 변 {one:,.0f} mm > {d.get('cast_size_mm', 1000):,.0f} mm"
+    elif mode == 0 and per_set > d.get("cast_kg_limit", 2000):
+        reason = f"강판 다이 세트 {per_set:,.0f} kg > {d.get('cast_kg_limit', 2000):,.0f} kg"
+    cast = bool(reason)
+    if cast:
+        n_form = sum(1 for o in ops if o.startswith(("DR", "FL", "RST")))
+        lines, L, W, T, cast_kg, insert_kg = _cast_lines(d, r, n, sets, k_form, n_form, w, h, t)
+        steel_kg = 0.0
+    else:
+        cast_kg = 0.0
+        lines = [
+            ("설계", f"{n} 공정 × {d['design_per_station']:,}", n * d["design_per_station"] * (1 if sets == 1 else 1.2)),
+            ("다이 세트·플레이트", f"{L:.0f}×{W:.0f}×{T:.0f} mm{' × ' + str(sets) + ' 벌' if sets > 1 else ''} ≈ "
+                               f"{steel_kg:,.0f} kg × {d['steel_kg']:,}", steel_kg * d["steel_kg"]),
+            ("인서트 (SKD11)", f"{insert_kg:,.0f} kg × {d['insert_steel_kg']:,}", insert_kg * d["insert_steel_kg"]),
+            ("열처리", f"{insert_kg:,.0f} kg × {d['heat_kg']:,}", insert_kg * d["heat_kg"]),
+            ("가공 (와이어·MCT·연삭)", f"{n} 공정 × {d['machining_per_station']:,}" + (f" × {k_form:g}" if k_form != 1 else ""),
+             n * d["machining_per_station"] * k_form),
+            ("표준 부품", f"{sets} 벌 × {d['std_parts_base']:,} + {n} × {d['std_parts_per_station']:,}",
+             sets * d["std_parts_base"] + n * d["std_parts_per_station"]),
+            ("조립·트라이", f"{sets} × {d['assembly_base']:,} + {n} × {d['assembly_per_station']:,}"
+                         + (f" × {k_form:g}" if k_form != 1 else ""),
+             (sets * d["assembly_base"] + n * d["assembly_per_station"]) * k_form),
+        ]
     sub = sum(x[2] for x in lines)
     oh = sub * d["overhead_pct"] / 100
     pf = (sub + oh) * d["profit_pct"] / 100
@@ -293,7 +329,64 @@ def die_quote(item, method, ops, costing, settings: bc.BendSettings, plan=None, 
     except ValueError:
         pass
     return DieQuote(item.no, item.name, method, n, (L, W, T), lines, sets, list(ops), plan, outline, holes,
-                    press_tonf, steel_kg, insert_kg)
+                    press_tonf, steel_kg, insert_kg, "주물" if cast else "강판", cast_kg, reason)
+
+
+def cast_size(d, w, h):
+    """주물 금형 1 벌의 (길이, 폭, 닫힌 높이) mm. 높이는 짧은 변의 0.45 배를 350~1100 mm 로 (자동차 라인 금형 관례)."""
+    mg = max(d.get("cast_margin", 200), d["margin"])
+    L, W = max(w, h) + 2 * mg, min(w, h) + 2 * mg
+    H = min(max(0.45 * W, 350.0), 1100.0)
+    return L, W, H
+
+
+def _cast_lines(d, r, n, sets, k_form, n_form, w, h, t):
+    """주물 금형: 공정마다 한 벌 (탠덤·트랜스퍼 라인 금형) — 윗형·아랫형 FC300, 드로우·성형 공정은
+    펀치와 누르개(블랭크 홀더)를 FCD 로. 무게 = 외형 덩어리 × 7.2 t/m³ × 채움 비 (리브 구조)."""
+    L, W, H = cast_size(d, w, h)
+    fill = d.get("cast_fill", 0.35)
+    body = L * W * H * 7.2e-6 * fill                    # 윗형 + 아랫형 (FC300)
+    n_dies = max(n, sets)
+    n_form = min(n_form, n_dies)                        # 드로우·플랜지·리스트라이크 공정
+    fcd = body * 0.35 * n_form                          # 펀치 + 누르개 (FCD)
+    fc = body * n_dies
+    cast_kg = fc + fcd
+    from . import metrics as mt
+    try:
+        edge = mt.compute(r, 7.85).cut_length / 1000    # 트림·피어스 칼날 길이 m
+    except Exception:
+        edge = 2 * (w + h) / 1000
+    n_trim = max(1, n_dies - n_form)
+    insert_kg = edge * d.get("edge_kg_m", 28) * n_trim
+    face = w * h * 1e-6 * 1.3                           # 형면 m² (덧살 30 %)
+    # 성형 금형은 펀치·다이·누르개 3 면을 형면대로, 트림·피어스 금형은 패드·받침 2 면을 반만큼
+    n_faces = 3 * n_form + 1.0 * (n_dies - n_form)
+    nc_h = d.get("nc_hours_m2", 40) * face * n_faces
+    s_ = 1.5                                            # 대형 금형: 설계·표준 부품·조립 배수
+    lines = [
+        ("설계 (대형)", f"{n_dies} 벌 × {d['design_per_station']:,} × {s_:g}", n_dies * d["design_per_station"] * s_),
+        ("주물 FC300 (윗형·아랫형)", f"{L:.0f}×{W:.0f}×{H:.0f} mm × 7.2 × 채움 {fill:g} ≈ {body:,.0f} kg × {n_dies} 벌 "
+                                 f"= {fc:,.0f} kg × {d['cast_kg']:,}", fc * d["cast_kg"]),
+    ]
+    if fcd:
+        lines.append(("주물 FCD (펀치·누르개)", f"{fcd:,.0f} kg × {d['cast_fcd_kg']:,} ({n_form} 공정)", fcd * d["cast_fcd_kg"]))
+    lines += [
+        ("발포 모형", f"{cast_kg:,.0f} kg × {d['pattern_kg']:,}", cast_kg * d["pattern_kg"]),
+        ("칼날 인서트 (SKD11)", f"칼날 {edge:,.2f} m × {d.get('edge_kg_m', 28):g} kg/m × {n_trim} = {insert_kg:,.0f} kg × "
+                             f"{d['insert_steel_kg']:,}", insert_kg * d["insert_steel_kg"]),
+        ("열처리 (칼날·형면 화염 경화)", f"{insert_kg:,.0f} kg × {d['heat_kg']:,} + 형면 {face:.2f} m²", insert_kg * d["heat_kg"]
+         + face * n_dies * 1_000_000),
+        ("형면 NC 가공", f"{d.get('nc_hours_m2', 40):g} h/m² × {face:.2f} m² × {n_faces:g} 면 (성형 {n_form} 벌 × 3, "
+                       f"트림·피어스 {n_dies - n_form} 벌 × 2 × ½) = {nc_h:,.0f} h × {d.get('nc_rate', 90000):,}",
+         nc_h * d.get("nc_rate", 90000)),
+        ("가공 (와이어·연삭·사상)", f"{n_dies} 벌 × {d['machining_per_station']:,}", n_dies * d["machining_per_station"]),
+        ("표준 부품 (가이드·쿠션 핀·스토퍼)", f"{n_dies} 벌 × ({d['std_parts_base']:,} + {d['std_parts_per_station']:,}) × {s_:g}",
+         n_dies * (d["std_parts_base"] + d["std_parts_per_station"]) * s_),
+        ("조립·트라이", f"{n_dies} × ({d['assembly_base']:,} + {d['assembly_per_station']:,}) × {s_:g}"
+                     + (f" × {k_form:g}" if k_form != 1 else ""),
+         n_dies * (d["assembly_base"] + d["assembly_per_station"]) * s_ * k_form),
+    ]
+    return lines, L, W, H, cast_kg, insert_kg
 
 
 DIE_NAMES = {
@@ -304,7 +397,13 @@ DIE_NAMES = {
     "assembly_per_station": "조립·트라이 (원/공정)", "drawing_factor": "성형 공정 배수",
     "plate_thickness": "다이 세트 두께 (mm)", "margin": "둘레 여유 (mm)", "overhead_pct": "일반관리비 (%)",
     "profit_pct": "이윤 (%)",
+    "structure": "금형 몸체", "cast_size_mm": "주물로: 금형 긴 변 넘으면 (mm)",
+    "cast_kg_limit": "주물로: 강판 세트 무게 넘으면 (kg)", "cast_kg": "주물 FC300 (원/kg)",
+    "cast_fcd_kg": "주물 FCD (원/kg)", "pattern_kg": "발포 모형 (원/kg)", "cast_fill": "주물 채움 비 (리브 구조)",
+    "cast_margin": "주물 금형 둘레 여유 (mm)", "nc_hours_m2": "형면 NC 시간 (h/m²·면)",
+    "nc_rate": "NC 임률 (원/시간)", "edge_kg_m": "칼날 인서트 (kg/m)",
 }
+STRUCTURES = ["자동 (크기·무게로)", "강판 다이 세트", "주물 (FC300·FCD)"]
 
 MACHINE_COLS = [("name", "기계 이름"), ("kind", "종류"), ("capacity", "용량 (톤 / 레이저 최대 t)"),
                 ("length", "길이 mm (절곡기)"), ("rate", "임률 원/시간"), ("spm", "SPM (프레스)"),

@@ -28,7 +28,8 @@ info = f"""VSVersionInfo(
                     fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('041204b0', [
-      StringStruct('CompanyName', 'Hanil'),
+      StringStruct('CompanyName', '한일특장(주)'),
+      StringStruct('LegalCopyright', 'Copyright © 2025-2026 한일특장(주). All rights reserved.'),
       StringStruct('FileDescription', '한일 판금 전개'),
       StringStruct('FileVersion', '{version}.{four[3]}'),
       StringStruct('InternalName', 'HanilUnfold'),

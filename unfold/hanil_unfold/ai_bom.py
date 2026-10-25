@@ -305,6 +305,8 @@ def save_xlsx(ai, items, path, source_3d="", source_pdf="", material="", density
     for n in ai.get("notes", []):
         r += 1
         wn.cell(r, 2, n).alignment = Alignment(wrap_text=True, vertical="top")
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t in tmps:
         try:

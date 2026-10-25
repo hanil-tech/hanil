@@ -106,6 +106,8 @@ def save_material_xlsx(q: qt_.Quote, settings, path, files=()):
     table(w4, 1, ["품명", "규격", "수량/세트", "단위", "단가", "금액/세트", f"{q.sets:,} 세트 수량", "비고"],
           [[s.name, s.spec, s.qty, s.unit, s.unit_price, s.amount, s.qty * q.sets, s.note] for s in q.subs],
           money=(5, 6))
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
 
 

@@ -123,4 +123,6 @@ def save_xlsx(path, model, parts, material_code):
             if isinstance(v, float):
                 c.number_format = "#,##0.000"
     ws2.freeze_panes = "C2"
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)

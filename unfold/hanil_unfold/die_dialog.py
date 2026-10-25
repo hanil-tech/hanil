@@ -604,6 +604,8 @@ def save_xlsx(rep, path, name="", strip_img=None, plan=None, route=None, process
                                    1000))
         except Exception:
             pass
+    from .company import stamp_workbook
+    stamp_workbook(wb)
     wb.save(path)
     for t_ in tmps:
         try:

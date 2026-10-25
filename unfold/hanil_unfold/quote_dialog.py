@@ -7,7 +7,7 @@ import os
 from PySide6.QtCore import QSettings, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
-                               QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox,
+                               QComboBox, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from . import quote as qt_
@@ -259,9 +259,18 @@ class QuoteDialog(QDialog):
         form = QFormLayout()
         self.die_spins = {}
         for k, name in cs.DIE_NAMES.items():
+            if k == "structure":
+                cb = QComboBox()
+                cb.addItems(cs.STRUCTURES)
+                cb.setCurrentIndex(int(self.rates["costing"]["die"].get(k, 0)))
+                cb.setToolTip("자동: 금형 긴 변·강판 세트 무게가 기준을 넘으면 주물 (대형 금형)")
+                cb.currentIndexChanged.connect(self._die_edited)
+                self.die_spins[k] = cb
+                form.addRow(name, cb)
+                continue
             sp = QDoubleSpinBox()
             sp.setRange(0, 1e10)
-            sp.setDecimals(2 if k in ("drawing_factor",) or k.endswith("pct") else 0)
+            sp.setDecimals(2 if k in ("drawing_factor", "cast_fill") or k.endswith("pct") else 0)
             sp.setGroupSeparatorShown(True)
             sp.setValue(float(self.rates["costing"]["die"][k]))
             sp.valueChanged.connect(self._die_edited)
@@ -276,7 +285,7 @@ class QuoteDialog(QDialog):
         if self._busy:
             return
         for k, sp in self.die_spins.items():
-            self.rates["costing"]["die"][k] = sp.value()
+            self.rates["costing"]["die"][k] = sp.currentIndex() if k == "structure" else sp.value()
         self._save_rates()
         self.recalc()
 

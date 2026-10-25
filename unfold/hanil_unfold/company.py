@@ -13,6 +13,68 @@ import os
 NAME = "한일특장(주)"
 MAKER = f"제작사 : {NAME}"
 HOMEPAGE = "https://www.hanil-steel.com"
+PRODUCT = "한일 판금 전개"
+COPYRIGHT = f"Copyright © 2025–2026 {NAME}. All rights reserved."
+
+
+def stamp_workbook(wb):
+    """엑셀 파일마다 제작사 표기: 문서 속성(만든 이) + 모든 시트 머리글·바닥글 (인쇄할 때 쪽마다)."""
+    from . import version_text
+    wb.properties.creator = NAME
+    wb.properties.lastModifiedBy = NAME
+    wb.properties.keywords = f"{PRODUCT} {version_text()}"
+    for ws in wb.worksheets:
+        try:
+            ws.oddHeader.right.text = NAME
+            ws.oddFooter.left.text = f"{PRODUCT} {version_text()}"
+            ws.oddFooter.center.text = MAKER
+            ws.oddFooter.right.text = "&P / &N"
+        except AttributeError:
+            pass
+
+
+def splash_pixmap(version=""):
+    """시작 화면: 로고 · 프로그램 이름 · 제작사."""
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPixmap
+
+    w, h = 620, 340
+    pm = QPixmap(w, h)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    g = QLinearGradient(0, 0, w, h)
+    g.setColorAt(0, QColor(31, 78, 140))
+    g.setColorAt(1, QColor(15, 40, 80))
+    p.fillRect(0, 0, w, h, g)
+    logo = logo_image(84, white=True)
+    p.drawImage(QRectF((w - 84 * logo.width() / max(logo.height(), 1)) / 2, 40,
+                       84 * logo.width() / max(logo.height(), 1), 84), logo)
+    f = QFont()
+    f.setFamilies(["Malgun Gothic", "Noto Sans CJK KR", "Sans Serif"])
+    f.setBold(True)
+    f.setPixelSize(34)
+    p.setFont(f)
+    p.setPen(QColor(255, 255, 255))
+    p.drawText(QRectF(0, 140, w, 50), Qt.AlignCenter, PRODUCT)
+    f.setBold(False)
+    f.setPixelSize(15)
+    p.setFont(f)
+    p.setPen(QColor(200, 215, 235))
+    p.drawText(QRectF(0, 190, w, 24), Qt.AlignCenter, "판금 전개 · 성형 해석 · 네스팅 · 금형 · 견적")
+    p.fillRect(QRectF(w / 2 - 120, 228, 240, 2), QColor(240, 140, 30))
+    f.setBold(True)
+    f.setPixelSize(20)
+    p.setFont(f)
+    p.setPen(QColor(255, 255, 255))
+    p.drawText(QRectF(0, 240, w, 34), Qt.AlignCenter, MAKER)
+    f.setBold(False)
+    f.setPixelSize(12)
+    p.setFont(f)
+    p.setPen(QColor(170, 190, 215))
+    p.drawText(QRectF(0, h - 44, w, 18), Qt.AlignCenter, f"{version}   {HOMEPAGE}")
+    p.drawText(QRectF(0, h - 26, w, 18), Qt.AlignCenter, COPYRIGHT)
+    p.end()
+    return pm
 
 
 def open_homepage():
