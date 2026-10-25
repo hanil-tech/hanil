@@ -72,10 +72,10 @@ def test_sheet_bends_crack_check():
     c = fa.bends[0]
     assert c.strain == pytest.approx(math.log(1 + 1 / (2 * 1.0 + 1)), rel=1e-6)
     assert c.die_angle > c.angle                       # 스프링백만큼 더 접는다
-    st6 = bc.BendSettings(material="AL6061")            # 6061-T6 최소 R 1.5 t → R/t 1 은 균열
+    st6 = bc.BendSettings(material="AL6061")            # 6061-T6 최소 R 2.5 t → R/t 1 은 균열
     fa6 = fs.analyze(unfold(solid(tray()), settings=st6), st6)
     assert fa6.verdict == fs.NG
-    assert fa6.bends[0].r_min == pytest.approx(1.5 * 1.6)
+    assert fa6.bends[0].r_min == pytest.approx(2.5 * 1.6)
     assert any("균열" in m for m in fa6.messages)
 
 
