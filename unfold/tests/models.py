@@ -392,3 +392,143 @@ def burring(R=20.0, H=8.0, R_out=50.0, t=1.0, ri=2.0):
         w.Add(e)
     face = BRepBuilderAPI_MakeFace(w.Wire()).Face()
     return BRepPrimAPI_MakeRevol(face, gp.OZ_s(), 2 * math.pi).Shape()
+
+
+def _bspline_shell(pts, t, deg=3):
+    """점 격자 (list of rows of (x, y, z)) → B-스플라인 면 → 두께 t 판."""
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.collections import Array2_gp_Pnt as TColgp_Array2OfPnt
+    from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
+    from OCP.GeomAbs import GeomAbs_C2
+    nu, nv = len(pts), len(pts[0])
+    arr = TColgp_Array2OfPnt(1, nu, 1, nv)
+    for i in range(nu):
+        for j in range(nv):
+            arr.SetValue(i + 1, j + 1, gp_Pnt(*pts[i][j]))
+    surf = GeomAPI_PointsToBSplineSurface(arr, deg, deg, GeomAbs_C2, 1e-3).Surface()
+    face = BRepBuilderAPI_MakeFace(surf, 1e-6).Face()
+    mk = BRepOffsetAPI_MakeThickSolid()
+    mk.MakeThickSolidBySimple(face, t)
+    sh = mk.Shape()
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    g = GProp_GProps()
+    BRepGProp.VolumeProperties_s(sh, g)
+    return sh.Reversed() if g.Mass() < 0 else sh          # 면 방향에 따라 안팎이 뒤집혀 나옴
+
+
+def hood(L=1500.0, W=1300.0, crown_x=55.0, crown_y=40.0, flange=18.0, t=0.7, n=(57, 51), alpha=0.0,
+         band=0.08):
+    """자동차 본네트 (후드) 바깥판 대용: 길이 L · 폭 W, 두 방향 크라운, 앞쪽이 내려감 (노즈),
+    양쪽 캐릭터 라인 (R 약 6 mm 의 능선), 둘레 플랜지가 아래로 꺾임 (헤밍용, 높이 flange).
+    평면 모양은 정사각 격자를 둥근 사각형으로 옮긴 것 (x = s·√(1 − α t²/2), y = t·√(1 − α s²/2)) —
+    모서리가 둥글고, 모서리에서는 플랜지가 줄어드는 (shrink) 플랜지가 된다 (불리언 트림 없이)."""
+    nu, nv = n
+    rows = []
+    for i in range(nu):
+        sp = -1 + 2 * i / (nu - 1)
+        row = []
+        for j in range(nv):
+            tp = -1 + 2 * j / (nv - 1)
+            X = sp * math.sqrt(1 - alpha * tp * tp / 2)
+            Y = tp * math.sqrt(1 - alpha * sp * sp / 2)
+            x, y = (X + 1) / 2 * L, Y * W / 2
+            z = crown_x * math.sin(math.pi * x / L) * 0.7 + crown_y * (1 - (2 * y / W) ** 2)
+            z -= 54 * max(0.0, 0.25 - x / L) ** 2 / 0.0625              # 앞쪽 노즈 내려감
+            for yl in (-0.3 * W, 0.3 * W):                             # 캐릭터 라인
+                z += 4.0 * math.exp(-((y - yl) / 12.0) ** 2) * (1 - abs(sp) ** 8)
+            r = (abs(sp) ** 6 + abs(tp) ** 6) ** (1 / 6)                # 가장자리까지 (등고선이 모서리에서 둥긂)
+            e = (1 - r) / band
+            if e < 1:                                                  # 둘레 플랜지
+                z -= flange * (1 - e) ** 2
+            row.append((x, y, z))
+        rows.append(row)
+    return _bspline_shell(rows, t)
+
+
+def fender(L=950.0, top=170.0, R=35.0, side=420.0, bulge=45.0, arch_r=360.0, t=0.7, n=(33, 31)):
+    """자동차 앞 휀다 대용: 위 면 (후드 맞닿는 곳) 이 R 로 90° 꺾여 옆면으로 내려가고, 옆면은 바퀴 쪽으로
+    볼록 (bulge), 아래 가운데를 바퀴 아치 (반지름 arch_r) 로 도려냄."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir
+    nu, nv = n
+    s_tot = top + math.pi / 2 * R + side
+    rows = []
+    for i in range(nu):
+        u = i / (nu - 1)
+        x = u * L
+        row = []
+        for j in range(nv):
+            s = j / (nv - 1) * s_tot
+            if s <= top:
+                y, z = s, 0.0
+            elif s <= top + math.pi / 2 * R:
+                a = (s - top) / R
+                y, z = top + R * math.sin(a), -R * (1 - math.cos(a))
+            else:
+                y, z = top + R, -R - (s - top - math.pi / 2 * R)
+            depth = -z / (R + side)
+            y += bulge * math.sin(math.pi * u) * math.sin(math.pi * min(depth, 1.0)) ** 1.5   # 옆면 볼록
+            y += 0.04 * x * depth                                                          # 뒤로 갈수록 바깥
+            z -= 30 * (u - 0.5) ** 2 * (1 - depth)                                         # 위 선 휨
+            row.append((x, y, z))
+        rows.append(row)
+    sh = _bspline_shell(rows, t)
+    cyl = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(L * 0.5, -500, -R - side - 60), gp_Dir(0, 1, 0)), arch_r, 1500).Shape()
+    return BRepAlgoAPI_Cut(sh, cyl).Shape()
+
+
+def oil_pan(L=320.0, W=220.0, H=110.0, r_corner=25.0, r_bottom=10.0, flange=30.0, t=1.0):
+    """깊은 사각 드로잉 (오일 팬·사각 용기): 바닥 L × W, 깊이 H, 세로 모서리 R r_corner, 바닥 R r_bottom,
+    둘레 플랜지 폭 flange. 모서리 (네 귀) 가 원통 드로잉처럼 압축·바닥 R 에서 얇아짐 — 성형이 어려운 부품."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+    from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Line, GeomAbs_Plane
+    from OCP.collections import List_TopoDS_Shape
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    box = BRepPrimAPI_MakeBox(gp_Pnt(-L / 2, -W / 2, 0), L, W, H).Shape()
+    fl = BRepFilletAPI_MakeFillet(box)
+    exp = TopExp_Explorer(box, TopAbs_EDGE)
+    while exp.More():
+        e = TopoDS.Edge(exp.Current())
+        c = BRepAdaptor_Curve(e)
+        p0, p1 = c.Value(c.FirstParameter()), c.Value(c.LastParameter())
+        if abs(p0.Z() - p1.Z()) > 1e-6:
+            fl.Add(r_corner, e)                     # 세로 모서리
+        exp.Next()
+    s = fl.Shape()
+    fl = BRepFilletAPI_MakeFillet(s)
+    exp = TopExp_Explorer(s, TopAbs_EDGE)
+    while exp.More():
+        e = TopoDS.Edge(exp.Current())
+        c = BRepAdaptor_Curve(e)
+        p0, p1 = c.Value(c.FirstParameter()), c.Value(c.LastParameter())
+        if abs(p0.Z()) < 1e-6 and abs(p1.Z()) < 1e-6:
+            fl.Add(r_bottom, e)                     # 바닥 둘레
+        exp.Next()
+    s = fl.Shape()
+    top = List_TopoDS_Shape()
+    exp = TopExp_Explorer(s, TopAbs_FACE)
+    while exp.More():
+        fc = TopoDS.Face(exp.Current())
+        a = BRepAdaptor_Surface(fc)
+        if a.GetType() == GeomAbs_Plane and abs(a.Plane().Location().Z() - H) < 1e-6:
+            top.Append(fc)
+        exp.Next()
+    mk = BRepOffsetAPI_MakeThickSolid()
+    mk.MakeThickSolidByJoin(s, top, -t, 1e-4)
+    cup = mk.Shape()
+    if flange <= 0:
+        return cup
+    ring = BRepPrimAPI_MakeBox(gp_Pnt(-L / 2 - flange, -W / 2 - flange, H - t), L + 2 * flange, W + 2 * flange, t).Shape()
+    inner = BRepPrimAPI_MakeBox(gp_Pnt(-L / 2 + t, -W / 2 + t, H - t - 1), L - 2 * t, W - 2 * t, t + 2).Shape()
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    ring = BRepAlgoAPI_Cut(ring, inner).Shape()
+    return BRepAlgoAPI_Fuse(cup, ring).Shape()

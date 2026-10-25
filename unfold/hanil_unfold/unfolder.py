@@ -120,6 +120,7 @@ class FormingInfo:
     flc0: float = 0.0        # 평면 변형 성형 한계 (진변형률), 0 = 판정 안 함
     material: str = ""
     V: np.ndarray | None = None   # 제품 (두께 가운데 면) 꼭짓점 (n, 3) — 성형 해석 3D 그림
+    cylinders: list = field(default_factory=list)   # 원통 면 (반지름, 축 방향) — 사각 드로잉 귀 R 판정
 
     def _weights(self):
         w = _tri_areas2(self.U, self.F)
@@ -824,10 +825,20 @@ class SheetMetalUnfolder:
                 "펼칠 수 없는 모양입니다 (펼친 넓이가 제품과 크게 다름).\n"
                 "관·파이프처럼 둘레가 닫힌 부품이면 펼치는 대상이 아닙니다 "
                 "(굽힌 관은 중심선 길이로 재단합니다).")
+        cyl = []
+        for fc in faces:
+            try:
+                ad = BRepAdaptor_Surface(fc)
+                if ad.GetType() == GeomAbs_Cylinder:
+                    c = ad.Cylinder()
+                    d = c.Axis().Direction()
+                    cyl.append((float(c.Radius()), (d.X(), d.Y(), d.Z())))
+            except Exception:
+                pass
         fi = FormingInfo(U=U, F=F, ratio=ratio, major=major, minor=minor,
                          product_area=area3d, blank_area=area2d,
                          reliable=forming.quality(Vm, F) > 5.0, method=how.get("method", "ARAP"),
-                         flc0=mat.flc0_for(t), material=mat.code, V=Vm)
+                         flc0=mat.flc0_for(t), material=mat.code, V=Vm, cylinders=cyl)
         notes = []
         if n_free:
             notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")

@@ -89,6 +89,8 @@ class FormAnalysis:
     fields: tuple = ()               # 고른 (ε1, ε2, 두께 감소율, 한계 비)
     ldr: tuple = ()                  # (이 제품 드로잉비 β, 한계 드로잉비 LDR)
     edge: tuple = ()                 # (가장자리 늘림 최대, 어디, HER 한계 또는 None)
+    box: tuple = ()                  # 사각 드로잉 (귀 R, 깊이, 깊이/R)
+    box_ng: bool = False
     edge_verdict: str = OK
 
     @property
@@ -168,7 +170,7 @@ def press_direction(V, F):
     va = _vector_area(V, F)
     s = va.sum(0)
     area = float(np.linalg.norm(va, axis=1).sum())
-    if np.linalg.norm(s) < 0.3 * area:
+    if np.linalg.norm(s) < 0.08 * area:            # 관·닫힌 꼴 (깊은 상자·컵은 0.1~0.3 이라 받아들임)
         return None, 0.0
     return s / np.linalg.norm(s), float(np.linalg.norm(s))
 
@@ -205,6 +207,7 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                 lim = dc.ldr(mat)
                 beta = 1 / m
                 fa.ldr = (beta, lim)
+                _box_corners(fa, fi, z, depth, t)
                 if beta > lim:
                     fa.messages.append(f"드로잉비 β = {beta:.2f} 가 한계 드로잉비 LDR {lim:.2f} (Whiteley·Hosford, r {mat.r:g}) "
                                        "를 넘음 — 다단 드로잉 (재드로잉) 으로 나누세요.")
@@ -241,16 +244,54 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                            "스프링백이 생길 수 있습니다 (비드로 더 늘리기).")
     worst = [ZONES[i][2] for i in range(len(ZONES)) if fr[i] > (0.001 if i < 3 else 0.02)]
     fa.verdict = NG if NG in worst else WARN if WARN in worst else OK
-    if fa.ldr and fa.ldr[0] > fa.ldr[1] and fa.verdict == OK:     # 한 번에 못 당김 → 다단 (주의)
+    if ((fa.ldr and fa.ldr[0] > fa.ldr[1]) or fa.box_ng) and fa.verdict == OK:   # 한 번에 못 당김 → 다단 (주의)
         fa.verdict = WARN
     order = [OK, WARN, NG]
     if order.index(fa.edge_verdict) > order.index(fa.verdict):
         fa.verdict = fa.edge_verdict
 
 
+BOX_HR = 6.0     # 사각 드로잉 한 번에 깊이 ≤ 6 × 귀 R (MetalForming 2017, 보수적 — 2014 판은 7~12 배)
+
+
+def box_corner(fi, z=None, depth=None):
+    """(귀 R, 깊이, 깊이/귀 R) 또는 None — 프레스 방향과 나란한 세로 원통 면이 2 개 이상일 때 (사각 드로잉)."""
+    if fi is None or fi.V is None or not getattr(fi, "cylinders", None):
+        return None
+    if z is None:
+        z, _ = press_direction(fi.V, fi.F)
+        if z is None:
+            return None
+        depth = float(np.ptp(fi.V @ z))
+    rc = [r for r, ax in fi.cylinders if abs(float(np.dot(ax, z))) > 0.95 and r < depth]
+    if len(rc) < 2:
+        return None
+    r = min(rc)
+    return r, depth, depth / max(r, 1e-9)
+
+
+def _box_corners(fa, fi, z, depth, t):
+    """사각 드로잉 (상자·오일 팬): 프레스 방향과 나란한 세로 원통 면 (귀 R) 이 2 개 이상이면, 귀가 원통 컵처럼
+    가장 어렵다 — 한 번에 깊이 ≤ 6 × 귀 R (MetalForming), 귀 R ≥ 5 t. 넘으면 다단 드로잉."""
+    b = box_corner(fi, z, depth)
+    if b is None:
+        return
+    r, depth, hr = b
+    fa.box = b
+    if hr > BOX_HR:
+        n = max(2, math.ceil(hr / BOX_HR))
+        fa.messages.append(f"사각 드로잉 깊이 {depth:.0f} mm = 귀 R {r:g} 의 {hr:.1f} 배 > {BOX_HR:g} 배 — 한 번에 못 당김: "
+                           f"약 {n} 번 드로잉 (재드로잉) 이나 귀 R 을 {depth / BOX_HR:.0f} mm 이상으로 (MetalForming 경험식)")
+        fa.box_ng = True
+    else:
+        fa.messages.append(f"사각 드로잉 깊이 / 귀 R = {hr:.1f} ≤ {BOX_HR:g} — 한 번 드로잉 범위 (MetalForming 경험식)")
+    if r < 5 * t:
+        fa.messages.append(f"귀 R {r:g} < 5 t ({5 * t:g} mm) — 귀가 터지기 쉬움, R 을 키우세요")
+
+
 def _edge_stretch(fa, fi, mat):
     """잘린 가장자리 (메시 경계: 외곽 트림선·구멍) 의 둘레 방향 늘림 = 제품 길이 / 블랭크 길이 − 1.
-    이웃 5 모서리 평균 (메시 조각 영향 줄임) 의 최대를 구멍 확장률 HER 과 견준다 — 구멍 버링·스트레치 플랜지 균열."""
+    둘레 10 mm (또는 10 t) 창의 평균 최대를 구멍 확장률 HER 과 견준다 — 구멍 버링·스트레치 플랜지 균열."""
     from .forming import boundary_loops
     if fi.V is None:
         return
@@ -261,10 +302,15 @@ def _edge_stretch(fa, fi, mat):
         P3, P2 = fi.V[loop], fi.U[loop]
         l3 = np.linalg.norm(np.roll(P3, -1, axis=0) - P3, axis=1)
         l2 = np.linalg.norm(np.roll(P2, -1, axis=0) - P2, axis=1)
-        ker = np.ones(5) / 5
-        s3 = np.convolve(np.concatenate([l3[-2:], l3, l3[:2]]), ker, "valid")
-        s2 = np.convolve(np.concatenate([l2[-2:], l2, l2[:2]]), ker, "valid")
-        e = s3 / np.maximum(s2, 1e-12) - 1
+        # 둘레 길이로 잰 창 (max(10 mm, 10 t)) 안의 길이 비 — 절곡 R 을 가로지르는 짧은 경계 모서리의 메시 흔들림을 없앤다
+        win = max(10.0, 10 * fa.thickness)
+        c3 = np.concatenate([[0.0], np.cumsum(np.concatenate([l3, l3, l3]))])
+        c2 = np.concatenate([[0.0], np.cumsum(np.concatenate([l2, l2, l2]))])
+        n = len(l3)
+        start = c3[n:2 * n]
+        lo = np.clip(np.searchsorted(c3, start - win / 2), 0, len(c3) - 1)
+        hi = np.clip(np.searchsorted(c3, start + win / 2), 0, len(c3) - 1)
+        e = (c3[hi] - c3[lo]) / np.maximum(c2[hi] - c2[lo], 1e-12) - 1
         if e.max() > worst:
             worst = float(e.max())
             where = "바깥 트림선" if l2.sum() == max(np.linalg.norm(np.roll(fi.U[lp], -1, axis=0) - fi.U[lp], axis=1).sum()

@@ -75,6 +75,7 @@ class Features:
     hems: list              # 150° 넘는 절곡 번호
     forming: bool
     flc_split: float = 0.0
+    box_draws: int = 1          # 사각 드로잉: 깊이 / 귀 R 로 본 드로잉 횟수
     flc_marginal: float = 0.0
     wrinkle: float = 0.0
     thinning: float = 0.0
@@ -132,6 +133,13 @@ def features(result, settings: bc.BendSettings) -> Features:
         split, marginal, wrinkle, _ = fi.flc_summary
         lo, hi = fi.thinning_range
         f = Features(t, mat.code, (w, h), [], 0, False, [], [], True, split, marginal, wrinkle, max(hi, 0))
+        try:
+            from .formsim import BOX_HR, box_corner
+            b = box_corner(fi)
+            if b is not None and b[2] > BOX_HR:
+                f.box_draws = int(math.ceil(b[2] / BOX_HR))
+        except Exception:
+            pass
         try:
             part = NestPart.from_result("p", result)
             lab = _labels(result, [np.asarray(x, float) for x in part.holes])
@@ -234,7 +242,11 @@ def route(result, settings: bc.BendSettings, qty=100_000) -> Route:
         return sum(math.pi * h.size for h in hs)
 
     if f.forming:
-        if f.flc_split > 0.001:
+        if f.box_draws > 1:
+            for k in range(1, f.box_draws):
+                steps.append(Step(f"DR{k} 예비 드로잉", f"사각 드로잉 깊이가 귀 R 의 6 배를 넘음 — {f.box_draws} 번에 나눠 "
+                                  "당김 (귀 R 을 크게 → 작게)", ["R10"]))
+        elif f.flc_split > 0.001:
             steps.append(Step("DR1 예비 성형", "성형 한계 넘는 곳을 두 번에 나눠 당김", ["R10"]))
         steps.append(Step("DR 드로우", f"블랭크 홀더·드로우 비드로 성형 (최대 얇아짐 {f.thinning:.0%})", ["R9"]))
         if f.wrinkle > 0.05:

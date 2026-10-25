@@ -34,10 +34,35 @@ class FormingError(Exception):
 
 # ---------------------------------------------------------------- 메시
 
+MAX_MESH_TRIS = 40_000    # CAD 메시가 이보다 많으면 성글게 다시 (큰 외판·촘촘한 B-스플라인에서 수십만 개가 나옴)
+
+
+def _count_tris(faces):
+    n = 0
+    for face in faces:
+        tri = BRep_Tool.Triangulation_s(face, TopLoc_Location())
+        if tri is not None:
+            n += tri.NbTriangles()
+    return n
+
+
 def mesh_faces(solid, faces, size_hint):
-    """faces 를 삼각형으로 나눠 (꼭짓점, 삼각형) 을 돌려준다. 공유 모서리 점은 하나로 합친다."""
-    lin = max(size_hint / 600.0, 0.02)
-    BRepMesh_IncrementalMesh(solid, lin, False, 0.15, True)
+    """faces 를 삼각형으로 나눠 (꼭짓점, 삼각형) 을 돌려준다. 공유 모서리 점은 하나로 합친다.
+    삼각형이 MAX_MESH_TRIS 를 넘으면 처짐 허용값을 키워 다시 나눈다 (자동차 외판 1.5 m 급에서 56 만 개 → 수 만 개)."""
+    from OCP.BRepTools import BRepTools
+    # 성근 메시에서 시작해 목표 (처짐 size/600 · 각 0.15) 까지 촘촘하게 — 다음 단계가 MAX 를 넘을 것 같으면 멈춤.
+    # (목표 값으로 바로 나누면 촘촘한 B-스플라인 외판에서 56 만 개 · 1 분이 걸렸다)
+    lin_goal, ang_goal = max(size_hint / 600.0, 0.02), 0.15
+    lin, ang = lin_goal * 8, 0.6
+    BRepTools.Clean_s(solid)
+    BRepMesh_IncrementalMesh(solid, lin, False, ang, True)
+    while lin > lin_goal * 1.01 or ang > ang_goal + 1e-9:
+        n = _count_tris(faces)
+        if n * 3.5 > MAX_MESH_TRIS:
+            break
+        lin, ang = max(lin / 2, lin_goal), max(ang / 2, ang_goal)
+        BRepTools.Clean_s(solid)
+        BRepMesh_IncrementalMesh(solid, lin, False, ang, True)
 
     verts, tris, normals = [], [], []
     keymap = {}
@@ -98,6 +123,57 @@ def _face_normal(face, u, v):
     return -n if face.Orientation() == TopAbs_REVERSED else n
 
 
+def delaunay_flips(V, F, passes=4, coplanar_deg=8.0):
+    """거의 한 평면인 이웃 삼각형 쌍 (a, b, c)·(b, a, d) 에서 맞은편 두 각의 합이 180° 를 넘으면 모서리 ab 를
+    cd 로 뒤집는다 (델로네 뒤집기). CAD 메시의 평면 벽 (긴 부채꼴 바늘 삼각형) 을 고른 모양으로 — 깊은 사각 드로잉
+    (오일 팬) 시험에서 삼각형 2/3 의 가장 작은 각이 1° 아래라 원스텝이 시작을 못 하던 것.
+    굽은 곳 (두 면 법선 차 > coplanar_deg) 은 모양이 바뀌므로 뒤집지 않는다."""
+    F = np.array(F, int)
+    cos_c = math.cos(math.radians(coplanar_deg))
+    for _ in range(passes):
+        n_tri = len(F)
+        nrm = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+        nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
+        edge = {}
+        for t in range(n_tri):
+            f = F[t]
+            for k in range(3):
+                a, b = int(f[k]), int(f[(k + 1) % 3])
+                edge.setdefault((min(a, b), max(a, b)), []).append((t, k))
+        used = np.zeros(n_tri, bool)
+        flips = 0
+        for (a, b), lst in edge.items():
+            if len(lst) != 2:
+                continue
+            (t1, k1), (t2, k2) = lst
+            if used[t1] or used[t2] or float(nrm[t1] @ nrm[t2]) < cos_c:
+                continue
+            f1, f2 = F[t1], F[t2]
+            c = int(f1[(k1 + 2) % 3])
+            d = int(f2[(k2 + 2) % 3])
+            if c == d:
+                continue
+
+            def ang(p, q, r):                 # q 에서의 각
+                u, v = V[p] - V[q], V[r] - V[q]
+                return math.acos(max(-1.0, min(1.0, float(u @ v) / max(np.linalg.norm(u) * np.linalg.norm(v), 1e-30))))
+            if ang(a, c, b) + ang(a, d, b) <= math.pi + 1e-9:
+                continue
+            # 새 삼각형이 원래 방향을 지키는지 (뒤집혀 접히지 않게)
+            p, q = int(f1[k1]), int(f1[(k1 + 1) % 3])      # t1 = (p, q, c), t2 = (q, p, d)
+            n1 = np.cross(V[p] - V[c], V[d] - V[c])          # 새 (c, p, d)
+            n2 = np.cross(V[q] - V[d], V[c] - V[d])          # 새 (d, q, c)
+            if float(n1 @ nrm[t1]) <= 0 or float(n2 @ nrm[t1]) <= 0:
+                continue
+            F[t1] = (c, p, d)
+            F[t2] = (d, q, c)
+            used[t1] = used[t2] = True
+            flips += 1
+        if not flips:
+            break
+    return F
+
+
 def subdivide(V, F, target=6000, N=None):
     """긴 모서리 나누기로 삼각형 크기를 고르게 (target 개쯤).
     CAD 메시는 원통 벽 같은 곳에 벽 높이만큼 긴 바늘 삼각형을 만든다. 4 등분은 모양이 그대로라
@@ -112,16 +188,37 @@ def subdivide(V, F, target=6000, N=None):
     a = V[F[:, 1]] - V[F[:, 0]]
     b = V[F[:, 2]] - V[F[:, 0]]
     area = 0.5 * float(np.linalg.norm(np.cross(a, b), axis=1).sum())
-    if area <= 0 or len(F) >= target:
+    if area <= 0:
+        return (V, F) if N is None else (V, F, N)
+    if len(F) >= target:                  # 이미 촘촘해도 바늘 모양은 뒤집기로 고른다
+        F = delaunay_flips(V, F)
         return (V, F) if N is None else (V, F, N)
     h = math.sqrt(4 * area / (math.sqrt(3) * target)) * 2.0      # 정삼각형 target 개 변 길이의 2 배 (길쭉한 것만 나뉘게)
-    for _ in range(12):
-        e = np.sort(np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]]), axis=1)
-        e = np.unique(e, axis=0)
-        L = np.linalg.norm(V[e[:, 0]] - V[e[:, 1]], axis=1)
-        long_ = e[L > h]
-        if not len(long_) or len(F) > 3 * target:
+    for _ in range(20):
+        # 가장 긴 모서리 나누기 (Rivara longest-edge bisection): 나눌 모서리를 가진 삼각형은 자기 가장 긴 모서리도
+        # 반드시 나누고 (전파), 나눌 때는 가장 긴 모서리의 가운데에서 맞은편 꼭짓점으로 먼저 자른다 —
+        # 각이 처음 가장 작은 각의 절반 아래로 떨어지지 않는다. (모든 긴 모서리를 나누면 바늘 삼각형의
+        # 두 긴 변이 같이 나뉘어 바늘이 더 많아졌다: 오일 팬 336 → 15,456 개)
+        nF = len(F)
+        Lk = np.stack([np.linalg.norm(V[F[:, k]] - V[F[:, (k + 1) % 3]], axis=1) for k in range(3)], axis=1)
+        kmax = Lk.argmax(1)
+        ar = np.arange(nF)
+
+        def ekey(i, j):
+            return (i, j) if i < j else (j, i)
+        lkey = [ekey(int(F[t, kmax[t]]), int(F[t, (kmax[t] + 1) % 3])) for t in range(nF)]
+        marked = {lkey[t] for t in ar[Lk[ar, kmax] > h]}
+        if not marked or len(F) > 7 * target:
             break
+        tri_edges = [[ekey(int(F[t, k]), int(F[t, (k + 1) % 3])) for k in range(3)] for t in range(nF)]
+        changed = True
+        while changed:                       # 전파: 표시된 모서리가 있으면 그 삼각형의 가장 긴 모서리도
+            changed = False
+            for t in range(nF):
+                if lkey[t] not in marked and any(e in marked for e in tri_edges[t]):
+                    marked.add(lkey[t])
+                    changed = True
+        long_ = np.array(sorted(marked), int)
         mid = {(int(i), int(j)): len(V) + k for k, (i, j) in enumerate(long_)}
         p0, p1 = V[long_[:, 0]], V[long_[:, 1]]
         pm = 0.5 * (p0 + p1)
@@ -133,46 +230,31 @@ def subdivide(V, F, target=6000, N=None):
             pm = pm + sag[:, None] * nm
             N = np.vstack([N, nm])
         V = np.vstack([V, pm])
-        Lv = {}
 
         def m(i, j):
-            return mid.get((i, j) if i < j else (j, i))
-
-        def ln(i, j):
-            key = (i, j) if i < j else (j, i)
-            if key not in Lv:
-                Lv[key] = float(np.linalg.norm(V[i] - V[j]))
-            return Lv[key]
+            return mid.get(ekey(i, j))
 
         nf = []
-        for tri in F.tolist():
-            ms = [m(tri[k], tri[(k + 1) % 3]) for k in range(3)]
-            cnt = sum(x is not None for x in ms)
-            if cnt == 0:
+        for t, tri in enumerate(F.tolist()):
+            k0 = int(kmax[t])                                    # 가장 긴 모서리를 A→B 로
+            A, B, C = tri[k0], tri[(k0 + 1) % 3], tri[(k0 + 2) % 3]
+            ab = m(A, B)
+            if ab is None:
                 nf.append(tri)
                 continue
-            if cnt == 3:
-                A, B, C = tri
-                ab, bc, ca = ms
-                nf += [[A, ab, ca], [ab, B, bc], [ca, bc, C], [ab, bc, ca]]
-                continue
-            # 나뉜 모서리가 첫 모서리 (A→B) 가 되도록 돌린다
-            k0 = next(k for k in range(3) if ms[k] is not None)
-            if cnt == 2 and ms[(k0 + 2) % 3] is not None:
-                k0 = (k0 + 2) % 3
-            A, B, C = tri[k0], tri[(k0 + 1) % 3], tri[(k0 + 2) % 3]
-            ab = ms[k0]
-            if cnt == 1:
-                nf += [[A, ab, C], [ab, B, C]]
-            else:                                   # A→B, B→C 가 나뉨
-                bc = ms[(k0 + 1) % 3]
-                nf.append([ab, B, bc])
-                # 남은 사각형 A-ab-bc-C 는 짧은 대각선으로
-                if ln(A, bc) < ln(ab, C):
-                    nf += [[A, ab, bc], [A, bc, C]]
-                else:
-                    nf += [[A, ab, C], [ab, bc, C]]
+            bc, ca = m(B, C), m(C, A)
+            # 가장 긴 모서리 가운데 ab → C 로 반 가르고, 남은 나뉜 모서리는 각 반쪽에서 다시 가른다
+            if ca is None:
+                nf.append([A, ab, C])
+            else:
+                nf += [[A, ab, ca], [ab, C, ca]]
+            if bc is None:
+                nf.append([ab, B, C])
+            else:
+                nf += [[ab, B, bc], [ab, bc, C]]
         F = np.array(nf, int)
+        F = delaunay_flips(V, F, passes=2)
+    F = delaunay_flips(V, F)
     return (V, F) if N is None else (V, F, N)
 
 
@@ -546,7 +628,7 @@ def _tool_setup(Vm, F, F_all, Ap, tools, n_exp):
     nrm = np.cross(a, b)
     nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
     zsum = (Ap[:, None] * nrm).sum(0)
-    if np.linalg.norm(zsum) < 0.3 * Ap.sum():          # 프레스 방향이 뚜렷하지 않음 (관·닫힌 꼴)
+    if np.linalg.norm(zsum) < 0.08 * Ap.sum():         # 프레스 방향이 뚜렷하지 않음 (관·닫힌 꼴; 깊은 상자는 0.1~0.3)
         return None
     z = zsum / np.linalg.norm(zsum)                     # 투영 넓이가 가장 큰 방향 = 프레스 방향
     e1 = np.cross(z, [1.0, 0, 0] if abs(z[0]) < 0.9 else [0, 1.0, 0])
@@ -569,6 +651,7 @@ def _tool_setup(Vm, F, F_all, Ap, tools, n_exp):
     # 바깥 가장자리 (구멍은 빼고): 다이 R 굽힘-펴짐 σ·t/(2r+t) (Swift), 블랭크 홀더 마찰 μ·p_bh
     loops = boundary_loops(F_all)
     wb = np.zeros(nv)
+    outer = None
     if loops:
         def length(lp):
             P = Vm[lp]
@@ -583,7 +666,20 @@ def _tool_setup(Vm, F, F_all, Ap, tools, n_exp):
     k_e = tools["tensile"] * (math.e / n) ** n
     c_bh = mu * tools.get("p_bh", 2.5) * cap / (k_e * t)
     return dict(proj=proj, wc=wc * mu * p_hat, wb1=wb * sb_hat, wb2=wb * c_bh,
-                wfit=wc + wb, total=float(Ap.sum()))
+                wfit=wc + wb, total=float(Ap.sum()), outer=outer)
+
+
+def _boundary_normals(X, loop, nv):
+    """블랭크 위 바깥 경계의 꼭짓점별 단위 법선 (n, 2), 경계가 아니면 0."""
+    nb = np.zeros((nv, 2))
+    if loop is None or len(loop) < 3:
+        return nb
+    P = X[loop]
+    tng = np.roll(P, -1, axis=0) - np.roll(P, 1, axis=0)
+    nrm = np.column_stack([tng[:, 1], -tng[:, 0]])
+    nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
+    nb[loop] = nrm
+    return nb
 
 
 def _tool_energy(T, X, grad=True):
@@ -602,13 +698,22 @@ def _tool_energy(T, X, grad=True):
     Qp = (T["proj"] - pc) @ R.T + xc
     d = X - Qp
     r = np.sqrt((d ** 2).sum(1) + 1e-4)
+    # 가장자리 저항 (누르개 마찰·다이 R) 은 끌려 들어오는 방향 = 경계에 수직한 성분에만 건다.
+    # 경계를 따라 (접선) 당기면 가파른 벽의 트림선에서 투영이 몰려 블랭크 경계가 국부적으로 쪼그라든다
+    # (휀다 시험에서 가장자리 늘림 60 % 가 나온 원인). 법선은 처음 블랭크에서 한 번 정해 고정 (에너지·기울기 일치).
+    if "nb" not in T:
+        T["nb"] = _boundary_normals(X, T.get("outer"), len(X))
+    nb = T["nb"]
+    dn = (d * nb).sum(1)
+    rb = np.sqrt(dn ** 2 + 1e-4)
     tot = T["total"]
-    E = float((T["wc"] * r).sum() + (T["wb1"] * r).sum() + (T["wb2"] * r ** 2).sum()) / tot
+    E = float((T["wc"] * r).sum() + (T["wb1"] * rb).sum() + (T["wb2"] * rb ** 2).sum()) / tot
     if not grad:
         return E, None, None
-    coef = (T["wc"] + T["wb1"]) / r + 2 * T["wb2"]
-    g = coef[:, None] * d / tot
-    return E, g, coef / tot
+    cc = T["wc"] / r
+    cb = T["wb1"] / rb + 2 * T["wb2"]
+    g = (cc[:, None] * d + (cb * dn)[:, None] * nb) / tot
+    return E, g, (cc + cb) / tot
 
 
 def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0, tools=None):
@@ -626,6 +731,10 @@ def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0, tools=None
     # 바늘 같은 조각 삼각형(가장 작은 각 < 1°)은 조금만 움직여도 뒤집혀 최적화를 막는다.
     # 에너지·뒤집힘 검사에서 빼고, 그 변은 길이 용수철로만 잡아 둔다 (꼭짓점이 떠다니지 않게).
     good = quality(Vm, F) > 1.0
+    # 시작 블랭크 (ARAP) 에서 이미 뒤집힌 삼각형도 같이 뺀다 — 큰 외판의 가장자리 조각 (가장 작은 각 1~6°) 몇 십 개가
+    # 뒤집혀 있으면 원스텝을 못 하고 ARAP 결과를 그대로 써서, 두께 변화가 −12 ~ +21 % 로 크게 틀렸다 (후드 시험).
+    U0a = np.asarray(U0, float)
+    good &= ~_flipped(U0a, F)
     if good.sum() < 0.5 * len(F):
         raise ValueError("메시에 조각 삼각형이 너무 많습니다")
     bad = F[~good]
@@ -865,6 +974,14 @@ def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, inf
     if signed < 0:
         U[:, 1] *= -1
     return Vm, F, _align_min_box(U)
+
+
+def _flipped(U, F):
+    P = U[F]
+    a, b = P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]
+    s = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+    sg = 1.0 if (s > 0).sum() >= (s < 0).sum() else -1.0
+    return s * sg <= 0
 
 
 def _align_min_box(U):
