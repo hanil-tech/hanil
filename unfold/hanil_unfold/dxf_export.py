@@ -152,6 +152,7 @@ def _add_notes(msp, result: UnfoldResult, part_name: str, d=None) -> None:
                      f"WEIGHT {m.weight_kg:.3f} kg  CUT {m.cut_length:.1f} mm  PIERCE {m.pierce}")
     from . import BUILD_NUMBER, __version__
     from . import company
+    lines.append("GENERAL TOL. JIS B 0408-B / ISO 2768-m")
     lines.append(f"HANIL UNFOLD v{__version__}" + (f" build {BUILD_NUMBER}" if BUILD_NUMBER else "")
                  + f"  {company.MAKER}")
     # 치수선 아래로 비켜 쓴다

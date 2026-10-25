@@ -82,6 +82,7 @@ class FormAnalysis:
     verdict: str = OK
     fi: object = None
     fields: tuple = ()               # 고른 (ε1, ε2, 두께 감소율, 한계 비)
+    ldr: tuple = ()                  # (이 제품 드로잉비 β, 한계 드로잉비 LDR)
 
     @property
     def t_min(self):
@@ -187,9 +188,21 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
             z, proj = press_direction(fi.V, fi.F)
             depth = float(np.ptp(fi.V @ z)) if z is not None else 0.0
             if m < 0.97 and depth > 3 * t:
-                f_draw = L_prod * t * mat.tensile_mpa * dc.force_k(max(m, 0.55))
+                f_tab = L_prod * t * mat.tensile_mpa * dc.force_k(max(m, 0.55))
+                # Siebel: 둘레 L = π·d 로 보고 π·d·s·1.1·k_fm·ln β ÷ η_F
+                phi = math.log(1 / m)
+                f_sie = L_prod * t * 1.1 * dc.mean_flow_stress(mat, phi) * phi / 0.65
+                f_draw = max(f_tab, f_sie)
                 fa.loads.append(("드로잉 (펀치) 힘", f_draw, f"둘레 {L_prod:,.0f} mm · 드로잉률 m {m:.2f} · "
-                                                        f"계수 {dc.force_k(max(m, 0.55)):.2f}"))
+                                                        f"교재 식 {f_tab / 1000:,.0f} kN / Siebel {f_sie / 1000:,.0f} kN 중 큰 값"))
+                lim = dc.ldr(mat)
+                beta = 1 / m
+                fa.ldr = (beta, lim)
+                if beta > lim:
+                    fa.messages.append(f"드로잉비 β = {beta:.2f} 가 한계 드로잉비 LDR {lim:.2f} (Whiteley·Hosford, r {mat.r:g}) "
+                                       "를 넘음 — 다단 드로잉 (재드로잉) 으로 나누세요.")
+                else:
+                    fa.messages.append(f"드로잉비 β = {beta:.2f} ≤ LDR {lim:.2f} (Whiteley·Hosford, r {mat.r:g}) — 한 번에 드로잉 가능 범위")
             else:                                    # 얕은 성형 (스트레치): 둘레 벽 장력 L·t·σf
                 sig = dc.flow_stress(mat, max(float(np.average(np.maximum(fi.major, 0), weights=w)), 0.002))
                 f_draw = L_prod * t * sig
@@ -220,6 +233,8 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                            "스프링백이 생길 수 있습니다 (비드로 더 늘리기).")
     worst = [ZONES[i][2] for i in range(len(ZONES)) if fr[i] > (0.001 if i < 3 else 0.02)]
     fa.verdict = NG if NG in worst else WARN if WARN in worst else OK
+    if fa.ldr and fa.ldr[0] > fa.ldr[1] and fa.verdict == OK:     # 한 번에 못 당김 → 다단 (주의)
+        fa.verdict = WARN
 
 
 def _sheet(fa: FormAnalysis, result, settings: bc.BendSettings, mat: bc.Material):

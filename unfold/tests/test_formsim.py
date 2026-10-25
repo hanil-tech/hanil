@@ -37,7 +37,9 @@ def test_cup_zones_and_thickness(cup):
     assert "드로잉 (펀치) 힘" in names and "주름 누르개 힘" in names
     # 드로잉력 = 둘레 × t × σb × n(m): Ø100 컵 (가운데 면 Ø99) 둘레 ≈ 311 mm
     f = dict((n, v) for n, v, _ in fa.loads)["드로잉 (펀치) 힘"]
-    assert 311 * 1.0 * 414 * 0.6 < f < 311 * 1.0 * 414 * 1.0
+    # 교재 식 (π·d·t·σb·n) 과 Siebel 식 중 큰 값 — 두 식은 같은 크기 (±40 %)
+    assert 311 * 1.0 * 414 * 0.6 < f < 311 * 1.0 * 414 * 1.4
+    assert fa.ldr and fa.ldr[0] < fa.ldr[1]                 # β ≈ 1.7 < LDR 2.2 (SPCC r 1.3)
     assert "성형 해석" in fs.summary_html(fa)
 
 

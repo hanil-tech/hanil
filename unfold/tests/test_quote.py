@@ -411,3 +411,17 @@ def test_part_package_dialog(assy, tmp_path):
     dlg.part.setCurrentIndex(1)
     assert seen == [0, 1]
     dlg.close()
+
+
+def test_rates_keep_production_costsheet_and_machine_rate():
+    import json
+    from hanil_unfold import costing as cs
+    r = q.load_rates(json.dumps({"production": {"oee": 0.6}, "costsheet": {"cr_pct": 2.0},
+                                 "rate_calc": {"프레스 60톤": {"price": 1e8}}}))
+    assert r["production"]["oee"] == 0.6 and r["costsheet"]["cr_pct"] == 2.0
+    assert r["rate_calc"]["프레스 60톤"]["price"] == 1e8
+    total, rows = cs.machine_rate({"price": 3.6e8, "years": 10, "hours": 3600, "interest_pct": 5, "area_m2": 0,
+                                   "power_kw": 0, "maint_pct": 0, "wage": 30000, "crew": 1})
+    # 감가상각 10,000 + 이자 (1.8 억 × 5 % ÷ 3600 = 2,500) + 사람 30,000
+    assert total == pytest.approx(10000 + 2500 + 30000)
+    assert rows[0][1] == pytest.approx(10000)

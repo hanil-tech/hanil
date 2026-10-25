@@ -81,6 +81,51 @@ DEFAULT_DIE = {
 
 SAFETY = 1.3
 
+# ---------------------------------------------------------------- 기계 임률 계산
+# 독일 Maschinenstundensatz (VDI 3258 의 틀): 감가상각 + 계산상 이자 (투자액의 절반에 이자율) + 공간 + 전력 + 보수,
+# 1 년 가동 시간으로 나눔. 일본 チャージ (加工費レート) 도 같은 틀 — 사람 몫 (노무 임률 × 인원) 을 더해
+# 견적의 기계 임률 (원/시간, 사람 포함) 이 된다.
+RATE_DEFAULTS = {
+    "price": 300_000_000,     # 기계 값 (원)
+    "years": 10,              # 감가상각 연수
+    "interest_pct": 5.0,      # 계산상 이자율 (투자액의 절반에)
+    "area_m2": 30,            # 차지 넓이 (통로 몫 포함)
+    "rent_m2": 80_000,        # 공간 값 원/m²·년
+    "power_kw": 30,           # 모터 정격
+    "load": 0.5,              # 평균 부하율
+    "kwh": 150,               # 전기 원/kWh
+    "maint_pct": 3.0,         # 보수비 (기계 값의 %/년)
+    "hours": 3_600,           # 1 년 가동 시간 (240 일 × 2 교대 × 8 h × 가동 94 %)
+    "wage": 30_000,           # 노무 임률 원/시간
+    "crew": 1.0,              # 인원
+}
+RATE_NAMES = {
+    "price": "기계 값 (원)", "years": "감가상각 (년)", "interest_pct": "이자율 (%, 투자액 절반에)",
+    "area_m2": "넓이 (m²)", "rent_m2": "공간 값 (원/m²·년)", "power_kw": "전력 (kW)", "load": "평균 부하율",
+    "kwh": "전기 (원/kWh)", "maint_pct": "보수비 (%/년)", "hours": "1 년 가동 (h)", "wage": "노무 임률 (원/h)",
+    "crew": "인원",
+}
+
+
+def machine_rate(p):
+    """(합계 원/시간, [(항목, 원/시간, 산식)]) — 기계 몫 + 사람 몫."""
+    q = dict(RATE_DEFAULTS)
+    q.update(p or {})
+    h = max(q["hours"], 1)
+    rows = [
+        ("감가상각", q["price"] / max(q["years"], 1) / h, f"{q['price']:,.0f} ÷ {q['years']:g} 년 ÷ {h:,.0f} h"),
+        ("계산상 이자", q["price"] / 2 * q["interest_pct"] / 100 / h,
+         f"{q['price']:,.0f} ÷ 2 × {q['interest_pct']:g} % ÷ {h:,.0f} h"),
+        ("공간", q["area_m2"] * q["rent_m2"] / h, f"{q['area_m2']:g} m² × {q['rent_m2']:,.0f} ÷ {h:,.0f} h"),
+        ("전력", q["power_kw"] * q["load"] * q["kwh"], f"{q['power_kw']:g} kW × {q['load']:g} × {q['kwh']:g} 원"),
+        ("보수", q["price"] * q["maint_pct"] / 100 / h, f"{q['price']:,.0f} × {q['maint_pct']:g} % ÷ {h:,.0f} h"),
+    ]
+    machine = sum(r[1] for r in rows)
+    rows.append(("기계 몫 합계", machine, "Maschinenstundensatz"))
+    rows.append(("사람 몫", q["wage"] * q["crew"], f"{q['wage']:,.0f} × {q['crew']:g} 명"))
+    total = machine + q["wage"] * q["crew"]
+    return total, rows
+
 
 def default_costing():
     return {"machines": copy.deepcopy(DEFAULT_MACHINES), "die": dict(DEFAULT_DIE), "safety": SAFETY}

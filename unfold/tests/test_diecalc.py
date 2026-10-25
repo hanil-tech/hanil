@@ -36,7 +36,13 @@ def test_deep_cup_needs_several_draws():
     assert pl.stages[-1].d == pytest.approx(50)
     for a, b in zip(pl.stages, pl.stages[1:]):
         assert b.d < a.d
-    assert pl.stages[0].m == pytest.approx(dc.draw_ratios(1.0, pl.D)[0])
+    # 첫 드로잉률 = 표 값 × LDR(r=1)/LDR(r) (SPCC r 1.3 → 조금 더 깊게)
+    k = math.exp(0.74) / dc.ldr(SPCC)
+    assert pl.stages[0].m == pytest.approx(dc.draw_ratios(1.0, pl.D)[0] * k)
+    assert k < 1
+    # 드로잉력 = 교재 식과 Siebel 식 중 큰 값
+    for s in pl.stages:
+        assert s.force_n == pytest.approx(max(s.table_n, s.siebel_n)) and s.siebel_n > 0
     # 얕은 컵은 한 번
     assert len(dc.draw_plan(100, 30, 6, 1.0, SPCC).stages) == 1
 
@@ -112,3 +118,23 @@ def test_hole_too_close_to_bend_is_flagged():
     assert c[0].value == pytest.approx(1.0, abs=0.3)
     rep = dc.review(unfold(loader.list_solids(far_hole)[0]), bc.BendSettings())
     assert not [c for c in rep.checks if c.rule == "구멍 ~ 절곡 시작선"]   # 10t 넘게 멀면 검사 안 함
+
+
+
+def test_european_japanese_formulas():
+    from hanil_unfold import tolerances as tl
+    # Whiteley·Hosford LDR: r = 1 → e^0.74 ≈ 2.10, r 가 클수록 크다
+    sus = bc.MATERIAL_BY_CODE["SUS304"]
+    assert dc.ldr(sus) == pytest.approx(math.exp(0.74), rel=1e-6)
+    assert dc.ldr(SPCC) > dc.ldr(sus) > dc.ldr(bc.MATERIAL_BY_CODE["AL5052"])
+    # VDI 3368: u = 0.01 s √(0.1 τ), SPCC τ = 0.8 × 414
+    assert dc.vdi_clearance(SPCC, 1.0) == pytest.approx(0.01 * math.sqrt(0.1 * 0.8 * 414))
+    assert dc.die_plate_thickness(1e5) == pytest.approx(10000 ** (1 / 3)) and dc.die_plate_thickness(10) == 15
+    # Siebel: 이상 변형력 / 0.65
+    f = dc.siebel_force(100, 170, 1.0, SPCC)
+    phi = math.log(1.7)
+    assert f == pytest.approx(math.pi * 100 * 1.1 * dc.mean_flow_stress(SPCC, phi) * phi / 0.65)
+    # JIS B 0408 · ISO 2768
+    assert tl.jis(5) == 0.1 and tl.jis(100) == 0.3 and tl.jis(1500, cls="C") == 3.0
+    assert tl.jis(20, "bend") == 0.5 and tl.jis(100, "bend") == 0.8 and tl.jis(300, "bend", "A") == 0.5
+    assert tl.iso(100) == 0.3 and tl.iso(500) == 0.8 and tl.iso(2, "v") is None

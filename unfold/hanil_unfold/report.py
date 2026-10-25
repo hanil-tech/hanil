@@ -137,6 +137,9 @@ def notes(d: ReportData):
     else:
         out.append("연신 = 2·tan(θ/2)·(R+t) − θ·(R+K·t).  문헌값은 출발점이므로 시험 절곡으로 확인하세요.")
     out.append("방향 UP/DOWN 은 전개도를 앞에서 본 기준입니다.")
+    from . import tolerances as tl
+    w, h = d.result.size
+    out.append(f"{tl.NOTE} — 전개 가로 {w:,.1f} {tl.text(w)}, 세로 {h:,.1f} {tl.text(h)}")
     return out
 
 

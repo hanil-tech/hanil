@@ -14,6 +14,7 @@ import datetime as _dt
 from dataclasses import dataclass, field
 
 from . import costing as cs
+from . import tolerances as tl
 
 SYM = {"가공": "○", "검사": "□", "보관": "▽", "운반": "⇨"}
 
@@ -220,19 +221,21 @@ def build(pc, result=None, settings=None, customer="", part_no="", fa=None) -> P
         ty = op_type(o.op, o.kind)
         if ty == "cut":
             cp.append(CPRow(n, o.op, o.machine, "외곽 치수", "클리어런스 · 칼날 상태", "",
-                            f"전개 {w:,.1f} × {h:,.1f} (일반 공차 KS B ISO 2768-m)" if w else "도면",
+                            f"전개 {w:,.1f} {tl.text(w)} × {h:,.1f} {tl.text(h)}" if w else "도면",
                             "검사구 · 버니어", "5 개", "초·중·종물", "자주검사 체크시트", "금형 점검·연삭 후 재가동"))
             cp.append(CPRow(n, o.op, o.machine, "버 높이", "칼날 연삭 주기", "",
                             f"≤ {max(0.1 * t, 0.05):.2f} mm" if t else "≤ 10 % t", "버 게이지", "5 개", "초·중·종물",
                             "자주검사 체크시트", "칼날 연삭"))
         elif ty == "pierce":
             cp.append(CPRow(n, o.op, o.machine, "구멍 지름·위치", "펀치 수명 · 파일럿", "◇",
-                            "도면 (구멍 공차)", "Go/No-go 핀 게이지 · 위치 검사구", "5 개", "초·중·종물",
+                            "도면 (구멍 공차) — 없으면 구멍 위치 " + tl.text(max(w, h) / 2 if w else 50),
+                            "Go/No-go 핀 게이지 · 위치 검사구", "5 개", "초·중·종물",
                             "자주검사 체크시트", "펀치 교체·전수 선별"))
         elif ty == "bend":
             angs = sorted({round(b.angle_deg) for b in bends}) or [90]
             cp.append(CPRow(n, o.op, o.machine, "굽힘 각도", "보정각 · 금형 R", "◇",
-                            " / ".join(f"{a}° ± 1°" for a in angs[:4]), "각도기 · 검사구", "5 개", "초·중·종물",
+                            " / ".join(f"{a}° ± 1°" for a in angs[:4]) + " · 굽힘 치수 "
+                            + tl.text(max(w, h) / 2 if w else 50, "bend"), "각도기 · 검사구", "5 개", "초·중·종물",
                             "X-R 관리도 (각도)", "보정각 조정·선별"))
             cp.append(CPRow(n, o.op, o.machine, "굽힘부 균열", "금형 R ≥ 최소 R", "", "균열 없음",
                             "육안", "전수", "전수", "자주검사", "격리·원인 분석"))
@@ -246,7 +249,8 @@ def build(pc, result=None, settings=None, customer="", part_no="", fa=None) -> P
         else:
             cp.append(CPRow(n, o.op, o.machine, "가공 치수", "공구 수명", "", "도면", "측정기", "5 개", "초·중·종물",
                             "측정 성적서", "공구 교체·재가공"))
-    cp.append(CPRow(pfd[-3].no, "최종 검사", "검사구·3 차원", "전체 치수·외관", "-", "◇", "도면 전 치수",
+    cp.append(CPRow(pfd[-3].no, "최종 검사", "검사구·3 차원", "전체 치수·외관", "-", "◇",
+                    "도면 전 치수 (공차 없는 치수는 " + tl.NOTE + ")",
                     "검사구·3 차원 측정기", "5 개", "로트마다", "출하 검사 성적서", "출하 보류·선별"))
     return docs
 

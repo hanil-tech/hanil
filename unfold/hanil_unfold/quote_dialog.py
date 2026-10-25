@@ -526,6 +526,10 @@ class QuoteDialog(QDialog):
         self.safety.valueChanged.connect(self._machines_edited)
         reset = QPushButton("예시 기계로 되돌리기")
         reset.clicked.connect(self._reset_machines)
+        calc = QPushButton("임률 계산 (독일 VDI 3258 · 일본 チャージ)…")
+        calc.setToolTip("고른 기계의 임률을 기계 값·감가상각·이자·공간·전력·보수 + 노무비로 계산해 넣습니다")
+        calc.clicked.connect(self._rate_calc)
+        row.addWidget(calc)
         row.addWidget(add)
         row.addWidget(rem)
         row.addWidget(reset)
@@ -565,6 +569,64 @@ class QuoteDialog(QDialog):
         self.rates["costing"]["safety"] = self.safety.value()
         self._save_rates()
         self.recalc()
+
+    def _rate_calc(self):
+        from PySide6.QtWidgets import QDialogButtonBox
+
+        from . import costing as cs
+        r = self.t_mach.currentRow()
+        ms = self.rates["costing"]["machines"]
+        if not (0 <= r < len(ms)):
+            QMessageBox.information(self, "임률 계산", "표에서 기계를 하나 고르세요.")
+            return
+        m = ms[r]
+        saved = dict(self.rates.setdefault("rate_calc", {}).get(m["name"], {}))
+        if not saved:                                   # 처음이면 톤수로 기계 값 어림
+            cap = float(m.get("capacity") or 100)
+            saved = {"price": {"프레스": 1_500_000 * cap, "절곡기": 1_000_000 * cap, "레이저": 600_000_000}.get(
+                m.get("kind"), 200_000_000), "power_kw": max(cap * 0.2, 7.5) if m.get("kind") != "레이저" else 60}
+        p = dict(cs.RATE_DEFAULTS)
+        p.update(saved)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"임률 계산 — {m['name']}")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        spins = {}
+        out = QLabel()
+        out.setTextFormat(Qt.RichText)
+
+        def upd(*_):
+            vals = {k: s.value() for k, s in spins.items()}
+            total, rows = cs.machine_rate(vals)
+            out.setText("<table cellpadding=3>" + "".join(
+                f"<tr><td>{a}</td><td align=right>{b:,.0f} 원/h</td><td style='color:#888'>{c}</td></tr>"
+                for a, b, c in rows) + f"<tr><td><b>임률 합계</b></td><td align=right><b>{total:,.0f} 원/h</b></td>"
+                f"<td style='color:#888'>지금 표의 값 {float(m.get('rate', 0)):,.0f}</td></tr></table>")
+            dlg.total, dlg.vals = total, vals
+        for k, name in cs.RATE_NAMES.items():
+            s = QDoubleSpinBox()
+            s.setRange(0, 1e12)
+            s.setDecimals(2 if k in ("load", "crew", "interest_pct", "maint_pct") else 0)
+            s.setGroupSeparatorShown(True)
+            s.setValue(float(p[k]))
+            s.valueChanged.connect(upd)
+            spins[k] = s
+            form.addRow(name, s)
+        lay.addLayout(form)
+        lay.addWidget(out)
+        lay.addWidget(QLabel("<span style='color:#888'>독일 Maschinenstundensatz (VDI 3258): (감가상각 + 이자 + 공간 + 전력 + "
+                             "보수) ÷ 가동 시간, 일본 チャージ도 같은 틀 + 노무비</span>"))
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText("이 임률로 넣기")
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        upd()
+        if dlg.exec():
+            m["rate"] = round(dlg.total, -2)
+            self.rates["rate_calc"][m["name"]] = dlg.vals
+            self._fill_machines()
+            self._machines_edited()
 
     def _add_machine(self):
         self.rates["costing"]["machines"].append({"name": "새 프레스", "kind": "프레스", "capacity": 150,

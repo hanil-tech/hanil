@@ -37,6 +37,9 @@ DEFAULT_RATES = {
     "vat_pct": 10.0,
     "supplier": {"대표": "", "주소": "", "전화": "", "사업자번호": "", "담당": ""},
     "costing": cs.default_costing(),
+    "production": {},             # 생산 견적 조건 (production.DEFAULTS 위에 덮어씀)
+    "costsheet": {},              # 원가계산서 조건
+    "rate_calc": {},              # 기계별 임률 계산 입력
 }
 
 

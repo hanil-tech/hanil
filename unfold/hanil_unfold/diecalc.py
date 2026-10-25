@@ -66,6 +66,38 @@ def clearance_pct(mat: bc.Material, t: float) -> float:
     return pct
 
 
+def vdi_clearance(mat: bc.Material, t: float, c: float = 0.01) -> float:
+    """VDI 3368 한쪽 클리어런스 u = c · s · √(0.1 · τB) [mm] (τB N/mm²).
+    c = 0.005~0.01 버(burr) 없는 깨끗한 절단, 0.01~0.035 버 허용. (Hanser 「Formelsammlung Fertigungstechnik」)"""
+    return c * t * math.sqrt(0.1 * shear_strength(mat))
+
+
+def die_plate_thickness(force_n: float) -> float:
+    """다이(Schneidplatte) 두께 어림 H ≈ ∛(0.1 · F) [mm], F 절단력 N (독일 교재 어림식), 최소 15 mm."""
+    return max(15.0, (0.1 * max(force_n, 0.0)) ** (1 / 3))
+
+
+def ldr(mat: bc.Material, eta: float = 0.74) -> float:
+    """한계 드로잉비 β_max (LDR) = exp(η · √((1 + r) / 2)) — Whiteley (1960) 의 수직 이방성 식에
+    변형 효율 η 를 곱한 꼴 (Hosford·Caddell). η = 1 이면 마찰 없는 이상값 (r = 1 에서 2.72),
+    η 0.74 는 r = 1 에서 2.1 (연강 실험값 2.0~2.2) 이 되게 맞춘 값."""
+    return math.exp(eta * math.sqrt((1 + max(mat.r, 0.1)) / 2))
+
+
+def mean_flow_stress(mat: bc.Material, phi: float) -> float:
+    """0 ~ φ 의 평균 유동 응력 k_fm = K · φⁿ / (n + 1),  K = σb · (e/n)ⁿ (홀로몬, 인장강도·n 에서)."""
+    n = max(mat.n, 0.02)
+    k = mat.tensile_mpa * (math.e / n) ** n
+    return k * max(phi, 1e-6) ** n / (n + 1)
+
+
+def siebel_force(d, D, t, mat: bc.Material, eta_f: float = 0.65) -> float:
+    """Siebel 드로잉력: 이상 변형력 π · d_m · s · 1.1 · k_fm · ln(D/d) 을 변형 효율 η_F 로 나눔
+    (마찰·굽힘-펴짐 몫을 η_F 0.5~0.7 로). d_m = d (두께 가운데)."""
+    phi = math.log(max(D / max(d, 1e-9), 1.0))
+    return math.pi * d * t * 1.1 * mean_flow_stress(mat, phi) * phi / eta_f
+
+
 def min_hole_factor(mat: bc.Material) -> float:
     """피어싱 최소 구멍 지름 = 계수 × 두께 (연질·연강 1.0, 단단한 재질 1.5)."""
     return 1.5 if mat.tensile_mpa >= 500 else 1.0
@@ -371,7 +403,9 @@ class DrawStage:
     no: int
     m: float
     d: float
-    force_n: float
+    force_n: float            # 두 식 중 큰 값 (프레스 고르기)
+    table_n: float = 0.0      # π·d·t·σb·n (교재 표)
+    siebel_n: float = 0.0     # Siebel (독일)
 
 
 @dataclass
@@ -395,7 +429,11 @@ def draw_plan(d, h, r, t, mat: bc.Material, flange_d=0.0, rf=0.0, trim=None):
     fd = flange_d + (2 * trim if flange_d else 0.0)
     D = math.sqrt(4 * cup_area(d, hh, r, fd, rf) / math.pi)
     rel = 100 * t / D
-    ms = draw_ratios(t, D)
+    ms = list(draw_ratios(t, D))
+    # 드로잉률 표는 연강 (r ≈ 1) 기준 — 재질의 r 로 첫 드로잉률을 고친다: m1 × LDR(r=1) / LDR(r)
+    lim = ldr(mat)
+    k_r = min(max(math.exp(0.74) / lim, 0.9), 1.1)          # LDR(r = 1) / LDR(r)
+    ms[0] = ms[0] * k_r
     if flange_d:
         notes = ["플랜지 붙은 컵: 첫 드로잉률은 플랜지 비 df/d 에 따라 더 작아질 수 있습니다 (표는 플랜지 없는 원통)"]
     else:
@@ -407,8 +445,9 @@ def draw_plan(d, h, r, t, mat: bc.Material, flange_d=0.0, rf=0.0, trim=None):
         if nxt <= d + 1e-9:
             m = d / cur
             nxt = d
-        f = math.pi * nxt * t * mat.tensile_mpa * force_k(m)
-        stages.append(DrawStage(i + 1, m, nxt, f))
+        f_tab = math.pi * nxt * t * mat.tensile_mpa * force_k(m)
+        f_sie = siebel_force(nxt, cur, t, mat)
+        stages.append(DrawStage(i + 1, m, nxt, max(f_tab, f_sie), f_tab, f_sie))
         cur = nxt
         if nxt <= d + 1e-9:
             break
@@ -420,6 +459,11 @@ def draw_plan(d, h, r, t, mat: bc.Material, flange_d=0.0, rf=0.0, trim=None):
         need = "필요 (t/D < 1.5 %)"
         if rel < 0.5:
             notes.append("t/D < 0.5 %: 주름 누르개가 있어도 주름 위험이 큼")
+    if abs(k_r - 1) > 0.005:
+        notes.append(f"첫 드로잉률을 r = {mat.r:g} 로 고침 (× {k_r:.3f}): 한계 드로잉비 LDR = {lim:.2f} "
+                     "(Whiteley·Hosford, η 0.74)")
+    if D / d > lim and len(stages) == 1:
+        notes.append(f"D/d = {D / d:.2f} 이 LDR {lim:.2f} 보다 큼 — 다단 드로잉 필요")
     d1 = stages[0].d
     holder = math.pi / 4 * max(D ** 2 - (d1 + 2 * max(r, 4 * t)) ** 2, 0) * HOLDER_P[_family(mat.code)]
     return DrawPlan(D, trim, rel, d / D, stages, holder, need, notes)
@@ -441,6 +485,8 @@ class DieReport:
     checks: list
     strip: Strip | None
     blank_d: float | None = None   # 성형품: 같은 넓이 원판 지름
+    vdi_clearance_mm: float = 0.0  # VDI 3368 (c = 0.01) 한쪽 클리어런스
+    die_plate_mm: float = 0.0      # 다이 두께 어림 ∛(0.1 F)
 
 
 def review(result, settings: bc.BendSettings, strip=True):
@@ -487,6 +533,8 @@ def review(result, settings: bc.BendSettings, strip=True):
                     max(total, max((b[2] for b in bends), default=0)) * 1.3 / TON, checks, st)
     if result.forming is not None:
         rep.blank_d = math.sqrt(4 * m.blank_area / math.pi)
+    rep.vdi_clearance_mm = vdi_clearance(mat, t)
+    rep.die_plate_mm = die_plate_thickness(total)
     return rep
 
 

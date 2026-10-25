@@ -123,7 +123,10 @@ class DieDialog(QDialog):
         l1.addWidget(QLabel(
             f"<b>{rep.material}</b>  두께 {rep.thickness:g} mm · 전단 저항 τ = 0.8 × 인장강도 = {rep.shear_mpa:.0f} MPa · "
             f"<b>한쪽 클리어런스 {rep.clearance_pct:g} % = {rep.clearance_mm:.3f} mm</b> "
-            f"(다이 = 펀치 + {2 * rep.clearance_mm:.3f} mm)"))
+            f"(다이 = 펀치 + {2 * rep.clearance_mm:.3f} mm)<br>"
+            f"<span style='color:#555'>독일 VDI 3368: u = 0.01 · s · √(0.1·τ) = {rep.vdi_clearance_mm:.3f} mm (깨끗한 절단, "
+            f"버 허용이면 최대 ×3.5) · 다이 두께 어림 H ≈ ∛(0.1·F) = {rep.die_plate_mm:.0f} mm · "
+            f"보통 공차 JIS B 0408-B / ISO 2768-m</span>"))
         l1.addWidget(_table(["하중", "길이 mm", "힘 kN", "톤 (tf)", "비고"], load_rows(rep)))
         if rep.bends:
             l1.addWidget(QLabel("절곡별 굽힘력 · 스프링백 (추정 — 시험 절곡으로 확정)"))
@@ -447,13 +450,15 @@ class DieDialog(QDialog):
     def _calc_draw(self, *_):
         if getattr(self, "p_kind", None) is not None and self.p_kind.currentData() == "draw":
             self._calc_process()
+        mat = bc.MATERIAL_BY_CODE[self.d_mat.currentData()]
         try:
             pl = self.draw_plan()
         except (ValueError, ZeroDivisionError) as e:
             self.draw_out.setText(f"계산할 수 없습니다: {e}")
             return
         rows = "".join(f"<tr><td>{s.no}</td><td align=right>{s.m:.3f}</td><td align=right>Ø{s.d:.1f}</td>"
-                       f"<td align=right>{s.force_n / 1000:,.1f}</td><td align=right>{s.force_n / dc.TON:.2f}</td></tr>"
+                       f"<td align=right>{s.table_n / 1000:,.1f}</td><td align=right>{s.siebel_n / 1000:,.1f}</td>"
+                       f"<td align=right><b>{s.force_n / 1000:,.1f}</b></td><td align=right>{s.force_n / dc.TON:.2f}</td></tr>"
                        for s in pl.stages)
         from html import escape
         notes = "".join(f"<br>⚠ {escape(n)}" for n in pl.notes)
@@ -463,9 +468,11 @@ class DieDialog(QDialog):
             f"<b>드로잉 {len(pl.stages)}회</b><br>"
             f"주름 누르개: {escape(pl.holder_needed)} · 누르개 힘 약 {pl.holder_n / 1000:,.1f} kN "
             f"({pl.holder_n / dc.TON:.2f} tf){notes}<br><br>"
+            f"한계 드로잉비 LDR = {dc.ldr(mat):.2f} (Whiteley·Hosford, r = {mat.r:g})<br><br>"
             "<table border=1 cellspacing=0 cellpadding=4><tr><th>공정</th><th>드로잉률 m</th><th>지름</th>"
-            f"<th>드로잉력 kN</th><th>tf</th></tr>{rows}</table>"
-            "<br><span style='color:#777'>드로잉력 F = π·d·t·σb·n (n: 드로잉률에 따른 계수 0.4~1.0)</span>")
+            f"<th>교재 식 kN</th><th>Siebel kN</th><th>드로잉력 kN (큰 값)</th><th>tf</th></tr>{rows}</table>"
+            "<br><span style='color:#777'>교재 식 F = π·d·t·σb·n (n: 드로잉률에 따른 계수 0.4~1.0) · "
+            "Siebel F = π·d·t·1.1·k_fm·ln(D/d) ÷ 0.65 (k_fm 평균 유동 응력, 홀로몬) — 큰 값으로 프레스를 고릅니다.</span>")
 
     def _log(self, files):
         if self.history is None:
@@ -548,6 +555,9 @@ def save_xlsx(rep, path, name="", strip_img=None, plan=None, route=None, process
                 ["하중", "길이 mm", "힘 kN", "톤 (tf)", "비고"], load_rows(rep))
     ws.cell(nxt, 1, f"한쪽 클리어런스 {rep.clearance_pct:g} % = {rep.clearance_mm:.3f} mm · "
                     f"전단 저항 {rep.shear_mpa:.0f} MPa")
+    ws.cell(nxt + 1, 1, f"VDI 3368 클리어런스 u = 0.01·s·√(0.1τ) = {rep.vdi_clearance_mm:.3f} mm · "
+                        f"다이 두께 어림 ∛(0.1F) = {rep.die_plate_mm:.0f} mm · 보통 공차 JIS B 0408-B / ISO 2768-m")
+    nxt += 1
     if rep.bends:
         sheet(ws, "", ["절곡", "길이 mm", "힘 kN", "톤 (tf)", "보정 없이 (°)", "금형 보정 각 (°)", "Ks"],
               bend_rows(rep), start=nxt + 2)
@@ -567,8 +577,9 @@ def save_xlsx(rep, path, name="", strip_img=None, plan=None, route=None, process
     if plan is not None:
         ws4 = wb.create_sheet("원통 드로잉")
         nxt = sheet(ws4, f"원통 드로잉 — 블랭크 Ø{plan.D:.2f} mm, {len(plan.stages)}회",
-                    ["공정", "드로잉률 m", "지름 mm", "드로잉력 kN", "tf"],
-                    [[s.no, s.m, s.d, s.force_n / 1000, s.force_n / dc.TON] for s in plan.stages])
+                    ["공정", "드로잉률 m", "지름 mm", "교재 식 kN", "Siebel kN", "드로잉력 kN", "tf"],
+                    [[s.no, s.m, s.d, s.table_n / 1000, s.siebel_n / 1000, s.force_n / 1000, s.force_n / dc.TON]
+                     for s in plan.stages])
         ws4.cell(nxt, 1, f"t/D {plan.rel_thickness:.2f} % · 주름 누르개 {plan.holder_needed} · "
                          f"누르개 힘 {plan.holder_n / 1000:,.1f} kN")
         for k, n in enumerate(plan.notes, 1):
@@ -655,7 +666,8 @@ def save_pdf(rep, path, name="", strip_img=None, plan=None, route=None, process_
     p.setPen(QColor(30, 30, 30))
     p.drawText(R(m, y, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter,
                f"전단 저항 τ = {rep.shear_mpa:.0f} MPa · 한쪽 클리어런스 {rep.clearance_pct:g} % = {rep.clearance_mm:.3f} mm "
-               f"(다이 = 펀치 + {2 * rep.clearance_mm:.3f}) · 권장 프레스 {rep.press_tonf:.0f} tf")
+               f"(다이 = 펀치 + {2 * rep.clearance_mm:.3f}) · VDI 3368 {rep.vdi_clearance_mm:.3f} mm · "
+               f"다이 두께 ≈ {rep.die_plate_mm:.0f} mm · 권장 프레스 {rep.press_tonf:.0f} tf")
     y += 9
     y = pr._table(p, R, k, m, y, [("하중", 80), ("길이 mm", 26), ("힘 kN", 26), ("tf", 22), ("비고", 50)],
                   fmt(load_rows(rep)))
