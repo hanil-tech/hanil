@@ -65,5 +65,21 @@ const ok=(c,m)=>{console.log((c?'✅ ':'❌ ')+m); if(c) good++; else { bad++; p
  ok((await f('POST','/bigfile/api/done/'+z.id)).status===200,'빈 파일');
  g=await f('GET',`/bigfile/api/file/${z.id}/dl`); ok(g.status===200&&(await g.arrayBuffer()).byteLength===0,'빈 파일 받기');
  ok((await f('POST','/bigfile/api/init?name=x&size=99999999999999')).status===413,'너무 큰 파일 413');
+ // 🔍 검사
+ let v=await (await f('POST',`/bigfile/api/verify/${r.id}`)).json();
+ for(let k=0;k<100&&v.state==='work';k++){await new Promise(z=>setTimeout(z,50)); v=await (await f('GET',`/bigfile/api/verify/${r.id}`)).json();}
+ const sha=crypto.createHash('sha256').update(data).digest('hex');
+ ok(v.state==='done'&&v.result.ok&&v.result.badCount===0&&v.result.compared===6,'서버 검사 합격(조각 6개 비교)');
+ ok(v.result.sha256===sha,'서버 SHA-256 = 원본');
+ ok(v.result.crc===crc32(data).toString(16).padStart(8,'0'),'서버 전체 CRC32 = 원본');
+ const cr=await (await f('GET',`/bigfile/api/crcs/${r.id}`)).json();
+ const cb=Buffer.from(cr.crcs,'base64'); let same=true; for(let i=0;i<6;i++) if(cb.readUInt32LE(i*4)!==crc32(ch(i))) same=false;
+ ok(cr.n===6&&same,'조각 CRC 목록 = 원본 조각');
+ // 디스크에서 파일이 바뀌면 검사가 잡아낸다
+ const bin=path.join(STORE,'data',r.id+'.bin'); const fd=fs.openSync(bin,'r+'); fs.writeSync(fd,Buffer.from([0x55^data[3*1048576+7]]),0,1,3*1048576+7); fs.closeSync(fd);
+ v=await (await f('POST',`/bigfile/api/verify/${r.id}?again=1`)).json();
+ for(let k=0;k<100&&v.state==='work';k++){await new Promise(z=>setTimeout(z,50)); v=await (await f('GET',`/bigfile/api/verify/${r.id}`)).json();}
+ ok(v.result&&!v.result.ok&&v.result.badCount===1&&v.result.bad[0]===3,'디스크에서 깨진 조각 3 을 찾아냄');
+ l=await (await f('GET','/bigfile/api/list')).json(); ok(l.files.find(x=>x.id===r.id).v.ok===false,'목록에 검사 결과');
  ok((await f('DELETE',`/bigfile/api/file/${r.id}`)).status===200,'지우기');
 })().catch((e)=>{console.error(e);process.exitCode=1;}).finally(()=>{console.log(`\n✅ ${good} · ❌ ${bad}`);srv.close();fs.rmSync(STORE,{recursive:true,force:true});process.exit();});

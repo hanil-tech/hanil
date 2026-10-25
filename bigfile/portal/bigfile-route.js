@@ -20,7 +20,9 @@ const MB = 1048576, GB = 1073741824, DAY = 86400000;
 
 //  CRC32 — 브라우저(bigfile.html)와 같은 계산
 const CRC_T = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
-function crc32(buf, prev) { let c = ~(prev || 0); for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return ~c >>> 0; }
+function crc32js(buf, prev) { let c = ~(prev || 0); for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return ~c >>> 0; }
+//  Node 20.15·22.2 부터는 zlib.crc32(빠름, 같은 값)가 있다 — 서버 검사가 디스크 속도로 돈다. 없으면 위의 것
+const crc32 = typeof require('zlib').crc32 === 'function' ? (buf, prev) => require('zlib').crc32(buf, prev || 0) >>> 0 : crc32js;
 
 module.exports = function mountBigfile(app, ctx) {
   ctx = ctx || {};
@@ -60,9 +62,19 @@ module.exports = function mountBigfile(app, ctx) {
       const m = JSON.parse(fs.readFileSync(path.join(META, f), 'utf8'));
       m.got = Buffer.from(m.got || '', 'base64');
       if (m.got.length < Math.ceil(m.n / 8)) m.got = Buffer.concat([m.got, Buffer.alloc(Math.ceil(m.n / 8) - m.got.length)]);
+      fixCrc(m);
       files.set(m.id, m);
     } catch (e) { /* 깨진 정보 — 건너뜀 */ }
   }
+  //  조각마다 CRC32 를 적어 둔다(crcs: 4바이트씩, ck: 적어 둔 조각 비트) — 끝난 뒤 검사·받을 때 검사에 쓴다
+  //  ⚠ 이 기능 전에 올린 파일은 crcs 가 없다 → 처음 검사할 때 디스크에서 읽어 채운다
+  function fixCrc(m) {
+    m.crcs = Buffer.from(typeof m.crcs === 'string' ? m.crcs : '', 'base64');
+    m.ck = Buffer.from(typeof m.ck === 'string' ? m.ck : '', 'base64');
+    if (m.crcs.length !== m.n * 4) m.crcs = Buffer.alloc(m.n * 4);
+    if (m.ck.length !== Math.ceil(m.n / 8)) m.ck = Buffer.alloc(Math.ceil(m.n / 8));
+  }
+  const ckAll = (m) => { for (let i = 0; i < m.n; i++) if (!((m.ck[i >> 3] >> (i & 7)) & 1)) return false; return true; };
   const binOf = (id) => path.join(DATA, id + '.bin');
   const has = (m, i) => (m.got[i >> 3] >> (i & 7)) & 1;
   const gotCount = (m) => { let c = 0; for (let i = 0; i < m.n; i++) c += has(m, i); return c; };
@@ -73,7 +85,7 @@ module.exports = function mountBigfile(app, ctx) {
     const prev = saving.get(m.id) || Promise.resolve();
     const p = prev.then(() => new Promise((ok) => {
       if (!files.has(m.id)) return ok();
-      const out = Object.assign({}, m, { got: m.got.toString('base64') });
+      const out = Object.assign({}, m, { got: m.got.toString('base64'), crcs: m.crcs.toString('base64'), ck: m.ck.toString('base64') });
       const f = path.join(META, m.id + '.json'), tmp = f + '.' + process.pid + '.tmp';
       fs.writeFile(tmp, JSON.stringify(out), (e) => { if (e) return ok(); fs.rename(tmp, f, () => ok()); });
     }));
@@ -91,6 +103,7 @@ module.exports = function mountBigfile(app, ctx) {
   const view = (m, u) => ({
     id: m.id, name: m.name, size: m.size, type: m.type, state: m.state, owner: m.ownerName, mine: m.owner === u.id,
     t0: m.t0, t1: m.t1 || 0, pub: !!m.pub, dl: m.dl || 0, got: m.state === 'done' ? m.n : gotCount(m), n: m.n,
+    v: m.verify ? { ok: m.verify.ok, at: m.verify.at } : null,
     shares: canEdit(u, m) ? (m.shares || []).map((s) => ({ tok: s.tok, exp: s.exp, max: s.max, used: s.used || 0 })) : [],
   });
   function diskFree() {
@@ -144,9 +157,10 @@ module.exports = function mountBigfile(app, ctx) {
     const n = Math.max(1, Math.ceil(size / CHUNK));
     const m = { id: crypto.randomBytes(16).toString('hex'), name, size, type, lm, chunk: CHUNK, n, got: Buffer.alloc(Math.ceil(n / 8)),
       owner: u.id, ownerName: u.name, t0: Date.now(), tl: Date.now(), state: 'part', pub: false, shares: [], dl: 0 };
+    fixCrc(m);
     fs.writeFileSync(binOf(m.id), '');
     files.set(m.id, m);
-    if (size === 0) m.got[0] = 1;                        //  빈 파일 — 보낼 조각이 없다
+    if (size === 0) { m.got[0] = 1; m.ck[0] = 1; }       //  빈 파일 — 보낼 조각이 없다(CRC32 는 0)
     save(m).then(() => res.json({ id: m.id, chunk: m.chunk, n: m.n, have: m.got.toString('base64'), resumed: false }));
   });
 
@@ -181,6 +195,8 @@ module.exports = function mountBigfile(app, ctx) {
       if (!Number.isNaN(wantCrc) && wantCrc !== c) return res.status(422).json({ error: '조각이 깨져서 왔습니다(CRC)' });
       if (!files.has(m.id)) return res.status(404).json({ error: '올리던 파일이 지워졌습니다' });
       m.got[i >> 3] |= 1 << (i & 7);
+      m.crcs.writeUInt32LE(c >>> 0, i * 4);
+      m.ck[i >> 3] |= 1 << (i & 7);
       m.tl = Date.now();
       save(m).then(() => { if (!res.headersSent) res.json({ ok: true }); });
     });
@@ -232,6 +248,94 @@ module.exports = function mountBigfile(app, ctx) {
     if (!m || !canEdit(req.bf, m)) return res.status(404).json({ error: '없는 파일입니다' });
     m.shares = (m.shares || []).filter((s) => s.tok !== req.params.tok);
     save(m).then(() => res.json({ file: view(m, req.bf) }));
+  });
+
+  // ── 🔍 검사 — 서버가 디스크의 파일을 처음부터 끝까지 다시 읽는다 ──────────────
+  //   POST /bigfile/api/verify/<열쇠>   검사 시작(?again=1 이면 지난 결과가 있어도 다시)
+  //   GET  /bigfile/api/verify/<열쇠>   { state:'work', done, size, wait } | { state:'done', result } | { state:'fail', msg }
+  //   GET  /bigfile/api/crcs/<열쇠>     조각별 CRC32(받는 쪽이 조각마다 맞춰 본다)
+  //   결과: 크기(적어 둔 것 ↔ 디스크) · 조각별 CRC32(올릴 때 받은 값 ↔ 지금 디스크) · 전체 CRC32 · SHA-256
+  //   ⚠ 디스크를 통째로 읽으니(50GB 면 몇 분) 한 번에 하나씩, 나머지는 줄을 선다. 결과는 정보에 남겨 다시 읽지 않는다.
+  const vjobs = new Map(), vq = [];
+  let vrun = 0;
+  function startVerify(m) {
+    const j0 = vjobs.get(m.id);
+    if (j0 && j0.state === 'work') return j0;
+    const j = { state: 'work', done: 0, size: m.size, wait: true, t0: Date.now() };
+    vjobs.set(m.id, j); vq.push(m.id); pump();
+    return j;
+  }
+  function pump() {
+    while (vrun < 1 && vq.length) {
+      const id = vq.shift(), m = files.get(id), j = vjobs.get(id);
+      if (!m || !j) { vjobs.delete(id); continue; }
+      vrun++; j.wait = false; j.t0 = Date.now();
+      verifyFile(m, j).then((r) => { j.state = 'done'; j.result = r; m.verify = r; return save(m); },
+        (e) => { j.state = 'fail'; j.msg = String((e && e.message) || e); })
+        .then(() => { vrun--; pump(); setTimeout(() => { if (vjobs.get(id) === j) vjobs.delete(id); }, 600000).unref(); });
+    }
+  }
+  function verifyFile(m, j) {
+    return new Promise((ok, no) => {
+      fs.stat(binOf(m.id), (e, st) => {
+        if (e) return no(new Error('서버 디스크에서 파일을 찾지 못했습니다'));
+        const sha = crypto.createHash('sha256'), disk = Buffer.alloc(m.n * 4);
+        let pos = 0, whole = 0, cc = 0, ci = 0;
+        const rs = fs.createReadStream(binOf(m.id), { highWaterMark: MB });
+        rs.on('data', (b) => {
+          sha.update(b); whole = crc32(b, whole);
+          let o = 0;
+          while (o < b.length && ci < m.n) {
+            const end = Math.min(b.length, o + ((ci + 1) * m.chunk - pos));
+            const part = b.subarray(o, end);
+            cc = crc32(part, cc); pos += part.length; o = end;
+            if (pos === (ci + 1) * m.chunk || pos === m.size) { disk.writeUInt32LE(cc >>> 0, ci * 4); cc = 0; ci++; }
+          }
+          j.done = Math.min(pos, m.size);
+        });
+        rs.on('error', no);
+        rs.on('end', () => {
+          const bad = [];
+          let compared = 0, filled = 0;
+          for (let i = 0; i < m.n; i++) {
+            const known = (m.ck[i >> 3] >> (i & 7)) & 1;
+            if (!known) { m.crcs.writeUInt32LE(disk.readUInt32LE(i * 4), i * 4); m.ck[i >> 3] |= 1 << (i & 7); filled++; continue; }
+            compared++;
+            if (m.crcs.readUInt32LE(i * 4) !== disk.readUInt32LE(i * 4)) bad.push(i);
+          }
+          const ms = Date.now() - j.t0;
+          ok({
+            ok: !bad.length && st.size === m.size, at: Date.now(), ms,
+            name: m.name, size: m.size, disk: st.size, n: m.n, chunk: m.chunk,
+            compared, filled, badCount: bad.length, bad: bad.slice(0, 50),
+            crc: (whole >>> 0).toString(16).padStart(8, '0'), sha256: sha.digest('hex'),
+          });
+        });
+      });
+    });
+  }
+  app.post('/bigfile/api/verify/:id', apiAuth, (req, res) => {
+    const m = ID.test(req.params.id) && files.get(req.params.id);
+    if (!m || !canSee(req.bf, m)) return res.status(404).json({ error: '없는 파일입니다' });
+    if (m.state !== 'done') return res.status(409).json({ error: '다 올린 다음에 검사할 수 있습니다' });
+    if (m.verify && req.query.again !== '1') return res.json({ state: 'done', result: m.verify });
+    const j = startVerify(m);
+    res.json({ state: 'work', done: j.done, size: m.size, wait: j.wait ? vq.indexOf(m.id) + 1 : 0 });
+  });
+  app.get('/bigfile/api/verify/:id', apiAuth, (req, res) => {
+    const m = ID.test(req.params.id) && files.get(req.params.id);
+    if (!m || !canSee(req.bf, m)) return res.status(404).json({ error: '없는 파일입니다' });
+    const j = vjobs.get(m.id);
+    if (j && j.state === 'work') return res.json({ state: 'work', done: j.done, size: m.size, wait: j.wait ? vq.indexOf(m.id) + 1 : 0 });
+    if (j && j.state === 'fail') return res.json({ state: 'fail', msg: j.msg });
+    if (m.verify) return res.json({ state: 'done', result: m.verify });
+    res.json({ state: 'none' });
+  });
+  app.get('/bigfile/api/crcs/:id', apiAuth, (req, res) => {
+    const m = ID.test(req.params.id) && files.get(req.params.id);
+    if (!m || m.state !== 'done' || !canSee(req.bf, m)) return res.status(404).json({ error: '없는 파일입니다' });
+    if (!ckAll(m)) return res.json({ missing: true });
+    res.json({ size: m.size, n: m.n, chunk: m.chunk, crcs: m.crcs.toString('base64'), crc: m.verify ? m.verify.crc : '', sha256: m.verify ? m.verify.sha256 : '' });
   });
 
   // ── 받기 ──────────────────────────────────────────────────────────

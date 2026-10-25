@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>대용량 파일 — 한일</title>
 <style>
-:root{--bg:#f3f5f9;--card:#fff;--fg:#1d2433;--sub:#6a7385;--line:#e3e7ef;--acc:#1f5eff;--acc2:#e8eeff;--ok:#1a7f37;--bad:#b3261e;--warn:#9a6700;--bar:#dfe5f1}
-@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2030;--fg:#e6e9f0;--sub:#9aa3b5;--line:#2c3346;--acc:#5b8cff;--acc2:#24304f;--ok:#4cc26b;--bad:#ff7a70;--warn:#e0b44c;--bar:#2c3346}}
+:root{--bg:#f3f5f9;--card:#fff;--fg:#1d2433;--sub:#6a7385;--line:#e3e7ef;--acc:#1f5eff;--acc2:#e8eeff;--ok:#1a7f37;--ok2:#e6f4e6;--bad:#b3261e;--bad2:#fdeeee;--warn:#d97a00;--bar:#dfe5f1;--chk:#0f8a8a;
+  --c-wait:#dfe5f1;--c-run:#1f5eff;--c-done:#7fb4ff;--c-retry:#f08c00;--c-ok:#2da44e;--c-bad:#d1242f}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2030;--fg:#e6e9f0;--sub:#9aa3b5;--line:#2c3346;--acc:#5b8cff;--acc2:#24304f;--ok:#4cc26b;--ok2:#17301f;--bad:#ff7a70;--bad2:#3a1d1d;--warn:#e0a040;--bar:#2c3346;--chk:#3cc4c4;
+  --c-wait:#2c3346;--c-run:#5b8cff;--c-done:#34528f;--c-retry:#e0a040;--c-ok:#3fb950;--c-bad:#ff6a69}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}
 a{color:var(--acc)}
@@ -25,27 +27,73 @@ button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);col
 button:hover,.btn:hover{border-color:var(--acc)}
 button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
 button:disabled{opacity:.5;cursor:default}
-.up{border-top:1px solid var(--line);padding:10px 0}
+
+/* ── 주고받는 줄 ── */
+.up{border-top:1px solid var(--line);padding:12px 0}
 .up:first-child{border-top:0}
 .up .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .up .nm{flex:1;min-width:160px;font-weight:600;word-break:break-all}
+.up .dir{font-size:12px;font-weight:700;padding:1px 7px;border-radius:5px;background:var(--acc2);color:var(--acc)}
+.up .dir.down{background:var(--ok2);color:var(--ok)}
+.up .dir.check{background:#e0f4f4;color:var(--chk)}
+@media (prefers-color-scheme:dark){.up .dir.check{background:#123333}}
 .up .st{color:var(--sub);font-size:12.5px;margin-top:4px;font-variant-numeric:tabular-nums}
 .st.bad{color:var(--bad)}.st.ok{color:var(--ok)}
-.bar{height:8px;background:var(--bar);border-radius:6px;overflow:hidden;margin-top:6px}
-.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
-.bar.ok i{background:var(--ok)}.bar.bad i{background:var(--bad)}
+
+/* 그림 — 내 PC ⇄ 포털 서버 */
+.flow{display:flex;align-items:center;gap:8px;margin:10px 0 6px}
+.node{width:76px;flex:none;text-align:center;font-size:12px;color:var(--sub)}
+.node .ic{font-size:28px;line-height:1.2;display:block;transition:transform .3s}
+.flow.run .node.to .ic{animation:bump 1s ease-in-out infinite}
+@keyframes bump{50%{transform:scale(1.08)}}
+.pipe{flex:1;position:relative;height:30px;border-radius:15px;background:var(--bar);overflow:hidden}
+.pipe .fill{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,var(--c-done),var(--c-run));opacity:.35;transition:width .3s}
+.flow.down .pipe .fill{inset:0 0 0 auto;background:linear-gradient(270deg,var(--c-ok),var(--c-ok));}
+.pipe .dots{position:absolute;inset:0;
+  background-image:radial-gradient(circle at 50% 50%,var(--c-run) 0 5px,transparent 6px);
+  background-size:34px 30px;background-repeat:repeat-x;opacity:0;transition:opacity .3s}
+.flow.down .pipe .dots{background-image:radial-gradient(circle at 50% 50%,var(--c-ok) 0 5px,transparent 6px)}
+.flow.check .pipe .dots{background-image:radial-gradient(circle at 50% 50%,var(--chk) 0 4px,transparent 5px);background-size:22px 30px}
+.flow.run .pipe .dots{opacity:1;animation:flowR .8s linear infinite}
+.flow.run.down .pipe .dots{animation-name:flowL}
+.flow.run.check .pipe .dots{animation-duration:1.6s}
+@keyframes flowR{from{background-position:0 0}to{background-position:34px 0}}
+@keyframes flowL{from{background-position:34px 0}to{background-position:0 0}}
+.pipe .lab{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;color:var(--fg);text-shadow:0 0 4px var(--card),0 0 4px var(--card);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
+.flow.fail .pipe{background:var(--bad2)}
+.flow.good .pipe{background:var(--ok2)}
+.flow.good .pipe .fill{background:var(--c-ok)}
+
+/* 조각 지도 */
+canvas.map{display:block;width:100%;height:auto;margin-top:4px;border-radius:6px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--sub);margin-top:4px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+
+/* 검사 결과표 */
+.rep{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.rep .hd{padding:10px 12px;font-weight:700}
+.rep .hd.ok{background:var(--ok2);color:var(--ok)}
+.rep .hd.bad{background:var(--bad2);color:var(--bad)}
+.rep table{width:100%;border-collapse:collapse;font-size:12.5px}
+.rep td,.rep th{padding:6px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+.rep th{color:var(--sub);font-weight:600;background:var(--bg)}
+.rep td.v{font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+.rep td.k{white-space:nowrap;font-weight:600}
+.rep td.j{white-space:nowrap;text-align:center;width:44px}
+
 .tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .tabs button.on{background:var(--acc2);border-color:var(--acc);color:var(--acc);font-weight:700}
 .tabs input{flex:1;min-width:140px;font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
-th{color:var(--sub);font-weight:600;font-size:12.5px;border-top:0}
-td.n{word-break:break-all;font-weight:600}
-td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-td.a{white-space:nowrap;text-align:right}
-td .tag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:5px;margin-left:4px;vertical-align:1px}
+#ftab{width:100%;border-collapse:collapse}
+#ftab th,#ftab td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
+#ftab th{color:var(--sub);font-weight:600;font-size:12.5px;border-top:0}
+#ftab td.n{word-break:break-all;font-weight:600}
+#ftab td.r,#ftab th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#ftab td.a{white-space:nowrap;text-align:right}
+.tag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:5px;margin-left:4px;vertical-align:1px}
 .tag.pub{background:#e6f4e6;color:#1a7f37}.tag.part{background:#fff4d6;color:#9a6700}.tag.lnk{background:var(--acc2);color:var(--acc)}
-@media (prefers-color-scheme:dark){.tag.pub{background:#18361f;color:#7fdc95}.tag.part{background:#3a3016;color:#e9c46a}}
+.tag.vok{background:#e0f4f4;color:#0f7a7a}.tag.vbad{background:var(--bad2);color:var(--bad)}
+@media (prefers-color-scheme:dark){.tag.pub{background:#18361f;color:#7fdc95}.tag.part{background:#3a3016;color:#e9c46a}.tag.vok{background:#123333;color:#6fdada}}
 .muted{color:var(--sub);font-size:12.5px}
 .empty{text-align:center;color:var(--sub);padding:26px 0}
 footer{color:var(--sub);font-size:12.5px;text-align:center;margin:8px 0 30px}
@@ -56,16 +104,26 @@ dialog label{display:inline-flex;gap:6px;align-items:center;margin:6px 12px 6px 
 dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .lk{display:flex;gap:6px;align-items:center;border-top:1px solid var(--line);padding:8px 0;flex-wrap:wrap}
 .lk input{flex:1;min-width:180px;font:12.5px monospace;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
-#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2433;color:#fff;padding:9px 16px;border-radius:10px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;max-width:calc(100% - 32px)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1d2433;color:#fff;padding:9px 16px;border-radius:10px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;max-width:calc(100% - 32px);z-index:10}
 #toast.on{opacity:1}
-/* 폰 — 표를 카드처럼 */
+/* 폰 — 파일 표를 카드처럼 */
 @media (max-width:700px){
-  thead{display:none}
-  table,tbody,tr,td{display:block;width:100%}
-  tr{border-top:1px solid var(--line);padding:8px 0}
-  td{border:0;padding:2px 0;text-align:left!important}
-  td.r{display:inline-block;width:auto;margin-right:10px;color:var(--sub);font-size:12.5px}
-  td.a{white-space:normal;margin-top:4px}
+  #ftab thead{display:none}
+  #ftab,#ftab tbody,#ftab tr,#ftab td{display:block;width:100%}
+  #ftab tr{border-top:1px solid var(--line);padding:8px 0}
+  #ftab td{border:0;padding:2px 0;text-align:left!important}
+  #ftab td.r{display:inline-block;width:auto;margin-right:10px;color:var(--sub);font-size:12.5px}
+  #ftab td.a{white-space:normal;margin-top:4px}
+  .node{width:58px}.node .ic{font-size:24px}
+  /* 검사 결과표 — 한 항목을 여러 줄로 */
+  .rep tr.h{display:none}
+  .rep table,.rep tbody,.rep tr,.rep td{display:block;width:100%}
+  .rep tr{position:relative;border-top:1px solid var(--line);padding:6px 10px}
+  .rep td{border:0;padding:1px 0}
+  .rep td.k{padding-right:40px}
+  .rep td.j{position:absolute;top:6px;right:8px;width:auto}
+  .rep td.v[data-l]::before{content:attr(data-l) " ";color:var(--sub);font-family:system-ui,sans-serif;font-size:11.5px}
+  .rep td.v.e{display:none}
 }
 </style>
 </head>
@@ -95,7 +153,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       <input id="q" type="search" placeholder="이름·올린 사람 찾기">
       <button id="reload" title="새로 고침">↻</button>
     </div>
-    <table>
+    <table id="ftab">
       <thead><tr><th>이름</th><th class="r">크기</th><th class="r">올린 날</th><th>올린 사람</th><th class="r">받음</th><th></th></tr></thead>
       <tbody id="list"></tbody>
     </table>
@@ -122,6 +180,12 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var INFO = null, FILES = [], TAB = 'mine', UPS = [], RUNNING = false, RESUME_FOR = null;
+  var IN_APP = /HanilPortalApp\//.test(navigator.userAgent);
+  //  화면 안에서 받기(그림·검사) — 고른 자리에 바로 쓰는 기능(크롬·엣지, https 또는 localhost)이 없으면
+  //  받은 것을 브라우저가 들고 있다가 한 번에 저장한다 → 그때는 크기를 제한(그보다 크면 보통 내려받기)
+  var BLOB_MAX = IN_APP ? 50 * 1048576 : 2 * 1073741824;
+  //  조각 상태 → 지도 색
+  var WAIT = 0, RUN = 1, DONE = 2, RETRY = 3, OK = 4, BAD = 5;
 
   // ── 도우미 ───────────────────────────────────────────────
   function human(b) {
@@ -130,6 +194,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
     return b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0) + ' ' + u[i];
   }
+  function comma(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function dur(s) {
     if (!isFinite(s) || s < 0) return '';
     s = Math.round(s);
@@ -140,6 +205,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function day(t) { var d = new Date(t); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
   function qs(o) { return Object.keys(o).map(function (k) { return k + '=' + encodeURIComponent(o[k]); }).join('&'); }
+  function sleep(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
   var tt;
   function toast(m) { var t = $('toast'), d = $('dlg'); (d.open ? d : document.body).appendChild(t);   //  열린 창(dialog) 뒤에 가리지 않게
      t.textContent = m; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(function () { t.classList.remove('on'); }, 2600); }
@@ -156,7 +222,48 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   }
   //  CRC32 — 서버(bigfile-route.js)와 같은 계산
   var CRC_T = (function () { var t = new Int32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
-  function crc32(u8) { var c = -1; for (var i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return (~c >>> 0).toString(16); }
+  function crc32(u8) { var c = -1; for (var i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return ~c >>> 0; }
+  function hex8(n) { return ('0000000' + (n >>> 0).toString(16)).slice(-8); }
+  //  조각 CRC 들을 이어 붙여 전체 CRC32 를 낸다(zlib crc32_combine) — 파일을 처음부터 다시 읽지 않고
+  function gf2(mat, vec) { var s = 0, i = 0; vec >>>= 0; while (vec) { if (vec & 1) s ^= mat[i]; vec >>>= 1; i++; } return s >>> 0; }
+  function gf2sq(sq, mat) { for (var n = 0; n < 32; n++) sq[n] = gf2(mat, mat[n]); }
+  function shiftOp(len) {          //  「뒤에 len 바이트가 더 붙었다」를 나타내는 32×32 행렬
+    var M = new Uint32Array(32);
+    for (var k = 0; k < 32; k++) M[k] = shift(1 << k, len);
+    return M;
+  }
+  function shift(crc1, len) {
+    var even = new Uint32Array(32), odd = new Uint32Array(32), row = 1;
+    odd[0] = 0xedb88320;
+    for (var n = 1; n < 32; n++) { odd[n] = row; row <<= 1; }
+    gf2sq(even, odd); gf2sq(odd, even);
+    crc1 >>>= 0;
+    while (len) {
+      gf2sq(even, odd);
+      if (len & 1) crc1 = gf2(even, crc1);
+      len = Math.floor(len / 2);
+      if (!len) break;
+      gf2sq(odd, even);
+      if (len & 1) crc1 = gf2(odd, crc1);
+      len = Math.floor(len / 2);
+    }
+    return crc1;
+  }
+  function wholeCrc(crcs, size, chunk) {
+    var n = crcs.length;
+    if (!size) return 0;
+    var full = shiftOp(chunk), c = crcs[0] >>> 0;
+    for (var i = 1; i < n; i++) {
+      var len = Math.min(chunk, size - i * chunk);
+      c = ((len === chunk ? gf2(full, c) : shift(c, len)) ^ crcs[i]) >>> 0;
+    }
+    return c;
+  }
+  function b64u32(b64, n) {
+    var s = atob(b64 || ''), out = new Uint32Array(n);
+    for (var i = 0; i < n; i++) out[i] = (s.charCodeAt(i * 4) | (s.charCodeAt(i * 4 + 1) << 8) | (s.charCodeAt(i * 4 + 2) << 16) | (s.charCodeAt(i * 4 + 3) << 24)) >>> 0;
+    return out;
+  }
   function copy(text, input) {
     function old() { input.select(); try { document.execCommand('copy'); toast('링크를 복사했습니다'); } catch (e) { toast('복사가 안 됩니다 — 직접 선택해 복사하세요'); } }
     //  http(사내 주소)로 열면 navigator.clipboard 가 없거나 거절된다 — 옛 방식으로
@@ -164,20 +271,212 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     old();
   }
 
+  // ── 주고받는 한 줄(올리기·받기·검사) ─────────────────────
+  //   it = { dir:'up'|'down'|'check', name, size, n, chunk, cells(조각 상태), state, ... }
+  function newItem(dir, name, size) {
+    var it = { dir: dir, name: name, size: size, sent: 0, inflight: {}, state: 'wait', msg: '', xhrs: [], ctrls: [], samples: [], retries: 0, vdone: 0 };
+    UPS.unshift(it);
+    drawUp(it);
+    return it;
+  }
+  function setCells(it, n, chunk) {
+    if (it.cells && it.cells.length === n) return;
+    it.n = n; it.chunk = chunk; it.cells = new Uint8Array(n);
+  }
+  function mark(it, i, st) { if (it.cells) { it.cells[i] = st; later(it); } }
+  function later(it) { if (!it._raf) it._raf = setTimeout(function () { it._raf = 0; drawUp(it); }, 200); }
+  //  속도 — 최근 8초 동안 오간 양으로
+  function tick(it) {
+    var now = Date.now(), done = it.sent;
+    for (var k in it.inflight) done += it.inflight[k];
+    it.cur = Math.min(done, it.size);
+    it.samples.push([now, it.cur]);
+    while (it.samples.length > 2 && now - it.samples[0][0] > 8000) it.samples.shift();
+    later(it);
+  }
+  function speed(it) {
+    var sm = it.samples;
+    return sm.length > 1 ? (sm[sm.length - 1][1] - sm[0][1]) / Math.max(0.001, (sm[sm.length - 1][0] - sm[0][0]) / 1000) : 0;
+  }
+  var DIRNAME = { up: '⬆ 올리기', down: '⬇ 받기', check: '🔍 서버 검사' };
+  function drawUp(it) {
+    if (!it.el) {
+      it.el = document.createElement('div');
+      it.el.className = 'up';
+      it.el.innerHTML = '<div class="row"><span class="dir"></span><span class="nm"></span><span class="ctl"></span></div>' +
+        '<div class="flow"><div class="node pc"><span class="ic">💻</span>내 PC</div>' +
+        '<div class="pipe"><div class="fill"></div><div class="dots"></div><div class="lab"></div></div>' +
+        '<div class="node sv"><span class="ic">🗄</span>포털 서버</div></div>' +
+        '<canvas class="map" height="1"></canvas><div class="legend"></div><div class="st"></div><div class="rp"></div>';
+      var ups = $('ups'); ups.insertBefore(it.el, ups.firstChild);
+      it.el.querySelector('.dir').textContent = DIRNAME[it.dir];
+      it.el.querySelector('.dir').className = 'dir ' + it.dir;
+      if (it.dir === 'down') it.el.querySelector('.flow').classList.add('down');
+      if (it.dir === 'check') it.el.querySelector('.flow').classList.add('check');
+      //  받을 때는 서버 → 내 PC 가 「받는 쪽」
+      it.el.querySelector(it.dir === 'up' ? '.node.sv' : '.node.pc').classList.add('to');
+      var lg = [['--c-wait', '기다림'], ['--c-run', it.dir === 'down' ? '받는 중' : '보내는 중'], ['--c-done', it.dir === 'down' ? '받음' : '보냄'], ['--c-retry', '다시'], ['--c-ok', '검사 통과'], ['--c-bad', '검사 틀림']];
+      if (it.dir === 'check') lg = [['--c-wait', '아직'], ['--c-ok', '검사 통과'], ['--c-bad', '틀림']];
+      it.el.querySelector('.legend').innerHTML = lg.map(function (x) { return '<span><i style="background:var(' + x[0] + ')"></i>' + x[1] + '</span>'; }).join('');
+    }
+    var size = it.size, cur = it.state === 'done' ? size : (it.cur === undefined ? it.sent : Math.max(it.sent, it.cur));
+    var pct = size ? cur / size * 100 : (it.state === 'done' ? 100 : 0);
+    var verifying = it.state === 'verify';
+    if (verifying || it.dir === 'check') pct = size ? it.vdone / size * 100 : 100;
+    it.el.querySelector('.nm').textContent = it.name;
+    //  그림
+    var fl = it.el.querySelector('.flow');
+    fl.classList.toggle('run', it.state === 'run' || verifying);
+    fl.classList.toggle('check', it.dir === 'check' || verifying);
+    fl.classList.toggle('fail', it.state === 'error' || !!(it.report && !it.report.ok));
+    fl.classList.toggle('good', !!(it.report && it.report.ok));
+    it.el.querySelector('.pipe .fill').style.width = (it.state === 'done' && !verifying ? 100 : pct).toFixed(1) + '%';
+    var sp = speed(it), lab = '';
+    if (it.state === 'run') lab = (it.dir === 'down' ? '⬇ ' : '⬆ ') + pct.toFixed(1) + '%' + (sp > 0 ? ' · ' + human(sp) + '/초' : '');
+    else if (verifying) lab = '🔍 ' + (it.vmsg || '검사 중') + ' ' + pct.toFixed(0) + '%';
+    else if (it.state === 'done') lab = it.report ? (it.report.ok ? '✅ 검사 합격' : '❌ 검사 불합격') : '✅ 끝';
+    else if (it.state === 'error') lab = '❌ 멈춤';
+    else if (it.state === 'pause') lab = '⏸ ' + pct.toFixed(1) + '%';
+    else lab = '⏳ 기다리는 중';
+    it.el.querySelector('.pipe .lab').textContent = lab;
+    drawMap(it);
+    //  글
+    var st = it.el.querySelector('.st'), s = '';
+    if (it.state === 'done') s = (it.dir === 'up' ? '다 올렸습니다' : it.dir === 'down' ? '다 받았습니다' + (it.saved ? ' — ' + it.saved : '') : '검사를 마쳤습니다') + ' · ' + human(size) + (it.t0 ? ' · ' + dur(((it.t1 || Date.now()) - it.t0) / 1000) : '');
+    else if (it.state === 'error') s = '❌ ' + it.err;
+    else if (it.state === 'pause') s = '⏸ 멈춤 · ' + human(cur) + ' / ' + human(size);
+    else if (it.state === 'wait') s = '⏳ 기다리는 중 · ' + human(size);
+    else if (verifying) s = '🔍 ' + (it.vmsg || '검사 중') + ' · ' + human(it.vdone) + ' / ' + human(size);
+    else s = pct.toFixed(1) + '% · ' + human(cur) + ' / ' + human(size) + (sp > 0 ? ' · ' + human(sp) + '/초 · 남은 시간 ' + dur((size - cur) / sp) : '') + (it.msg ? ' · ' + it.msg : '');
+    st.textContent = s;
+    st.className = 'st' + (it.state === 'error' ? ' bad' : it.state === 'done' ? ' ok' : '');
+    drawReport(it);
+    drawCtl(it);
+  }
+  //  조각 지도 — 조각이 많으면 한 칸이 여러 조각(가장 눈여겨볼 상태로 칠함: 틀림 > 다시 > 보내는 중 > …)
+  function drawMap(it) {
+    var cv = it.el.querySelector('canvas.map');
+    if (!it.cells) { cv.style.display = 'none'; return; }
+    cv.style.display = '';
+    var W = Math.max(200, Math.round(cv.clientWidth || it.el.clientWidth || 600)), dpr = window.devicePixelRatio || 1;
+    var n = it.cells.length, gap = 2, cell = 12;
+    var cols = Math.max(1, Math.floor((W + gap) / (cell + gap)));
+    var maxRows = 8, per = Math.max(1, Math.ceil(n / (cols * maxRows)));
+    var boxes = Math.ceil(n / per), rows = Math.max(1, Math.ceil(boxes / cols));
+    if (rows === 1) cols = boxes;
+    var cw = Math.min(28, (W - gap * (cols - 1)) / cols), H = rows * (cell + gap) - gap;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px'; }
+    var g = cv.getContext('2d'), css = getComputedStyle(document.documentElement);
+    var col = ['--c-wait', '--c-run', '--c-done', '--c-retry', '--c-ok', '--c-bad'].map(function (v) { return css.getPropertyValue(v).trim(); });
+    var rank = [0, 3, 1, 4, 2, 5];       //  여러 조각을 한 칸에 — 이 순서로 높은 것을 보인다
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    for (var b = 0; b < boxes; b++) {
+      var lo = b * per, hi = Math.min(n, lo + per), best = -1, bst = 0, all = -1, same = true;
+      for (var i = lo; i < hi; i++) {
+        var c = it.cells[i];
+        if (all < 0) all = c; else if (all !== c) same = false;
+        if (rank[c] > best) { best = rank[c]; bst = c; }
+      }
+      //  섞여 있으면(일부만 됨) 진행 쪽 색을 반만
+      var x = (b % cols) * (cw + gap), y = Math.floor(b / cols) * (cell + gap);
+      g.fillStyle = col[0]; g.fillRect(x, y, cw, cell);
+      if (bst !== WAIT) {
+        g.fillStyle = col[bst];
+        if (same || bst === RUN || bst === RETRY || bst === BAD) g.fillRect(x, y, cw, cell);
+        else { var k = 0; for (i = lo; i < hi; i++) if (it.cells[i] === bst) k++; g.fillRect(x, y + cell * (1 - k / (hi - lo)), cw, cell * k / (hi - lo)); }
+      }
+    }
+    cv.title = n + '조각' + (per > 1 ? ' (한 칸 = ' + per + '조각)' : '') + ' · 조각 하나 ' + human(it.chunk);
+  }
+  //  검사 결과표 — [항목, 내 쪽, 서버 쪽, 맞음(true/false/null=참고)]
+  function drawReport(it) {
+    var box = it.el.querySelector('.rp');
+    if (!it.report) { box.innerHTML = ''; return; }
+    if (box._r === it.report) return;
+    box._r = it.report;
+    var r = it.report, mine = it.dir === 'down' ? '받은 것' : it.dir === 'check' ? '올릴 때 받은 값' : '내 PC';
+    var srv = it.dir === 'check' ? '지금 서버 디스크' : '포털 서버';
+    box.innerHTML = '<div class="rep"><div class="hd ' + (r.ok ? 'ok' : 'bad') + '">' + esc(r.title) + '</div><table>' +
+      '<tr class="h"><th>검사 항목</th><th>' + mine + '</th><th>' + srv + '</th><th>결과</th></tr>' +
+      r.rows.map(function (x) {
+        //  폰에서는 칸 이름(data-l)을 값 앞에 붙여 줄줄이 — 빈 값(—)은 숨김
+        var v = function (val, l) { return '<td class="v' + (val === '—' ? ' e' : '') + '" data-l="' + esc(l) + '">' + esc(val) + '</td>'; };
+        return '<tr><td class="k">' + esc(x[0]) + '</td>' + v(x[1], mine) + v(x[2], srv) + '<td class="j">' +
+          (x[3] === true ? '✅' : x[3] === false ? '❌' : '<span class="muted">참고</span>') + '</td></tr>';
+      }).join('') + '</table></div>';
+  }
+  function drawCtl(it) {
+    //  단추는 상태가 바뀔 때만 새로 — 진행률마다 새로 만들면 누르는 사이에 단추가 바뀌어 안 눌린다
+    var key = it.state + (it.report ? 'r' : '');
+    if (it.ctlFor === key) return;
+    it.ctlFor = key;
+    var c = it.el.querySelector('.ctl');
+    c.innerHTML = '';
+    function b(label, fn, title) { var x = document.createElement('button'); x.textContent = label; if (title) x.title = title; x.onclick = fn; c.appendChild(x); }
+    if (it.state === 'run' && it.dir !== 'check') b('⏸ 멈춤', function () { it.state = 'pause'; abortAll(it); drawUp(it); });
+    if ((it.state === 'pause' || it.state === 'error') && it.dir === 'up') b('▶ 이어 올리기', function () { it.state = 'wait'; it.inflight = {}; drawUp(it); run(); });
+    if ((it.state === 'pause' || it.state === 'error') && it.dir === 'down' && it.resume) b('▶ 이어 받기', function () { it.resume(); });
+    if (it.state === 'done' && it.report && !it.report.ok && it.dir === 'up') b('🔍 다시 검사', function () { checkFile({ id: it.id, name: it.name, size: it.size }, true); });
+    if (it.state !== 'done' && it.state !== 'verify') b('✕', function () {
+      if (it.dir === 'up' && !confirm(it.name + ' 올리기를 그만둘까요?\n(서버에 받아 둔 조각도 지웁니다)')) return;
+      it.state = 'cancel'; abortAll(it);
+      if (it.dir === 'up' && it.id) api('DELETE', '/bigfile/api/file/' + it.id).then(loadList, loadList);
+      if (it.cancel) it.cancel();
+      UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove();
+    }, '그만두기');
+    else if (it.state === 'done') b('지우기', function () { UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove(); }, '이 줄 지우기(파일은 그대로)');
+  }
+  function abortAll(it) { it.xhrs.forEach(function (x) { x.abort(); }); it.ctrls.forEach(function (x) { x.abort(); }); }
+  window.addEventListener('beforeunload', function (e) {
+    if (UPS.some(function (x) { return x.state === 'run' || x.state === 'wait' || x.state === 'verify'; })) { e.preventDefault(); e.returnValue = '주고받는 중입니다'; return e.returnValue; }
+  });
+  window.addEventListener('resize', function () { UPS.forEach(function (it) { if (it.el) drawMap(it); }); });
+
+  // ── 🔍 서버 검사 — 서버가 디스크에서 다시 읽는 동안 지도를 앞에서부터 초록으로 ──
+  function serverVerify(it, id, again) {
+    it.vmsg = '서버가 디스크에서 다시 읽는 중'; it.vdone = 0; drawUp(it);
+    return api('POST', '/bigfile/api/verify/' + id + (again ? '?again=1' : '')).then(function poll(r) {
+      if (r.state === 'done') {
+        it.vdone = it.size;
+        return r.result;
+      }
+      if (r.state === 'fail') throw new Error('서버 검사 실패 — ' + r.msg);
+      if (r.state === 'none') throw new Error('서버 검사가 사라졌습니다');
+      it.vdone = r.done || 0;
+      it.vmsg = r.wait ? '검사 차례를 기다리는 중(' + r.wait + '번째)' : '서버가 디스크에서 다시 읽는 중';
+      if (it.cells && it.chunk) for (var i = 0; i < it.cells.length && (i + 1) * it.chunk <= it.vdone; i++) if (it.cells[i] !== BAD) it.cells[i] = OK;
+      drawUp(it);
+      return sleep(600).then(function () { return api('GET', '/bigfile/api/verify/' + id); }).then(poll);
+    });
+  }
+  function colorAfter(it, bad) {
+    if (!it.cells) return;
+    for (var i = 0; i < it.cells.length; i++) it.cells[i] = OK;
+    (bad || []).forEach(function (i) { if (i < it.cells.length) it.cells[i] = BAD; });
+  }
+  function rowsCommon(r) {
+    return [
+      ['전체 CRC32', r.mineCrc, r.srvCrc, r.mineCrc === r.srvCrc],
+      ['SHA-256 (서버 계산)', '—', r.sha256 || '—', null],
+    ];
+  }
+
   // ── 올리기 ───────────────────────────────────────────────
   //   한 번에 파일 하나, 그 파일을 조각 PAR 개씩 함께. 조각이 실패하면 기다렸다가 다시(최대 10번).
+  //   다 올리면 ① 서버가 디스크에서 다시 읽어 조각 CRC 를 맞춰 보고 ② 내 PC 의 조각 CRC 와도 맞춰 본다.
   function addFiles(list) {
     for (var i = 0; i < list.length; i++) {
       var f = list[i];
       if (INFO && f.size > INFO.max) { toast(f.name + ' — 파일 하나는 ' + human(INFO.max) + ' 까지입니다'); continue; }
-      var it = { f: f, sent: 0, inflight: {}, state: 'wait', msg: '기다리는 중', xhrs: [], samples: [] };
-      UPS.push(it); drawUp(it);
+      var it = newItem('up', f.name, f.size);
+      it.f = f;
     }
     run();
   }
   function run() {
     if (RUNNING) return;
-    var it = UPS.filter(function (x) { return x.state === 'wait'; })[0];
+    var it = UPS.filter(function (x) { return x.dir === 'up' && x.state === 'wait'; }).pop();
     if (!it) return;
     RUNNING = true;
     upload(it).then(function () { RUNNING = false; run(); }, function () { RUNNING = false; run(); });
@@ -186,16 +485,18 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     it.state = 'run'; it.msg = '준비 중'; it.err = ''; drawUp(it);
     var f = it.f;
     return api('POST', '/bigfile/api/init?' + qs({ name: f.name, size: f.size, type: f.type || '', lm: f.lastModified || 0 })).then(function (r) {
-      it.id = r.id; it.chunk = r.chunk; it.n = r.n;
+      it.id = r.id;
+      setCells(it, r.n, r.chunk);
+      if (!it.crcs) { it.crcs = new Uint32Array(r.n); it.ck = new Uint8Array(r.n); }
       var have = atob(r.have || ''), todo = [];
       it.sent = 0;
       for (var i = 0; i < r.n; i++) {
-        if ((have.charCodeAt(i >> 3) >> (i & 7)) & 1) it.sent += Math.min(r.chunk, f.size - i * r.chunk);
-        else todo.push(i);
+        if ((have.charCodeAt(i >> 3) >> (i & 7)) & 1) { it.sent += Math.min(r.chunk, f.size - i * r.chunk); it.cells[i] = DONE; }
+        else { todo.push(i); it.cells[i] = WAIT; }
       }
       if (r.resumed && it.sent) toast(f.name + ' — 받아 둔 ' + human(it.sent) + ' 다음부터 이어 올립니다');
-      it.t0 = Date.now(); it.base = it.sent; it.samples = [];
-      it.msg = ''; drawUp(it); loadList();
+      if (!it.t0) it.t0 = Date.now();
+      it.samples = []; it.msg = ''; drawUp(it); loadList();
       var next = 0, fail = null;
       function worker() {
         if (fail || it.state !== 'run' || next >= todo.length) return Promise.resolve();
@@ -209,7 +510,8 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
         if (it.state !== 'run') return;
         it.msg = '마무리 중'; drawUp(it);
         return api('POST', '/bigfile/api/done/' + it.id).then(function () {
-          it.state = 'done'; it.sent = f.size; it.msg = ''; drawUp(it); loadList(); loadInfo();
+          it.sent = f.size; it.t1 = Date.now(); loadList(); loadInfo();
+          return verifyUpload(it);
         });
       });
     }).catch(function (e) {
@@ -221,27 +523,31 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     var f = it.f, a = i * it.chunk, b = Math.min(f.size, a + it.chunk);
     return f.slice(a, b).arrayBuffer().then(function (buf) {
       var crc = crc32(new Uint8Array(buf)), tries = 0;
+      it.crcs[i] = crc; it.ck[i] = 1;
       function once() {
         if (it.state !== 'run') return Promise.resolve();
+        mark(it, i, tries ? RETRY : RUN);
         return new Promise(function (ok, no) {
           var x = new XMLHttpRequest();
           it.xhrs.push(x);
           x.open('PUT', '/bigfile/api/chunk/' + it.id + '/' + i);
           x.setRequestHeader('Content-Type', 'application/octet-stream');
-          x.setRequestHeader('X-Crc32', crc);
+          x.setRequestHeader('X-Crc32', crc.toString(16));
           x.upload.onprogress = function (e) { it.inflight[i] = e.loaded; tick(it); };
           x.onloadend = function () {
             it.xhrs = it.xhrs.filter(function (y) { return y !== x; });
             delete it.inflight[i];
             var j = null; try { j = JSON.parse(x.responseText); } catch (e) { /* */ }
-            if (x.status === 200) { it.sent += b - a; tick(it); return ok(); }
-            if (it.state !== 'run') return ok();
+            if (x.status === 200) { it.sent += b - a; mark(it, i, DONE); tick(it); return ok(); }
+            if (it.state !== 'run') { mark(it, i, WAIT); return ok(); }
             if (x.status === 401) { location.href = '/?next=' + encodeURIComponent('/bigfile'); return no(new Error('로그인이 풀렸습니다')); }
             //  다시 해 볼 만한 것: 망 끊김(0)·깨짐(422)·같은 조각 받는 중(409)·서버 바쁨(5xx 일부)·시간 초과
             var retry = x.status === 0 || x.status === 408 || x.status === 409 || x.status === 422 || x.status === 429 || x.status === 400 || x.status === 502 || x.status === 503 || x.status === 504;
             var why = (j && j.error) || (x.status ? '서버 답 ' + x.status : '연결이 끊겼습니다');
             if (x.status === 413 && !(j && j.error)) why = '서버(nginx 등)가 조각을 너무 크다고 막았습니다 — 관리자에게 client_max_body_size 를 늘려 달라고 하세요';
+            mark(it, i, RETRY);
             if (!retry || ++tries > 10) return no(new Error(why));
+            it.retries++;
             var wait = Math.min(30, Math.pow(2, tries - 1));
             it.msg = why + ' — ' + wait + '초 뒤 다시 (' + tries + '/10)'; drawUp(it);
             var go = function () { window.removeEventListener('online', go); clearTimeout(t); if (it.msg.indexOf('다시') >= 0) it.msg = ''; once().then(ok, no); };
@@ -254,58 +560,209 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       return once();
     });
   }
-  //  속도 — 최근 8초 동안 보낸 양으로
-  function tick(it) {
-    var now = Date.now(), done = it.sent;
-    for (var k in it.inflight) done += it.inflight[k];
-    it.cur = Math.min(done, it.f.size);
-    it.samples.push([now, it.cur]);
-    while (it.samples.length > 2 && now - it.samples[0][0] > 8000) it.samples.shift();
-    if (!it._raf) it._raf = setTimeout(function () { it._raf = 0; drawUp(it); }, 250);
+  //  올린 뒤 검사 — 파라미터(이름·크기·조각·CRC·SHA-256)를 하나하나 맞춰 본다
+  function verifyUpload(it) {
+    it.state = 'verify'; drawUp(it);
+    var f = it.f, sr;
+    return serverVerify(it, it.id, false).then(function (r) {
+      sr = r;
+      //  이번에 안 보낸 조각(전에 올려 둔 것)은 내 PC 에서 읽어 CRC 를 낸다
+      var miss = [];
+      for (var i = 0; i < it.n; i++) if (!it.ck[i]) miss.push(i);
+      var k = 0;
+      function step() {
+        if (k >= miss.length) return Promise.resolve();
+        var i = miss[k++];
+        it.vmsg = '내 PC 의 파일을 읽는 중(전에 올린 조각 ' + k + '/' + miss.length + ')'; later(it);
+        return f.slice(i * it.chunk, Math.min(f.size, (i + 1) * it.chunk)).arrayBuffer().then(function (b) { it.crcs[i] = crc32(new Uint8Array(b)); it.ck[i] = 1; }).then(step);
+      }
+      return step();
+    }).then(function () {
+      it.vmsg = '조각 CRC 를 맞춰 보는 중'; drawUp(it);
+      return api('GET', '/bigfile/api/crcs/' + it.id);
+    }).then(function (c) {
+      var srvCrcs = b64u32(c.crcs, it.n), diff = [];
+      for (var i = 0; i < it.n; i++) if (srvCrcs[i] !== it.crcs[i]) diff.push(i);
+      var mineCrc = hex8(wholeCrc(it.crcs, f.size, it.chunk));
+      var bad = diff.concat(sr.bad || []);
+      colorAfter(it, bad);
+      var sec = ((it.t1 || Date.now()) - it.t0) / 1000;
+      var rows = [
+        ['파일 이름', f.name, sr.name, f.name === sr.name],
+        ['크기(바이트)', comma(f.size), comma(sr.disk), f.size === sr.disk && f.size === sr.size],
+        ['조각', it.n + '개 × ' + human(it.chunk), sr.n + '개 × ' + human(sr.chunk), it.n === sr.n && it.chunk === sr.chunk],
+        ['조각 CRC32 (내 PC ↔ 서버가 받은 값)', (it.n - diff.length) + ' / ' + it.n + ' 일치', diff.length ? '틀린 조각: ' + diff.slice(0, 10).join(', ') + (diff.length > 10 ? ' …' : '') : '모두 같음', !diff.length],
+        ['조각 CRC32 (서버 디스크 다시 읽기)', '—', (sr.badCount ? '틀린 조각 ' + sr.badCount + '개: ' + sr.bad.slice(0, 10).join(', ') : sr.compared + '개 모두 같음') + (sr.filled ? ' (예전 조각 ' + sr.filled + '개는 비교 없이 채움)' : ''), !sr.badCount],
+      ].concat(rowsCommon({ mineCrc: mineCrc, srvCrc: sr.crc, sha256: sr.sha256 })).concat([
+        ['수정 시각(내 PC)', f.lastModified ? day(f.lastModified) : '—', '—', null],
+        ['걸린 시간 · 평균 속도', dur(sec) + ' · ' + human(f.size / Math.max(sec, 0.001)) + '/초', '서버 검사 ' + dur(sr.ms / 1000), null],
+        ['다시 보낸 조각', it.retries + '번', '—', null],
+      ]);
+      finishReport(it, rows, '서버에 올라간 파일이 내 PC 의 파일과 똑같습니다', '올라간 파일이 내 파일과 다릅니다 — 지우고 다시 올려 주세요');
+      loadList();
+    });
   }
-  function drawUp(it) {
-    if (!it.el) {
-      it.el = document.createElement('div');
-      it.el.className = 'up';
-      it.el.innerHTML = '<div class="row"><span class="nm"></span><span class="ctl"></span></div><div class="bar"><i></i></div><div class="st"></div>';
-      $('ups').appendChild(it.el);
-    }
-    var f = it.f, cur = it.state === 'done' ? f.size : (it.cur === undefined ? it.sent : Math.max(it.sent, it.cur));
-    var pct = f.size ? cur / f.size * 100 : (it.state === 'done' ? 100 : 0);
-    it.el.querySelector('.nm').textContent = f.name;
-    it.el.querySelector('.bar i').style.width = pct.toFixed(1) + '%';
-    it.el.querySelector('.bar').className = 'bar' + (it.state === 'done' ? ' ok' : it.state === 'error' ? ' bad' : '');
-    var st = it.el.querySelector('.st'), s = '';
-    if (it.state === 'done') s = '✅ 다 올렸습니다 · ' + human(f.size) + (it.t0 ? ' · ' + dur((Date.now() - it.t0) / 1000) : '');
-    else if (it.state === 'error') s = '❌ ' + it.err;
-    else if (it.state === 'pause') s = '⏸ 멈춤 · ' + human(cur) + ' / ' + human(f.size);
-    else if (it.state === 'wait') s = '⏳ 기다리는 중 · ' + human(f.size);
-    else {
-      var sp = 0, sm = it.samples;
-      if (sm.length > 1) sp = (sm[sm.length - 1][1] - sm[0][1]) / Math.max(0.001, (sm[sm.length - 1][0] - sm[0][0]) / 1000);
-      s = pct.toFixed(1) + '% · ' + human(cur) + ' / ' + human(f.size) + (sp > 0 ? ' · ' + human(sp) + '/초 · 남은 시간 ' + dur((f.size - cur) / sp) : '') + (it.msg ? ' · ' + it.msg : '');
-    }
-    st.textContent = s;
-    st.className = 'st' + (it.state === 'error' ? ' bad' : it.state === 'done' ? ' ok' : '');
-    //  단추는 상태가 바뀔 때만 새로 — 진행률마다 새로 만들면 누르는 사이에 단추가 바뀌어 안 눌린다
-    if (it.ctlFor === it.state) return;
-    it.ctlFor = it.state;
-    var c = it.el.querySelector('.ctl');
-    c.innerHTML = '';
-    function b(label, fn, title) { var x = document.createElement('button'); x.textContent = label; if (title) x.title = title; x.onclick = fn; c.appendChild(x); }
-    if (it.state === 'run') b('⏸ 멈춤', function () { it.state = 'pause'; it.xhrs.forEach(function (x) { x.abort(); }); drawUp(it); });
-    if (it.state === 'pause' || it.state === 'error') b('▶ 이어 올리기', function () { it.state = 'wait'; it.inflight = {}; drawUp(it); run(); });
-    if (it.state !== 'done') b('✕', function () {
-      if (!confirm(f.name + ' 올리기를 그만둘까요?\n(서버에 받아 둔 조각도 지웁니다)')) return;
-      it.state = 'cancel'; it.xhrs.forEach(function (x) { x.abort(); });
-      if (it.id) api('DELETE', '/bigfile/api/file/' + it.id).then(loadList, loadList);
-      UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove();
-    }, '그만두기');
-    else b('지우기', function () { UPS = UPS.filter(function (y) { return y !== it; }); it.el.remove(); }, '이 줄 지우기(파일은 그대로)');
+  function finishReport(it, rows, good, badMsg) {
+    var ok = rows.every(function (x) { return x[3] !== false; });
+    it.report = { ok: ok, rows: rows, title: ok ? '✅ 검사 합격 — ' + good : '❌ 검사 불합격 — ' + badMsg };
+    it.state = 'done'; it.vmsg = '';
+    drawUp(it);
   }
-  window.addEventListener('beforeunload', function (e) {
-    if (UPS.some(function (x) { return x.state === 'run' || x.state === 'wait'; })) { e.preventDefault(); e.returnValue = '올리는 중입니다'; return e.returnValue; }
-  });
+
+  // ── 받기 — 화면 안에서 조각마다 받아 CRC 를 맞추며(그림·검사). 안 되는 곳은 보통 내려받기 ──
+  function download(f) {
+    var url = '/bigfile/api/file/' + f.id + '/dl';
+    var fsOk = typeof window.showSaveFilePicker === 'function' && !IN_APP;
+    if (!fsOk && f.size > BLOB_MAX) {
+      toast((IN_APP ? '앱에서는 ' : '이 브라우저에서는 ') + human(BLOB_MAX) + ' 넘는 파일을 보통 내려받기로 받습니다(그림·검사 없음)');
+      plain(url); return;
+    }
+    //  ⚠ 저장 위치 고르기는 단추를 누른 그 순간에 열어야 한다(브라우저 규칙) — 다른 일을 하기 전에
+    var pick = fsOk ? window.showSaveFilePicker({ suggestedName: f.name }).then(function (h) { return h.createWritable().then(function (w) { return { w: w, name: h.name }; }); }) : Promise.resolve(null);
+    pick.then(function (out) { runDownload(f, url, out); }, function (e) {
+      if (e && e.name === 'AbortError') return;            //  사용자가 「취소」
+      runDownload(f, url, null);
+    });
+  }
+  function plain(url) { var a = document.createElement('a'); a.href = url; a.download = ''; document.body.appendChild(a); a.click(); a.remove(); }
+  function runDownload(f, url, out) {
+    var it = newItem('down', f.name, f.size), parts = [], srv;
+    it.id = f.id; it.t0 = Date.now();
+    it.cancel = function () { if (out) out.w.abort().catch(function () {}); };
+    it.state = 'run'; it.msg = '서버에서 조각 정보를 받는 중'; drawUp(it);
+    function getCrcs() {
+      return api('GET', '/bigfile/api/crcs/' + f.id).then(function (c) {
+        if (!c.missing) return c;
+        //  예전에 올린 파일 — 서버가 먼저 읽어 조각 CRC 를 만든다
+        it.state = 'verify'; drawUp(it);
+        return serverVerify(it, f.id, false).then(function () { it.state = 'run'; drawUp(it); return api('GET', '/bigfile/api/crcs/' + f.id); });
+      });
+    }
+    function go() {
+      it.state = 'run'; it.err = ''; it.samples = []; drawUp(it);
+      var todo = [];
+      for (var i = 0; i < it.n; i++) if (it.cells[i] !== DONE) { todo.push(i); it.cells[i] = WAIT; }
+      var next = 0, fail = null;
+      function worker() {
+        if (fail || it.state !== 'run' || next >= todo.length) return Promise.resolve();
+        return getChunk(todo[next++]).then(worker, function (e) { fail = fail || e; });
+      }
+      var ws = [];
+      for (var k = 0; k < Math.min(INFO.parallel || 3, todo.length || 1); k++) ws.push(worker());
+      return Promise.all(ws).then(function () {
+        if (fail) throw fail;
+        if (it.state !== 'run') return;
+        it.t1 = Date.now();
+        return save().then(report);
+      }).catch(function (e) {
+        if (it.state === 'pause' || it.state === 'cancel') return;
+        it.state = 'error'; it.err = e.message || String(e); drawUp(it);
+      });
+    }
+    it.resume = go;
+    function getChunk(i) {
+      var a = i * it.chunk, b = Math.min(f.size, a + it.chunk), tries = 0;
+      function once() {
+        if (it.state !== 'run') return Promise.resolve();
+        mark(it, i, tries ? RETRY : RUN);
+        var ctl = new AbortController(); it.ctrls.push(ctl);
+        var buf = new Uint8Array(b - a), got = 0;
+        return fetch(url, { credentials: 'same-origin', headers: { Range: 'bytes=' + a + '-' + (b - 1) }, signal: ctl.signal }).then(function (r) {
+          if (r.status === 401) { location.href = '/?next=' + encodeURIComponent('/bigfile'); throw new Error('로그인이 풀렸습니다'); }
+          if (r.status !== 206 && !(r.status === 200 && a === 0 && b === f.size)) { var e = new Error('서버 답 ' + r.status); e.fatal = r.status === 404 || r.status === 403; throw e; }
+          var rd = r.body.getReader();
+          return (function pump() {
+            return rd.read().then(function (x) {
+              if (x.done) return;
+              if (got + x.value.length > buf.length) throw new Error('조각이 너무 깁니다');
+              buf.set(x.value, got); got += x.value.length;
+              it.inflight[i] = got; tick(it);
+              return pump();
+            });
+          })();
+        }).then(function () {
+          if (got !== buf.length) throw new Error('조각이 덜 왔습니다(' + got + '/' + buf.length + ')');
+          var c = crc32(buf);
+          if (c !== srv.crcs[i]) { var e = new Error('조각 ' + i + ' 가 깨져서 왔습니다(CRC)'); throw e; }
+          it.got[i] = c;
+          if (out) return out.w.write({ type: 'write', position: a, data: buf });
+          parts[i] = new Blob([buf]);
+        }).then(function () {
+          it.ctrls = it.ctrls.filter(function (y) { return y !== ctl; });
+          delete it.inflight[i];
+          if (it.state !== 'run') return;
+          it.sent += b - a; mark(it, i, DONE); tick(it);
+        }, function (e) {
+          it.ctrls = it.ctrls.filter(function (y) { return y !== ctl; });
+          delete it.inflight[i];
+          if (it.state !== 'run') { mark(it, i, WAIT); return; }
+          mark(it, i, RETRY);
+          if (e.fatal || ++tries > 8) throw e;
+          it.retries++;
+          var wait = Math.min(30, Math.pow(2, tries - 1));
+          it.msg = (e.message || '연결이 끊겼습니다') + ' — ' + wait + '초 뒤 다시 (' + tries + '/8)'; drawUp(it);
+          return sleep(wait * 1000).then(function () { it.msg = ''; return once(); });
+        });
+      }
+      return once();
+    }
+    function save() {
+      it.msg = '저장하는 중'; drawUp(it);
+      if (out) { it.saved = '고른 자리에 저장(' + out.name + ')'; return out.w.close(); }
+      var blob = new Blob(parts, { type: 'application/octet-stream' });
+      parts = [];
+      var u = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(u); }, 120000);
+      it.saved = '브라우저 내려받기 폴더';
+      it.blobSize = blob.size;
+      return Promise.resolve();
+    }
+    function report() {
+      var mine = wholeCrc(it.got, f.size, it.chunk), srvWhole = srv.crc || hex8(wholeCrc(srv.crcs, srv.size, srv.chunk));
+      var ok = 0; for (var i = 0; i < it.n; i++) if (it.got[i] === srv.crcs[i]) ok++;
+      var size = it.blobSize !== undefined ? it.blobSize : it.sent;
+      for (i = 0; i < it.n; i++) it.cells[i] = it.got[i] === srv.crcs[i] ? OK : BAD;
+      var sec = (it.t1 - it.t0) / 1000;
+      finishReport(it, [
+        ['파일 이름', out ? out.name : f.name, f.name, null],
+        ['크기(바이트)', comma(size), comma(srv.size), size === srv.size],
+        ['조각', it.n + '개 × ' + human(it.chunk), srv.n + '개 × ' + human(srv.chunk), it.n === srv.n],
+        ['조각 CRC32 (받은 것 ↔ 서버)', ok + ' / ' + it.n + ' 일치', '모든 조각을 받자마자 맞춰 봄', ok === it.n],
+      ].concat(rowsCommon({ mineCrc: hex8(mine), srvCrc: srvWhole, sha256: srv.sha256 })).concat([
+        ['저장한 곳', it.saved, '—', null],
+        ['걸린 시간 · 평균 속도', dur(sec) + ' · ' + human(f.size / Math.max(sec, 0.001)) + '/초', '—', null],
+        ['다시 받은 조각', it.retries + '번', '—', null],
+      ]), '받은 파일이 서버의 파일과 똑같습니다', '받은 파일이 서버와 다릅니다 — 다시 받아 주세요');
+    }
+    getCrcs().then(function (c) {
+      srv = c; srv.crcs = b64u32(c.crcs, c.n);
+      setCells(it, c.n, c.chunk); it.got = new Uint32Array(c.n);
+      it.msg = '';
+      return go();
+    }).catch(function (e) { it.state = 'error'; it.err = e.message || String(e); drawUp(it); });
+  }
+
+  // ── 목록의 🔍 — 서버에 있는 파일이 올릴 때 그대로인지 다시 읽어 검사 ──
+  function checkFile(f, again) {
+    var it = newItem('check', f.name, f.size);
+    it.t0 = Date.now(); it.state = 'verify'; drawUp(it);
+    setCells(it, Math.max(1, Math.ceil(f.size / INFO.chunk)), INFO.chunk);
+    serverVerify(it, f.id, again !== false).then(function (r) {
+      setCells(it, r.n, r.chunk);
+      colorAfter(it, r.bad);
+      it.t1 = Date.now();
+      finishReport(it, [
+        ['크기(바이트)', comma(r.size), comma(r.disk), r.size === r.disk],
+        ['조각', r.n + '개 × ' + human(r.chunk), '—', null],
+        ['조각 CRC32', r.compared + '개 비교' + (r.filled ? ' (예전 조각 ' + r.filled + '개는 비교 값이 없어 이번에 채움)' : ''), r.badCount ? '틀린 조각 ' + r.badCount + '개: ' + r.bad.slice(0, 10).join(', ') : '모두 같음', !r.badCount],
+        ['전체 CRC32', '—', r.crc, null],
+        ['SHA-256', '—', r.sha256, null],
+        ['검사 시간', '—', dur(r.ms / 1000), null],
+      ], '서버의 파일이 올릴 때 그대로입니다', '서버의 파일이 올릴 때와 다릅니다 — 다시 올려 주세요');
+      loadList();
+    }).catch(function (e) { it.state = 'error'; it.err = e.message || String(e); drawUp(it); });
+  }
 
   // ── 끌어다 놓기·고르기 ───────────────────────────────────
   var drop = $('drop'), pick = $('pick');
@@ -339,7 +796,7 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       INFO = r;
       $('who').textContent = r.user + ' 님';
       $('tabAll').hidden = !r.admin;
-      $('limits').textContent = '설치할 것 없이 브라우저에서 바로 · 파일 하나 ' + human(r.max) + ' 까지 · 끊겨도 같은 파일을 다시 고르면 이어 올립니다';
+      $('limits').textContent = '설치할 것 없이 브라우저에서 바로 · 파일 하나 ' + human(r.max) + ' 까지 · 끊겨도 같은 파일을 다시 고르면 이어 올립니다 · 다 올리면 자동으로 검사';
       var s = [];
       s.push('내가 쓰는 자리 ' + human(r.used) + (r.quota ? ' / ' + human(r.quota) : ''));
       if (r.free >= 0) s.push('서버 남은 자리 ' + human(r.free));
@@ -359,18 +816,21 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
       if (TAB === 'pub' && !f.pub) return false;
       return !q || (f.name + ' ' + f.owner).toLowerCase().indexOf(q) >= 0;
     });
-    var up = {}; UPS.forEach(function (u) { if (u.id && u.state !== 'done') up[u.id] = 1; });
+    var up = {}; UPS.forEach(function (u) { if (u.dir === 'up' && u.id && u.state !== 'done') up[u.id] = 1; });
     $('empty').hidden = rows.length > 0;
     $('list').innerHTML = rows.map(function (f) {
       var part = f.state !== 'done';
       var tags = (f.pub ? '<span class="tag pub">사내 공개</span>' : '') + (f.shares.length ? '<span class="tag lnk">링크 ' + f.shares.length + '</span>' : '') +
+        (f.v ? (f.v.ok ? '<span class="tag vok" title="' + day(f.v.at) + ' 검사">검사 ✓</span>' : '<span class="tag vbad">검사 ✕</span>') : '') +
         (part ? '<span class="tag part">' + (up[f.id] ? '올리는 중' : '다 못 올림 ' + Math.floor(f.got / f.n * 100) + '%') + '</span>' : '');
       var act = part
         ? (up[f.id] ? '' : '<button data-a="resume" data-id="' + f.id + '">▶ 이어 올리기</button>') + '<button data-a="del" data-id="' + f.id + '">🗑</button>'
-        : '<a class="btn pri" style="background:var(--acc);color:#fff;border-color:var(--acc)" href="/bigfile/api/file/' + f.id + '/dl" download>⬇ 받기</a>' +
+        : '<button class="pri" data-a="dl" data-id="' + f.id + '" title="받으면서 조각마다 검사">⬇ 받기</button>' +
+          '<button data-a="check" data-id="' + f.id + '" title="서버의 파일이 올릴 때 그대로인지 다시 읽어 검사">🔍</button>' +
           (f.mine || INFO.admin ? '<button data-a="share" data-id="' + f.id + '" title="바깥 사람용 링크">🔗</button>' +
             '<button data-a="pub" data-id="' + f.id + '" title="' + (f.pub ? '사내 공개 끄기' : '로그인한 직원 누구나 받게') + '">' + (f.pub ? '🔒' : '🏢') + '</button>' +
-            '<button data-a="del" data-id="' + f.id + '" title="지우기">🗑</button>' : '');
+            '<button data-a="del" data-id="' + f.id + '" title="지우기">🗑</button>' : '') +
+          '<div class="muted" style="margin-top:2px"><a href="/bigfile/api/file/' + f.id + '/dl" download>브라우저로 바로 받기</a></div>';
       return '<tr><td class="n">' + esc(f.name) + tags + '</td><td class="r">' + human(f.size) + '</td><td class="r">' + day(f.t1 || f.t0) +
         '</td><td>' + esc(f.owner) + '</td><td class="r">' + (part ? '' : f.dl + '번 받음') + '</td><td class="a">' + act + '</td></tr>';
     }).join('');
@@ -387,6 +847,8 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
     } else if (a === 'resume') {
       RESUME_FOR = f; toast('올리다 만 파일(' + f.name + ')을 다시 골라 주세요'); pick.click();
     } else if (a === 'share') openShare(f);
+    else if (a === 'dl') { download(f); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else if (a === 'check') { checkFile(f, true); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   };
   $('tabs').onclick = function (e) {
     var b = e.target.closest('button[data-t]'); if (!b) return;
@@ -429,6 +891,8 @@ dialog select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid va
   };
   $('dClose').onclick = function () { if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); };
 
+  //  시험용 — 점검 도구가 계산을 맞춰 본다
+  window.__bigfile = { crc32: crc32, wholeCrc: wholeCrc };
   loadInfo().then(loadList).catch(function (e) { toast(e.message); });
 })();
 </script>
