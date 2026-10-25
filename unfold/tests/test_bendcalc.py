@@ -284,8 +284,8 @@ def test_one_step_lowers_plastic_work_without_fold_over():
 def test_keeler_flc0_and_limit_curve():
     import numpy as np
     from hanil_unfold import forming
-    # SPCC n=0.21, t=1.0: FLC0 = 23.3 + 14.13 = 37.43 % 공칭
-    assert forming.keeler_flc0(1.0, 0.21) == pytest.approx(math.log(1.3743), rel=1e-4)
+    # n=0.21, t=1.0: FLC0 = 23.3 + 14.17 = 37.47 % 공칭 (Keeler 원식 23.3 + 360·t[in])
+    assert forming.keeler_flc0(1.0, 0.21) == pytest.approx(math.log(1 + (23.3 + 360 / 25.4) / 100), rel=1e-9)
     f0 = forming.keeler_flc0(1.0, 0.21)
     assert forming.flc_limit(np.array([-0.1, 0.0, 0.1]), f0) == pytest.approx([f0 + 0.1, f0, f0 + 0.06])
     assert bc.MATERIAL_BY_CODE["AL5052"].flc0_for(1.0) == 0.18      # 알루미늄은 표의 대표값
@@ -299,7 +299,7 @@ def test_forming_result_uses_one_step_and_flc():
     assert fi.flc0 == pytest.approx(bc.MATERIAL_BY_CODE["SPCC"].flc0_for(1.2))
     split, marginal, wrinkle, top = fi.flc_summary
     assert split == 0 and 0 < top < 0.8              # 얕은 접시는 한계까지 여유가 많다
-    assert "n=0.21" in r.settings_text
+    assert f"n={bc.MATERIAL_BY_CODE['SPCC'].n:g}" in r.settings_text
 
 
 def test_drawn_cup_one_step_beats_arap():

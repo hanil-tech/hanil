@@ -591,7 +591,8 @@ def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
 # ------------------------------------------------------------------ 성형 한계 (FLC)
 #
 # Keeler-Brazier 식 (North American Deep Drawing Research Group):
-#   FLC0 [% 공칭] = (23.3 + 14.13·t) · n / 0.21      (t: 두께 mm, 강판, t ≤ 약 3 mm)
+#   FLC0 [% 공칭] = (23.3 + 14.17·t) · n / 0.21      (t: 두께 mm, 강판, t ≤ 약 3 mm)
+#   (Keeler 원식은 인치: 23.3 + 360·t — 360 / 25.4 = 14.17. Schaeffler 2019 는 14.2·t)
 # 왼쪽(ε2 < 0)은 두께 감소가 FLC0 와 같은 선 (ε1 + ε2 = ε0, 진변형률),
 # 오른쪽(ε2 > 0)은 기울기 약 0.6 으로 올라간다. 알루미늄·스테인리스는 식이 맞지 않아
 # 재료 표의 대표 FLC0 를 쓴다.
@@ -599,7 +600,7 @@ def one_step(Vm, F, U0, n_exp, r_value=1.0, maxiter=200, seconds=4.0):
 def keeler_flc0(t, n):
     """FLC0 (진변형률)."""
     t = min(max(float(t), 0.3), 3.0)
-    return math.log(1 + (23.3 + 14.13 * t) * n / 0.21 / 100)
+    return math.log(1 + (23.3 + 360.0 / 25.4 * t) * n / 0.21 / 100)
 
 
 def flc_limit(minor, flc0):

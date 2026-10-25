@@ -33,11 +33,16 @@ YIELD_E = {
     "C1100": (200, 117), "C2600": (300, 103),
 }
 
-# 주름 누르개 면압 [MPa] (드로잉 핸드북 범위의 가운데 값)
-HOLDER_P = {"steel": 2.5, "sus": 3.5, "al": 1.0, "cu": 1.7}
+# 주름 누르개 면압 [MPa]: 강 2.5, 동합금 2.0~2.4, 알루미늄 1.2~1.5 (딥드로잉 교재),
+# 스테인리스는 저탄소강의 페라이트계(430) 약 1.5 배, 오스테나이트계(304) 최대 3 배 (MetalForming 2017)
+HOLDER_P = {"steel": 2.5, "sus": 3.75, "sus_aus": 6.0, "al": 1.35, "cu": 2.2}
+# 전단 저항 / 인장강도: 강·스테인리스 0.8, 알루미늄 0.55~0.65 (권장 0.6), 동 0.7
+SHEAR_RATIO = {"steel": 0.8, "sus": 0.8, "sus_aus": 0.8, "al": 0.6, "cu": 0.7}
 
 
 def _family(code):
+    if code.startswith("SUS3"):
+        return "sus_aus"            # 300 계 오스테나이트
     if code.startswith("SUS"):
         return "sus"
     if code.startswith("AL"):
@@ -48,8 +53,8 @@ def _family(code):
 
 
 def shear_strength(mat: bc.Material) -> float:
-    """전단 저항 τ [MPa] ≈ 인장강도의 80 %."""
-    return 0.8 * mat.tensile_mpa
+    """전단 저항 τ [MPa] = 인장강도 × 재질별 비 (강 0.8, 알루미늄 0.6, 동 0.7)."""
+    return SHEAR_RATIO[_family(mat.code)] * mat.tensile_mpa
 
 
 def clearance_pct(mat: bc.Material, t: float) -> float:

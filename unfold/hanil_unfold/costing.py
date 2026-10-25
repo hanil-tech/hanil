@@ -20,6 +20,8 @@ import copy
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from . import bendcalc as bc
 from . import diecalc as dc
 
@@ -40,7 +42,7 @@ DEFAULT_MACHINES = [
     {"name": "절곡기 400톤 6m", "kind": BRAKE, "capacity": 400, "length": 6100, "rate": 70000, "spm": 0,
      "setup_min": 20, "sec_per_op": 40},
     {"name": "파이버 레이저 6kW", "kind": LASER, "capacity": 25, "length": 0, "rate": 80000, "spm": 0,
-     "setup_min": 5, "speed_1mm": 30},
+     "setup_min": 5, "speed_1mm": 35},
     {"name": "선반·MCT", "kind": MACHINING, "capacity": 0, "length": 0, "rate": 45000, "spm": 0,
      "setup_min": 30, "sec_per_kg": 240},
 ]
@@ -98,9 +100,19 @@ def pick(machines, kind, need_ton=0.0, length=0.0):
     return max(cands, key=lambda m: (m["capacity"], m.get("length", 0))), False
 
 
+# 6 kW 파이버 레이저 연강 절단 속도 어림 (m/분): 얇은 판은 질소·공기 고속, 5 mm 넘으면 산소 절단.
+# 제조사 표 (IPG·machinemfg O2 표 6 mm 1.4~3.2, 10 mm 0.75~2.1, 20 mm 0.4~0.75) 와 현장 예
+# (6 kW 3 mm 약 15 m/분) 의 가운데. 기계마다 다르므로 [1 mm 속도] 로 비례 조정.
+LASER_6KW = [(0.5, 45.0), (1, 35.0), (2, 22.0), (3, 14.0), (4, 7.0), (5, 3.6), (6, 2.6), (8, 2.0),
+             (10, 1.5), (12, 1.2), (16, 0.85), (20, 0.6), (25, 0.45)]
+
+
 def laser_speed(m, t):
-    """m/분. 1 mm 속도에서 두께에 따라 줄어듦 (파이버 레이저 연강 어림 v ≈ v1 / t^1.1)."""
-    return m.get("speed_1mm", 30) / max(t, 0.5) ** 1.1
+    """m/분. 6 kW 표를 두께로 (로그) 보간하고, 기계의 1 mm 속도 / 35 로 비례."""
+    xs = [math.log(a) for a, _ in LASER_6KW]
+    ys = [math.log(b) for _, b in LASER_6KW]
+    v = math.exp(float(np.interp(math.log(max(t, 0.5)), xs, ys)))
+    return v * m.get("speed_1mm", 35) / 35.0
 
 
 def _setup_cost(m, lot):

@@ -78,10 +78,10 @@ def _ratio(tensile_mpa):
 
 # 대표 인장강도는 각 규격의 하한~일반 납품값 사이에서 고른 어림값이다.
 MATERIALS = [
-    Material("SPCC", "냉간압연강판 SPCC", MEDIUM, 414, 0.16, "[3] 냉연 연강 기준값 16%", n=0.21, r=1.6),
+    Material("SPCC", "냉간압연강판 SPCC", MEDIUM, 414, 0.16, "[3] 냉연 연강 기준값 16%", n=0.19, r=1.3),
     Material("SPHC", "열간압연강판 SPHC (산세 포함)", MEDIUM, 400, 0.15, "[3] 열연 산세 14~16%", n=0.18, r=1.0),
-    Material("SECC", "전기아연도금강판 SECC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판", n=0.21, r=1.5),
-    Material("SGCC", "용융아연도금강판 SGCC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판으로 어림", n=0.20, r=1.4),
+    Material("SECC", "전기아연도금강판 SECC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판", n=0.19, r=1.3),
+    Material("SGCC", "용융아연도금강판 SGCC", MEDIUM, 414, 0.16, "SPCC 와 같은 소지 철판으로 어림", n=0.18, r=1.2),
     Material("SS275", "일반구조용 SS275 (구 SS400)", MEDIUM, 450, _ratio(450), "[3] 인장강도 비례 어림", n=0.17, r=1.0),
     Material("SAPH440", "자동차 열연 SAPH440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림", n=0.16, r=0.9),
     Material("SGARC440", "자동차 합금화용융아연 SGARC440", MEDIUM, 440, _ratio(440), "자동차용, 인장강도 비례 어림", n=0.17, r=1.1),
@@ -89,7 +89,8 @@ MATERIALS = [
     Material("SPFC980", "자동차 초고장력 냉연 SPFC980", HARD, 980, _ratio(980), "초고장력강, R 을 크게·스프링백 큼", n=0.08, r=0.8),
     Material("SUS304", "스테인리스 SUS304", HARD, 600, 0.21, "[3] 20~22%", density=7.93, n=0.45, r=1.0, flc0=0.40),
     Material("SUS430", "스테인리스 SUS430", HARD, 480, _ratio(480), "[3] 인장강도 비례 어림", density=7.7, n=0.20, r=1.2, flc0=0.22),
-    Material("AL5052", "알루미늄 AL5052-H32", MEDIUM, 230, 0.12, "[3] 11~13%", density=2.68, n=0.13, r=0.7, flc0=0.18),
+    Material("AL5052", "알루미늄 AL5052-H32", MEDIUM, 230, 0.12, "[3] 11~13% · n 은 5052-O 값(H32 는 더 낮음)", density=2.68,
+             n=0.13, r=0.7, flc0=0.18),
     Material("AL1050", "알루미늄 AL1050-H24 (연질)", SOFT, 120, _ratio(120), "[3] 인장강도 비례 어림", density=2.71, n=0.10, r=0.6, flc0=0.20),
     Material("AL6061", "알루미늄 AL6061-T6", HARD, 310, _ratio(310), "T6 는 균열 주의, R 을 크게", density=2.7, n=0.05, r=0.7, flc0=0.08),
     Material("C1100", "동판 C1100 (1/2H)", SOFT, 270, _ratio(270), "[3] 인장강도 비례 어림", density=8.94, n=0.30, r=0.9, flc0=0.30),
