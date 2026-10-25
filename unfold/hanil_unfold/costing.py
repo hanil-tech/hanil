@@ -210,14 +210,23 @@ class DieQuote:
     stations: int
     size: tuple              # (길이, 폭, 두께) mm
     lines: list = field(default_factory=list)      # (항목, 산식, 금액)
+    sets: int = 1            # 금형 벌 수 (단발 탠덤은 공정마다 한 벌)
+    ops: list = field(default_factory=list)        # 공정 이름
+    plan: object = None      # 순차 금형이면 process.ProcessPlan (간략도의 스트립)
+    outline: object = None   # 전개 외곽 (간략도의 블랭크)
+    holes: list = field(default_factory=list)     # 전개 구멍들
+    press_tonf: float = 0.0
+    steel_kg: float = 0.0
+    insert_kg: float = 0.0
 
     @property
     def cost(self):
         return sum(x[2] for x in self.lines)
 
 
-def die_quote(item, method, ops, costing, settings: bc.BendSettings):
-    """금형 1 벌(순차·복합·트랜스퍼) 또는 공정별 단발 금형들의 합."""
+def die_quote(item, method, ops, costing, settings: bc.BendSettings, plan=None, press_tonf=0.0):
+    """금형 1 벌(순차·복합·트랜스퍼) 또는 공정별 단발 금형들의 합.
+    plan: 순차 금형의 스트립 공정도 (있으면 금형 길이·폭을 실제 피치·스트립 폭으로)."""
     d = costing["die"]
     r = item.result
     if r is None or "레이저" in method or method == "기계 가공":
@@ -228,7 +237,11 @@ def die_quote(item, method, ops, costing, settings: bc.BendSettings):
     forming = any(o.startswith("DR") or o.startswith("FL") or o.startswith("RST") for o in ops)
     k_form = d["drawing_factor"] if forming else 1.0
     mg = d["margin"]
-    if "순차" in method:
+    if "순차" in method and plan is not None:
+        L = len(plan.stations) * plan.pitch + 2 * mg
+        W = plan.strip_width + 2 * mg
+        sets = 1
+    elif "순차" in method:
         pitch = max(w, h) + 2 * t
         L = n * pitch + 2 * mg
         W = min(w, h) + 2 * mg + 40          # 캐리어 몫
@@ -260,7 +273,15 @@ def die_quote(item, method, ops, costing, settings: bc.BendSettings):
     oh = sub * d["overhead_pct"] / 100
     pf = (sub + oh) * d["profit_pct"] / 100
     lines += [(f"일반관리비 {d['overhead_pct']:g} %", "", oh), (f"이윤 {d['profit_pct']:g} %", "", pf)]
-    return DieQuote(item.no, item.name, method, n, (L, W, T), lines)
+    outline, holes = None, []
+    try:
+        from .nesting import NestPart
+        np_ = NestPart.from_result("p", r)
+        outline, holes = np_.outer, list(np_.holes)
+    except ValueError:
+        pass
+    return DieQuote(item.no, item.name, method, n, (L, W, T), lines, sets, list(ops), plan, outline, holes,
+                    press_tonf, steel_kg, insert_kg)
 
 
 DIE_NAMES = {

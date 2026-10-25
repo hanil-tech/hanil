@@ -159,7 +159,9 @@ def progressive(result, settings: bc.BendSettings, idle=False):
     if result.bends:
         angs = [math.degrees(math.atan2(b.line[1][1] - b.line[0][1], b.line[1][0] - b.line[0][0])) % 180
                 for b in result.bends]
-        base = float(np.median(angs))
+        # 가장 많은 절곡선 방향 (같으면 먼저 나온 것). 가운데값을 쓰면 0°·90° 가 섞인 부품이 45° 로 돌아간다.
+        rounded = [round(a) % 180 for a in angs]
+        base = float(max(dict.fromkeys(rounded), key=rounded.count))
     else:
         base = dc.strip_layout(result, part).angle
     best = None

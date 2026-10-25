@@ -151,7 +151,8 @@ def test_outputs(assy, tmp_path):
     assert any("tf" in t for t in texts)
     assert wb["공정별"].max_row > len(qt.parts)
     wd = openpyxl.load_workbook(tmp_path / "d.xlsx")
-    assert wd.sheetnames == ["금형 견적서", "금형 산출 근거", "금형 단가"]
+    assert wd.sheetnames == ["금형 견적서", "금형 산출 근거", "금형 단가", "금형 간략도"]
+    assert len(wd["금형 간략도"]._images) == len(qt.dies)
     assert (tmp_path / "q.pdf").stat().st_size > 5000 and (tmp_path / "d.pdf").stat().st_size > 3000
 
 
@@ -210,3 +211,20 @@ def test_full_analysis_package(assy, tmp_path):
     low = q.build(m, parts, st, q.load_rates(None), sets=10, annual=1000, title="T")
     names = [os.path.basename(f) for f in package.run(low, m, parts, st, str(tmp_path / "low"))]
     assert not any("금형견적서" in n for n in names) and len(names) == 5
+
+
+def test_die_sketch(assy):
+    from hanil_unfold import diesketch
+    m, parts, st = assy
+    qt = q.build(m, parts, st, q.load_rates(None), sets=100, annual=300_000)
+    prog = next(d for d in qt.dies if "순차" in d.die_type)
+    assert prog.plan is not None and prog.press_tonf > 0
+    # 금형 길이 = 공정 수 × 피치 + 여유 (간략도와 금형비가 같은 크기)
+    mg = q.load_rates(None)["costing"]["die"]["margin"]
+    assert prog.size[0] == pytest.approx(len(prog.plan.stations) * prog.plan.pitch + 2 * mg)
+    assert prog.size[1] == pytest.approx(prog.plan.strip_width + 2 * mg)
+    img = diesketch.render(prog, 800, 500)
+    assert img.width() == 800
+    comp = next(d for d in qt.dies if "복합" in d.die_type)
+    assert comp.plan is None and comp.outline is not None
+    diesketch.render(comp, 800, 500)

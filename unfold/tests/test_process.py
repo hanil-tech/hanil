@@ -83,3 +83,12 @@ def test_outputs(tmp_path):
     assert len(msp.query('LINE[layer=="BEND"]')) == 4
     img = pr.render(plan, 800, 300)
     assert img.width() == 800
+
+
+def test_orientation_follows_most_common_bend_direction():
+    """0°·90° 절곡이 섞인 트레이가 45° 로 돌아가지 않는다."""
+    r = unfold(loader.list_solids(models.tray())[0])
+    plan = pr.progressive(r, bc.BendSettings())
+    O = plan.outer
+    w, h = np.ptp(O, axis=0)
+    assert w * h == pytest.approx(r.size[0] * r.size[1], rel=0.02)       # 돌리지 않은 상자 크기

@@ -16,6 +16,7 @@ import copy
 import datetime as _dt
 import json
 import math
+import os
 from dataclasses import dataclass, field
 
 from . import bendcalc as bc
@@ -269,7 +270,22 @@ def part_cost(item, settings: bc.BendSettings, rates, annual, cache=None, lot=1)
         if cache is not None:
             cache[key] = (method, tuple(ops), cut_len, pierce)
     opc = cs.op_costs(item, settings, method, ops, cut_len, pierce, costing, lot)
-    die = cs.die_quote(item, method, ops, costing, settings)
+    plan = None
+    if "순차" in method:
+        pkey = ("plan", item.no)
+        if cache is not None and pkey in cache:
+            plan = cache[pkey]
+        else:
+            try:
+                from .process import progressive
+                plan = progressive(item.result, settings)
+            except Exception:
+                plan = None
+            if cache is not None:
+                cache[pkey] = plan
+    tons = [o.tonf for o in opc if o.kind == cs.PRESS]
+    press = sum(tons) if ("순차" in method or "트랜스퍼" in method or "복합" in method) else max(tons, default=0)
+    die = cs.die_quote(item, method, ops, costing, settings, plan, press)
     return PartCost(item.no, item.name, item.qty, item.category, spec, method, opc, item.weight, gross,
                     material, die)
 
@@ -503,7 +519,6 @@ def save_xlsx(q: Quote, path: str):
         w3.append([RATE_NAMES[k], q.rates[k]])
     w3.append(["기계 선택 여유 (배)", q.rates["costing"].get("safety", cs.SAFETY)])
     wb.save(path)
-    import os
     for t in tmp:
         try:
             os.remove(t)
@@ -740,7 +755,25 @@ def save_die_xlsx(q: Quote, path: str):
     for k, v in q.rates["costing"]["die"].items():
         ws3.append([cs.DIE_NAMES.get(k, k), v])
     ws3.column_dimensions["A"].width = 34
+    tmps = []
+    if q.dies:
+        from . import diesketch
+        from .report import _add_image
+        ws4 = wb.create_sheet("금형 간략도")
+        row = 1
+        for d in q.dies:
+            ws4.cell(row, 1, f"{d.part_no}. {d.part_name} — {d.die_type}").font = Font(bold=True)
+            try:
+                tmps.append(_add_image(ws4, diesketch.render(d, 1600, 1000), f"A{row + 1}", 1000))
+            except Exception:
+                pass
+            row += 34
     wb.save(path)
+    for t_ in tmps:
+        try:
+            os.remove(t_)
+        except OSError:
+            pass
 
 
 def save_die_pdf(q: Quote, path: str):
@@ -812,6 +845,16 @@ def save_die_pdf(q: Quote, path: str):
         y += 5.5
     text(m, H - m - 5, W - 2 * m, 5, f"한일 판금 전개 {version_text()}  ·  {company.MAKER}", 7.5,
          color=QColor(130, 130, 130))
+    # 금형 간략도: 금형마다 가로 한 쪽
+    from . import diesketch
+    pdf.setPageLayout(QPageLayout(QPageSize(QPageSize.A4), QPageLayout.Landscape, QMarginsF(0, 0, 0, 0)))
+    for d in q.dies:
+        pdf.newPage()
+        text(m, m - 3, 297 - 2 * m, 9, f"금형 간략도 — {d.part_no}. {d.part_name}", 14, True)
+        _brand(p, R(m, m - 1.5, 297 - 2 * m, 5))
+        diesketch.paint_die(p, R(m, m + 8, 297 - 2 * m, 210 - 2 * m - 12), d, 3.4 * k)
+        text(m, 210 - m - 3, 297 - 2 * m, 4, f"한일 판금 전개 {version_text()}  ·  견적용 간략도 (금형 설계 후 확정)",
+             7, color=QColor(130, 130, 130))
     p.end()
 
 
