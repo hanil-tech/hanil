@@ -8,6 +8,9 @@ hanil_unfold/gl_view.py 의 3D 화면 셰이더(조명·외곽선·단면)와 �
   Licensed under the MIT License or the Apache License, Version 2.0, at your option.
   (이 프로그램은 MIT License 조건으로 사용합니다.)
 
+tests/data/solidcraft 의 STEP 파일과 reference.json 은 SolidCraft 0.23 의 solidcraft-cli 로 만든 시험 자료입니다
+(같은 스크립트가 옆에 있음). 판금 전개 결과를 다른 CAD 와 견주는 시험 (tests/test_solidcraft_step.py) 에만 씁니다.
+
 MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and

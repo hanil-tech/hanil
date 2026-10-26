@@ -9,6 +9,7 @@ case = (번호, 묶음, 이름, 정답 출처, 식 설명, 정답, 프로그램 
 from __future__ import annotations
 
 import math
+import os
 
 from models import drawn_cup, flat_length, funnel, profile_part, tube
 
@@ -114,6 +115,50 @@ def _cup_exact(R=50.0, H=50.0, rf=8.0, t=1.0):
     return math.sqrt(4 * a / math.pi)
 
 
+def _dxf_plate():
+    import tempfile
+
+    import test_dxf2d as T
+    with tempfile.TemporaryDirectory() as d:
+        m = loader.load(T.drawing(d + "/w.dxf"))
+        st = bc.BendSettings(material="SPCC")
+        return unfold(m.solids[0], settings=st), st
+
+
+def _blank_force():
+    r, st = _dxf_plate()
+    return dc.review(r, st, strip=False).loads[0].force_n
+
+
+def _weight():
+    r, _ = _dxf_plate()
+    return mt.compute(r, 7.85).weight_kg
+
+
+def _cpk():
+    from hanil_unfold import inspection as ip
+    c = ip.Char(1, "블랭크", "길이", 10.0, 0.3, -0.3, values=[10.0, 10.1, 9.9, 10.05, 9.95])
+    return ip.stats(c).cpk
+
+
+def _rate():
+    from hanil_unfold import costing as cs
+    p = dict(price=300e6, years=10, hours=4000, interest_pct=4, area_m2=50, rent_m2=40000, power_kw=30, load=0.5,
+             kwh=150, maint_pct=3, wage=30000, crew=1)
+    return cs.machine_rate(p)[0]
+
+
+def _flange_cup(d=100.0, h=40.0, r=6.0, fd=160.0, rf=5.0):
+    """플랜지 컵 넓이 (파푸스, cup_area 와 따로): 바닥 원 + 바닥 R 1/4 원환 + 벽 + 플랜지 R 1/4 원환 + 플랜지 고리."""
+    R = d / 2
+    a = math.pi * (R - r) ** 2
+    a += (math.pi * r / 2) * 2 * math.pi * (R - r + 2 * r / math.pi)
+    a += math.pi * d * (h - r - rf)
+    a += (math.pi * rf / 2) * 2 * math.pi * (R + rf - 2 * rf / math.pi)
+    a += math.pi / 4 * (fd ** 2 - (d + 2 * rf) ** 2)
+    return a
+
+
 def _m310():
     import dataclasses
     return dataclasses.replace(bc.MATERIAL_BY_CODE["SPCC"], tensile_mpa=310, r=1.0)
@@ -161,7 +206,60 @@ def cases():
     n += 1
     out.append((n, "금형 설계 (교재)", "V 굽힘력 C = 1 + 4t/V", "Schuler·DIN 식", "SPCC 414 · L 100 · t 2 · V 16",
                 (1 + 8 / 16) * 414 * 100 * 4 / 16, lambda: dc.bend_force(bc.MATERIAL_BY_CODE["SPCC"], 100, 2, 16), 1e-9))
+    n += 1
+    out.append((n, "금형 설계 (교재)", "블랭킹력 F = L · t · τ", "해석", "외곽 2(180+80) + 2π·10 · t 1.6 · τ 0.8·414",
+                (2 * (180 + 80) + 2 * math.pi * 10) * 1.6 * 0.8 * 414, _blank_force, 1e-4))
+    n += 1
+    out.append((n, "드로잉 블랭크", "플랜지 컵 넓이 (d100 h40 R6 플랜지 Ø160 R5)", "해석 (파푸스)",
+                "바닥 + 1/4 원환 + 벽 + 1/4 원환 + 고리", _flange_cup(), lambda: dc.cup_area(100, 40, 6, 160, 5), 1e-12))
+    n += 1
+    out.append((n, "무게", "DXF 평판 SPCC t1.6", "해석", "넓이 × t × 7.85 g/cm³", _ex_area() * 1.6 * 7.85e-6,
+                _weight, 1e-5))
+    n += 1
+    out.append((n, "성형 한계", "Keeler FLC0 (t 0.8, n 0.18)", "MetalForming 2019 예제", "(23.3 + 14.13 t) · n/0.21 → 약 30 %",
+                0.30, lambda: math.exp(__import__("hanil_unfold.forming", fromlist=["x"]).keeler_flc0(0.8, 0.18)) - 1, 0.02))
+    n += 1
+    out.append((n, "품질", "Cpk (10 ± 0.3, 5 개)", "해석", "μ 10, s = √(0.00625) → 0.3 / 3s", 0.3 / (3 * math.sqrt(0.00625)),
+                _cpk, 1e-9))
+    n += 1
+    out.append((n, "공차", "JIS B 0408 打抜き B 급 30~120", "MISUMI 普通公差", "±0.3", 0.3,
+                lambda: __import__("hanil_unfold.tolerances", fromlist=["x"]).jis(100, "punch", "B"), 1e-12))
+    n += 1
+    out.append((n, "공차", "ISO 2768-m 120~400", "ISO 2768-1 표", "±0.5", 0.5,
+                lambda: __import__("hanil_unfold.tolerances", fromlist=["x"]).iso(200, "m"), 1e-12))
+    n += 1
+    out.append((n, "원가", "기계 임률 (3 억 · 10 년 · 4000 h …)", "Maschinenstundensatz 정의",
+                "3억/10/4000 + 3억/2·4%/4000 + 50·4만/4000 + 30·0.5·150 + 3억·3%/4000 + 3만",
+                300e6 / 10 / 4000 + 300e6 / 2 * 0.04 / 4000 + 50 * 40000 / 4000 + 30 * 0.5 * 150 + 300e6 * 0.03 / 4000 + 30000,
+                _rate, 1e-12))
+    for name, c in _sc_ref().items():
+        n += 1
+        w, h = c["flat_size_mm"]
+        out.append((n, "SolidCraft 교차 확인", name, "SolidCraft 0.23 sheet.flat_pattern",
+                    f"그 STEP 을 열어 전개한 가로 × 세로 ({w:.4f} × {h:.4f}), K {c['k_factor']:g}", w * h,
+                    _sc_flat(name, c["k_factor"]), 1e-6))
     return out
+
+
+SC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "solidcraft")
+
+
+def _sc_ref():
+    import json
+    with open(os.path.join(SC_DIR, "reference.json"), encoding="utf-8") as f:
+        return json.load(f)["cases"]
+
+
+def _sc_flat(name, k):
+    def run():
+        m = loader.load(os.path.join(SC_DIR, name + ".step"), use_cache=False)
+        w, h = unfold(m.solids[0], k_factor=k).size
+        return w * h
+    return run
+
+
+def _ex_area():
+    return 200 * 100 - (4 - math.pi) * 100 - 2 * math.pi * 25 - (40 * 20 + math.pi * 100)
 
 
 def run_all():

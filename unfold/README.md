@@ -113,10 +113,19 @@ JIS B 0408 보통 공차 (±mm, B 급):
   LibreDWG 의 `dwg2dxf` 가 있으면 그것도 씁니다. 변환기가 없으면 내려받을 곳을 알려 줍니다.
 - 3D 솔리드가 든 DWG (ACIS) 는 읽지 못합니다 — AutoCAD 에서 STEP 으로 내보내세요 (STEPOUT).
 
+## SolidCraft 로 그린 부품 쓰기 (1.36.1)
+
+3D CAD 가 없는 PC 에서는 무료 오픈소스 CAD [SolidCraft](https://github.com/tangency-labs/solidcraft) (Windows 설치판·브라우저판)
+로 판금 부품을 그려 **STEP 으로 내보낸 뒤** 이 프로그램에서 열면 됩니다 (File → Export → STEP).
+SolidCraft 로 만든 판금 STEP 6 종 (L 45°·90°·135°, U 채널, 트레이, t 1~3, K 0.33~0.5) 을 열어 전개한 크기가
+SolidCraft 자신의 전개와 소수 넷째 자리까지 같음을 시험으로 확인했습니다 (`tests/data/solidcraft`, `tests/test_solidcraft_step.py`).
+SolidCraft 의 K 계수는 판금 규칙 하나의 고정값이라, 이 프로그램에서는 재질·R/t·회사 연신표로 다시 계산하는 것이 더 정확합니다.
+
 ## 정답 대조 시험 (1.36.0)
 
-SolidCraft 의 reference tests 처럼, 손으로 계산한 정답 (해석식) 과 문헌 계산 예제를 프로그램 결과와 견주는 **28 사례** 를 둡니다
-— 판금 전개 (K 직접 12 · DIN 6935 5), 관·원뿔 말기, DXF 블랭크 넓이·절단 길이, 성형 컵 블랭크, 금형 설계 문헌 예제.
+SolidCraft 의 reference tests 처럼, 손으로 계산한 정답 (해석식) 과 문헌 계산 예제를 프로그램 결과와 견주는 **42 사례** 를 둡니다
+— 판금 전개 (K 직접 12 · DIN 6935 5), 관·원뿔 말기, DXF 블랭크 넓이·절단 길이, 성형 컵·플랜지 컵 블랭크, 금형 설계 문헌 예제·블랭킹력,
+무게, Keeler FLC0, Cpk, 보통 공차, 기계 임률, SolidCraft 교차 확인 6.
 결과표는 [docs/oracle.md](docs/oracle.md) (`python tools/oracle_report.py` 로 다시 만듦), CI 에서 `tests/test_oracle.py` 가 확인합니다.
 
 ## 실적 보정 (1.35.0)
@@ -907,6 +916,7 @@ Windows [앱 및 기능]·DXF 의 NOTE 글씨·PDF/엑셀 보고서·전개 기�
 
 | 버전 | 바뀐 것 |
 |---|---|
+| 1.36.1 | SolidCraft STEP 교차 확인 (전개 크기 일치), 정답 대조 시험 42 사례 |
 | 1.36.0 | 2D 도면 (DXF·DWG) 을 블랭크 평판으로 열기 (ODA File Converter), 정답 대조 시험 28 사례 (docs/oracle.md) |
 | 1.35.0 | 실적 보정: 예측 vs 실측 (스프링백·얇아짐·하중·공정 시간·금형비) 으로 보정 계수 → 다음 계산부터 곱함, 검사 성적서 두께 연계 |
 | 1.34.0 | 정확도: 밀시트 실측값 (YS·TS·n·r·E), 스프링백 모멘트 법 (+ 고장력강 탄성 계수 감소), Siebel 누르개 면압·Oehler 다이 R·드로잉 틈새 (문헌 예제 일치), 굽힘력 1 + 4t/V |

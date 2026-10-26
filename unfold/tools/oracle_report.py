@@ -28,6 +28,8 @@ def main():
         lines.append(f"| {no} | {grp} | {name} | {src} | {how} | {exp:,.4f} | {got:,.4f} | {err:.2e} | {tol:.0e} | "
                      f"{'통과' if passed else '**실패**'} |")
     lines += ["", "- 판금 전개 (K 직접 · DIN 6935) 와 원통 말기는 식 그대로라 오차가 계산 정밀도 (1e-15) 수준.",
+              "- SolidCraft 교차 확인: 다른 CAD (SolidCraft 0.23, 자체 Rust 커널) 가 만든 판금 STEP 을 열어 전개한 크기를 "
+              "SolidCraft 자신의 전개 (flat pattern) 와 견줌 — 같은 K 에서 소수 넷째 자리까지 같음 (tests/data/solidcraft).",
               "- 원뿔 말기 2e-4: 부채꼴 원호를 꺾은선으로 잰 넓이 몫.",
               "- 성형품 (원스텝) 은 근사 — 체적 일정 원판 지름과 1~2 % (원스텝은 두께 변화를 넓이 가중으로 풂). "
               "실제 컵 시험값과의 차는 [실적 보정] 으로 맞춘다.",
