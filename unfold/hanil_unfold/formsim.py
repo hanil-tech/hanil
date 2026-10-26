@@ -221,11 +221,15 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                 fa.loads.append(("성형 (펀치) 힘", f_draw, f"둘레 {L_prod:,.0f} mm × t × 유동 응력 {sig:.0f} MPa "
                                                        "(스트레치 성형)"))
             if z is not None:
-                p_bh = dc.HOLDER_P[dc._family(mat.code)]
+                p_tab = dc.HOLDER_P[dc._family(mat.code)]
+                if fa.ldr:                           # 드로잉: Siebel 면압 (β = 1/m, d = 둘레 / π)
+                    p_bh = dc.siebel_holder_pressure(fa.ldr[0], L_prod / math.pi, t, mat)
+                    how = f"Siebel 면압 {p_bh:.2f} MPa (β {fa.ldr[0]:.2f}; 표 값 {p_tab:g} MPa 는 쿠션 능력 상한)"
+                else:                                # 스트레치: 누르개로 잡아 둠 → 표 값
+                    p_bh, how = p_tab, f"면압 {p_tab:g} MPa (스트레치 성형, 교재 표)"
                 bh = max(fi.blank_area - proj, 0.0)
                 if bh > 0.02 * fi.blank_area:
-                    fa.loads.append(("주름 누르개 힘", p_bh * bh, f"면압 {p_bh:g} MPa × {bh:,.0f} mm² "
-                                                              "(블랭크 − 펀치 투영)"))
+                    fa.loads.append(("주름 누르개 힘", p_bh * bh, f"{how} × {bh:,.0f} mm² (블랭크 − 펀치 투영)"))
                 fa.messages.append(f"성형 깊이 {depth:.1f} mm · 펀치 투영 넓이 {proj:,.0f} mm² · "
                                    f"블랭크 {fi.blank_area:,.0f} mm²")
     _edge_stretch(fa, fi, mat)
@@ -391,6 +395,9 @@ def analyze(result, settings: bc.BendSettings) -> FormAnalysis:
         _forming(fa, fi, mat)
     else:
         _sheet(fa, result, settings, mat)
+    fa.messages.append(f"재질값: {mat.source} — TS {mat.tensile_mpa:g} MPa · YS {dc.yield_strength(mat):g} MPa · "
+                       f"n {mat.n:g} · r̄ {mat.r:.2f}" + (f" · Δr {mat.dr:+.2f}" if mat.dr else "")
+                       + ("" if mat.source != "대표값" else " (밀시트 값을 넣으면 더 정확: 절곡 조건 → [밀시트 실측값])"))
     peak = max((f for _, f, _ in fa.loads), default=0.0)
     total = sum(f for name, f, _ in fa.loads if not name.startswith("굽힘")) if fi is not None else peak
     fa.press_tonf = total * 1.3 / dc.TON

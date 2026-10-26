@@ -444,15 +444,19 @@ class DieDialog(QDialog):
             pr.save_dxf(self.plan, path, self.name)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
+    def _dmat(self):
+        code = self.d_mat.currentData()
+        return self.settings.mat if code == self.settings.material else bc.MATERIAL_BY_CODE[code]   # 밀시트 값
+
     def draw_plan(self):
-        mat = bc.MATERIAL_BY_CODE[self.d_mat.currentData()]
+        mat = self._dmat()
         return dc.draw_plan(self.d_d.value(), self.d_h.value(), self.d_r.value(), self.d_t.value(), mat,
                             self.d_fd.value(), self.d_rf.value(), self.d_trim.value())
 
     def _calc_draw(self, *_):
         if getattr(self, "p_kind", None) is not None and self.p_kind.currentData() == "draw":
             self._calc_process()
-        mat = bc.MATERIAL_BY_CODE[self.d_mat.currentData()]
+        mat = self._dmat()
         try:
             pl = self.draw_plan()
         except (ValueError, ZeroDivisionError) as e:
@@ -460,7 +464,8 @@ class DieDialog(QDialog):
             return
         rows = "".join(f"<tr><td>{s.no}</td><td align=right>{s.m:.3f}</td><td align=right>Ø{s.d:.1f}</td>"
                        f"<td align=right>{s.table_n / 1000:,.1f}</td><td align=right>{s.siebel_n / 1000:,.1f}</td>"
-                       f"<td align=right><b>{s.force_n / 1000:,.1f}</b></td><td align=right>{s.force_n / dc.TON:.2f}</td></tr>"
+                       f"<td align=right><b>{s.force_n / 1000:,.1f}</b></td><td align=right>{s.force_n / dc.TON:.2f}</td>"
+                       f"<td align=right>R{s.die_r:.1f}</td><td align=right>{s.gap:.2f} (최대 {s.gap_max:.2f})</td></tr>"
                        for s in pl.stages)
         from html import escape
         notes = "".join(f"<br>⚠ {escape(n)}" for n in pl.notes)
@@ -468,13 +473,17 @@ class DieDialog(QDialog):
             f"<h3>블랭크 Ø{pl.D:.2f} mm</h3>"
             f"상대 두께 t/D = {pl.rel_thickness:.2f} % · 전체 드로잉률 d/D = {pl.ratio_total:.3f} · "
             f"<b>드로잉 {len(pl.stages)}회</b><br>"
-            f"주름 누르개: {escape(pl.holder_needed)} · 누르개 힘 약 {pl.holder_n / 1000:,.1f} kN "
-            f"({pl.holder_n / dc.TON:.2f} tf){notes}<br><br>"
+            f"주름 누르개: {escape(pl.holder_needed)} · MISUMI 판정 {escape(pl.holder_misumi)}<br>"
+            f"누르개 힘 {pl.holder_n / 1000:,.1f} kN ({pl.holder_n / dc.TON:.2f} tf, Siebel 면압 {pl.holder_p:.2f} MPa) · "
+            f"다이 쿠션 고를 때 {pl.holder_tab_n / 1000:,.1f} kN (교재 표 면압){notes}<br><br>"
             f"한계 드로잉비 LDR = {dc.ldr(mat):.2f} (Whiteley·Hosford, r = {mat.r:g})<br><br>"
             "<table border=1 cellspacing=0 cellpadding=4><tr><th>공정</th><th>드로잉률 m</th><th>지름</th>"
-            f"<th>교재 식 kN</th><th>Siebel kN</th><th>드로잉력 kN (큰 값)</th><th>tf</th></tr>{rows}</table>"
+            f"<th>교재 식 kN</th><th>Siebel kN</th><th>드로잉력 kN (큰 값)</th><th>tf</th><th>다이 R</th>"
+            f"<th>한쪽 틈새 mm</th></tr>{rows}</table>"
             "<br><span style='color:#777'>교재 식 F = π·d·t·σb·n (n: 드로잉률에 따른 계수 0.4~1.0) · "
-            "Siebel F = π·d·t·1.1·k_fm·ln(D/d) ÷ 0.65 (k_fm 평균 유동 응력, 홀로몬) — 큰 값으로 프레스를 고릅니다.</span>")
+            "Siebel F = π·d·t·1.1·k_fm·ln(D/d) ÷ 0.65 (k_fm 평균 유동 응력, 홀로몬) — 큰 값으로 프레스를 고릅니다.<br>"
+            "다이 R = 0.035·[50 + (D − d)]·√t (Oehler·Kaiser), 틈새 권장 1.0~1.1 t (MISUMI) · 최대 = 위 끝 두께 "
+            "t·β^(1/(1+r)), 누르개 면압 p = [(β − 1)² 또는 ³ + d/(200 t)]·Rm/400 (Siebel)</span>")
 
     def _log(self, files):
         if self.history is None:
@@ -579,11 +588,13 @@ def save_xlsx(rep, path, name="", strip_img=None, plan=None, route=None, process
     if plan is not None:
         ws4 = wb.create_sheet("원통 드로잉")
         nxt = sheet(ws4, f"원통 드로잉 — 블랭크 Ø{plan.D:.2f} mm, {len(plan.stages)}회",
-                    ["공정", "드로잉률 m", "지름 mm", "교재 식 kN", "Siebel kN", "드로잉력 kN", "tf"],
-                    [[s.no, s.m, s.d, s.table_n / 1000, s.siebel_n / 1000, s.force_n / 1000, s.force_n / dc.TON]
-                     for s in plan.stages])
-        ws4.cell(nxt, 1, f"t/D {plan.rel_thickness:.2f} % · 주름 누르개 {plan.holder_needed} · "
-                         f"누르개 힘 {plan.holder_n / 1000:,.1f} kN")
+                    ["공정", "드로잉률 m", "지름 mm", "교재 식 kN", "Siebel kN", "드로잉력 kN", "tf", "다이 R mm",
+                     "한쪽 틈새 mm", "틈새 최대 mm"],
+                    [[s.no, s.m, s.d, s.table_n / 1000, s.siebel_n / 1000, s.force_n / 1000, s.force_n / dc.TON,
+                      s.die_r, s.gap, s.gap_max] for s in plan.stages])
+        ws4.cell(nxt, 1, f"t/D {plan.rel_thickness:.2f} % · 주름 누르개 {plan.holder_needed} (MISUMI {plan.holder_misumi}) · "
+                         f"누르개 힘 {plan.holder_n / 1000:,.1f} kN (Siebel {plan.holder_p:.2f} MPa) · "
+                         f"다이 쿠션 {plan.holder_tab_n / 1000:,.1f} kN")
         for k, n in enumerate(plan.notes, 1):
             ws4.cell(nxt + k, 1, n)
     tmps = [tmp] if tmp else []
@@ -699,9 +710,10 @@ def save_pdf(rep, path, name="", strip_img=None, plan=None, route=None, process_
                        f"원통 드로잉: 블랭크 Ø{plan.D:.2f} mm · {len(plan.stages)}회 · t/D {plan.rel_thickness:.2f} % · "
                        f"주름 누르개 {plan.holder_needed}")
             y += 9
-            pr._table(p, R, k, m, y, [("공정", 20), ("드로잉률 m", 30), ("지름 mm", 30), ("드로잉력 kN", 34), ("tf", 24)],
-                      [[str(s_.no), f"{s_.m:.3f}", f"{s_.d:.1f}", f"{s_.force_n / 1000:,.1f}", f"{s_.force_n / dc.TON:.2f}"]
-                       for s_ in plan.stages])
+            pr._table(p, R, k, m, y, [("공정", 20), ("드로잉률 m", 30), ("지름 mm", 30), ("드로잉력 kN", 34), ("tf", 24),
+                                      ("다이 R", 24), ("한쪽 틈새 (최대)", 40)],
+                      [[str(s_.no), f"{s_.m:.3f}", f"{s_.d:.1f}", f"{s_.force_n / 1000:,.1f}", f"{s_.force_n / dc.TON:.2f}",
+                        f"R{s_.die_r:.1f}", f"{s_.gap:.2f} ({s_.gap_max:.2f})"] for s_ in plan.stages])
     # 3 쪽: 공정도, 4 쪽: 자동 공정 설계
     if process_plan is not None:
         pdf.newPage()

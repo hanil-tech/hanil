@@ -51,7 +51,7 @@ def test_force_coefficient_and_bend_force():
     assert dc.force_k(0.55) == 1.0 and dc.force_k(0.8) == 0.4
     assert dc.force_k(0.6125) == pytest.approx(0.825)
     f = dc.bend_force(SPCC, 100, 2, 16)
-    assert f == pytest.approx(1.33 * 414 * 100 * 4 / 16)
+    assert f == pytest.approx((1 + 4 * 2 / 16) * 414 * 100 * 4 / 16)      # C = 1 + 4t/V (V 8t → 1.5)
     assert dc.bend_force(SPCC, 100, 2, 16, bc.BOTTOM) == pytest.approx(2 * f)
 
 
@@ -138,3 +138,44 @@ def test_european_japanese_formulas():
     assert tl.jis(5) == 0.1 and tl.jis(100) == 0.3 and tl.jis(1500, cls="C") == 3.0
     assert tl.jis(20, "bend") == 0.5 and tl.jis(100, "bend") == 0.8 and tl.jis(300, "bend", "A") == 0.5
     assert tl.iso(100) == 0.3 and tl.iso(500) == 0.8 and tl.iso(2, "v") is None
+
+
+def test_literature_worked_examples():
+    """문헌 예제와 같은 값: Siebel 누르개 면압 (β 2 · d 100 · s 1 · Rm 310 → 1.16 MPa),
+    Oehler·Kaiser 다이 R (D 200 · d 100 · s 1 → 5.25 mm), 위 끝 두께 t√β (r = 1, β 2 → 1.41)."""
+    import dataclasses
+    m310 = dataclasses.replace(SPCC, tensile_mpa=310)
+    assert dc.siebel_holder_pressure(2, 100, 1, m310) == pytest.approx(1.16, abs=0.01)
+    assert dc.die_radius(200, 100, 1) == pytest.approx(5.25)
+    assert dc.die_radius(130, 100, 1) == pytest.approx(0.8 * 0.035 * 80)              # β < 1.4 → −20 %
+    gap, gmax = dc.draw_gap(1.0, 2.0, dataclasses.replace(SPCC, r=1.0))
+    assert gmax == pytest.approx(2 ** 0.5) and gap == pytest.approx(1.1)
+    assert dc.draw_gap(1.0, 2.0, dataclasses.replace(SPCC, r=2.0))[1] == pytest.approx(2 ** (1 / 3))
+    assert dc.holder_misumi(2, 100, 110).startswith("없이도") and dc.holder_misumi(1, 100, 200).startswith("필요")
+
+
+def test_swift_fit_and_moment_springback():
+    for code in ("SPCC", "SPFC590", "SPFC980", "SUS304", "AL5052"):
+        m = bc.MATERIAL_BY_CODE[code]
+        k, e0 = dc.swift(m)
+        n = m.n
+        assert k * e0 ** n == pytest.approx(dc.yield_strength(m), rel=1e-3)                    # 항복
+        assert k * n ** n * math.exp(-(n - e0)) == pytest.approx(m.tensile_mpa, rel=0.02)      # 인장 강도 (공칭)
+    sb = [90 - dc.springback(SPCC, R, 1.6, 90)[0] for R in (1, 2, 5, 20)]
+    assert sb == sorted(sb) and 0.3 < sb[0] < 2.5                                             # R 클수록 많이
+    hard = 90 - dc.springback(bc.MATERIAL_BY_CODE["SPFC980"], 2, 1.6, 90)[0]
+    assert hard > 2 * sb[1]                                                                   # 고장력강이 더 많이
+    # 탄성 계수 감소 (Yoshida·Uemori, DP): 줄어든 E 로 더 돌아감
+    assert dc.chord_modulus(bc.MATERIAL_BY_CODE["SPFC590"], 0.1) < dc.modulus_gpa(bc.MATERIAL_BY_CODE["SPFC590"])
+
+
+def test_mill_sheet_values_override():
+    st = bc.BendSettings(material="SPCC", mill={"ts": 330, "ys": 180, "n": 0.23, "r0": 1.8, "r45": 1.4, "r90": 2.2})
+    m = st.mat
+    assert m.source == "밀시트 실측" and m.tensile_mpa == 330 and m.n == 0.23
+    assert m.r == pytest.approx((1.8 + 2 * 1.4 + 2.2) / 4) and m.dr == pytest.approx((1.8 - 2.8 + 2.2) / 2)
+    assert dc.yield_strength(m) == 180 and bc.BendSettings(material="SPCC").mat.source == "대표값"
+    assert m.flc0_for(1.0) > bc.MATERIAL_BY_CODE["SPCC"].flc0_for(1.0)                     # n 크면 FLC0 큼
+    pl = dc.draw_plan(100, 60, 5, 1.0, m)
+    assert any("Δr" in n for n in pl.notes) and any("밀시트" in n for n in pl.notes)
+    assert pl.holder_p > 0 and pl.holder_tab_n > pl.holder_n and pl.stages[0].die_r > 0

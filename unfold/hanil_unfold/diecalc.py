@@ -118,32 +118,120 @@ class Load:
 
 
 def bend_force(mat, length, t, v, process=bc.AIR):
-    """에어 벤딩 F = 1.33 · σb · L · t² / V. 바텀 ×2, 코이닝 ×5 (최소)."""
-    f = 1.33 * mat.tensile_mpa * length * t * t / max(v, 1e-6)
+    """V 다이 굽힘력 F = C · σb · L · t² / V,  C = 1 + 4 t / V (Schuler 「Metal Forming Handbook」·DIN 식 —
+    V = 12 t 에서 1.33, V = 8 t 에서 1.5, 상수 1.33 만 쓰면 V 가 좁을 때 작게 나온다). 바텀 ×2, 코이닝 ×5 (최소)."""
+    v = max(v, 1e-6)
+    f = (1 + 4 * t / v) * mat.tensile_mpa * length * t * t / v
     return f * {bc.AIR: 1.0, bc.BOTTOM: 2.0, bc.COIN: 5.0}.get(process, 1.0)
 
 
-def flow_stress(mat: bc.Material, strain: float) -> float:
-    """굽힘 변형률에서의 유동 응력 [MPa]. 홀로몬 σ = K·εⁿ, K = σb·(e/n)ⁿ (인장강도·n 에서)."""
-    y, _ = YIELD_E.get(mat.code, (250, 205))
+def yield_strength(mat: bc.Material) -> float:
+    """항복 강도 [MPa] — 밀시트 값, 없으면 대표값 표."""
+    return mat.yield_mpa if mat.yield_mpa > 0 else YIELD_E.get(mat.code, (250, 205))[0]
+
+
+def modulus_gpa(mat: bc.Material) -> float:
+    return mat.e_gpa if mat.e_gpa > 0 else YIELD_E.get(mat.code, (250, 205))[1]
+
+
+def swift(mat: bc.Material):
+    """Swift 가공 경화 σ̄ = K (ε0 + ε̄)ⁿ 를 항복 강도 · 인장 강도 · n 에 맞춘 (K, ε0).
+    σy = K ε0ⁿ,  인장 강도 (공칭) = K nⁿ exp(−(n − ε0)) (최대 하중 = 균일 연신 끝 ε̄ = n − ε0).
+    (홀로몬 K εⁿ 은 처음 항복을 0 으로 보아 굽힘 R 이 클 때 유동 응력을 작게 낸다.)"""
     n = max(mat.n, 0.02)
-    k = mat.tensile_mpa * (math.e / n) ** n
-    return max(y, k * max(strain, 1e-6) ** n)
+    ys, ts = yield_strength(mat), mat.tensile_mpa
+    lo, hi = 1e-7, n * 0.999
+    f = lambda e0: ys * (n / e0) ** n * math.exp(-(n - e0)) - ts  # noqa: E731  (e0 가 크면 감소)
+    if f(hi) > 0:                                  # 항복비가 아주 높음 → ε0 ≈ n
+        e0 = hi
+    elif f(lo) < 0:
+        e0 = lo
+    else:
+        for _ in range(80):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if f(mid) > 0 else (lo, mid)
+        e0 = (lo + hi) / 2
+    return ys / e0 ** n, e0
+
+
+def flow_stress(mat: bc.Material, strain: float) -> float:
+    """유동 응력 [MPa] σ̄ = K (ε0 + ε̄)ⁿ (Swift, 항복·인장 강도·n 에 맞춤)."""
+    k, e0 = swift(mat)
+    return k * (e0 + max(strain, 0.0)) ** max(mat.n, 0.02)
+
+
+# 하중을 뺄 때 탄성 계수가 줄어드는 것 (Yoshida·Uemori 2002): E = E0 − (E0 − Ea)(1 − exp(−ξ ε̄))
+# DP600 t1.62: E0 206, Ea 152 GPa, ξ 61 (JSTAMP Yoshida-Uemori 스프링백 논문). 고장력강 (590 이상) 에만 쓰고,
+# 980 급 공개값을 못 찾아 같은 값을 쓴다 (보수적 아님 — 실측 권장). 연강·스테인리스·알루미늄은 E0 그대로.
+MODULUS_DROP = {"SPFC590": (152 / 206, 61.0), "SPFC980": (152 / 206, 61.0)}
+POISSON = 0.3
+
+
+def chord_modulus(mat: bc.Material, strain: float) -> float:
+    """소성 변형 ε̄ 뒤 하중 뺄 때 탄성 계수 [GPa]."""
+    e0 = modulus_gpa(mat)
+    if mat.code not in MODULUS_DROP:
+        return e0
+    ratio, xi = MODULUS_DROP[mat.code]
+    return e0 - (e0 - ratio * e0) * (1 - math.exp(-xi * max(strain, 0.0)))
+
+
+def _hill_ps(r):
+    """평면 변형 (굽힘) 에서 σ1 / σ̄ = ε̄ / ε1 = (1 + r) / √(1 + 2r) (Hill 1948 수직 이방성, r = 1 → 1.155 = 2/√3)."""
+    r = max(r, 0.1)
+    return (1 + r) / math.sqrt(1 + 2 * r)
+
+
+def bend_moment(mat: bc.Material, r, t, npts=400):
+    """단위 폭 굽힘 모멘트 [N·mm/mm] 와 두께 평균 등가 소성 변형률 — 두께 가운데 반지름 ρ = R + t/2 의 순수 굽힘,
+    탄성 코어 + Swift 가공 경화, 평면 변형 (Marciniak·Duncan·Hu 「Mechanics of Sheet Metal Forming」 6 장)."""
+    k, e0 = swift(mat)
+    n = max(mat.n, 0.02)
+    h = _hill_ps(mat.r)
+    ep = modulus_gpa(mat) * 1000 / (1 - POISSON ** 2)        # 평면 변형 탄성 계수 E'
+    rho = r + t / 2
+    s_y = h * k * e0 ** n                                     # 평면 변형 첫 항복
+    e_y = s_y / ep
+    m, pe = 0.0, 0.0
+    dy = (t / 2) / npts
+    for i in range(npts):
+        y = (i + 0.5) * dy
+        eps = math.log(1 + y / rho)                           # 섬유 변형률 (진)
+        if eps <= e_y:
+            sig = ep * eps
+        else:
+            p_ = h * (eps - e_y)                              # 등가 소성 변형률
+            sig = h * k * (e0 + p_) ** n
+            pe += p_ * dy
+        m += 2 * sig * y * dy
+    return m, pe / (t / 2)
 
 
 def springback(mat: bc.Material, r, t, angle_deg):
-    """(되돌아간 뒤 각도, 금형에서 접어야 할 각도, 계수 Ks). 탄성-완전소성 식 (Kalpakjian)
-    Ri/Rf = 4x³ − 3x + 1,  x = Ri·σ/(E·t),  Ks = (Ri + t/2)/(Rf + t/2) = 되돌아간 각 / 접은 각.
-    σ 는 처음 항복 강도가 아니라 바깥 면 굽힘 변형률 t/(2R+t) 에서 가공 경화된 유동 응력."""
-    _, e = YIELD_E.get(mat.code, (250, 205))
+    """(되돌아간 뒤 각도, 금형에서 접어야 할 각도, 계수 Ks). 모멘트 법 (Marciniak·Duncan·Hu):
+    하중을 빼면 곡률이 Δκ = M / (E' t³/12) 만큼 줄고 두께 가운데 길이는 그대로 → Ks = κ'/κ = 되돌아간 각 / 접은 각.
+    M 은 탄성 코어 + Swift 가공 경화 + Hill 평면 변형 (r 값), E' = E/(1 − ν²) 에 고장력강은 Yoshida·Uemori 탄성
+    계수 감소. (예전: 탄성-완전 소성 Ri/Rf = 4x³ − 3x + 1, Kalpakjian)"""
+    r = max(r, 0.1 * t)
+    m, pe = bend_moment(mat, r, t)
+    e_un = chord_modulus(mat, pe) * 1000 / (1 - POISSON ** 2)
+    kappa = 1 / (r + t / 2)
+    d_kappa = 12 * m / (e_un * t ** 3)
+    ks = (kappa - d_kappa) / kappa
+    if ks <= 0.05:                                 # R/t 가 아주 커서 거의 탄성으로 다 돌아옴
+        return 0.0, float("inf"), 0.0
+    return angle_deg * ks, angle_deg / ks, ks
+
+
+def springback_classic(mat: bc.Material, r, t, angle_deg):
+    """견줌용: 탄성-완전 소성 식 Ri/Rf = 4x³ − 3x + 1, x = Ri·σ/(E·t) (Gardiner 1957, Kalpakjian)."""
     r = max(r, 0.1 * t)
     sig = flow_stress(mat, t / (2 * r + t))
-    x = r * sig / (e * 1000 * t)
-    ratio = 4 * x ** 3 - 3 * x + 1                 # Ri / Rf
-    if ratio <= 0.05:                              # R/t 가 아주 커서 거의 탄성으로 다 돌아옴
+    x = r * sig / (modulus_gpa(mat) * 1000 * t)
+    ratio = 4 * x ** 3 - 3 * x + 1
+    if ratio <= 0.05:
         return 0.0, float("inf"), 0.0
-    rf = r / ratio
-    ks = (r + t / 2) / (rf + t / 2)
+    ks = (r + t / 2) / (r / ratio + t / 2)
     return angle_deg * ks, angle_deg / ks, ks
 
 
@@ -369,6 +457,42 @@ FORCE_K = [(0.55, 1.00), (0.575, 0.93), (0.60, 0.86), (0.625, 0.79), (0.65, 0.72
            (0.70, 0.60), (0.725, 0.55), (0.75, 0.50), (0.775, 0.45), (0.80, 0.40)]
 
 
+def siebel_holder_pressure(beta, d1, t, mat: bc.Material):
+    """Siebel 누르개 면압 p = [(β − 1)^k + d1 / (200 s)] · Rm / 400 [MPa] (강-강, 드로잉유, 혼합 윤활).
+    지수 k 는 자료마다 2 (Aufgabensammlung Fertigungstechnik) · 3 (Siebel·Beisswanger 인용) 이 달라 둘 중 큰 값.
+    확인: β 2 · d1 100 · s 1 · Rm 310 → 1.16 MPa (4ming Forming Handbook 예제와 같음)."""
+    b = max(beta - 1, 0.0)
+    return (max(b ** 2, b ** 3) + d1 / (200 * max(t, 1e-9))) * mat.tensile_mpa / 400
+
+
+def die_radius(D, d, t, flange=False):
+    """다이 어깨 R r_M = 0.035 · [50 + (D − d)] · √s (Oehler·Kaiser 「Schnitt-, Stanz- und Ziehwerkzeuge」).
+    플랜지가 남거나 β < 1.4 면 20 % 줄여도 된다. 확인: D 200 · d 100 · s 1 → 5.25 mm (4ming 예제).
+    너무 작으면 바닥 R 쪽 터짐, 너무 크면 주름 — 5 ≤ r_M / s ≤ 10 (4ming)."""
+    r = 0.035 * (50 + (D - d)) * math.sqrt(t)
+    if flange or D / max(d, 1e-9) < 1.4:
+        r *= 0.8
+    return r
+
+
+def draw_gap(t, beta_total, mat: bc.Material):
+    """(권장, 최대) 한쪽 틈새. 플랜지 바깥 끝이 둘레로 줄며 두꺼워져 t·β^(1/(1+r)) 이 된다 (단축 압축, 수직 이방성 r:
+    ε_t = −ε_θ / (1 + r); r = 1 이면 t√β — 4ming 「Ziehspalt」 t 1 · β 2 → 최대 1.41). 권장은 판 두께의 1.0~1.1 배
+    (MISUMI 「円筒絞りのクリアランス」) — 그보다 위 끝이 두꺼우면 끝이 조금 훑인다 (아이어닝)."""
+    rim = t * max(beta_total, 1.0) ** (1 / (1 + max(mat.r, 0.1)))
+    return min(1.1 * t, rim) if rim > t else t, rim
+
+
+def holder_misumi(t, d, D):
+    """MISUMI: t/d ≥ K (D/d − 1) 이면 누르개 없이 드로잉 (K 0.09~0.17, 큰 K 가 안전)."""
+    lhs, k = t / max(d, 1e-9), (D / max(d, 1e-9) - 1)
+    if lhs >= 0.17 * k:
+        return "없이도 가능 (t/d ≥ 0.17 (D/d − 1))"
+    if lhs < 0.09 * k:
+        return "필요 (t/d < 0.09 (D/d − 1))"
+    return "경우에 따라 (K 0.09~0.17 사이)"
+
+
 def draw_ratios(t, D):
     rel = 100.0 * t / D
     for lo, ms in DRAW_TABLE:
@@ -406,6 +530,9 @@ class DrawStage:
     force_n: float            # 두 식 중 큰 값 (프레스 고르기)
     table_n: float = 0.0      # π·d·t·σb·n (교재 표)
     siebel_n: float = 0.0     # Siebel (독일)
+    die_r: float = 0.0        # 다이 어깨 R 권장 (Oehler·Kaiser)
+    gap: float = 0.0          # 한쪽 드로잉 틈새 권장
+    gap_max: float = 0.0      # 한쪽 틈새 최대 (위 끝 두께 = t · β^(1/(1+r)))
 
 
 @dataclass
@@ -415,9 +542,12 @@ class DrawPlan:
     rel_thickness: float       # t/D × 100
     ratio_total: float         # d / D
     stages: list = field(default_factory=list)
-    holder_n: float = 0.0
+    holder_n: float = 0.0          # 누르개 힘 (Siebel 면압 × 누르개 넓이)
     holder_needed: str = ""
     notes: list = field(default_factory=list)
+    holder_p: float = 0.0          # Siebel 면압 MPa
+    holder_tab_n: float = 0.0      # 교재 표 면압 (강 2.5 MPa …) 으로 — 다이 쿠션 능력 고를 때 상한
+    holder_misumi: str = ""        # t/d ≥ K (D/d − 1) 판정 (MISUMI, K 0.09~0.17)
 
 
 def draw_plan(d, h, r, t, mat: bc.Material, flange_d=0.0, rf=0.0, trim=None):
@@ -447,7 +577,11 @@ def draw_plan(d, h, r, t, mat: bc.Material, flange_d=0.0, rf=0.0, trim=None):
             nxt = d
         f_tab = math.pi * nxt * t * mat.tensile_mpa * force_k(m)
         f_sie = siebel_force(nxt, cur, t, mat)
-        stages.append(DrawStage(i + 1, m, nxt, max(f_tab, f_sie), f_tab, f_sie))
+        gap, gap_max = draw_gap(t, D / nxt, mat)
+        rd = die_radius(cur, nxt, t, bool(flange_d) and nxt <= d + 1e-9)
+        if i:                                        # 재드로잉: Oehler 식은 첫 드로잉용 → 5~10 t 안으로
+            rd = min(max(rd, 5 * t), 10 * t)
+        stages.append(DrawStage(i + 1, m, nxt, max(f_tab, f_sie), f_tab, f_sie, rd, gap, gap_max))
         cur = nxt
         if nxt <= d + 1e-9:
             break
@@ -465,8 +599,23 @@ def draw_plan(d, h, r, t, mat: bc.Material, flange_d=0.0, rf=0.0, trim=None):
     if D / d > lim and len(stages) == 1:
         notes.append(f"D/d = {D / d:.2f} 이 LDR {lim:.2f} 보다 큼 — 다단 드로잉 필요")
     d1 = stages[0].d
-    holder = math.pi / 4 * max(D ** 2 - (d1 + 2 * max(r, 4 * t)) ** 2, 0) * HOLDER_P[_family(mat.code)]
-    return DrawPlan(D, trim, rel, d / D, stages, holder, need, notes)
+    area = math.pi / 4 * max(D ** 2 - (d1 + 2 * stages[0].die_r) ** 2, 0)
+    p_sie = siebel_holder_pressure(D / d1, d1, t, mat)
+    p_tab = HOLDER_P[_family(mat.code)]
+    rr = stages[0].die_r / t
+    if rr < 5 or rr > 10:
+        notes.append(f"1차 다이 R {stages[0].die_r:.1f} = {rr:.1f} t — 5~10 t 밖 (4ming): "
+                     + ("작으면 바닥 R 터짐" if rr < 5 else "크면 주름") + " 쪽, 시험 타발로 확인")
+    if len(stages) > 1:
+        notes.append("재드로잉 다이 R: Oehler 식은 첫 드로잉용이라 5~10 t 범위로 둠")
+    notes.append(f"누르개 면압 Siebel {p_sie:.2f} MPa (표 값 {p_tab:g} MPa 는 다이 쿠션 능력 고를 때 상한으로)")
+    if abs(mat.dr) > 0.1:
+        notes.append(f"면내 이방성 Δr {mat.dr:+.2f} (밀시트): 귀 (earing) 4 곳 — " +
+                     ("0°·90° 방향" if mat.dr > 0 else "45° 방향") + " 이 높아짐, 다듬기 여유를 넉넉히")
+    if mat.source != "대표값":
+        notes.append(f"재질값: {mat.source} (TS {mat.tensile_mpa:g} · n {mat.n:g} · r̄ {mat.r:.2f})")
+    return DrawPlan(D, trim, rel, d / D, stages, area * p_sie, need, notes, p_sie, area * p_tab,
+                    holder_misumi(t, d1, D))
 
 
 # ---------------------------------------------------------------- 한 부품 정리

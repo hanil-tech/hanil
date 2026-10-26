@@ -66,6 +66,10 @@ class Material:
     n: float = 0.20        # 가공 경화 지수 (성형품 원스텝 해석·성형 한계)
     r: float = 1.0         # 수직 이방성 (랭크포드 값)
     flc0: float = 0.0      # 평면 변형 성형 한계 (진변형률). 0 이면 Keeler 식
+    yield_mpa: float = 0.0  # 항복 강도 (0 = diecalc.YIELD_E 대표값)
+    e_gpa: float = 0.0      # 탄성 계수 (0 = 대표값)
+    dr: float = 0.0         # 면내 이방성 Δr = (r0 − 2 r45 + r90) / 2 (귀 생김)
+    source: str = "대표값"   # "대표값" / "밀시트 실측"
 
     def flc0_for(self, t):
         from .forming import keeler_flc0
@@ -97,6 +101,40 @@ MATERIALS = [
     Material("C2600", "황동 C2600", MEDIUM, 350, _ratio(350), "[3] 인장강도 비례 어림", density=8.53, n=0.40, r=0.9, flc0=0.35),
 ]
 MATERIAL_BY_CODE = {m.code: m for m in MATERIALS}
+
+# 밀시트 (소재 검사 증명서) 실측값 — 넣은 것만 대표값 대신 쓴다
+MILL_KEYS = [("ys", "항복 강도 YS (MPa)"), ("ts", "인장 강도 TS (MPa)"), ("el", "연신율 El (%)"),
+             ("n", "가공 경화 지수 n"), ("r0", "r 값 0°"), ("r45", "r 값 45°"), ("r90", "r 값 90°"),
+             ("e", "탄성 계수 E (GPa)")]
+
+
+def r_mean(r0, r45, r90):
+    """평균 r̄ = (r0 + 2 r45 + r90) / 4,  면내 이방성 Δr = (r0 − 2 r45 + r90) / 2 (ISO 10113)."""
+    return (r0 + 2 * r45 + r90) / 4, (r0 - 2 * r45 + r90) / 2
+
+
+def with_mill(m: Material, mill: dict) -> Material:
+    """밀시트 값으로 바꾼 재질. mill: {ys, ts, el, n, r0, r45, r90, e} (빈 값·0 은 대표값)."""
+    import dataclasses
+    v = {k: float(x) for k, x in (mill or {}).items() if x not in (None, "") and float(x) > 0}
+    if not v:
+        return m
+    kw = {"source": "밀시트 실측"}
+    if "ts" in v:
+        kw["tensile_mpa"] = v["ts"]
+        kw["air_ratio"] = _ratio(v["ts"]) if m.air_ratio == _ratio(m.tensile_mpa) else m.air_ratio * v["ts"] / m.tensile_mpa
+    if "ys" in v:
+        kw["yield_mpa"] = v["ys"]
+    if "n" in v:
+        kw["n"] = v["n"]
+    if "e" in v:
+        kw["e_gpa"] = v["e"]
+    rs = [v.get(k) for k in ("r0", "r45", "r90")]
+    if all(rs):
+        kw["r"], kw["dr"] = r_mean(*rs)
+    elif any(rs):
+        kw["r"] = sum(x for x in rs if x) / sum(1 for x in rs if x)
+    return dataclasses.replace(m, **kw)
 
 # ---------------------------------------------------------------- K 계수
 
@@ -256,10 +294,12 @@ class BendSettings:
     die_v: float = 0.0                 # 하형 V 폭 (0 = 두께의 8배)
     use_shop_table: bool = True
     shop_table: ShopTable | None = None
+    mill: dict = field(default_factory=dict)   # 밀시트 실측값 (MILL_KEYS)
 
     @property
     def mat(self) -> Material:
-        return MATERIAL_BY_CODE.get(self.material, MATERIALS[0])
+        base = MATERIAL_BY_CODE.get(self.material, MATERIALS[0])
+        return with_mill(base, self.mill) if self.mill else base
 
     def actual_radius(self, model_r: float, t: float) -> tuple:
         """(실제 안쪽 R, 설명)"""

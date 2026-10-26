@@ -56,6 +56,10 @@ class BendPanel(QGroupBox):
         self.use_shop = QCheckBox("회사 연신 표 값이 있으면 먼저 사용")
         self.table_btn = QPushButton("연신 표 보기 · 입력…")
         self.table_btn.clicked.connect(self.open_table)
+        self.mill_btn = QPushButton("밀시트 실측값…")
+        self.mill_btn.setToolTip("소재 검사 증명서 (밀시트) 의 항복·인장 강도, n, r 값을 넣으면 대표값 대신 "
+                                 "성형 해석 · 스프링백 · 하중 · 드로잉 설계에 씁니다 (재질마다 저장)")
+        self.mill_btn.clicked.connect(self.open_mill)
 
         form = QFormLayout()
         form.setContentsMargins(6, 4, 6, 4)
@@ -70,6 +74,7 @@ class BendPanel(QGroupBox):
         form.addRow("하형 V 폭", self.die)
         form.addRow(self.use_shop)
         form.addRow(self.table_btn)
+        form.addRow(self.mill_btn)
         self.setLayout(form)
 
         self._load()
@@ -79,7 +84,9 @@ class BendPanel(QGroupBox):
             w.editingFinished.connect(self._on_change)
         for w in (self.use_r, self.use_shop):
             w.toggled.connect(self._on_change)
+        self.material.currentIndexChanged.connect(self._mill_text)
         self._enable()
+        self._mill_text()
 
     # ---- 저장·불러오기
 
@@ -131,7 +138,30 @@ class BendPanel(QGroupBox):
             material=self.material.currentData(), process=self.process.currentData(),
             use_process_radius=self.use_r.isChecked(), punch_r=self.punch.value(),
             die_v=self.die.value(), use_shop_table=self.use_shop.isChecked(),
-            shop_table=self.shop)
+            shop_table=self.shop, mill=self.mill(self.material.currentData()))
+
+    def mill(self, code) -> dict:
+        import json
+        try:
+            d = json.loads(self.store.value(f"bend/mill/{code}", "") or "{}")
+        except ValueError:
+            d = {}
+        return {k: float(v) for k, v in d.items() if k in dict(bc.MILL_KEYS) and v}
+
+    def _mill_text(self):
+        code = self.material.currentData()
+        d = self.mill(code)
+        self.mill_btn.setText(f"밀시트 실측값 사용 중 ({len(d)} 항목)…" if d else "밀시트 실측값…")
+        self.mill_btn.setStyleSheet("QPushButton { color: #1f6e2c; font-weight: bold; }" if d else "")
+
+    def open_mill(self):
+        import json
+        code = self.material.currentData()
+        dlg = MillDialog(bc.MATERIAL_BY_CODE[code], self.mill(code), self)
+        if dlg.exec():
+            self.store.setValue(f"bend/mill/{code}", json.dumps(dlg.values()))
+            self._mill_text()
+            self.changed.emit()
 
     def open_table(self):
         dlg = DeductionDialog(self.settings(), self.shop, self)
@@ -321,3 +351,54 @@ class DeductionDialog(QDialog):
         view = QTextBrowser()
         view.setHtml(html)
         return view
+
+
+class MillDialog(QDialog):
+    """밀시트 실측값 입력: 0 칸은 대표값."""
+
+    def __init__(self, mat: bc.Material, values: dict, parent=None):
+        super().__init__(parent)
+        from . import diecalc as dc
+        self.setWindowTitle(f"밀시트 실측값 — {mat.code}")
+        rep = {"ys": dc.yield_strength(mat), "ts": mat.tensile_mpa, "el": 0, "n": mat.n, "r0": mat.r, "r45": mat.r,
+               "r90": mat.r, "e": dc.modulus_gpa(mat)}
+        form = QFormLayout()
+        self.box = {}
+        for key, name in bc.MILL_KEYS:
+            dec = 3 if key in ("n", "r0", "r45", "r90") else 1 if key in ("el",) else 0
+            sp = _spin(0.0, 3000.0 if key in ("ys", "ts") else 400.0 if key == "e" else 100.0 if key == "el" else 5.0,
+                       dec, special="대표값")
+            sp.setValue(float(values.get(key, 0) or 0))
+            sp.setToolTip(f"대표값 {rep[key]:g}" if rep[key] else "")
+            sp.valueChanged.connect(self._calc)
+            self.box[key] = sp
+            form.addRow(f"{name}  (대표 {rep[key]:g})" if rep[key] else name, sp)
+        self.info = QLabel()
+        self.info.setWordWrap(True)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Reset)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        bb.button(QDialogButtonBox.Reset).setText("모두 대표값으로")
+        bb.button(QDialogButtonBox.Reset).clicked.connect(lambda: [b.setValue(0) for b in self.box.values()])
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("밀시트 (소재 검사 증명서) 값을 넣으면 대표값 대신 씁니다. 0 = 대표값.\n"
+                             "r 값 셋을 넣으면 평균 r̄ = (r0 + 2 r45 + r90)/4 와 면내 이방성 Δr 을 계산합니다."))
+        lay.addLayout(form)
+        lay.addWidget(self.info)
+        lay.addWidget(bb)
+        self._calc()
+
+    def values(self):
+        return {k: b.value() for k, b in self.box.items() if b.value() > 0}
+
+    def _calc(self, *_):
+        v = self.values()
+        out = []
+        if all(k in v for k in ("r0", "r45", "r90")):
+            rm, dr = bc.r_mean(v["r0"], v["r45"], v["r90"])
+            out.append(f"r̄ = {rm:.3f} · Δr = {dr:+.3f}" + (" — 귀 (earing) 가 4 곳 생기기 쉬움" if abs(dr) > 0.2 else ""))
+        if "ys" in v and "ts" in v:
+            out.append(f"항복비 YS/TS = {v['ys'] / v['ts']:.2f}")
+            if v["ys"] >= v["ts"]:
+                out.append("⚠ 항복 강도가 인장 강도 이상 — 값을 확인하세요")
+        self.info.setText(" · ".join(out))
