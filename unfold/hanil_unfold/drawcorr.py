@@ -24,6 +24,7 @@ ETA_F = 0.65          # Siebel 변형 효율 (diecalc.siebel_force 와 같음)
 STEEP = 0.5           # |n·z| 가 이보다 작으면 벽 (60° 넘게 선 면)
 FLAT = math.cos(math.radians(10))    # 펀치 면에 닿는 바닥
 RHO_MIN = 1.0         # 감기는 반지름 하한 (× t) — 메시 꺾임에서 튀지 않게
+MAX_BEND = 0.5        # 굽힘 몫 Δε 상한 (ρ = t 에서 t/2ρ)
 
 
 def _hill(r):
@@ -168,10 +169,15 @@ def correct(V, F, U, major, minor, t, mat, die_r=None, N=None):
     Ty = hp * sig * te                                # 그 자리의 평면 변형 항복 장력 [N/mm]
 
     # 주 변형률 방향의 곡률 → 감긴 반지름 (가운데 면)
-    if N is None or len(N) != len(V) or not np.all(np.isfinite(N)):
-        N = vertex_normals(V, F)
+    Nm = vertex_normals(V, F)
     D1 = _major_dirs(V, F, U)
-    kap = _curvature_along(V, F, N, D1)
+    kap = _curvature_along(V, F, Nm, D1)
+    if N is not None and len(N) == len(V) and np.all(np.isfinite(N)):
+        # CAD 법선은 면마다 방향이 뒤집혀 저장되기도 하고 (B-스플라인 판·후드), 날카로운 모서리의 꼭짓점은
+        # 한쪽 면의 법선만 가진다: 메시 법선 쪽으로 맞추고, 세 꼭짓점이 모두 삼각형 면과 30° 안일 때만 쓴다
+        N = N * np.where(np.einsum("ij,ij->i", N, Nm) < 0, -1.0, 1.0)[:, None]
+        ok = np.min(np.einsum("mkj,mj->mk", N[F], nrm), axis=1) > math.cos(math.radians(30))
+        kap = np.where(ok, _curvature_along(V, F, N, D1), kap)
     rho = np.maximum(1 / np.maximum(kap, 1e-9), RHO_MIN * t)
 
     d_eq = np.zeros(len(F))
@@ -226,6 +232,9 @@ def correct(V, F, U, major, minor, t, mat, die_r=None, N=None):
                     passed=float(A3[passed].sum() / A3.sum()), beta=math.sqrt(a_blank / a_open))
     d_wrap = bend_thinning(t_ratio, te, rho, events=1)
     d_wrap[rho > 200 * t] = 0.0
+    # 한 삼각형에 더하는 굽힘 몫의 상한: 강소성 식은 ρ → t 에서 t/2ρ = 0.5 (그보다 작은 R 은 굽힘 균열 판정 몫)
+    d_wrap = np.minimum(d_wrap, MAX_BEND)
+    d_die = np.minimum(d_die, MAX_BEND)
     total = d_eq + d_wrap + d_die
     major = major + total
     if drawn:
@@ -241,7 +250,7 @@ def correct(V, F, U, major, minor, t, mat, die_r=None, N=None):
         lim = flc_limit(minor, mat.flc0_for(t) if hasattr(mat, "flc0_for") else keeler_flc0(t, mat.n), mat.code)
         major = np.where(necked, np.maximum(major, 1.001 * lim), major)
     info.update(applied=True, drawn=drawn, depth=depth, d_eq=d_eq, d_wrap=d_wrap, d_die=d_die, d_iron=d_iron,
-                necked=float(A3[necked].sum() / A3.sum()), rho=rho)
+                necked=float(A3[necked].sum() / A3.sum()), rho=rho, area=A3)
     return major, minor, info
 
 
@@ -254,13 +263,24 @@ def summary(info, t):
         parts.append(f"드로잉 장력 최대 {info['T_peak']:.0f} N/mm = 벽 강도의 {info['util']:.0%} "
                      f"(Siebel, β {info['beta']:.2f})")
         parts.append(f"다이 R {info['r_die']:.1f} 굽힘-펴짐")
-    w = info["d_wrap"]
-    if w.size and w.max() > 0.005:
-        parts.append(f"R 감김 (인장 아래 굽힘) 최대 +{w.max():.1%} 얇아짐")
-    if info.get("drawn") and info["d_die"].max() > 0.005:
-        parts.append(f"다이 R 지남 최대 +{info['d_die'].max():.1%}")
+    a = info.get("area")
+
+    def top(x):
+        """넓이 기준 위 0.5 % 를 뺀 가장 큰 값 (메시 조각·CAD 의 작은 주름 하나가 요약을 흔들지 않게)."""
+        if a is None or not x.size:
+            return float(x.max()) if x.size else 0.0
+        o = np.argsort(x)
+        cw = np.cumsum(a[o]) / a.sum()
+        return float(x[o][min(np.searchsorted(cw, 0.995), len(x) - 1)])
+    w = top(info["d_wrap"])
+    if w > 0.005:
+        parts.append(f"R 감김 (인장 아래 굽힘) 최대 +{w:.1%} 얇아짐")
+    if info.get("drawn") and top(info["d_die"]) > 0.005:
+        parts.append(f"다이 R 지남 최대 +{top(info['d_die']):.1%}")
     if info.get("drawn") and info.get("ironed", 0) > 0.001:
         parts.append(f"틈새 {info['gap']:.2f} mm 아이어닝 {info['ironed']:.0%}")
     if info.get("necked", 0) > 0:
         parts.append(f"벽 강도 넘음 (터짐) {info['necked']:.1%}")
+    if not parts:
+        return ""
     return "드로잉 보정 (원스텝 + 인장 굽힘·장력 평형, Marciniak·Siebel): " + " · ".join(parts)

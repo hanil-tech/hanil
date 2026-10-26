@@ -117,3 +117,18 @@ def test_no_correction_on_shallow_panel():
     r = unfold(load("samples/freeform_panel_t1.step").solids[0], settings=st, mode="forming")
     c = r.forming.correction
     assert c is None or not c.get("applied") or not c.get("drawn")
+
+
+def test_flipped_cad_normals_do_not_zigzag_mid_surface():
+    """CAD 법선이 점마다 뒤집혀 와도 가운데 면은 같아야 한다 (예전: ±t/2 톱니 → 곡률·변형률이 틀림)."""
+    from models import dish
+    from hanil_unfold.unfolder import SheetMetalUnfolder, _diagonal
+    s = dish()
+    u = SheetMetalUnfolder(s)
+    faces = [u.info[i].face for i in sorted(u._collect_skin(u._pick_root(), 1.2))]
+    V, F, N = forming.mesh_faces(s, faces, _diagonal(s))
+    Nf = N.copy()
+    Nf[::2] *= -1
+    a = forming.flatten(V, F, 1.2, N=N)[0]
+    b = forming.flatten(V, F, 1.2, N=Nf)[0]
+    assert np.abs(a - b).max() < 1e-9

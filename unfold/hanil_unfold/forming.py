@@ -964,9 +964,13 @@ def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, inf
     if N is None:
         N = vertex_normals(V, F)
     V, F, N = _keep_largest_component(V, F, N)
+    Nmesh = vertex_normals(V, F)
     bad = np.linalg.norm(N, axis=1) < 0.5          # 곡면 법선을 못 구한 점은 메시 법선으로
     if bad.any():
-        N[bad] = vertex_normals(V, F)[bad]
+        N[bad] = Nmesh[bad]
+    # CAD 법선이 뒤집혀 나온 점 (오프셋·B-스플라인 면, 면 방향이 섞인 파일) 은 메시 쪽으로 돌린다 — 그대로 두면
+    # 가운데 면이 점마다 ±t/2 로 톱니가 되어 (휀다 시험: 곡률 반지름 528 → 4 mm) 변형률·곡률이 틀린다
+    N = N * np.where(np.einsum("ij,ij->i", N, Nmesh) < 0, -1.0, 1.0)[:, None]
     Vm = V - 0.5 * thickness * N
     _check_finite(Vm)
     # 두께가 형상 크기만 한 부품(핀·봉·너트)은 가운데 면이 한 점·한 선으로 줄어든다: 판금이 아님
