@@ -192,3 +192,73 @@ def test_explanation_deep_oil_pan_corner():
     assert any("다단" in a for a in ex.advice)
     img = fs.render_product(fa, fs.VIEWS[0], 400, 300)           # 번호 표시 포함
     assert not img.isNull()
+
+
+def test_measured_flc_curve(cup):
+    """실측 FLC (ISO 12004-2 점들): 점 사이 보간·밖은 끝 기울기, 해석이 Keeler 대신 씀, 단위 바꾸기."""
+    from hanil_unfold import flcdata, forming
+    r, st, fa0 = cup
+    pts = flcdata.parse("-0.3 0.65\n-0.1, 0.42\n0\t0.30\n0.1 0.33\n0.3 0.42", "true")
+    assert flcdata.check(pts)[0] and pts[2] == (0.0, 0.30)
+    assert flcdata.parse("-30 90\n0 35\n30 52", "pct")[1][1] == pytest.approx(math.log(1.35))
+    assert not flcdata.check([(0.0, 0.3), (0.1, 0.33)])[0]
+    try:
+        forming.MEASURED_FLC["SPCC"] = pts
+        lim = forming.flc_limit(np.array([-0.2, 0.0, 0.2, 0.5]), 0.29, "SPCC")
+        assert lim[0] == pytest.approx((0.65 + 0.42) / 2) and lim[1] == pytest.approx(0.30)
+        assert lim[3] == pytest.approx(0.42 + (0.42 - 0.33) / 0.2 * 0.2)              # 오른쪽 끝 기울기로
+        fa = fs.analyze(r, st)
+        assert fa.flc0 == pytest.approx(0.30) and any("실측 FLC" in m for m in fa.messages)
+        assert fa.risk_top != pytest.approx(fa0.risk_top)
+    finally:
+        forming.MEASURED_FLC.pop("SPCC", None)
+
+
+def test_section_thickness_graph(cup):
+    """가운데 X 단면: 컵 두께 가운데 단면 길이 (벽 2 + 모서리 R 2 + 바닥) 와 맞고, 두께 값은 해석 범위 안."""
+    r, st, fa = cup
+    sec = fs.section(fa, "X")
+    Rm, rr, h = 50 - 0.5, 8 + 0.5, 50 - 0.5
+    expect = 2 * (h - rr) + math.pi * rr + 2 * (Rm - rr)
+    assert sec.s[-1] == pytest.approx(expect, rel=0.02)
+    assert sec.thickness.min() >= fa.t_min - 0.02 and sec.thickness.max() <= fa.t_max + 0.02
+    assert sec.pts[0, 1] < sec.pts[-1, 1]                                        # 그림 왼쪽에서 시작
+    assert fs.section(fa, "X", 10_000) is None                                    # 제품 밖
+    img = fs.render_section(sec, 600, 400)
+    assert not img.isNull() and "단면" in fs.section_note(sec)
+    assert len(sec.rows()[0]) == len(fs.SECTION_HEAD)
+
+
+def test_load_stroke_and_press(cup):
+    r, st, fa = cup
+    ls = fs.load_stroke(fa, st.mat)
+    assert ls is not None and ls.h[0] == 0 and ls.h[-1] == pytest.approx(ls.depth)
+    assert ls.draw.max() == pytest.approx(fa.draw_geom["f_draw"])                 # 곡선 최대 = 해석 드로잉력
+    assert ls.holder[0] >= ls.holder[-1] >= 0                                     # 플랜지가 들어가며 누르개 넓이 줄어듦
+    if ls.ok:
+        assert np.all(ls.cap >= ls.total) and ls.margin[0] >= 1
+    assert "최대 하중" in ls.note and not fs.render_load_stroke(ls, 500, 300).isNull()
+
+
+def test_compare_materials_and_thickness():
+    from models import drawn_cup
+    st = bc.BendSettings(material="SPCC")
+    sol = solid(drawn_cup())
+    rows = fs.compare(sol, st, [("SPCC", None), ("SPFC590", None), ("SPCC", 1.4)])
+    assert [r[0] for r in rows] == ["SPCC", "SPFC590", "SPCC"] and rows[2][1] == pytest.approx(1.4)
+    assert all(r[2] in (fs.OK, fs.WARN, fs.NG) for r in rows) and len(rows[0]) == len(fs.COMPARE_HEAD)
+    assert fs.best_row(rows) in rows
+
+
+def test_dialog_new_tabs(cup):
+    from hanil_unfold.report import ensure_gui
+    ensure_gui()
+    from PySide6.QtWidgets import QApplication, QTabWidget
+    QApplication.instance() or QApplication([])
+    from hanil_unfold.formsim_dialog import FormSimDialog
+    from models import drawn_cup
+    r, st, _ = cup
+    d = FormSimDialog(r, st, "cup", solid=solid(drawn_cup()))
+    names = [d.findChildren(QTabWidget)[0].tabText(i) for i in range(d.findChildren(QTabWidget)[0].count())]
+    for want in ("단면 (두께 그래프)", "하중 - 행정", "FLC 입력 (실측)", "재질·두께 비교"):
+        assert want in names

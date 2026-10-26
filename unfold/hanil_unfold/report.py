@@ -204,7 +204,7 @@ def render_fld(fi, w=900, h=700):
     if fi.flc0 > 0:
         xs = np.linspace(-side, side, 81)
         for scale, pen in ((1.0, QPen(QColor(200, 0, 0), 3)), (0.8, QPen(QColor(230, 150, 0), 2, Qt.DashLine))):
-            ys = flc_limit(xs, fi.flc0) * scale
+            ys = flc_limit(xs, fi.flc0, fi.material) * scale
             p.setPen(pen)
             p.setBrush(Qt.NoBrush)
             p.drawPolyline(QPolygonF([pt(float(a), float(b)) for a, b in zip(xs, ys) if b <= top]))
@@ -214,7 +214,9 @@ def render_fld(fi, w=900, h=700):
     p.setPen(QColor(30, 30, 30))
     p.setFont(_font(15))
     p.drawText(QRectF(0, 6, w, 28), Qt.AlignCenter,
-               f"성형 한계도 (FLD) — {fi.material}  FLC0 = {fi.flc0:.3f}" if fi.flc0 > 0 else "변형률 분포")
+               f"성형 한계도 (FLD) — {fi.material}  FLC0 = {fi.flc0:.3f}"
+               + (" · 실측 FLC" if fi.material in __import__("hanil_unfold.forming", fromlist=["x"]).MEASURED_FLC else "")
+               if fi.flc0 > 0 else "변형률 분포")
     p.setFont(_font(13))
     p.drawText(QRectF(0, h - 34, w, 24), Qt.AlignCenter,
                "가로: 부 변형률 ε2   세로: 주 변형률 ε1 (진변형률)   빨강 실선 FLC · 주황 점선 80 % · "

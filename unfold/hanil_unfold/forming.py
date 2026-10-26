@@ -870,15 +870,38 @@ def keeler_flc0(t, n):
     return math.log(1 + (23.3 + 360.0 / 25.4 * t) * n / 0.21 / 100)
 
 
-def flc_limit(minor, flc0):
-    """부 변형률마다 한계 주 변형률 (진변형률)."""
+# 재질별 실측 FLC (ISO 12004-2 성형 한계 시험, 소재 업체 자료): 코드 → [(ε2, ε1)] 진변형률, ε2 오름차순.
+# 앱이 설정에서 읽어 넣는다 (flcdata.load). 있으면 Keeler 식 대신 쓴다.
+MEASURED_FLC: dict = {}
+
+
+def flc_limit(minor, flc0, material=None):
+    """부 변형률마다 한계 주 변형률 (진변형률). 실측 FLC 가 있으면 그 점들을 잇고 (양 끝 밖은 끝 기울기로),
+    없으면 Keeler 꼴: 왼쪽 ε1 = FLC0 − ε2, 오른쪽 ε1 = FLC0 + 0.6 ε2."""
     minor = np.asarray(minor, float)
+    pts = MEASURED_FLC.get(material) if material else None
+    if pts and len(pts) >= 2:
+        x = np.array([p[0] for p in pts], float)
+        y = np.array([p[1] for p in pts], float)
+        out = np.interp(minor, x, y)
+        lo, hi = minor < x[0], minor > x[-1]
+        k_lo = (y[1] - y[0]) / max(x[1] - x[0], 1e-12)
+        k_hi = (y[-1] - y[-2]) / max(x[-1] - x[-2], 1e-12)
+        out = np.where(lo, y[0] + k_lo * (minor - x[0]), out)
+        out = np.where(hi, y[-1] + k_hi * (minor - x[-1]), out)
+        return np.maximum(out, 0.02)
     return np.where(minor < 0, flc0 - minor, flc0 + 0.6 * minor)
 
 
-def flc_risk(major, minor, flc0):
+def flc0_of(material, flc0):
+    """실측 FLC 가 있으면 ε2 = 0 의 값, 없으면 flc0."""
+    pts = MEASURED_FLC.get(material) if material else None
+    return float(flc_limit(np.array([0.0]), flc0, material)[0]) if pts and len(pts) >= 2 else flc0
+
+
+def flc_risk(major, minor, flc0, material=None):
     """주 변형률 / 한계 (1 이상 = 파단 위험)."""
-    lim = flc_limit(minor, flc0)
+    lim = flc_limit(minor, flc0, material)
     return np.where(major > 0, major / lim, 0.0)
 
 

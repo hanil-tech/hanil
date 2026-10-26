@@ -93,6 +93,7 @@ class FormAnalysis:
     box_ng: bool = False
     edge_verdict: str = OK
     edge_pt: object = None           # 가장자리 늘림이 가장 큰 점 (제품 3D)
+    draw_geom: dict = field(default_factory=dict)   # 드로잉: 둘레·깊이 (하중-행정 곡선용)
     explain: object = None           # formexplain.Explanation (문제 부위별 설명)
 
     @property
@@ -134,7 +135,7 @@ def fields(fi):
     k_th, _ = calibration.factor("thinning", getattr(fi, "material", "") or None)
     if k_th != 1.0:                          # 실적 보정: 얇아지는 쪽만 (원스텝은 R 부 얇아짐을 작게 봄)
         th = np.where(th > 0, th * k_th, th)
-    rk = flc_risk(e1, e2, fi.flc0) if fi.flc0 > 0 else np.zeros(len(e1))
+    rk = flc_risk(e1, e2, fi.flc0, getattr(fi, "material", None)) if fi.flc0 > 0 else np.zeros(len(e1))
     return e1, e2, th, rk
 
 
@@ -213,6 +214,7 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                 lim = dc.ldr(mat)
                 beta = 1 / m
                 fa.ldr = (beta, lim)
+                fa.draw_geom = dict(L_prod=L_prod, L_blank=L_blank, depth=depth, m=m, f_draw=f_draw)
                 _box_corners(fa, fi, z, depth, t)
                 if beta > lim:
                     fa.messages.append(f"드로잉비 β = {beta:.2f} 가 한계 드로잉비 LDR {lim:.2f} (Whiteley·Hosford, r {mat.r:g}) "
@@ -395,10 +397,17 @@ def analyze(result, settings: bc.BendSettings) -> FormAnalysis:
     fi = result.forming
     fa = FormAnalysis(mode="forming" if fi is not None else "sheet", material=mat.code, thickness=t,
                       n=mat.n, r=mat.r, flc0=fi.flc0 if fi is not None and fi.flc0 > 0 else mat.flc0_for(t), fi=fi)
+    from . import forming as _fm
+    if mat.code in _fm.MEASURED_FLC:                 # 실측 FLC: ε2 = 0 값을 FLC0 로 보임
+        fa.flc0 = _fm.flc0_of(mat.code, fa.flc0)
     if fi is not None:
         _forming(fa, fi, mat)
     else:
         _sheet(fa, result, settings, mat)
+    if fi is not None and fi.flc0 > 0:
+        fa.messages.append(f"성형 한계 (FLC): " + (f"{mat.code} 실측 FLC ({len(_fm.MEASURED_FLC[mat.code])} 점, ISO 12004-2)"
+                                                 if mat.code in _fm.MEASURED_FLC else
+                                                 f"Keeler 식 (t {t:g}, n {mat.n:g}) — 소재 업체 실측 FLC 를 넣으면 더 정확"))
     fa.messages.append(f"재질값: {mat.source} — TS {mat.tensile_mpa:g} MPa · YS {dc.yield_strength(mat):g} MPa · "
                        f"n {mat.n:g} · r̄ {mat.r:.2f}" + (f" · Δr {mat.dr:+.2f}" if mat.dr else "")
                        + ("" if mat.source != "대표값" else " (밀시트 값을 넣으면 더 정확: 절곡 조건 → [밀시트 실측값])"))
@@ -660,6 +669,36 @@ def add_sheets(wb, fa: FormAnalysis, name="", first=False):
             tmps.append(_add_image(pic, render_product(fa, view, 900, 680), f"{'AK'[k % 2]}{1 + 36 * (k // 2)}", 640))
         if not any(ws_.title == "두께 변화" for ws_ in wb.worksheets):
             tmps.append(_add_image(wb.create_sheet("성형 한계도"), render_fld(fa.fi, 900, 700), "A1", 700))
+        secs = default_sections(fa)
+        if secs:
+            ws_s = wb.create_sheet("단면 두께")
+            r = 1
+            for sec in secs:
+                ws_s.cell(r, 1, section_note(sec)).font = Font(bold=True)
+                tmps.append(_add_image(ws_s, render_section(sec, 1000, 620), f"K{r}", 620))
+                r += 1
+                for j, h_ in enumerate(SECTION_HEAD, 1):
+                    c = ws_s.cell(r, j, h_)
+                    c.font, c.fill = hf, hfill
+                for row in sec.rows()[::max(1, len(sec.s) // 120)]:
+                    r += 1
+                    for j, v in enumerate(row, 1):
+                        ws_s.cell(r, j, round(v, 4))
+                r = max(r + 3, r + 2)
+                r = max(r, (r // 34 + 1) * 34)
+        ls = load_stroke(fa)
+        if ls is not None:
+            ws_l = wb.create_sheet("하중-행정")
+            ws_l["A1"] = ls.note
+            ws_l["A1"].font = Font(bold=True)
+            for j, h_ in enumerate(["깊이 mm", "드로잉력 tf", "누르개 tf", "합 tf", f"{ls.press} 능력 tf"], 1):
+                c = ws_l.cell(3, j, h_)
+                c.font, c.fill = hf, hfill
+            for i, hh in enumerate(ls.h):
+                for j, v in enumerate([hh, ls.draw[i] / dc.TON, ls.holder[i] / dc.TON, ls.total[i] / dc.TON,
+                                       ls.cap[i] / dc.TON], 1):
+                    ws_l.cell(4 + i, j, round(float(v), 3))
+            tmps.append(_add_image(ws_l, render_load_stroke(ls, 1000, 600), "H3", 640))
     return tmps
 
 
@@ -880,5 +919,407 @@ def save_pdf(fa: FormAnalysis, path, name=""):
         p.drawImage(R(m, y, 196, 148), render_product(fa, VIEWS[1], 1200, 900))
         p.drawImage(R(m + 200, y, 196, 148), render_product(fa, VIEWS[4], 1200, 900))
         p.drawImage(R(m + 60, y + 150, 140, 109), render_fld(fa.fi, 900, 700))
+    if fa.mode == "forming":
+        secs = default_sections(fa)
+        ls = load_stroke(fa)
+        if secs or ls is not None:
+            pdf.newPage()
+            y = header(f"단면 두께 · 하중 - 행정 — {name}")
+            x = m
+            for sec in secs[:2]:
+                p.drawImage(R(x, y, 196, 124), render_section(sec, 1300, 820))
+                x += 200
+            if ls is not None:
+                p.drawImage(R(m + 60, y + 130, 200, 120), render_load_stroke(ls, 1300, 780))
+                p.setFont(_font(9))
+                p.setPen(QColor(30, 30, 30))
+                p.drawText(R(m, y + 252, W - 2 * m, 10), Qt.AlignLeft | Qt.TextWordWrap, ls.note)
     _explain_pages(p, pdf, R, k, W, H, m, header, fa, name)
     p.end()
+
+
+# ---------------------------------------------------------------- 단면 (자른 면을 따라 두께 · 변형률)
+
+@dataclass
+class Section:
+    axis: str                  # "X" / "Y" / "Z" — 이 축에 수직인 평면
+    pos: float                 # 평면 위치 (모델 좌표 mm)
+    pts: np.ndarray            # (n, 3) 단면 선 위 점 (두께 가운데 면)
+    s: np.ndarray              # 선 따라 거리 mm
+    thin: np.ndarray           # 얇아짐 (+) / 두꺼워짐 (−) 비
+    e1: np.ndarray
+    e2: np.ndarray
+    risk: np.ndarray
+    t0: float
+
+    @property
+    def thickness(self):
+        return self.t0 * (1 - self.thin)
+
+    def rows(self):
+        return [[float(a), float(p[0]), float(p[1]), float(p[2]), float(self.t0 * (1 - b)), float(b), float(c), float(d),
+                 float(e)] for a, p, b, c, d, e in zip(self.s, self.pts, self.thin, self.e1, self.e2, self.risk)]
+
+
+SECTION_HEAD = ["선 따라 mm", "X", "Y", "Z", "두께 mm", "두께 변화 (+ 얇아짐)", "주 변형률", "부 변형률", "한계 비"]
+AXES = {"X": 0, "Y": 1, "Z": 2}
+
+
+def _vertex_values(fi, vals):
+    V, F = fi.V, fi.F
+    a = np.linalg.norm(_vector_area(V, F), axis=1)
+    num, den = np.zeros(len(V)), np.zeros(len(V))
+    for k in range(3):
+        np.add.at(num, F[:, k], a * vals)
+        np.add.at(den, F[:, k], a)
+    return num / np.maximum(den, 1e-30)
+
+
+def section(fa: FormAnalysis, axis="X", pos=None):
+    """제품 메시를 axis 에 수직인 평면 (axis = pos, 없으면 가운데) 으로 잘라 가장 긴 단면 선을 따라 값.
+    잘리는 삼각형 모서리마다 꼭짓점 값을 선형 보간 (시험품을 잘라 재는 것과 같은 자리). 단면이 없으면 None."""
+    fi = fa.fi
+    if fi is None or fi.V is None or not fa.fields:
+        return None
+    ax = AXES[axis]
+    V, F = fi.V, fi.F
+    if pos is None:
+        pos = float((V[:, ax].min() + V[:, ax].max()) / 2)
+    e1, e2, th, rk = fa.fields
+    vals = np.column_stack([_vertex_values(fi, v) for v in (th, e1, e2, rk)])
+    d = V[:, ax] - pos
+    d = np.where(np.abs(d) < 1e-9, 1e-9, d)                # 꼭짓점이 평면 위면 살짝 비켜
+    sd = d[F]
+    cut = (sd.min(1) < 0) & (sd.max(1) > 0)
+    edge_pt, segs = {}, []
+    for ti in np.nonzero(cut)[0]:
+        ends = []
+        for k in range(3):
+            i, j = int(F[ti, k]), int(F[ti, (k + 1) % 3])
+            if (d[i] < 0) != (d[j] < 0):
+                key = (min(i, j), max(i, j))
+                if key not in edge_pt:
+                    w = d[i] / (d[i] - d[j])
+                    edge_pt[key] = (V[i] + w * (V[j] - V[i]), vals[i] + w * (vals[j] - vals[i]))
+                ends.append(key)
+        if len(ends) == 2:
+            segs.append(tuple(ends))
+    if not segs:
+        return None
+    adj = {}
+    for si, (a, b) in enumerate(segs):
+        adj.setdefault(a, []).append(si)
+        adj.setdefault(b, []).append(si)
+    used = [False] * len(segs)
+    lines = []
+    for s0 in range(len(segs)):
+        if used[s0]:
+            continue
+        used[s0] = True
+        chain = [segs[s0][0], segs[s0][1]]
+        for direction in (1, 0):                         # 양쪽으로 늘리기
+            while True:
+                end = chain[-1] if direction else chain[0]
+                nxt = [si for si in adj.get(end, []) if not used[si]]
+                if not nxt:
+                    break
+                si = nxt[0]
+                used[si] = True
+                a, b = segs[si]
+                new = b if a == end else a
+                if direction:
+                    chain.append(new)
+                else:
+                    chain.insert(0, new)
+        lines.append(chain)
+    best = None
+    for ch in lines:
+        P = np.array([edge_pt[k][0] for k in ch])
+        L = float(np.linalg.norm(np.diff(P, axis=0), axis=1).sum())
+        if best is None or L > best[0]:
+            best = (L, ch, P)
+    _, ch, P = best
+    Q = np.array([edge_pt[k][1] for k in ch])
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    h0 = [k for k in range(3) if k != ax][0]               # 단면 그림의 가로축 — 왼쪽 끝에서 시작 (그래프와 같은 방향)
+    if P[0, h0] > P[-1, h0] + 1e-6:
+        P, Q = P[::-1], Q[::-1]
+        s = s[-1] - s[::-1]
+    return Section(axis, pos, P, s, Q[:, 0], Q[:, 1], Q[:, 2], Q[:, 3], fa.thickness)
+
+
+def section_note(sec: Section):
+    i = int(np.argmax(sec.thin))
+    j = int(np.argmin(sec.thin))
+    return (f"{sec.axis} = {sec.pos:.1f} 단면 · 길이 {sec.s[-1]:.0f} mm · 가장 얇은 곳 {sec.thickness[i]:.3f} mm "
+            f"(얇아짐 {max(sec.thin[i], 0):.1%}, {sec.s[i]:.0f} mm 지점) · 가장 두꺼운 곳 {sec.thickness[j]:.3f} mm "
+            f"(두꺼워짐 {max(-sec.thin[j], 0):.1%})")
+
+
+def paint_section(p, rect, sec: Section, title=True):
+    """위: 단면 모양 (얇아짐 색), 아래: 선 따라 두께 변화 % 그래프 (기준선: 0, −25 % 얇아짐, +5 % 두꺼워짐)."""
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QPen, QPolygonF
+
+    from .drawing import thinning_color
+    from .report import _font
+    p.save()
+    p.fillRect(rect, QColor(255, 255, 255))
+    y0 = rect.top() + (26 if title else 4)
+    if title:
+        p.setPen(QColor(30, 30, 30))
+        p.setFont(_font(11, True))
+        p.drawText(QRectF(rect.left(), rect.top() + 2, rect.width(), 22), Qt.AlignCenter, section_note(sec))
+    # 단면 모양
+    h_shape = (rect.height() - (y0 - rect.top())) * 0.38
+    others = [k for k in range(3) if k != AXES[sec.axis]]
+    A = sec.pts[:, others]
+    if sec.axis != "Z":
+        A = np.column_stack([A[:, 0], A[:, 1]])
+    lo, hi = A.min(0), A.max(0)
+    sc = min((rect.width() - 40) / max(hi[0] - lo[0], 1e-9), (h_shape - 16) / max(hi[1] - lo[1], 1e-9))
+    cx = rect.left() + rect.width() / 2 - (lo[0] + hi[0]) / 2 * sc
+    cy = y0 + h_shape / 2 + (lo[1] + hi[1]) / 2 * sc
+    for k in range(len(A) - 1):
+        c = thinning_color(float((sec.thin[k] + sec.thin[k + 1]) / 2))
+        p.setPen(QPen(c, 4, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(cx + A[k, 0] * sc, cy - A[k, 1] * sc), QPointF(cx + A[k + 1, 0] * sc, cy - A[k + 1, 1] * sc))
+    i = int(np.argmax(sec.thin))
+    p.setPen(QPen(QColor(200, 0, 0), 2))
+    p.setBrush(Qt.NoBrush)
+    p.drawEllipse(QPointF(cx + A[i, 0] * sc, cy - A[i, 1] * sc), 7, 7)
+    # 그래프
+    g = QRectF(rect.left() + 70, y0 + h_shape + 10, rect.width() - 100, rect.height() - (y0 - rect.top()) - h_shape - 50)
+    ys = -sec.thin * 100                                   # + 두꺼워짐, − 얇아짐 (현장 단면 측정 꼴)
+    ymin = min(-30.0, float(ys.min()) - 3)
+    ymax = max(10.0, float(ys.max()) + 3)
+    L = float(sec.s[-1]) or 1.0
+
+    def q(sv, yv):
+        return QPointF(g.left() + sv / L * g.width(), g.bottom() - (yv - ymin) / (ymax - ymin) * g.height())
+    p.setFont(_font(8.5))
+    for yv in range(int(math.ceil(ymin / 10) * 10), int(ymax) + 1, 10):
+        p.setPen(QPen(QColor(220, 220, 220), 1))
+        p.drawLine(q(0, yv), q(L, yv))
+        p.setPen(QColor(90, 90, 90))
+        p.drawText(QRectF(g.left() - 66, q(0, yv).y() - 9, 60, 18), Qt.AlignRight | Qt.AlignVCenter, f"{yv:+d} %")
+    for frac in (0, 0.25, 0.5, 0.75, 1.0):
+        p.drawText(QRectF(q(L * frac, ymin).x() - 30, g.bottom() + 2, 60, 16), Qt.AlignCenter, f"{L * frac:.0f}")
+    p.drawText(QRectF(g.left(), g.bottom() + 16, g.width(), 16), Qt.AlignCenter, "단면 선 따라 거리 mm  (세로: 두께 변화, − 얇아짐)")
+    for yv, col, lab in ((0, QColor(60, 60, 60), "처음 두께"), (-THIN_MAX * 100, QColor(220, 30, 30), f"얇아짐 한계 −{THIN_MAX:.0%}"),
+                         (5, QColor(140, 70, 200), "두꺼워짐 +5 % (주름 경향)")):
+        p.setPen(QPen(col, 1.2, Qt.DashLine))
+        p.drawLine(q(0, yv), q(L, yv))
+        p.drawText(QRectF(g.right() - 200, q(0, yv).y() - 16, 200, 14), Qt.AlignRight, lab)
+    p.setPen(QPen(QColor(31, 78, 140), 2))
+    p.drawPolyline(QPolygonF([q(float(a), float(b)) for a, b in zip(sec.s, ys)]))
+    p.setPen(QPen(QColor(200, 0, 0), 2))
+    p.drawEllipse(q(float(sec.s[i]), float(ys[i])), 5, 5)
+    p.restore()
+
+
+def render_section(sec: Section, w=1100, h=700):
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from .report import ensure_gui
+    ensure_gui()
+    img = QImage(w, h, QImage.Format_ARGB32)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    paint_section(p, QRectF(0, 0, w, h), sec)
+    p.end()
+    return img
+
+
+def default_sections(fa: FormAnalysis):
+    """보고서용: 가운데를 지나는 X · Y 단면 (있는 것만)."""
+    out = []
+    for ax in ("X", "Y"):
+        try:
+            s = section(fa, ax)
+        except Exception:
+            s = None
+        if s is not None and len(s.s) > 3:
+            out.append(s)
+    return out
+
+
+# ---------------------------------------------------------------- 하중 - 행정 (드로잉)
+
+@dataclass
+class LoadStroke:
+    h: np.ndarray              # 펀치가 들어간 깊이 mm (0 = 닿음)
+    draw: np.ndarray           # 드로잉력 N
+    holder: np.ndarray         # 누르개 (쿠션) 힘 N
+    cap: np.ndarray            # 고른 프레스가 그 높이에서 낼 수 있는 힘 N
+    press: str
+    ok: bool
+    depth: float
+    note: str = ""
+
+    @property
+    def total(self):
+        return self.draw + self.holder
+
+    @property
+    def margin(self):
+        """프레스 능력 / 하중 의 가장 작은 값과 그 깊이."""
+        r = self.cap / np.maximum(self.total, 1.0)
+        i = int(np.argmin(r))
+        return float(r[i]), float(self.h[i])
+
+
+def load_stroke(fa: FormAnalysis, mat=None, machines=None, n=80, mu=0.1):
+    """드로잉 하중 - 행정 곡선과 크랭크 프레스 능력 곡선 (같은 둘레의 원통 컵으로 본 어림).
+    같은 둘레 원통: d = 제품 둘레 / π, D0 = 블랭크 둘레 / π. 펀치 깊이 h 에서 플랜지 바깥 지름 D(h) = √(D0² − 4 d h)
+    (넓이 일정: 벽으로 들어간 π d h = 플랜지에서 줄어든 π (D0² − D²)/4).
+    드로잉력 F(h) = π d t · 1.1 k_fm ln(D(h)/d) / η_F + 2 μ F_N(h)  (Siebel, 홀더 마찰 양면),
+    누르개 F_N(h) = Siebel 면압 × 남은 플랜지 넓이. 곡선의 가장 큰 드로잉력은 해석의 드로잉력에 맞춘다.
+    프레스: costing 기계 표에서 모든 깊이에서 능력 ≥ 하중 (크랭크 곡선 F = P sin30°/sin α) 이고 행정 ≥ 2 × 깊이인
+    가장 작은 것."""
+    g = fa.draw_geom
+    if not g or not fa.ldr:
+        return None
+    from . import bendcalc as bc
+    from . import costing as cs
+    mat = mat or bc.MATERIAL_BY_CODE.get(fa.material, bc.MATERIALS[0])
+    t = fa.thickness
+    d = g["L_prod"] / math.pi
+    D0 = g["L_blank"] / math.pi
+    depth = g["depth"]
+    h_full = (D0 ** 2 - d ** 2) / (4 * d)                  # 플랜지가 다 들어가는 깊이 (같은 둘레 원통)
+    h = np.linspace(0, depth, n)
+    D = np.sqrt(np.maximum(D0 ** 2 - 4 * d * np.minimum(h, h_full), d ** 2))
+    phi = math.log(max(D0 / d, 1.0))
+    kfm = dc.mean_flow_stress(mat, phi)
+    rd = dc.die_radius(D0, d, t)
+    p_bh = dc.siebel_holder_pressure(D0 / d, d, t, mat)
+    FN = p_bh * np.pi / 4 * np.maximum(D ** 2 - (d + 2 * rd) ** 2, 0.0)
+    ideal = np.pi * d * t * 1.1 * kfm * np.log(D / d) / 0.65
+    rise = np.minimum(h / max(rd + 3 * t, 1e-6), 1.0)      # 펀치 R·다이 R 을 감는 동안 오르는 몫
+    Fd = (ideal + 2 * mu * FN) * rise
+    if Fd.max() > 0 and g.get("f_draw"):
+        Fd = Fd * (g["f_draw"] / Fd.max())
+    machines = machines or cs.default_costing()["machines"]
+    presses = sorted([m for m in machines if m["kind"] == cs.PRESS], key=lambda m: m["capacity"])
+    total = Fd + FN
+    chosen, cap = None, None
+    for m in presses:
+        c = np.array([m["capacity"] * dc.TON * cs.press_factor(m, depth - hh) for hh in h])
+        stroke = float(m.get("stroke") or cs.default_stroke(m["capacity"]))
+        if np.all(c >= total) and stroke >= 2 * depth:
+            chosen, cap = m, c
+            break
+    ok = chosen is not None
+    if chosen is None and presses:
+        chosen = presses[-1]
+        cap = np.array([chosen["capacity"] * dc.TON * cs.press_factor(chosen, depth - hh) for hh in h])
+    ls = LoadStroke(h, Fd, FN, cap if cap is not None else np.zeros(n), chosen["name"] if chosen else "-", ok, depth)
+    r, at = ls.margin
+    i = int(np.argmax(total))
+    ls.note = (f"최대 하중 {total[i] / dc.TON:,.1f} tf (드로잉 {Fd[i] / dc.TON:,.1f} + 누르개 {FN[i] / dc.TON:,.1f}) — 깊이 "
+               f"{h[i]:.0f} mm (하사점 위 {depth - h[i]:.0f} mm). {ls.press}: 가장 빠듯한 곳 깊이 {at:.0f} mm 에서 능력 / 하중 "
+               f"{r:.2f}" + ("" if ok else " — 표의 프레스로 모자람 (행정 또는 능력)"))
+    return ls
+
+
+def paint_load_stroke(p, rect, ls: LoadStroke, title=True):
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import QColor, QPen, QPolygonF
+
+    from .report import _font
+    p.save()
+    p.fillRect(rect, QColor(255, 255, 255))
+    top = rect.top() + (28 if title else 6)
+    if title:
+        p.setPen(QColor(30, 30, 30))
+        p.setFont(_font(11, True))
+        p.drawText(QRectF(rect.left(), rect.top() + 2, rect.width(), 22), Qt.AlignCenter,
+                   f"하중 - 행정 · {ls.press} {'적합' if ls.ok else '모자람'}")
+    g = QRectF(rect.left() + 70, top + 8, rect.width() - 100, rect.bottom() - top - 60)
+    tf = dc.TON
+    ymax = max(float(ls.total.max()), float(np.max(ls.cap)) if len(ls.cap) else 0) / tf * 1.1 or 1.0
+
+    def q(hh, f):
+        return QPointF(g.left() + hh / max(ls.depth, 1e-9) * g.width(), g.bottom() - f / tf / ymax * g.height())
+    p.setFont(_font(8.5))
+    for k in range(6):
+        yv = ymax * k / 5
+        p.setPen(QPen(QColor(220, 220, 220), 1))
+        p.drawLine(q(0, yv * tf), q(ls.depth, yv * tf))
+        p.setPen(QColor(90, 90, 90))
+        p.drawText(QRectF(g.left() - 66, q(0, yv * tf).y() - 9, 60, 18), Qt.AlignRight | Qt.AlignVCenter, f"{yv:,.0f} tf")
+    for frac in (0, 0.25, 0.5, 0.75, 1):
+        p.drawText(QRectF(q(ls.depth * frac, 0).x() - 30, g.bottom() + 2, 60, 16), Qt.AlignCenter, f"{ls.depth * frac:.0f}")
+    p.drawText(QRectF(g.left(), g.bottom() + 18, g.width(), 16), Qt.AlignCenter,
+               "펀치가 들어간 깊이 mm (오른쪽 끝 = 하사점)")
+    for arr, col, lab, dash in ((ls.cap, QColor(220, 30, 30), f"{ls.press} 능력 (크랭크 곡선)", Qt.DashLine),
+                                (ls.total, QColor(31, 78, 140), "하중 합 (드로잉 + 누르개)", Qt.SolidLine),
+                                (ls.draw, QColor(60, 170, 80), "드로잉력", Qt.SolidLine),
+                                (ls.holder, QColor(240, 160, 0), "누르개 (쿠션) 힘", Qt.SolidLine)):
+        p.setPen(QPen(col, 2, dash))
+        p.drawPolyline(QPolygonF([q(float(a), float(b)) for a, b in zip(ls.h, arr)]))
+    y = g.top() + 4
+    for col, lab in ((QColor(220, 30, 30), f"{ls.press} 능력"), (QColor(31, 78, 140), "하중 합"),
+                     (QColor(60, 170, 80), "드로잉력"), (QColor(240, 160, 0), "누르개 힘")):
+        p.setPen(QPen(col, 3))
+        p.drawLine(QPointF(g.left() + 10, y + 7), QPointF(g.left() + 34, y + 7))
+        p.setPen(QColor(40, 40, 40))
+        p.drawText(QRectF(g.left() + 40, y, 220, 16), Qt.AlignLeft | Qt.AlignVCenter, lab)
+        y += 17
+    p.restore()
+
+
+def render_load_stroke(ls: LoadStroke, w=1000, h=600):
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from .report import ensure_gui
+    ensure_gui()
+    img = QImage(w, h, QImage.Format_ARGB32)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    paint_load_stroke(p, QRectF(0, 0, w, h), ls)
+    p.end()
+    return img
+
+
+# ---------------------------------------------------------------- 재질 · 두께 바꿔 보기
+
+COMPARE_HEAD = ["재질", "두께 mm", "판정", "파단 %", "파단 위험 %", "가장 많이 얇아짐", "최소 두께 mm", "가장 큰 한계 비",
+                "드로잉비 / LDR", "권장 프레스 tf", "블랭크 넓이 mm²", "재질값"]
+
+
+def compare(solid, settings, candidates, mode=None, progress=None):
+    """같은 제품을 다른 재질·두께로 다시 펼쳐 성형 해석 → [행]. candidates: [(재질 코드, 두께 또는 None)].
+    두께를 바꾸면 3D 의 두께 가운데 면을 그대로 두고 판만 바꾼다 (같은 제품 모양, 다른 판)."""
+    import dataclasses
+
+    from .unfolder import FORMING, unfold
+    rows = []
+    for k, (code, t) in enumerate(candidates):
+        if progress:
+            progress(k, len(candidates), code, t)
+        st = dataclasses.replace(settings, material=code,
+                                 mill=settings.mill if code == settings.material else {})
+        try:
+            r = unfold(solid, thickness=t, settings=st, mode=mode or FORMING)
+            fa = analyze(r, st)
+        except Exception as e:
+            rows.append([code, t or 0.0, f"실패: {str(e).splitlines()[0][:40]}"] + [""] * (len(COMPARE_HEAD) - 3))
+            continue
+        fr = fa.zone_frac if fa.zone_frac else [0.0] * len(ZONES)
+        rows.append([code, r.thickness, fa.verdict, fr[0], fr[1], max(fa.thin_hi, 0.0), fa.t_min, fa.risk_top,
+                     f"{fa.ldr[0]:.2f} / {fa.ldr[1]:.2f}" if fa.ldr else "-", fa.press_tonf,
+                     r.forming.blank_area if r.forming is not None else 0.0, st.mat.source])
+    return rows
+
+
+def best_row(rows):
+    """적합 > 주의 > 부적합, 같으면 한계 비가 작은 것."""
+    order = {OK: 0, WARN: 1, NG: 2}
+    ok = [r for r in rows if r[2] in order]
+    return min(ok, key=lambda r: (order[r[2]], r[7])) if ok else None

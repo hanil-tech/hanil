@@ -134,7 +134,7 @@ class FormingInfo:
         from .forming import flc_risk
         if self.flc0 <= 0:
             return np.zeros(len(self.F))
-        return flc_risk(self.major, self.minor, self.flc0)
+        return flc_risk(self.major, self.minor, self.flc0, self.material)
 
     @property
     def wrinkle(self):

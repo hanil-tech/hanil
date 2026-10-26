@@ -686,8 +686,9 @@ class MainWindow(QMainWindow):
         from . import dxf2d
         dxf2d.USER_CONVERTER = self.settings.value("dwg_converter", "") or ""
         if not edition.unfold_only():
-            from . import calibration
+            from . import calibration, flcdata
             calibration.load(self.history.calib)    # 실적 보정 계수 (전체판)
+            flcdata.load(self.settings)             # 재질별 실측 FLC
 
         self._build_toolbar()
 
@@ -1374,14 +1375,17 @@ class MainWindow(QMainWindow):
             return
         idx = max(self.solid_box.currentIndex(), 0)
         name = self.model.names[idx] if self.model and self.model.names else ""
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            dlg = FormSimDialog(self.result, self.bend_panel.settings(), name, self,
-                                history=self.history if self.history_box.isChecked() else None,
-                                source_path=self.model.path if self.model else "")
-        finally:
-            QApplication.restoreOverrideCursor()
-        dlg.exec()
+        from .formsim_dialog import REANALYZE
+        while True:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                dlg = FormSimDialog(self.result, self.bend_panel.settings(), name, self,
+                                    history=self.history if self.history_box.isChecked() else None,
+                                    source_path=self.model.path if self.model else "", solid=self.current_solid())
+            finally:
+                QApplication.restoreOverrideCursor()
+            if dlg.exec() != REANALYZE:          # FLC 를 바꾸면 다시 해석해 다시 연다
+                break
 
     def show_inspection(self):
         """검사 성적서 창 (지금 부품)."""
