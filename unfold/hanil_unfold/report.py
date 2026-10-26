@@ -589,7 +589,7 @@ def save_xlsx(d: ReportData, path: str):
                 c.alignment = st["center"] if j < len(vals) else st["wrap"]
                 if isinstance(v, float):
                     c.number_format = "0.000"
-            if b.kind == "원뿔":
+            if b.kind in ("원뿔", "곡선 단면"):
                 wsb.cell(i, 5, b.radius_text)
         wsb.freeze_panes = "A2"
 

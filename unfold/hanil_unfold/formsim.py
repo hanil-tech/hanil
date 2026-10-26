@@ -239,6 +239,10 @@ def _forming(fa: FormAnalysis, fi, mat: bc.Material):
                 fa.messages.append(f"성형 깊이 {depth:.1f} mm · 펀치 투영 넓이 {proj:,.0f} mm² · "
                                    f"블랭크 {fi.blank_area:,.0f} mm²")
     _edge_stretch(fa, fi, mat)
+    from . import drawcorr
+    note = drawcorr.summary(getattr(fi, "correction", None), fa.thickness)
+    if note:
+        fa.messages.append(note)
     fr = dict(zip(range(len(ZONES)), fa.zone_frac))
     if fr[0] > 0.001:
         fa.messages.append(f"파단 {fr[0]:.1%}: 성형 한계를 넘습니다 — R 을 키우거나, 깊이를 나누거나 (다단 드로잉), "

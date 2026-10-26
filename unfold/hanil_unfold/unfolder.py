@@ -33,7 +33,9 @@ from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Curve2d, BRepAdaptor_Surface
 from OCP.BRepClass import BRepClass_FaceClassifier
 from OCP.BRepGProp import BRepGProp
-from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Line, GeomAbs_Plane
+from OCP.GeomAbs import (GeomAbs_BezierSurface, GeomAbs_BSplineSurface, GeomAbs_Circle, GeomAbs_Cone,
+                          GeomAbs_Cylinder, GeomAbs_Line, GeomAbs_OffsetSurface, GeomAbs_Plane,
+                          GeomAbs_SurfaceOfExtrusion)
 from OCP.GProp import GProp_GProps
 from OCP.gp import gp_Dir, gp_Lin, gp_Pnt, gp_Pnt2d, gp_Vec, gp_Vec2d
 from OCP.IntCurvesFace import IntCurvesFace_ShapeIntersector
@@ -55,6 +57,8 @@ MODE_NAMES = {
 TANGENT_COS = math.cos(math.radians(3.0))
 # 면 안쪽을 확인할 때 모서리에서 떨어뜨리는 거리(mm)
 _PROBE = 0.02
+# 자유곡선 (스플라인) 모서리를 폴리라인으로 옮길 때 현의 최대 오차 (mm)
+CHORD_TOL = 0.005
 
 
 class UnfoldError(Exception):
@@ -121,6 +125,8 @@ class FormingInfo:
     material: str = ""
     V: np.ndarray | None = None   # 제품 (두께 가운데 면) 꼭짓점 (n, 3) — 성형 해석 3D 그림
     cylinders: list = field(default_factory=list)   # 원통 면 (반지름, 축 방향) — 사각 드로잉 귀 R 판정
+    membrane: tuple | None = None    # 보정 전 원스텝 (막) 변형률 (major, minor) — 드로잉 보정을 했을 때
+    correction: dict | None = None   # drawcorr.correct 의 설명 (장력·다이 R·얇아짐 몫)
 
     def _weights(self):
         w = _tri_areas2(self.U, self.F)
@@ -261,6 +267,41 @@ def _explore(shape, kind):
 # ---------------------------------------------------------------- 면 정보
 
 _KINDS = {GeomAbs_Plane: "plane", GeomAbs_Cylinder: "cylinder", GeomAbs_Cone: "cone"}
+# 곡선을 민 면 (일반 원통) 일 수 있는 곡면: 단면이 3차 스플라인·베지어인 절곡·곡면 판
+_MAYBE_RULED = (GeomAbs_SurfaceOfExtrusion, GeomAbs_BSplineSurface, GeomAbs_BezierSurface, GeomAbs_OffsetSurface)
+RULED_KIND = "곡선 단면"
+RULED_SAMPLES = 801
+
+
+def _ruling(face):
+    """면이 한 방향으로 곧은 선을 민 꼴 (일반 원통: 모든 단면이 같은 곡선) 이면 (민 방향 D, 단면 매개변수 'u'/'v'),
+    아니면 None. 7 × 7 점에서 한 매개변수 방향의 선이 곧고 (휨 < 2 µm·길이 비례) 서로 나란한지 (0.05°) 본다.
+    평면은 미리 평면으로 알아본다."""
+    surf = BRepAdaptor_Surface(face)
+    u0, u1, v0, v1 = _uv_bounds(face)
+    if not (u1 > u0 and v1 > v0):
+        return None
+    n = 7
+    us = np.linspace(u0, u1, n)
+    vs = np.linspace(v0, v1, n)
+    P = np.array([[_pnt(surf.Value(float(u), float(v))) for v in vs] for u in us])     # (u, v, 3)
+    size = float(np.linalg.norm(P.reshape(-1, 3).max(0) - P.reshape(-1, 3).min(0))) or 1.0
+    for across in ("u", "v"):
+        L = P if across == "u" else np.transpose(P, (1, 0, 2))   # L[i] = 곧아야 할 선 (단면 매개변수 i 고정)
+        d = L[:, -1] - L[:, 0]
+        ln = np.linalg.norm(d, axis=1)
+        if ln.min() < 1e-6 * size:
+            continue
+        D = d / ln[:, None]
+        if np.min(D @ D[0]) < math.cos(math.radians(0.05)):
+            continue
+        rel = L - L[:, :1]
+        off = rel - (rel @ D[0])[..., None] * D[0]
+        if np.abs(np.linalg.norm(off, axis=2)).max() > 2e-3 + 1e-5 * size:
+            continue
+        # 단면이 사실상 직선이면 평면 (평면 인식이 놓친 것) — 그래도 같은 식으로 펼칠 수 있다
+        return D[0], across
+    return None
 
 
 @dataclass
@@ -284,10 +325,27 @@ class _Face:
     s_shift: float = 0.0          # 중립면으로 옮길 때 꼭짓점 거리 보정
     k: float = 0.0
     parent: int | None = None
+    # 곡선 단면 (일반 원통): 민 방향, 단면 매개변수 ('u'/'v'), 단면 매개변수 → 중립선 길이 표
+    ruled_dir: np.ndarray | None = None
+    across: str = "u"
+    tab_p: np.ndarray | None = None
+    tab_s: np.ndarray | None = None
+    groups: list = field(default_factory=list)
+    surf: object = None
 
     def canon(self, u, v):
         if self.kind == "cylinder":
             return np.array([self.su * u, v])
+        if self.kind == "ruled":
+            a = u if self.across == "u" else v
+            p, s = self.tab_p, self.tab_s
+            if a < p[0]:
+                sv = s[0] + (a - p[0]) * (s[1] - s[0]) / (p[1] - p[0])
+            elif a > p[-1]:
+                sv = s[-1] + (a - p[-1]) * (s[-1] - s[-2]) / (p[-1] - p[-2])
+            else:
+                sv = float(np.interp(a, p, s))
+            return np.array([sv, float(_pnt(self.surf.Value(u, v)) @ self.ruled_dir)])
         if self.kind == "cone":
             sa = abs(self.sin_a)
             s = (self.ref_radius + v * self.sin_a) / sa + self.s_shift
@@ -374,8 +432,17 @@ class SheetMetalUnfolder:
             if self.faces.find(face) is not None:
                 continue
             idx = self.faces.add(face)
-            kind = _KINDS.get(BRepAdaptor_Surface(face).GetType(), "other")
-            self.info.append(_Face(idx, face, kind, _face_area(face)))
+            st = BRepAdaptor_Surface(face).GetType()
+            kind = _KINDS.get(st, "other")
+            info = _Face(idx, face, kind, _face_area(face))
+            if kind == "other" and st in _MAYBE_RULED:
+                try:
+                    rl = _ruling(face)
+                except Exception:
+                    rl = None
+                if rl is not None:
+                    info.kind, info.ruled_dir, info.across = "ruled", rl[0], rl[1]
+            self.info.append(info)
             for e in _explore(face, TopAbs_EDGE):
                 edge = TopoDS.Edge(e)
                 if BRep_Tool.Degenerated_s(edge):
@@ -603,6 +670,86 @@ class SheetMetalUnfolder:
         delta = -(1 - k) * t if f.convex else k * t
         f.s_shift = delta / math.tan(abs(cone.SemiAngle()))
 
+    def _setup_ruled(self, f: _Face, t: float):
+        """곡선 단면 (일반 원통) 의 중립선 길이 표. 단면 곡선을 RULED_SAMPLES 점으로 나눠 점마다 곡률 반지름 ρ 와
+        볼록·오목 (바깥 법선이 곡률 중심 반대쪽이면 볼록 = 이 겉면이 바깥) 을 구하고, 안쪽 R (볼록이면 ρ − t) 의
+        K 로 중립면까지 재료 쪽으로 (볼록 (1 − K)·t, 오목 K·t) 옮긴 선의 길이를 쌓는다 — 원통 절곡의
+        BA = θ (R + K t) 를 R 이 바뀌는 곡선으로 넓힌 것 (∫ (1/ρ_안쪽)(R + K t) dθ)."""
+        surf = BRepAdaptor_Surface(f.face)
+        f.surf = surf
+        D = f.ruled_dir
+        u0, u1, v0, v1 = _uv_bounds(f.face)
+        a0, a1, r0, r1 = (u0, u1, v0, v1) if f.across == "u" else (v0, v1, u0, u1)
+        rm = 0.5 * (r0 + r1)
+        A = np.linspace(a0, a1, RULED_SAMPLES)
+        rev = f.face.Orientation() == TopAbs_REVERSED
+        Q, Nn, kap, cen = [], [], [], []
+        for a in A:
+            u, v = (a, rm) if f.across == "u" else (rm, a)
+            p, du, dv, duu, dvv, duv = gp_Pnt(), gp_Vec(), gp_Vec(), gp_Vec(), gp_Vec(), gp_Vec()
+            surf.D2(u, v, p, du, dv, duu, dvv, duv)
+            d1 = np.array([du.X(), du.Y(), du.Z()]) if f.across == "u" else np.array([dv.X(), dv.Y(), dv.Z()])
+            d2 = np.array([duu.X(), duu.Y(), duu.Z()]) if f.across == "u" else np.array([dvv.X(), dvv.Y(), dvv.Z()])
+            nrm = np.cross([du.X(), du.Y(), du.Z()], [dv.X(), dv.Y(), dv.Z()])
+            nrm = nrm / max(np.linalg.norm(nrm), 1e-30) * (-1 if rev else 1)
+            d1 = d1 - (d1 @ D) * D
+            d2 = d2 - (d2 @ D) * D
+            sp = max(float(np.linalg.norm(d1)), 1e-30)
+            tg = d1 / sp
+            an = d2 - (d2 @ tg) * tg                    # 곡률 중심 쪽 가속도
+            k_ = float(np.linalg.norm(an)) / sp ** 2
+            P3 = _pnt(p)
+            Q.append(P3 - (P3 @ D) * D)
+            Nn.append(nrm - (nrm @ D) * D)
+            kap.append(k_)
+            cen.append(an / max(np.linalg.norm(an), 1e-30))
+        Q, Nn, kap, cen = np.array(Q), np.array(Nn), np.array(kap), np.array(cen)
+        Nn /= np.maximum(np.linalg.norm(Nn, axis=1), 1e-30)[:, None]
+        straight = kap * t < 1e-3                        # ρ > 1000 t: 곧은 곳 (K 0.5 와 같음)
+        convex = np.einsum("ij,ij->i", Nn, cen) < 0
+        rho = np.where(straight, np.inf, 1 / np.maximum(kap, 1e-30))
+        r_in = np.where(convex, rho - t, rho)
+        if np.any(~straight & (r_in < -1e-3)):
+            self.warnings.append(f"곡선 단면의 R 이 두께보다 작은 곳이 있습니다 (최소 곡률 반지름 {np.nanmin(rho):.2f}).")
+        r_in = np.maximum(r_in, 0.0)
+        cache = {}
+
+        def k_at(r):
+            key = round(math.log(r / t + 0.01), 2)
+            if key not in cache:
+                cache[key] = self.settings.k_for(r, t)[0]
+            return cache[key]
+        K = np.array([0.5 if s_ else k_at(float(r)) for s_, r in zip(straight, r_in)])
+        delta = np.where(convex, (1 - K) * t, K * t)
+        delta = np.where(straight, 0.5 * t, delta)
+        Nl = Q - Nn * delta[:, None]                     # 재료 쪽 (바깥 법선 반대) 으로 중립면까지
+        S = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(Nl, axis=0), axis=1))])
+        f.tab_p, f.tab_s = A, S
+        f.k = float(np.mean(K))
+        f.inner_radius = float(np.min(np.where(straight, np.inf, r_in))) if (~straight).any() else math.inf
+        f.convex = bool(np.mean(convex[~straight]) > 0.5) if (~straight).any() else False
+        # 같은 쪽으로 휜 구간마다 절곡 하나 (S 자는 둘)
+        ds = np.linalg.norm(np.diff(Q, axis=0), axis=1)
+        turn = 0.5 * (kap[1:] + kap[:-1]) * ds
+        sign = np.where(straight, 0, np.where(convex, 1, -1))
+        f.groups = []
+        i = 0
+        n = len(A)
+        while i < n:
+            if sign[i] == 0:
+                i += 1
+                continue
+            j = i
+            while j + 1 < n and sign[j + 1] == sign[i]:
+                j += 1
+            ang = float(turn[i:j].sum()) if j > i else 0.0
+            if ang > math.radians(1.0):
+                rr = r_in[i:j + 1]
+                f.groups.append(dict(i0=i, i1=j, angle=ang, convex=sign[i] > 0, r_min=float(rr.min()),
+                                     r_max=float(rr.max()), k=float(K[i:j + 1].mean()),
+                                     width=float(S[j] - S[i]), a_mid=float(A[(i + j) // 2])))
+            i = j + 1
+
     def _edge_canon(self, f: _Face, edge):
         c = BRepAdaptor_Curve2d(edge, f.face)
         p1, p2 = c.Value(c.FirstParameter()), c.Value(c.LastParameter())
@@ -695,6 +842,8 @@ class SheetMetalUnfolder:
                 self._setup_cylinder(f, t)
             elif f.kind == "cone":
                 self._setup_cone(f, t)
+            elif f.kind == "ruled":
+                self._setup_ruled(f, t)
 
         # 기준면부터 넓이 우선으로 이어 붙인다.
         self._place_root(root)
@@ -813,6 +962,18 @@ class SheetMetalUnfolder:
         # 평면·원통·원뿔뿐인 부품은 굽힘으로 만들어 끌려 들어오는 저항(누르개·다이 R)이 없다
         Vm, F, U = forming.flatten(V, F, t, N=N, n_exp=mat.n, r_value=mat.r, info=how, tools=tools)
         major, minor, ratio = forming.strains(Vm, F, U)
+        membrane, corr = None, None
+        if tools is not None and forming.DRAW_CORRECTION:
+            # 원스텝 (막) 이 못 보는 인장 아래 굽힘·드로잉 장력·아이어닝을 더한다 (drawcorr)
+            from . import drawcorr
+            try:
+                m2, n2, corr = drawcorr.correct(Vm, F, U, major, minor, t, mat, N=how.get("normals"))
+                if corr.get("applied"):
+                    membrane = (major, minor)
+                    major, minor = m2, n2
+                    ratio = np.exp(major + minor)
+            except (ValueError, FloatingPointError, np.linalg.LinAlgError):
+                corr = None
 
         entities = []
         for loop in forming.boundary_loops(F):
@@ -839,7 +1000,8 @@ class SheetMetalUnfolder:
         fi = FormingInfo(U=U, F=F, ratio=ratio, major=major, minor=minor,
                          product_area=area3d, blank_area=area2d,
                          reliable=forming.quality(Vm, F) > 5.0, method=how.get("method", "ARAP"),
-                         flc0=mat.flc0_for(t), material=mat.code, V=Vm, cylinders=cyl)
+                         flc0=mat.flc0_for(t), material=mat.code, V=Vm, cylinders=cyl,
+                         membrane=membrane, correction=corr)
         notes = []
         if n_free:
             notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")
@@ -905,11 +1067,33 @@ class SheetMetalUnfolder:
                 return [Arc(center, r, full=True)]
             return [_arc_through(center, r, flat(a), flat(0.5 * (a + b)), flat(b))]
 
-        # 그 밖의 곡선은 잘게 나눠 폴리라인으로
+        # 그 밖의 곡선 (스플라인·베지어 등) 은 폴리라인으로: 0.5 mm 간격에서 시작해, 현의 가운데가 곡선에서
+        # CHORD_TOL 넘게 떨어지는 구간은 반으로 더 나눈다 (작은 R 의 스플라인도 오차 5 µm 안)
         length = _curve_length_estimate(c, a, b, f)
         n = int(min(400, max(16, length / 0.5)))
-        pts = [flat(a + (b - a) * i / n) for i in range(n + 1)]
-        return [Polyline(pts)]
+        ts = [a + (b - a) * i / n for i in range(n + 1)]
+        pts = [flat(x) for x in ts]
+        out_t, out_p = [ts[0]], [pts[0]]
+        for i in range(n):
+            stack = [(ts[i], pts[i], ts[i + 1], pts[i + 1], 0)]
+            seg = []
+            while stack:
+                t0, p0, t1, p1, depth = stack.pop()
+                tm = 0.5 * (t0 + t1)
+                pm = flat(tm)
+                q0, q1, qm = np.array(p0), np.array(p1), np.array(pm)
+                dv = q1 - q0
+                L = float(np.linalg.norm(dv))
+                dev = float(np.linalg.norm(qm - q0)) if L < 1e-12 else abs(float(dv[0] * (qm - q0)[1] - dv[1] * (qm - q0)[0])) / L
+                if dev > CHORD_TOL and depth < 8:
+                    stack.append((tm, pm, t1, p1, depth + 1))
+                    stack.append((t0, p0, tm, pm, depth + 1))
+                else:
+                    seg.append((t1, p1))
+            for x, q in seg:
+                out_t.append(x)
+                out_p.append(q)
+        return [Polyline(out_p)]
 
     def _fold_angle(self, f: _Face, u0, u1, vm):
         n0 = _surface_normal(f.face, u0, vm)
@@ -920,6 +1104,9 @@ class SheetMetalUnfolder:
         bends, rolled = [], []
         for fi in sorted(placed):
             f = self.info[fi]
+            if f.kind == "ruled":
+                bends += self._ruled_bends(f)
+                continue
             if f.kind not in ("cylinder", "cone"):
                 continue
             u0, u1, v0, v1 = _uv_bounds(f.face)
@@ -965,6 +1152,40 @@ class SheetMetalUnfolder:
         for i, b in enumerate(bends, 1):
             b.number = i
         return bends, rolled
+
+    def _ruled_bends(self, f: _Face):
+        """곡선 단면의 휜 구간마다 Bend (절곡선 = 구간 가운데의 민 방향 선)."""
+        out = []
+        u0, u1, v0, v1 = _uv_bounds(f.face)
+        for g in f.groups:
+            if f.across == "u":
+                lo, hi = self._v_range_at(f, g["a_mid"], v0, v1)
+                q1, q2 = (g["a_mid"], lo), (g["a_mid"], hi)
+            else:
+                lo, hi = self._u_range_at(f, g["a_mid"], u0, u1)
+                q1, q2 = (lo, g["a_mid"]), (hi, g["a_mid"])
+            p1 = tuple(float(x) for x in f.to_flat(*q1))
+            p2 = tuple(float(x) for x in f.to_flat(*q2))
+            rmax = "∞" if not math.isfinite(g["r_max"]) or g["r_max"] > 1e4 else f"{g['r_max']:.1f}"
+            out.append(Bend(
+                number=0, kind=RULED_KIND, angle_deg=math.degrees(g["angle"]),
+                inner_radius=g["r_min"], model_radius=g["r_min"], k=g["k"],
+                direction="DOWN" if g["convex"] else "UP",
+                length=float(np.linalg.norm(np.subtract(p2, p1))), allowance=g["width"],
+                deduction=float("nan"), deduction90=float("nan"),
+                source="곡선 단면 (3차 곡선 등): 중립선 길이 적분, K 는 위치마다 R/t 로", line=(p1, p2),
+                radius_text=f"{g['r_min']:.1f}~{rmax}"))
+        return out
+
+    def _u_range_at(self, f: _Face, v, u0, u1):
+        """v 위치에서 면 안에 들어가는 u 범위."""
+        n = 200
+        us = [u0 + (u1 - u0) * i / n for i in range(n + 1)]
+        inside = [i for i, u in enumerate(us) if _classify_in(f.face, u, v)]
+        if not inside:
+            return u0, u1
+        i0, i1 = inside[0], inside[-1]
+        return (us[max(i0 - 1, 0)] + us[i0]) / 2 if i0 > 0 else u0, (us[i1] + us[min(i1 + 1, n)]) / 2 if i1 < n else u1
 
     def _v_range_at(self, f: _Face, u, v0, v1):
         """u 위치에서 면 안에 들어가는 v 범위 (절곡선 길이)."""
@@ -1348,6 +1569,11 @@ def unfold(solid, k_factor: float = 0.44, thickness: float | None = None,
     if settings is None:
         settings = BendSettings(k=k_factor)
     r = SheetMetalUnfolder(solid, settings, thickness, mode).unfold()
+    curved = [b for b in r.bends if b.kind == RULED_KIND]
+    if curved:
+        r.advice.append(f"곡선 단면 {len(curved)} 곳 (R 이 위치마다 바뀌는 곡선, 최소 안쪽 R "
+                        f"{min(b.inner_radius for b in curved):.1f}): 중립선 길이를 적분해 펼쳤습니다 (K 는 위치마다 R/t 로). "
+                        "프레스 브레이크로는 작은 각을 여러 번 나눠 접는 스텝 벤딩, 또는 롤 벤딩·전용 금형으로 만듭니다.")
     if r.mode == SHEET and r.bends:
         from .bendcalc import accuracy_notes
         try:

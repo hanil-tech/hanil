@@ -1175,7 +1175,33 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "열기 실패", str(e))
             return
         QApplication.restoreOverrideCursor()
+        if model.surface_t:
+            model = self._ask_surface_thickness(path, model)
+            if model is None:
+                return
         self._show_model(model, path)
+
+    def _ask_surface_thickness(self, path, model):
+        """두께 없는 곡면 판금 파일: 판 두께를 물어 그 두께로 다시 연다 (곡면 = 판 두께 가운데 면)."""
+        from PySide6.QtWidgets import QInputDialog
+        last = float(self.settings.value("surface_t", model.surface_t) or model.surface_t)
+        t, ok = QInputDialog.getDouble(
+            self, "곡면만 있는 판금 파일",
+            "이 파일에는 솔리드 없이 판 한 겹 (곡면) 만 들어 있습니다.\n"
+            "곡면을 판 두께의 가운데 면으로 보고 두껍게 만들어 엽니다. 판 두께 (mm):", last, 0.1, 30.0, 2)
+        if not ok:
+            return None
+        self.settings.setValue("surface_t", t)
+        if abs(t - model.surface_t) < 1e-9:
+            return model
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            return loader.load(path, sheet_thickness=t)
+        except Exception as e:
+            QMessageBox.warning(self, "열기 실패", str(e))
+            return None
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _show_model(self, model, path):
         self.model = model

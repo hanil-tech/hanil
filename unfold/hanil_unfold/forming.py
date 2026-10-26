@@ -479,6 +479,8 @@ _CAP_K = 1.0
 VOLUME_WEIGHT = 0.5
 # 금형 작용 (펀치 면 마찰 · 블랭크 홀더 마찰 · 다이 R 굽힘-펴짐) 을 등가 외력으로 넣는다
 TOOL_LOADS = True
+# 원스텝 뒤 드로잉 보정 (인장 아래 굽힘 · 드로잉 장력 평형 · 아이어닝, drawcorr)
+DRAW_CORRECTION = True
 
 
 def plastic_work(Vm, F, U, n_exp, r_value=1.0, grad=True, q=None):
@@ -700,10 +702,12 @@ def _tool_energy(T, X, grad=True):
     r = np.sqrt((d ** 2).sum(1) + 1e-4)
     # 가장자리 저항 (누르개 마찰·다이 R) 은 끌려 들어오는 방향 = 경계에 수직한 성분에만 건다.
     # 경계를 따라 (접선) 당기면 가파른 벽의 트림선에서 투영이 몰려 블랭크 경계가 국부적으로 쪼그라든다
-    # (휀다 시험에서 가장자리 늘림 60 % 가 나온 원인). 법선은 처음 블랭크에서 한 번 정해 고정 (에너지·기울기 일치).
+    # (휀다 시험에서 가장자리 늘림 60 % 가 나온 원인). 법선은 제품 투영의 바깥 경계에서 한 번 정하고, 맞춤 회전 R 로
+    # 같이 돌린다. (블랭크 위에서 고정해 두면 블랭크가 통째로 90° 돌아 법선과 끌림 방향이 직각이 되는 것으로
+    # 저항이 0 이 된다 — 원통 컵을 오래 돌리면 금형 작용 없는 해로 빠졌다.)
     if "nb" not in T:
-        T["nb"] = _boundary_normals(X, T.get("outer"), len(X))
-    nb = T["nb"]
+        T["nb"] = _boundary_normals(T["proj"], T.get("outer"), len(X))
+    nb = T["nb"] @ R.T
     dn = (d * nb).sum(1)
     rb = np.sqrt(dn ** 2 + 1e-4)
     tot = T["total"]
@@ -968,11 +972,13 @@ def flatten(V, F, thickness, iterations=60, N=None, n_exp=None, r_value=1.0, inf
     # 두께가 형상 크기만 한 부품(핀·봉·너트)은 가운데 면이 한 점·한 선으로 줄어든다: 판금이 아님
     if float(np.linalg.norm(np.ptp(Vm, axis=0))) < 0.3 * float(np.linalg.norm(np.ptp(V, axis=0))):
         raise ValueError("판금·성형품이 아닌 부품입니다 (두께가 형상 크기와 비슷함: 핀·봉·너트 등).")
-    Vm, F, _ = subdivide(Vm, F, N=N)
+    Vm, F, Nm = subdivide(Vm, F, N=N)
     F = _drop_degenerate(Vm, F)
     if len(F) < 2:
         raise ValueError("펼칠 면이 없습니다 (메시가 비었거나 모두 넓이 0).")
-    Vm, F, _ = _keep_largest_component(Vm, F, np.zeros_like(Vm))
+    Vm, F, Nm = _keep_largest_component(Vm, F, Nm)
+    if info is not None:
+        info["normals"] = Nm             # CAD 곡면 법선 (드로잉 보정의 곡률 — 메시 법선은 면 경계에서 뭉개짐)
     U = lscm(Vm, F)
     _check_finite(U, what="1차 펼침 결과")
     U = arap(Vm, F, U, iterations)

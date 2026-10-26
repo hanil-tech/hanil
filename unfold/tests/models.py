@@ -532,3 +532,83 @@ def oil_pan(L=320.0, W=220.0, H=110.0, r_corner=25.0, r_bottom=10.0, flange=30.0
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     ring = BRepAlgoAPI_Cut(ring, inner).Shape()
     return BRepAlgoAPI_Fuse(cup, ring).Shape()
+
+
+def spline_section(t=1.6, width=120.0, flats=(30.0, 40.0), ctrl=((0, 0), (30, 0), (70, 40), (100, 40)),
+                   nurbs=False):
+    """단면이 3차 (베지어) 곡선인 판: 평판 flats[0] — 3차 곡선 — 평판 flats[1] (접하게 이어짐) 을 두께 t 로
+    XY 평면에 그려 Z 로 width 만큼 밀어낸 것. 곡선 쪽 면은 일반 원통 (곡선을 민 면) 이라 펼칠 수 있다.
+    (솔리드, 가운데 면 단면 길이) — K 0.5 의 정확한 펼친 길이. nurbs=True 면 모든 면을 B-스플라인으로 바꾼다
+    (다른 CAD 에서 변환한 STEP 처럼)."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_NurbsConvert
+    from OCP.Geom import Geom_BezierCurve, Geom_OffsetCurve, Geom_TrimmedCurve
+    from OCP.GCPnts import GCPnts_AbscissaPoint
+    from OCP.GeomAdaptor import GeomAdaptor_Curve
+    from OCP.collections import Array1_gp_Pnt as TColgp_Array1OfPnt
+
+    arr = TColgp_Array1OfPnt(1, len(ctrl))
+    for i, (x, y) in enumerate(ctrl):
+        arr.SetValue(i + 1, gp_Pnt(x, y, 0))
+    bez = Geom_BezierCurve(arr)
+    zdir = gp_Dir(0, 0, 1)
+
+    def tangent(u):
+        p, v = gp_Pnt(), gp_Vec()
+        bez.D1(u, p, v)
+        return (p.X(), p.Y()), (v.X() / v.Magnitude(), v.Y() / v.Magnitude())
+
+    (x0, y0), (dx0, dy0) = tangent(0.0)
+    (x1, y1), (dx1, dy1) = tangent(1.0)
+    a0, a1 = (x0 - flats[0] * dx0, y0 - flats[0] * dy0), (x1 + flats[1] * dx1, y1 + flats[1] * dy1)
+
+    def side(off):
+        """기준 곡선을 진행 방향 왼쪽으로 off 만큼 옮긴 [선, 곡선, 선] 과 그 길이."""
+        def sh(p, d):
+            return (p[0] - off * d[1], p[1] + off * d[0])
+        c = Geom_OffsetCurve(bez, -off, zdir) if off else bez   # Geom_OffsetCurve: +off 는 진행 방향 오른쪽
+        cur = Geom_TrimmedCurve(c, 0.0, 1.0)
+        p_s, p_e = sh(a0, (dx0, dy0)), sh(a1, (dx1, dy1))
+        q_s, q_e = sh((x0, y0), (dx0, dy0)), sh((x1, y1), (dx1, dy1))
+        edges = ([BRepBuilderAPI_MakeEdge(gp_Pnt(*p_s, 0), gp_Pnt(*q_s, 0)).Edge()] if flats[0] > 0 else []) + \
+            [BRepBuilderAPI_MakeEdge(cur).Edge()] + \
+            ([BRepBuilderAPI_MakeEdge(gp_Pnt(*q_e, 0), gp_Pnt(*p_e, 0)).Edge()] if flats[1] > 0 else [])
+        L = flats[0] + flats[1] + GCPnts_AbscissaPoint.Length_s(GeomAdaptor_Curve(cur))
+        return edges, p_s, p_e, L
+
+    ea, pa_s, pa_e, _ = side(0.0)
+    eb, pb_s, pb_e, _ = side(t)
+    _, _, _, L_mid = side(t / 2)
+    w = BRepBuilderAPI_MakeWire()
+    for e in ea:
+        w.Add(e)
+    w.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*pa_e, 0), gp_Pnt(*pb_e, 0)).Edge())
+    for e in reversed(eb):
+        w.Add(e)
+    w.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*pb_s, 0), gp_Pnt(*pa_s, 0)).Edge())
+    face = BRepBuilderAPI_MakeFace(w.Wire(), True).Face()
+    solid = BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, width)).Shape()
+    if nurbs:
+        solid = BRepBuilderAPI_NurbsConvert(solid, True).Shape()
+    return solid, L_mid
+
+
+def spline_plate(t=2.0, hole_d=12.0):
+    """윤곽이 3차 B-스플라인 (닫힌 곡선) 인 평판 + 구멍. (솔리드, 윤곽 안 넓이)."""
+    from OCP.GeomAPI import GeomAPI_Interpolate
+    from OCP.collections import HArray1_gp_Pnt as TColgp_HArray1OfPnt
+    pts = [(0, 0), (60, -10), (120, 5), (150, 50), (110, 90), (40, 80), (-10, 40)]
+    arr = TColgp_HArray1OfPnt(1, len(pts))
+    for i, (x, y) in enumerate(pts):
+        arr.SetValue(i + 1, gp_Pnt(x, y, 0))
+    it = GeomAPI_Interpolate(arr, True, 1e-6)
+    it.Perform()
+    curve = it.Curve()
+    edge = BRepBuilderAPI_MakeEdge(curve).Edge()
+    face = BRepBuilderAPI_MakeFace(BRepBuilderAPI_MakeWire(edge).Wire(), True).Face()
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    g = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face, g)
+    solid = BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, t)).Shape()
+    solid = drill(solid, 70, 40, -1, hole_d, axis=(0, 0, 1))
+    return solid, g.Mass()

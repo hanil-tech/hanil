@@ -116,6 +116,7 @@ class LoadedModel:
     from_cache: bool = False
     flat: object = None         # 2D 도면에서 만든 평판이면 dxf2d.FlatDrawing
     flat_thickness: float = 0.0
+    surface_t: float = 0.0      # 두께 없는 곡면 (판 한 겹) 을 이 두께로 두껍게 만들어 열었으면 그 두께
 
     @property
     def recognized(self):
@@ -158,8 +159,13 @@ def load_flat(path, thickness=None, parts=None, drawing=None, converter=""):
     return m
 
 
-def load(path: str, use_cache: bool = True, flat: dict | None = None) -> LoadedModel:
-    """flat: 2D 도면 옵션 {thickness, parts, drawing, converter} (DXF·DWG 일 때)."""
+SURFACE_T = 1.0     # 곡면만 있는 판금 파일의 기본 두께 (앱이 물어서 다시 연다)
+
+
+def load(path: str, use_cache: bool = True, flat: dict | None = None,
+         sheet_thickness: float | None = None) -> LoadedModel:
+    """flat: 2D 도면 옵션 {thickness, parts, drawing, converter} (DXF·DWG 일 때).
+    sheet_thickness: 솔리드 없이 곡면 (판 한 겹) 만 있는 파일을 두껍게 만들 두께 (없으면 SURFACE_T)."""
     ext = os.path.splitext(path)[1].lower()
     if ext in FLAT_EXTENSIONS:
         if not os.path.isfile(path):
@@ -181,6 +187,7 @@ def load(path: str, use_cache: bool = True, flat: dict | None = None) -> LoadedM
 
     names = None
     paths = None
+    surface_t = 0.0
     if ext in (".stp", ".step"):
         parts = _read_step_parts(path)
         if parts is not None:
@@ -208,6 +215,13 @@ def load(path: str, use_cache: bool = True, flat: dict | None = None) -> LoadedM
             solids = solids_from_surfaces(shape)
             if solids:
                 shape = _compound(solids)
+        if not solids:
+            # 판금을 두께 없이 판 한 겹 (곡면) 으로 저장한 파일: 가운데 면으로 보고 두께를 줘 솔리드로
+            solids = sheets_from_surfaces(shape, float(sheet_thickness or SURFACE_T))
+            if solids:
+                surface_t = float(sheet_thickness or SURFACE_T)
+                shape = _compound(solids)
+                cdir = ""                      # 두께에 따라 달라지므로 보관하지 않음
         names = [f"부품 {i + 1}" for i in range(len(solids))]
     if len(solids) == 1:
         # 부품 하나짜리 파일은 파일 이름이 곧 부품 이름 (제품 이름 칸에 변환기 이름이 든 파일이 많다)
@@ -222,8 +236,10 @@ def load(path: str, use_cache: bool = True, flat: dict | None = None) -> LoadedM
     if cdir:
         _write_cache(cdir, solids, names, paths)
     # 평면·절곡 R 까지 자유곡면으로 저장된 파일은 부품을 꺼낼 때 원래 모양으로 되돌린다.
-    return LoadedModel(path=path, shape=shape, solids=LazySolids(solids), names=names,
-                       paths=paths, cache_dir=cdir)
+    m = LoadedModel(path=path, shape=shape, solids=LazySolids(solids), names=names,
+                    paths=paths, cache_dir=cdir)
+    m.surface_t = surface_t
+    return m
 
 
 # ---------------------------------------------------------------- 다시 열기 보관 (캐시)
@@ -452,6 +468,45 @@ def solids_from_surfaces(shape, tolerances=(0.01, 0.05, 0.1, 0.5)) -> list:
         except Exception:
             continue
     return solids
+
+
+def sheets_from_surfaces(shape, t, tolerances=(0.01, 0.05, 0.1)) -> list:
+    """두께 없는 판금 곡면 (열린 껍질) → 솔리드: 곡면을 꿰매 껍질마다, 곡면을 판 두께 가운데 면으로 보고
+    양쪽으로 t/2 씩 (−t/2 로 옮긴 면에서 t 만큼) 두껍게 한다. 못 하면 빈 목록."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Sewing
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeOffsetShape, BRepOffsetAPI_MakeThickSolid
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL
+
+    if not TopExp_Explorer(shape, TopAbs_FACE).More():
+        return []
+    for tol in tolerances:
+        sw = BRepBuilderAPI_Sewing(tol)
+        sw.Add(shape)
+        sw.Perform()
+        sewed = sw.SewedShape()
+        shells = []
+        exp = TopExp_Explorer(sewed, TopAbs_SHELL)
+        while exp.More():
+            shells.append(TopoDS.Shell(exp.Current()))
+            exp.Next()
+        if not shells:                       # 꿰맬 이웃이 없는 면 하나
+            exp = TopExp_Explorer(sewed, TopAbs_FACE)
+            while exp.More():
+                shells.append(exp.Current())
+                exp.Next()
+        out = []
+        for sh in shells:
+            try:
+                off = BRepOffsetAPI_MakeOffsetShape()
+                off.PerformBySimple(sh, -t / 2)
+                mk = BRepOffsetAPI_MakeThickSolid()
+                mk.MakeThickSolidBySimple(off.Shape(), t)
+                out += [_outward(s) for s in list_solids(mk.Shape())]
+            except Exception:
+                continue
+        if out:
+            return out
+    return []
 
 
 def list_solids(shape: TopoDS_Shape) -> list:

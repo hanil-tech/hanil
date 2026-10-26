@@ -123,36 +123,95 @@ def _area(face):
     return g.Mass()
 
 
-def canonicalize(solid, tol=0.01):
-    """(새 솔리드, 바꾼 면 수, 자유곡면으로 남은 면 수). 실패하면 원래 솔리드."""
-    if not has_freeform(solid):
-        return solid, 0, 0
+TOLERANCES = (0.01, 0.05)      # 먼저 10 µm, 못 알아본 면은 50 µm (판금 공차보다 훨씬 작음)
+
+
+def _assemble(faces):
+    """면들 → 하나의 올바른 솔리드 또는 None (바로 묶어 보고, 안 되면 꿰매서)."""
     B = BRep_Builder()
     shell = TopoDS_Shell()
     B.MakeShell(shell)
-    changed = kept = 0
-    for f in _explore(solid, TopAbs_FACE):
-        face = TopoDS.Face(f)
-        new = face
-        if BRepAdaptor_Surface(face).GetType() in _FREEFORM:
-            surf = recognize(face, tol)
-            if surf is not None:
-                try:
-                    new = rebuild_face(face, surf)
-                    changed += 1
-                except Exception:
-                    new = face
-                    kept += 1
-            else:
-                kept += 1
-        B.Add(shell, new)
+    for f in faces:
+        B.Add(shell, f)
     sol = TopoDS_Solid()
     B.MakeSolid(sol)
     B.Add(sol, shell)
     fix = ShapeFix_Shape(sol)
     fix.Perform()
-    out = fix.Shape()
-    solids = [TopoDS.Solid(s) for s in _explore(out, TopAbs_SOLID)]
-    if len(solids) != 1 or not BRepCheck_Analyzer(solids[0]).IsValid():
-        return solid, 0, kept + changed
-    return solids[0], changed, kept
+    solids = [TopoDS.Solid(x) for x in _explore(fix.Shape(), TopAbs_SOLID)]
+    if len(solids) == 1 and BRepCheck_Analyzer(solids[0]).IsValid():
+        return solids[0]
+    try:                                   # 다시 만든 면의 모서리가 조금 어긋난 경우: 꿰매서 다시
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+        from OCP.TopAbs import TopAbs_SHELL
+        sw = BRepBuilderAPI_Sewing(1e-4)
+        for f in faces:
+            sw.Add(f)
+        sw.Perform()
+        shells = [TopoDS.Shell(x) for x in _explore(sw.SewedShape(), TopAbs_SHELL)]
+        if len(shells) == 1:
+            fx = ShapeFix_Shape(BRepBuilderAPI_MakeSolid(shells[0]).Solid())
+            fx.Perform()
+            solids = [TopoDS.Solid(x) for x in _explore(fx.Shape(), TopAbs_SOLID)]
+            if len(solids) == 1 and BRepCheck_Analyzer(solids[0]).IsValid():
+                return solids[0]
+    except Exception:
+        pass
+    return None
+
+
+def canonicalize(solid, tol=None):
+    """(새 솔리드, 바꾼 면 수, 자유곡면으로 남은 면 수). 실패하면 원래 솔리드.
+
+    다시 만든 솔리드가 올바르지 않으면, 혼자서도 올바르지 않은 면 (BRepCheck) 을 원래대로 두고 다시 묶어 보고,
+    그래도 안 되면 바꾼 면을 반씩 원래대로 되돌려 가며 묶이는 가장 큰 쪽을 쓴다 (한 면 때문에 부품 전체를
+    자유곡면으로 두지 않게)."""
+    if not has_freeform(solid):
+        return solid, 0, 0
+    tols = (tol,) if tol else TOLERANCES
+    faces, cand = [], {}
+    kept = 0
+    for f in _explore(solid, TopAbs_FACE):
+        face = TopoDS.Face(f)
+        faces.append(face)
+        if BRepAdaptor_Surface(face).GetType() not in _FREEFORM:
+            continue
+        new = None
+        for tl in tols:
+            surf = recognize(face, tl)
+            if surf is None:
+                continue
+            try:
+                new = rebuild_face(face, surf)
+                break
+            except Exception:
+                new = None
+        if new is None:
+            kept += 1
+        else:
+            cand[len(faces) - 1] = new
+    if not cand:
+        return solid, 0, kept
+
+    def build(use):
+        return _assemble([cand[i] if i in use else f for i, f in enumerate(faces)])
+
+    use = set(cand)
+    out = build(use)
+    if out is None:
+        use = {i for i in use if BRepCheck_Analyzer(cand[i]).IsValid()}
+        out = build(use) if use else None
+    if out is None:
+        order = sorted(use)
+        while len(order) > 1 and out is None:
+            half = order[: len(order) // 2]
+            out = build(set(half))
+            order = half if out is not None else order[len(order) // 2:]
+            if out is not None:
+                use = set(half)
+        if out is None and len(order) == 1:
+            out = build(set(order))
+            use = set(order)
+    if out is None:
+        return solid, 0, kept + len(cand)
+    return out, len(use), kept + len(cand) - len(use)
