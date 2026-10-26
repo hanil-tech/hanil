@@ -1,5 +1,5 @@
 # 판금 전개 프로그램(unfold/)을 Windows 에서 시험하고 설치 파일을 만든다.
-# 결과: Actions 실행 화면 아래 Artifacts 의 "HanilUnfold-Setup" (설치 파일)
+# 결과: Actions 실행 화면 아래 Artifacts 의 "HanilUnfold-Setup" (전체판) · "HanilUnfoldLite-Setup" (전개 전용판)
 name: 판금 전개 Windows 빌드
 
 on:
@@ -82,4 +82,39 @@ jobs:
         with:
           name: HanilUnfold-Setup-${{ steps.ver.outputs.version }}-build${{ github.run_number }}
           path: unfold/dist/HanilUnfold-Setup-*.exe
+          if-no-files-found: error
+
+      # ---- 전개 전용판 (같은 소스, 판만 못 박아 다시 묶음)
+      - name: 전개 전용판 실행 파일 만들기
+        run: |
+          python packaging/write_build_info.py ${{ github.run_number }} ${{ github.sha }} --edition unfold
+          pyinstaller packaging/HanilUnfold.spec --noconfirm --distpath dist --workpath build_lite
+
+      - name: 전개 전용판으로 견본 전개해 보기
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "smoke_lite"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath "dist\HanilUnfoldLite\HanilUnfoldLite.exe" `
+                 -ArgumentList @("convert", "samples\bracket_t2.step", "samples\tray_t1.6.step",
+                                 "samples\freeform_panel_t1.step", "--report", "pdf,xlsx", "-o", $out) `
+                 -Wait -PassThru
+          Get-ChildItem $out
+          if ($p.ExitCode -ne 0) { throw "전개 전용판 전개 실패 (종료 코드 $($p.ExitCode))" }
+          if ((Get-ChildItem $out -Filter *.dxf).Count -ne 3) { throw "DXF 가 만들어지지 않았습니다" }
+          $p = Start-Process -FilePath "dist\HanilUnfoldLite\HanilUnfoldLite.exe" `
+                 -ArgumentList @("nest", "samples\bracket_t2.step", "-o", $out) -Wait -PassThru
+          if ($p.ExitCode -ne 2) { throw "전개 전용판에서 철판 배치가 막히지 않았습니다 (종료 코드 $($p.ExitCode))" }
+
+      - name: 전개 전용판 설치 파일 만들기
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyVersion=${{ steps.ver.outputs.version }}" "/DLite" packaging\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패 (전개 전용판)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HanilUnfoldLite-Setup-${{ steps.ver.outputs.version }}-build${{ github.run_number }}
+          path: unfold/dist/HanilUnfoldLite-Setup-*.exe
           if-no-files-found: error

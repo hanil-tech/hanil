@@ -113,6 +113,21 @@ JIS B 0408 보통 공차 (±mm, B 급):
   LibreDWG 의 `dwg2dxf` 가 있으면 그것도 씁니다. 변환기가 없으면 내려받을 곳을 알려 줍니다.
 - 3D 솔리드가 든 DWG (ACIS) 는 읽지 못합니다 — AutoCAD 에서 STEP 으로 내보내세요 (STEPOUT).
 
+## 두 가지 판 (1.38.0)
+
+같은 소스에서 설치 파일 두 개를 만듭니다 (GitHub Actions 결과의 Artifacts 두 개).
+
+| 판 | 설치 파일 · 실행 파일 | 들어 있는 것 |
+|---|---|---|
+| **전체판** | `HanilUnfold-Setup-<버전>.exe` · HanilUnfold.exe | 지금 프로그램 전부 — 전개 + 성형 해석 · 금형 · 견적 · 원가 · 생산 · 품질 · 검사 · 네스팅 · BOM · 실적 보정 |
+| **전개 전용판** | `HanilUnfoldLite-Setup-<버전>.exe` · HanilUnfoldLite.exe | 3D (STEP·IGES)·2D (DXF·DWG) 도면 열기, 판금·성형품 전개, 전개도 DXF, 전개 보고서 PDF·엑셀, 조립도 PDF, 여러 파일 한꺼번에, ZIP, 전개 기록, 연신 표·시험 절곡·밀시트 (전개 정확도) |
+
+- 두 판은 따로 설치되어 한 PC 에 함께 둘 수 있고, 절곡 조건·회사 연신 표·전개 기록은 같이 씁니다.
+- 전개 전용판은 빌드할 때 판을 실행 파일 안에 못 박습니다 (`packaging/write_build_info.py --edition unfold` →
+  `hanil_unfold/_edition.py`) — 설정을 바꿔도 다른 기능이 켜지지 않습니다. 명령줄 `nest`·`bom`·`ai-bom` 도 막힙니다.
+- 직접 만들 때: `python packaging/write_build_info.py 0 "" --edition unfold`, `pyinstaller packaging/HanilUnfold.spec`,
+  `iscc /DMyVersion=1.38.0 /DLite packaging\setup.iss`. 개발 중 확인은 `HANIL_EDITION=unfold`.
+
 ## 판금 전개 정확도 (1.37.0)
 
 펼치는 기하 계산은 손 계산·다른 CAD 와 소수 넷째 자리까지 같습니다 ([docs/oracle.md](docs/oracle.md)).
@@ -930,6 +945,7 @@ Windows [앱 및 기능]·DXF 의 NOTE 글씨·PDF/엑셀 보고서·전개 기�
 
 | 버전 | 바뀐 것 |
 |---|---|
+| 1.38.0 | 두 가지 판: 전체판 (HanilUnfold) · 전개 전용판 (HanilUnfoldLite) — 설치 파일 둘 |
 | 1.37.0 | 판금 전개 정확도: 계단 없는 재질 K, 회사 연신 표 R/t 보간, 시험 절곡 K 계산기, 정확도 알림 (K 고정·에어 벤딩 실제 R) |
 | 1.36.1 | SolidCraft STEP 교차 확인 (전개 크기 일치), 정답 대조 시험 42 사례 |
 | 1.36.0 | 2D 도면 (DXF·DWG) 을 블랭크 평판으로 열기 (ODA File Converter), 정답 대조 시험 28 사례 (docs/oracle.md) |

@@ -230,9 +230,10 @@ def ai_bom_cli(argv):
 
 
 def main():
+    from . import edition
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-V", "version"):
         from . import version_text
-        text = f"한일 판금 전개 {version_text(long=True)}"
+        text = f"{edition.name()} {version_text(long=True)}"
         if sys.stdout is not None:
             print(text)
         else:   # 화면 없는 exe: 현재 폴더에 적어 둔다
@@ -241,6 +242,11 @@ def main():
         sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "convert":
         sys.exit(cli(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] in ("ai-bom", "bom", "nest") and edition.unfold_only():
+        msg = f"'{sys.argv[1]}' 은 전체판 기능입니다 — {edition.name()} 은 전개 (convert) 만 합니다."
+        if sys.stdout is not None:
+            print(msg)
+        sys.exit(2)
     if len(sys.argv) > 1 and sys.argv[1] == "ai-bom":
         sys.exit(ai_bom_cli(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "bom":

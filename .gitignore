@@ -9,4 +9,5 @@ __pycache__/
 unfold/build/
 unfold/smoke/
 _build.py
+_edition.py
 unfold/packaging/version_info.txt

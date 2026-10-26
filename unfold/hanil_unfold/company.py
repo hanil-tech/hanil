@@ -13,7 +13,9 @@ import os
 NAME = "한일특장(주)"
 MAKER = f"제작사 : {NAME}"
 HOMEPAGE = "https://www.hanil-steel.com"
-PRODUCT = "한일 판금 전개"
+from .edition import name as _edition_name  # noqa: E402
+
+PRODUCT = _edition_name()   # "한일 판금 전개" 또는 "한일 판금 전개 (전개 전용)"
 COPYRIGHT = f"Copyright © 2025–2026 {NAME}. All rights reserved."
 
 

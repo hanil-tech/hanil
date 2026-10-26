@@ -9,6 +9,10 @@ from PyInstaller.utils.hooks import collect_submodules
 SITE = sysconfig.get_paths()["purelib"]
 HERE = os.path.abspath(SPECPATH)
 ROOT = os.path.dirname(HERE)
+# 전개 전용판: write_build_info.py --edition unfold 가 hanil_unfold/_edition.py 를 만들어 둔다
+LITE = os.path.exists(os.path.join(ROOT, "hanil_unfold", "_edition.py"))
+APP = "HanilUnfoldLite" if LITE else "HanilUnfold"
+print(f"판: {'전개 전용' if LITE else '전체'} → {APP}.exe")
 
 def _imports(path):
     """DLL 이 불러 쓰는 다른 DLL 이름들 (소문자)."""
@@ -58,7 +62,7 @@ a = Analysis(
     hiddenimports=(collect_submodules("OCP") + collect_submodules("scipy._external")
                    + collect_submodules("scipy.sparse") + collect_submodules("scipy.spatial")
                    + collect_submodules("scipy.ndimage") + collect_submodules("scipy.fft")
-                   + collect_submodules("anthropic")
+                   + ([] if LITE else collect_submodules("anthropic"))     # AI BOM 은 전체판만
                    + ["ezdxf", "numpy", "numpy.fft", "numpy.linalg", "openpyxl", "PIL"]),
     runtime_hooks=[os.path.join(HERE, "rthook_dlls.py")],
     excludes=["tkinter", "matplotlib", "vtk", "vtkmodules", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore",
@@ -69,7 +73,7 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
-    name="HanilUnfold",
+    name=APP,
     icon=os.path.join(ROOT, "hanil_unfold", "icon.ico"),
     # 파일 속성 → 자세히 의 버전 (write_build_info.py 가 만든다, 없으면 생략)
     version=(os.path.join(HERE, "version_info.txt")
@@ -77,4 +81,4 @@ exe = EXE(
     console=False,
     upx=False,
 )
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="HanilUnfold")
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name=APP)

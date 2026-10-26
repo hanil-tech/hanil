@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDou
                                QWidget, QListWidget, QTabWidget, QPushButton)
 
 from . import __version__, version_text, dxf_export, loader
-from . import company, report
+from . import company, edition, report
 from .bend_panel import BendPanel
 from .history import History
 from .history_dialog import HistoryDialog
@@ -31,7 +31,7 @@ from .drawing import (DARK, FlatTransform, assembly_polylines, paint_assembly, p
                       paint_flat, paint_legend, paint_summary, solid_polylines, view_rotation)
 from .unfolder import AUTO, MODE_NAMES, UnfoldError, unfold
 
-APP_NAME = "한일 판금 전개"
+APP_NAME = company.PRODUCT          # 판 (전체 / 전개 전용) 에 따라
 OPEN_FILTER = ("도면 (*.stp *.step *.igs *.iges *.brep *.dxf *.dwg);;3D 도면 (*.stp *.step *.igs *.iges *.brep);;"
                "2D 도면 — 블랭크 (*.dxf *.dwg);;STEP (*.stp *.step);;모든 파일 (*.*)")
 
@@ -685,8 +685,9 @@ class MainWindow(QMainWindow):
         self.history = History(self.settings.value("history_dir") or None)
         from . import dxf2d
         dxf2d.USER_CONVERTER = self.settings.value("dwg_converter", "") or ""
-        from . import calibration
-        calibration.load(self.history.calib)        # 실적 보정 계수
+        if not edition.unfold_only():
+            from . import calibration
+            calibration.load(self.history.calib)    # 실적 보정 계수 (전체판)
 
         self._build_toolbar()
 
@@ -775,7 +776,7 @@ class MainWindow(QMainWindow):
         self.info.setWordWrap(True)
         self.info.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
         self.info.linkActivated.connect(lambda link: self.show_fld() if link == "fld" else
-                                        self.show_formsim() if link == "sim" else None)
+                                        self.show_formsim() if link == "sim" and not edition.unfold_only() else None)
 
         bottom = QWidget()
         bl = QHBoxLayout(bottom)
@@ -969,6 +970,13 @@ class MainWindow(QMainWindow):
             "기록": [self.act_history, self.act_doc_log, self.act_items, self.act_calib],
             "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_about],
         }
+        if edition.unfold_only():                    # 전개 전용판: 전개에 쓰는 것만
+            groups = {
+                "파일": [self.act_open, self.act_batch, self.act_zip],
+                "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_assy],
+                "기록": [self.act_history],
+                "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_about],
+            }
         self.ribbon = QTabWidget()
         self.ribbon.setDocumentMode(True)
         self.ribbon.setStyleSheet("QTabBar::tab { padding: 5px 16px; font-weight: bold; }"
@@ -976,6 +984,10 @@ class MainWindow(QMainWindow):
         self.ribbon_bars = {}
         menubar = QMenuBar(self)
         for name, hint in self.CATEGORIES:
+            if name not in groups:
+                continue
+            if edition.unfold_only():
+                hint = hint.replace(" · 제품 성형 해석", "")
             bar = QToolBar()
             bar.setToolButtonStyle(Qt.ToolButtonTextOnly)
             for act in groups[name]:
@@ -1011,7 +1023,7 @@ class MainWindow(QMainWindow):
                              "QPushButton:hover{text-decoration:underline;}")
         corner.clicked.connect(self.show_about)
         self.ribbon.setCornerWidget(corner, Qt.TopRightCorner)
-        self.ribbon.setCurrentIndex(int(self.settings.value("ribbon_tab", 1)))
+        self.ribbon.setCurrentIndex(min(int(self.settings.value("ribbon_tab", 1)), self.ribbon.count() - 1))
         self.ribbon.currentChanged.connect(lambda i: self.settings.setValue("ribbon_tab", i))
         holder = QToolBar("분류")
         holder.setObjectName("분류")
@@ -1734,11 +1746,12 @@ class MainWindow(QMainWindow):
                              "평면·원통·원뿔로 되돌려 계산했습니다.</span>")
             for txt in r.rolled:
                 lines.append(txt)
-            try:
-                from . import formsim
-                lines.append(formsim.summary_html(formsim.analyze(r, self.bend_panel.settings())))
-            except Exception:
-                traceback.print_exc()
+            if not edition.unfold_only():
+                try:
+                    from . import formsim
+                    lines.append(formsim.summary_html(formsim.analyze(r, self.bend_panel.settings())))
+                except Exception:
+                    traceback.print_exc()
             for wmsg in r.warnings:
                 lines.append(f"<span style='color:#e0a040'>⚠ {wmsg}</span>")
             for amsg in getattr(r, "advice", []):
