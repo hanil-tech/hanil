@@ -189,7 +189,15 @@ def _view(W, az, el):
     return W
 
 
-def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True):
+def _fast(pr):
+    if getattr(pr, "_fast", None) is None:
+        inv, Fc, keep = fs.cluster_mesh(pr.Vf, pr.fa.fi.F)
+        pr._fast = (inv, Fc, keep, fs.cluster_points(inv, pr.U3), fs.cluster_points(inv, pr.Vf))
+    return pr._fast
+
+
+def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=False, sphere=False):
+    """fast: 줄인 메시 (재생·회전 중), sphere: 감싸는 공으로 크기 (돌려도 크기 그대로)."""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QPen, QPolygonF
 
@@ -199,11 +207,20 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True):
     xx, yy, zz = pr.frame
     M = np.column_stack([xx, yy, zz])
     c0 = pr.Vf.mean(0)
-    Vs = stage_vertices(pr, s)
+    if fast:
+        inv, Fc, keep, U3c, Vfc = _fast(pr)
+        Vs = stage_vertices(Process(fa, pr.frame, U3c, Vfc, pr.hmax, pr.depth, pr.s_crack, pr.s_risk, pr.s_wrinkle), s)
+        F = Fc
+    else:
+        Vs = stage_vertices(pr, s)
     W = _view((Vs - c0) @ M, az, el)
-    # 크기: 처음·끝을 함께 넣어 움직여도 크기가 그대로
-    both = np.vstack([_view((pr.U3 - c0) @ M, az, el)[:, :2], _view((pr.Vf - c0) @ M, az, el)[:, :2]])
-    lo, hi = both.min(0), both.max(0)
+    if sphere:
+        rad = float(max(np.linalg.norm(pr.U3 - c0, axis=1).max(), np.linalg.norm(pr.Vf - c0, axis=1).max()))
+        lo, hi = np.array([-rad, -rad]), np.array([rad, rad])
+    else:
+        # 크기: 처음·끝을 함께 넣어 움직여도 크기가 그대로
+        both = np.vstack([_view((pr.U3 - c0) @ M, az, el)[:, :2], _view((pr.Vf - c0) @ M, az, el)[:, :2]])
+        lo, hi = both.min(0), both.max(0)
     top = rect.top() + (30 if title else 6)
     legend_h = 52 if title else 0
     area = QRectF(rect.left() + 10, top, rect.width() - 20, rect.bottom() - top - legend_h - 6)
@@ -215,6 +232,8 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True):
     z, _ = stage_zones(pr, s)
     pal = np.array([zn[1] for zn in fs.ZONES], float)
     cols = pal[z]
+    if fast:
+        cols = cols[_fast(pr)[2]]
     nrm = np.cross(W[F[:, 1]] - W[F[:, 0]], W[F[:, 2]] - W[F[:, 0]])
     nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
     shade = 0.45 + 0.55 * np.abs(nrm @ np.array([0.3, 0.5, 0.81]))
@@ -231,11 +250,22 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True):
                                  QPointF(X[tri[2]], Y[tri[2]])]))
     # 시작 자리 표시 (그 행정을 지났으면)
     p.setFont(_font(9, True))
+    full_tri = fa.fi.F
+    placed = []
     for o in pr.onsets:
         if o.kind == "risk" or s + 1e-9 < o.s:
             continue
-        tri = F[o.tri]
-        px, py = float(X[tri].mean()), float(Y[tri].mean())
+        if fast:                                    # 줄인 메시에는 원래 삼각형이 없어 그 점을 따로 투영
+            pt = stage_vertices(pr, s)[full_tri[o.tri]].mean(0)
+            wq = _view(((pt - c0) @ M)[None, :], az, el)[0]
+            px, py = cx + (wq[0] - mid[0]) * sc, cy - (wq[1] - mid[1]) * sc
+        else:
+            tri = F[o.tri]
+            px, py = float(X[tri].mean()), float(Y[tri].mean())
+        for qx, qy in placed:                       # 겹치면 글자를 아래로
+            if abs(qx - px) < 60 and abs(qy - py) < 24:
+                py += 26
+        placed.append((px, py))
         col = QColor(220, 30, 30) if o.kind == "crack" else QColor(140, 70, 200)
         p.setPen(QPen(col, 3))
         p.setBrush(Qt.NoBrush)
@@ -266,7 +296,7 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True):
     p.restore()
 
 
-def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0):
+def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0, fast=False, sphere=False):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
@@ -276,7 +306,7 @@ def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0):
     img.fill(QColor(255, 255, 255))
     p = QPainter(img)
     p.setRenderHint(QPainter.Antialiasing)
-    paint_stage(p, QRectF(0, 0, w, h), pr, s, az, el)
+    paint_stage(p, QRectF(0, 0, w, h), pr, s, az, el, fast=fast, sphere=sphere)
     p.end()
     return img
 

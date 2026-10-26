@@ -502,8 +502,10 @@ def tri_colors(fa: FormAnalysis, view: str):
     return cols, leg
 
 
-def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, title=True, marks=True):
-    """제품 3D 메시를 색 지도로 (화가 알고리즘 + 평면 음영)."""
+def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, title=True, marks=True, fast=False,
+                  sphere=False):
+    """제품 3D 메시를 색 지도로 (화가 알고리즘 + 평면 음영). fast: 줄인 메시로 (자동 회전 중),
+    sphere: 감싸는 공으로 크기를 정함 (돌려도 크기가 그대로)."""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QPen, QPolygonF
 
@@ -511,7 +513,13 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
     fi = fa.fi
     if fi is None or fi.V is None:
         return
-    V = fi.V - fi.V.mean(0)
+    mesh = None
+    if fast:
+        if getattr(fa, "_fast_mesh", None) is None:
+            inv, Fc, keep = cluster_mesh(fi.V, fi.F)
+            fa._fast_mesh = (cluster_points(inv, fi.V), Fc, keep)
+        mesh = fa._fast_mesh
+    V = (mesh[0] if mesh else fi.V) - fi.V.mean(0)
     z0, _ = press_direction(fi.V, fi.F)
     if z0 is not None:                    # 바깥 법선 합의 반대 = 열린 쪽을 위로 (컵은 바닥이 아래)
         zz = -z0
@@ -532,7 +540,11 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
     legend_h = (8 + 22 * rows_) if title else 0
     area = QRectF(rect.left() + 10, rect.top() + (30 if title else 6), rect.width() - 20,
                   rect.height() - (30 if title else 6) - legend_h - 10)
-    lo, hi = W[:, :2].min(0), W[:, :2].max(0)
+    if sphere:
+        rad = float(np.linalg.norm(fi.V - fi.V.mean(0), axis=1).max())
+        lo, hi = np.array([-rad, -rad]), np.array([rad, rad])
+    else:
+        lo, hi = W[:, :2].min(0), W[:, :2].max(0)
     s = min(area.width() / max(hi[0] - lo[0], 1e-9), area.height() / max(hi[1] - lo[1], 1e-9)) * 0.94
     cx, cy = area.center().x(), area.center().y()
     mid = (lo + hi) / 2
@@ -540,6 +552,8 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
     Y = cy - (W[:, 1] - mid[1]) * s
     cols, leg = tri_colors(fa, view)
     F = fi.F
+    if mesh:
+        F, cols = mesh[1], cols[mesh[2]]
     nrm = np.cross(W[F[:, 1]] - W[F[:, 0]], W[F[:, 2]] - W[F[:, 0]])
     nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
     light = np.array([0.3, 0.5, 0.81])
@@ -555,7 +569,7 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
         tri = F[i]
         p.drawPolygon(QPolygonF([QPointF(X[tri[0]], Y[tri[0]]), QPointF(X[tri[1]], Y[tri[1]]),
                                  QPointF(X[tri[2]], Y[tri[2]])]))
-    if marks and fa.explain is not None:              # 문제 부위 번호 (설명 표와 같은 번호)
+    if marks and fa.explain is not None and not mesh:  # 문제 부위 번호 (설명 표와 같은 번호)
         from . import formexplain
         r_ = max(9.0, min(16.0, rect.width() / 70))
         p.setFont(_font(max(7.0, r_ * 0.75), True))
@@ -1356,3 +1370,34 @@ def best_row(rows):
     order = {OK: 0, WARN: 1, NG: 2}
     ok = [r for r in rows if r[2] in order]
     return min(ok, key=lambda r: (order[r[2]], r[7])) if ok else None
+
+
+# ---------------------------------------------------------------- 재생·회전용 가벼운 메시
+
+def cluster_mesh(V, F, target=7000):
+    """꼭짓점 모으기 (격자 칸마다 한 점) 로 삼각형을 줄인 메시 → (칸 번호 (n,), 새 삼각형 (k,3), 원래 삼각형 번호 (k,)).
+    재생·자동 회전 동안만 쓰고, 멈추면 원래 메시로 다시 그린다."""
+    F = np.asarray(F)
+    if len(F) <= target:
+        return np.arange(len(V)), F, np.arange(len(F))
+    area = float(np.linalg.norm(_vector_area(V, F), axis=1).sum())
+    cell = math.sqrt(area / (target / 2.0))
+    key = np.floor((V - V.min(0)) / cell).astype(np.int64)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.reshape(-1)
+    G = inv[F]
+    ok = (G[:, 0] != G[:, 1]) & (G[:, 1] != G[:, 2]) & (G[:, 0] != G[:, 2])
+    idx = np.nonzero(ok)[0]
+    srt = np.sort(G[idx], axis=1)
+    _, first = np.unique(srt, axis=0, return_index=True)
+    keep = idx[np.sort(first)]
+    return inv, G[keep], keep
+
+
+def cluster_points(inv, P):
+    """칸마다 평균 점."""
+    n = int(inv.max()) + 1
+    out = np.zeros((n, P.shape[1]))
+    np.add.at(out, inv, P)
+    cnt = np.bincount(inv, minlength=n).astype(float)
+    return out / np.maximum(cnt, 1)[:, None]

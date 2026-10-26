@@ -297,3 +297,46 @@ def test_forming_process_safe_cup(cup):
     pr = fp.build(fa)
     assert "끝까지 터지지 않음" in fp.summary(pr)[0]
     assert not fp.render_stage(pr, 0.5, 300, 220).isNull()
+
+
+def test_process_play_rotate_controls(cup):
+    """성형 과정 탭: ▶ 재생은 행정을 올리고 끝에서 반복, 🔄 회전은 방향을 돌림, 멈추면 원래 메시로 다시 그림.
+    제품 3D 화면의 🔄 회전도."""
+    from hanil_unfold.report import ensure_gui
+    ensure_gui()
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hanil_unfold.formsim_dialog import ProcessPanel, ProductView
+    _, _, fa = cup
+    pp = ProcessPanel(fa)
+    pp.toggle_play()
+    assert pp.playing and pp.slider.value() == 0 and pp.timer.isActive()
+    for _ in range(10):
+        pp._tick()
+    assert pp.slider.value() == 20
+    for _ in range(60):                                   # 끝에 닿으면 잠깐 멈췄다가 처음부터 (반복)
+        pp._tick()
+    assert pp.playing and pp.slider.value() < 100
+    pp.toggle_rotate()
+    az0 = pp.az
+    pp._tick()
+    assert pp.rotating and pp.az == pytest.approx((az0 + pp.TURN) % 360)
+    pp.loop.setChecked(False)
+    pp.toggle_play()
+    pp.toggle_rotate()
+    assert not pp.busy and not pp.timer.isActive()
+    pp._go(100)
+    pp._go_crack()                                         # 안전한 컵: 터지는 곳 없음 → 그대로
+    assert pp.slider.value() == 100
+    v = ProductView(fa)
+    v.resize(400, 300)
+    v.set_spin(True)
+    a0 = v.az
+    v._spin_step()
+    assert v.az == pytest.approx((a0 + 3.0) % 360) and v._pix is not None
+    v.set_spin(False)
+    assert not v._spin.isActive()
+    # 줄인 메시: 삼각형이 줄고 원래 번호를 가리킴
+    from hanil_unfold import formsim as fs_
+    inv, Fc, keep = fs_.cluster_mesh(fa.fi.V, fa.fi.F, target=500)
+    assert len(Fc) < len(fa.fi.F) and keep.max() < len(fa.fi.F) and len(inv) == len(fa.fi.V)

@@ -23,20 +23,36 @@ class ProductView(QWidget):
         self.setMinimumSize(520, 420)
         self._pix, self._drag = None, None
         self._timer = QTimer(self, singleShot=True, interval=30, timeout=self._render)
+        self.spinning = False
+        self._spin = QTimer(self, interval=60, timeout=self._spin_step)
         self.setToolTip("끌어서 돌리기 · 두 번 누르면 처음 방향")
 
     def set_view(self, view):
         self.view = view
         self._render()
 
-    def _render(self):
+    def set_spin(self, on):
+        """🔄 회전: 제품을 빙글 돌림 (도는 동안 줄인 메시, 멈추면 원래 메시)."""
+        self.spinning = bool(on)
+        if self.spinning:
+            self._spin.start()
+        else:
+            self._spin.stop()
+            self._render()
+
+    def _spin_step(self):
+        self.az = (self.az + 3.0) % 360
+        self._render(fast=True)
+
+    def _render(self, fast=False):
         if self.width() < 10:
             return
         pix = QPixmap(self.size())
         pix.fill(QColor(255, 255, 255))
         p = QPainter(pix)
         p.setRenderHint(QPainter.Antialiasing)
-        fs.paint_product(p, QRectF(0, 0, self.width(), self.height()), self.fa, self.view, self.az, self.el)
+        fs.paint_product(p, QRectF(0, 0, self.width(), self.height()), self.fa, self.view, self.az, self.el,
+                         fast=fast, sphere=self.spinning)
         p.end()
         self._pix = pix
         self.update()
@@ -58,12 +74,11 @@ class ProductView(QWidget):
         x0, y0, az, el = self._drag
         self.az = az + (e.position().x() - x0) * 0.5
         self.el = max(-89.0, min(89.0, el + (e.position().y() - y0) * 0.5))
-        if not self._timer.isActive():
-            self._timer.start()
+        self._render(fast=True)                       # 끄는 동안은 줄인 메시로 빠르게
 
     def mouseReleaseEvent(self, e):
         self._drag = None
-        self._render()
+        self._render(fast=self.spinning)
 
     def mouseDoubleClickEvent(self, e):
         self.az, self.el = -35.0, 30.0
@@ -78,41 +93,79 @@ REANALYZE = 2          # exec() 값: FLC 를 바꿔 다시 해석해 달라
 
 
 class ProcessPanel(QWidget):
-    """성형 과정 3D: 행정 막대 · 재생 — 펀치가 들어가며 성형성 존이 바뀌고, 처음 터지는 곳 · 주름 시작하는 곳 표시."""
+    """성형 과정 3D: ▶ 재생 (펀치가 들어가며 성형) · 🔄 회전 (돌려 보기) · 한 단계씩 · 속도 · 반복.
+    재생·회전 중에는 줄인 메시로 빠르게, 멈추면 원래 메시로 다시 그린다."""
+
+    STEP = 0.02          # 재생 한 칸 (행정 비)
+    TURN = 3.0           # 회전 한 칸 (도)
 
     def __init__(self, fa, parent=None):
         super().__init__(parent)
-        from PySide6.QtWidgets import QSlider
+        from PySide6.QtWidgets import QCheckBox, QSlider, QToolButton
 
         from . import formprocess as fp
         self.fp = fp
         self.pr = fp.build(fa)
         self.az, self.el, self._drag = -35.0, 30.0, None
+        self.playing = self.rotating = False
+        self._hold = 0
         self.pic = QLabel()
         self.pic.setAlignment(Qt.AlignCenter)
         self.pic.setMinimumSize(520, 400)
-        self.pic.setToolTip("끌어서 돌리기")
+        self.pic.setToolTip("끌어서 돌리기 · 두 번 눌러 처음 방향")
         self.pic.installEventFilter(self)
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 100)
         self.slider.setValue(100)
-        self.slider.valueChanged.connect(self._draw)
-        self.play = QPushButton("▶ 재생")
-        self.play.clicked.connect(self._toggle)
-        gif = QPushButton("움직이는 그림 저장 (GIF)…")
+        self.slider.valueChanged.connect(lambda *_: self._draw(fast=self.busy))
+        self.slider.sliderReleased.connect(lambda: self._draw())
+
+        def tb(text, tip, fn, check=False):
+            b = QToolButton()
+            b.setText(text)
+            b.setToolTip(tip)
+            b.setCheckable(check)
+            b.setMinimumWidth(34)
+            b.clicked.connect(fn)
+            return b
+        self.b_first = tb("⏮", "처음 (블랭크)", lambda: self._go(0))
+        self.b_back = tb("◀", "한 단계 뒤로 (5 %)", lambda: self._go(self.slider.value() - 5))
+        self.b_play = tb("▶ 재생", "펀치가 들어가며 성형되는 모습 재생 / 멈춤 (스페이스)", self.toggle_play, True)
+        self.b_fwd = tb("▶|", "한 단계 앞으로 (5 %)", lambda: self._go(self.slider.value() + 5))
+        self.b_last = tb("⏭", "끝 (제품)", lambda: self._go(100))
+        self.b_rot = tb("🔄 회전", "제품을 빙글 돌리며 보기 / 멈춤 (재생과 같이 쓸 수 있음)", self.toggle_rotate, True)
+        self.b_onset = tb("⚠ 터지는 곳으로", "처음 터지기 시작하는 행정으로 가기", self._go_crack)
+        self.speed = QComboBox()
+        for t_, v in (("느리게 ×0.5", 0.5), ("보통 ×1", 1.0), ("빠르게 ×2", 2.0)):
+            self.speed.addItem(t_, v)
+        self.speed.setCurrentIndex(1)
+        self.loop = QCheckBox("반복")
+        self.loop.setChecked(True)
+        gif = QPushButton("GIF 저장…")
+        gif.setToolTip("행정 0 → 100 % 움직이는 그림 (지금 보는 방향)")
         gif.clicked.connect(self._gif)
-        self.timer = QTimer(self, interval=90, timeout=self._tick)
+        self.timer = QTimer(self, interval=60, timeout=self._tick)
         self.lab = QLabel()
+        self.lab.setMinimumWidth(130)
         row = QHBoxLayout()
-        row.addWidget(self.play)
-        row.addWidget(QLabel("행정"))
-        row.addWidget(self.slider, 1)
-        row.addWidget(self.lab)
+        for w in (self.b_first, self.b_back, self.b_play, self.b_fwd, self.b_last):
+            row.addWidget(w)
+        row.addSpacing(8)
+        row.addWidget(self.b_rot)
+        row.addWidget(self.speed)
+        row.addWidget(self.loop)
+        row.addWidget(self.b_onset)
+        row.addStretch(1)
         row.addWidget(gif)
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("행정"))
+        row2.addWidget(self.slider, 1)
+        row2.addWidget(self.lab)
         self.info = QLabel()
         self.info.setWordWrap(True)
         lay = QVBoxLayout(self)
         lay.addLayout(row)
+        lay.addLayout(row2)
         lay.addWidget(self.pic, 1)
         lay.addWidget(self.info)
         note = QLabel("원스텝 해석은 블랭크 (처음) 와 제품 (끝) 만 알므로, 가운데는 비례 변형 (행정 s 에서 변형 = s × 끝 변형) 과 "
@@ -123,39 +176,99 @@ class ProcessPanel(QWidget):
         lay.addWidget(note)
         if self.pr is None:
             self.info.setText("성형 과정을 그릴 수 없습니다 (성형품 메시 없음).")
+            for w in (self.b_first, self.b_back, self.b_play, self.b_fwd, self.b_last, self.b_rot, self.b_onset):
+                w.setEnabled(False)
             return
+        self.b_onset.setEnabled(any(o.kind == "crack" for o in self.pr.onsets))
         self.info.setText("<br>".join(("⚠ " if "시작" in t else "✔ ") + t for t in fp.summary(self.pr)))
         self._draw()
 
-    def _draw(self, *_):
+    @property
+    def busy(self):
+        return self.playing or self.rotating
+
+    def _draw(self, fast=False):
         if self.pr is None:
             return
         s = self.slider.value() / 100
         self.lab.setText(f"{s:.0%} · 깊이 {s * self.pr.depth:.0f} mm")
         w, h = max(self.pic.width(), 640), max(self.pic.height(), 480)
-        self.pic.setPixmap(QPixmap.fromImage(self.fp.render_stage(self.pr, s, w, h, self.az, self.el)))
+        self.pic.setPixmap(QPixmap.fromImage(self.fp.render_stage(self.pr, s, w, h, self.az, self.el,
+                                                                  fast=fast, sphere=self.rotating)))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        QTimer.singleShot(0, self._draw)
+        QTimer.singleShot(0, lambda: self._draw(fast=self.busy))
 
-    def _toggle(self):
-        if self.timer.isActive():
-            self.timer.stop()
-            self.play.setText("▶ 재생")
-        else:
-            if self.slider.value() >= 100:
-                self.slider.setValue(0)
+    def _go(self, v):
+        self.slider.setValue(max(0, min(100, int(v))))
+        if not self.busy:
+            self._draw()
+
+    def _go_crack(self):
+        o = next((o for o in self.pr.onsets if o.kind == "crack"), None)
+        if o is not None:
+            self._go(round(o.s * 100))
+
+    def _sync(self):
+        self.b_play.setChecked(self.playing)
+        self.b_play.setText("❚❚ 멈춤" if self.playing else "▶ 재생")
+        self.b_rot.setChecked(self.rotating)
+        if self.busy and not self.timer.isActive():
             self.timer.start()
-            self.play.setText("❚❚ 멈춤")
+        elif not self.busy and self.timer.isActive():
+            self.timer.stop()
+            self._draw()                           # 멈추면 원래 메시로
+
+    def toggle_play(self):
+        self.playing = not self.playing
+        if self.playing and self.slider.value() >= 100:
+            self.slider.setValue(0)
+        self._sync()
+
+    def toggle_rotate(self):
+        self.rotating = not self.rotating
+        self._sync()
+        if not self.busy:
+            self._draw()
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Space:
+            self.toggle_play()
+            return
+        if e.key() == Qt.Key_Right:
+            self._go(self.slider.value() + 5)
+            return
+        if e.key() == Qt.Key_Left:
+            self._go(self.slider.value() - 5)
+            return
+        super().keyPressEvent(e)
 
     def _tick(self):
-        v = self.slider.value() + 2
-        if v > 100:
-            self.timer.stop()
-            self.play.setText("▶ 재생")
-            v = 100
-        self.slider.setValue(v)
+        k = float(self.speed.currentData() or 1.0)
+        if self.rotating:
+            self.az = (self.az + self.TURN * k) % 360
+        if self.playing:
+            if self._hold > 0:                     # 끝에서 잠깐 멈췄다가 반복
+                self._hold -= 1
+                if self._hold == 0:
+                    self.slider.blockSignals(True)
+                    self.slider.setValue(0)
+                    self.slider.blockSignals(False)
+            else:
+                v = self.slider.value() + max(1, round(self.STEP * 100 * k))
+                if v >= 100:
+                    v = 100
+                    if self.loop.isChecked():
+                        self._hold = 12
+                    else:
+                        self.playing = False
+                self.slider.blockSignals(True)
+                self.slider.setValue(v)
+                self.slider.blockSignals(False)
+        self._draw(fast=True)
+        if not self.busy:
+            self._sync()
 
     def eventFilter(self, obj, ev):
         from PySide6.QtCore import QEvent
@@ -166,9 +279,14 @@ class ProcessPanel(QWidget):
                 x0, y0, az, el = self._drag
                 self.az = az + (ev.position().x() - x0) * 0.5
                 self.el = max(-89.0, min(89.0, el + (ev.position().y() - y0) * 0.5))
-                self._draw()
+                self._draw(fast=True)
             elif ev.type() == QEvent.MouseButtonRelease:
                 self._drag = None
+                if not self.busy:
+                    self._draw()
+            elif ev.type() == QEvent.MouseButtonDblClick:
+                self.az, self.el = -35.0, 30.0
+                self._draw(fast=self.busy)
         return super().eventFilter(obj, ev)
 
     def _gif(self):
@@ -538,6 +656,13 @@ class FormSimDialog(QDialog):
             row = QHBoxLayout()
             row.addWidget(QLabel("보기"))
             row.addWidget(box)
+            from PySide6.QtWidgets import QToolButton
+            spin = QToolButton()
+            spin.setText("🔄 회전")
+            spin.setCheckable(True)
+            spin.setToolTip("제품을 빙글 돌리며 보기 / 멈춤")
+            spin.toggled.connect(self.view.set_spin)
+            row.addWidget(spin)
             row.addStretch(1)
             row.addWidget(QLabel("<span style='color:#888'>끌어서 돌리기 · 두 번 눌러 처음 방향</span>"))
             ll.addLayout(row)
