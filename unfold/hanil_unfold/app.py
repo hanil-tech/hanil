@@ -1741,6 +1741,8 @@ class MainWindow(QMainWindow):
                 traceback.print_exc()
             for wmsg in r.warnings:
                 lines.append(f"<span style='color:#e0a040'>⚠ {wmsg}</span>")
+            for amsg in getattr(r, "advice", []):
+                lines.append(f"<span style='color:#5fa8ff'>ⓘ {amsg}</span>")
             self._set_info("<br>".join(lines))
 
     def _fill_dims(self):

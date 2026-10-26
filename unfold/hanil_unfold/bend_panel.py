@@ -233,6 +233,7 @@ class DeductionDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(table_tab, "연신 표")
+        tabs.addTab(self._test_tab(), "시험 절곡으로 재기")
         tabs.addTab(self._materials_tab(), "재질 · 참고 문헌")
 
         outer = QVBoxLayout(self)
@@ -242,6 +243,69 @@ class DeductionDialog(QDialog):
         for w in (self.material, self.method, self.process):
             w.currentIndexChanged.connect(self._fill)
         self.die.editingFinished.connect(self._fill)
+        self._fill()
+
+    def _test_tab(self):
+        """시험 절곡: 자른 길이 L 을 접어 바깥 치수 a, b 를 재면 K · 연신 → 연신 표에."""
+        w = QWidget()
+        form = QFormLayout()
+        self.tb_t = _spin(0.1, 30, 2, " mm")
+        self.tb_t.setValue(1.6)
+        self.tb_r = _spin(0.0, 50, 2, " mm")
+        self.tb_r.setValue(1.0)
+        self.tb_v = _spin(0.0, 200, 1, " mm", "자동 (8t)")
+        self.tb_ang = _spin(1, 179, 1, " °")
+        self.tb_ang.setValue(90)
+        self.tb_L = _spin(1, 5000, 2, " mm")
+        self.tb_L.setValue(100)
+        self.tb_a = _spin(0, 5000, 2, " mm")
+        self.tb_a.setValue(50)
+        self.tb_b = _spin(0, 5000, 2, " mm")
+        self.tb_b.setValue(53)
+        for lab, sp in (("판 두께 t", self.tb_t), ("상형 R", self.tb_r), ("하형 V", self.tb_v),
+                        ("접은 각 (재서)", self.tb_ang), ("자른 길이 L (접기 전)", self.tb_L),
+                        ("바깥 치수 a (재서)", self.tb_a), ("바깥 치수 b (재서)", self.tb_b)):
+            form.addRow(lab, sp)
+            sp.valueChanged.connect(self._test_calc)
+        self.tb_out = QLabel()
+        self.tb_out.setWordWrap(True)
+        add = QPushButton("이 값을 연신 표에 넣기 (재질 · 가공은 위 [연신 표] 탭 것)")
+        add.clicked.connect(self._test_add)
+        lay = QVBoxLayout(w)
+        lay.addWidget(QLabel("길이 L 로 자른 띠를 실제 금형으로 접고, 두 플랜지 바깥 치수 (가상 꼭짓점까지 — 90° 면 "
+                             "바깥 면에서 바깥 면까지) 를 잽니다. 연신 = a + b − L, 그 R 의 K 를 거꾸로 구합니다.\n"
+                             "같은 재질 측정값이 2 개 넘으면 다른 두께·R 도 R/t 로 이어 써서 (보간) 정확해집니다."))
+        lay.addLayout(form)
+        lay.addWidget(self.tb_out)
+        lay.addWidget(add)
+        lay.addStretch(1)
+        self._test_calc()
+        return w
+
+    def _test_r(self):
+        s = bc.BendSettings(material=self.material.currentData(), process=self.process.currentData(),
+                            use_process_radius=True, punch_r=self.tb_r.value(), die_v=self.tb_v.value())
+        return s.actual_radius(self.tb_r.value(), self.tb_t.value())
+
+    def _test_calc(self, *_):
+        t = self.tb_t.value()
+        r, src = self._test_r()
+        k, bd, bd90 = bc.k_from_test(self.tb_L.value(), self.tb_a.value(), self.tb_b.value(), self.tb_ang.value(), r, t)
+        ok = 0.15 <= k <= 0.55
+        self._tb = (t, self.tb_r.value(), bd90, self.tb_v.value(), k, ok)
+        self.tb_out.setText(f"<b>연신 {bd:.3f} mm</b> ({self.tb_ang.value():g}°) · 실제 R {r:.2f} ({src}) · "
+                            f"<b>K = {k:.3f}</b> · 90° 연신 {bd90:.3f} mm"
+                            + ("" if ok else "<br><span style='color:#d22'>K 가 0.15~0.55 밖 — 치수를 다시 재 보세요 "
+                                             "(바깥 치수를 가상 꼭짓점까지 쟀는지)</span>"))
+
+    def _test_add(self):
+        t, pr, bd90, v, k, ok = self._tb
+        if not ok:
+            return
+        self.shop.set(bc.ShopEntry(self.material.currentData(), t, pr, round(bd90, 4), v,
+                                   f"시험 절곡 L{self.tb_L.value():g} a{self.tb_a.value():g} b{self.tb_b.value():g} "
+                                   f"{self.tb_ang.value():g}° (K {k:.3f})"))
+        self.dirty = True
         self._fill()
 
     def _settings(self):

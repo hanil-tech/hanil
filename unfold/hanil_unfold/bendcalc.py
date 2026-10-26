@@ -149,6 +149,40 @@ K_TABLE = {
 }
 
 
+# 계단 없는 K: 표의 세 구간 값을 구간 대표점 R/t = 0.7 (0~t), √3 (t~3t), 5 (3t 넘음 → 0.5) 에 두고
+# log(R/t) 로 이어 붙인다. 표 (계단) 는 R/t 가 1·3 을 넘는 순간 K 가 0.05~0.07 뛰어 90° 한 번에 0.1 t 넘게
+# 펼친 길이가 튄다 — 실제 굽힘은 R/t 에 따라 이어서 변한다 (DIN 6935 의 log 식과 같은 꼴, r/s 5 에서 0.5).
+K_ANCHORS = (0.7, math.sqrt(3.0), 5.0)
+
+
+def k_smooth(group: str, r: float, t: float, process: str = AIR) -> float:
+    lo, mid, hi = K_TABLE[process][group]
+    if t <= 0:
+        return 0.5
+    x = max(r / t, 1e-6)
+    (x0, x1, x2), (k0, k1, k2) = K_ANCHORS, (lo, mid, hi)
+    if x <= x0:
+        return k0
+    if x >= x2:
+        return k2
+    lx = math.log(x)
+    if x <= x1:
+        a = (lx - math.log(x0)) / (math.log(x1) - math.log(x0))
+        return k0 + (k1 - k0) * a
+    a = (lx - math.log(x1)) / (math.log(x2) - math.log(x1))
+    return k1 + (k2 - k1) * a
+
+
+def k_from_test(flat_len, leg_a, leg_b, angle_deg, r, t):
+    """시험 절곡으로 K: 자른 길이 L 을 접어 바깥 치수 (가상 꼭짓점까지) a, b 를 재면
+    연신 BD = a + b − L, BA = 2 tan(θ/2)(R + t) − BD, K = (BA/θ − R)/t. (K, 이 각도 BD, 90° BD)."""
+    th = math.radians(angle_deg)
+    bd = leg_a + leg_b - flat_len
+    ba = 2 * math.tan(th / 2) * (r + t) - bd
+    k = (ba / th - r) / t
+    return k, bd, bend_deduction(math.pi / 2, r, k, t)
+
+
 def k_from_table(group: str, r: float, t: float, process: str = AIR) -> float:
     lo, mid, hi = K_TABLE[process][group]
     eps = 1e-6 * max(1.0, t)      # 3D 모델에서 잰 값의 미세한 오차로 구간이 바뀌지 않게
@@ -225,6 +259,25 @@ class ShopTable:
             if best is None or (e.die_v and not best.die_v):
                 best = e
         return best
+
+    def k_points(self, material, settings=None):
+        """이 재질의 측정값 → [(R/t, K)] (실제 R: 에어 벤딩이면 상형 R 과 자연 R (V 폭) 중 큰 것)."""
+        pts = []
+        mat = MATERIAL_BY_CODE.get(material)
+        process = settings.process if settings is not None else AIR
+        ratio = (settings.mat.air_ratio if settings is not None and settings.material == material
+                 else mat.air_ratio if mat else 0.16)
+        for e in self.entries:
+            if e.material != material or e.thickness <= 0:
+                continue
+            r = e.punch_r
+            if process == AIR:
+                r = max(r, ratio * (e.die_v or default_die_v(e.thickness)))
+            k = k_from_deduction90(e.deduction90, r, e.thickness)
+            if 0.05 < k < 0.7:
+                pts.append((r / e.thickness, k))
+        pts.sort()
+        return pts
 
     def set(self, entry: ShopEntry):
         for i, e in enumerate(self.entries):
@@ -322,9 +375,17 @@ class BendSettings:
             e = self.shop_table.find(self.material, t, punch, v)
             if e is not None:
                 return k_from_deduction90(e.deduction90, r, t), "회사 연신 표"
+            pts = self.shop_table.k_points(self.material, self)
+            if pts:                                          # 같은 재질 측정값을 R/t 로 이어 씀
+                k = interp_k(pts, r / max(t, 1e-9), lambda x: self._formula_k(x * t, t)[0])
+                return k, f"회사 연신 표 보간 ({len(pts)} 점)"
+        return self._formula_k(r, t)
+
+    def _formula_k(self, r, t):
+        """(K, 출처) — 표·식."""
         if self.method == K_MATERIAL:
-            return (k_from_table(self.mat.group, r, t, self.process),
-                    f"K 표 {GROUP_NAMES[self.mat.group]}·{PROCESS_NAMES[self.process]}")
+            return (k_smooth(self.mat.group, r, t, self.process),
+                    f"K 표 {GROUP_NAMES[self.mat.group]}·{PROCESS_NAMES[self.process]} (R/t {r / max(t, 1e-9):.2f} 이어 붙임)")
         if self.method == K_DIN:
             return k_din6935(r, t), "DIN 6935"
         return self.k, "직접 입력"
@@ -354,6 +415,57 @@ class BendSettings:
             parts.append(f"상형 R{self.punch_r:g}" if self.punch_r > 0 else "상형 R=모델 R")
             parts.append(f"V{self.die_v:g}" if self.die_v > 0 else "V=8t")
         return ", ".join(parts)
+
+
+def interp_k(pts, x, formula):
+    """측정점 [(R/t, K)] 로 R/t = x 의 K. 측정점 사이는 log(R/t) 로 이어 붙이고, 바깥은 가장 가까운 측정점에서
+    식 formula(x) 와 벌어진 만큼 식을 옮겨 쓴다 (측정이 식보다 0.03 크면 바깥도 0.03 크게)."""
+    ux, uk = [], []
+    for a, b in sorted((max(p[0], 1e-6), p[1]) for p in pts):
+        if ux and abs(math.log(a) - math.log(ux[-1])) < 1e-6:
+            uk[-1].append(b)
+        else:
+            ux.append(a)
+            uk.append([b])
+    uk = [sum(v) / len(v) for v in uk]
+    x = max(x, 1e-6)
+    for i in range(len(ux) - 1):
+        if ux[i] <= x <= ux[i + 1]:
+            a = (math.log(x) - math.log(ux[i])) / max(math.log(ux[i + 1]) - math.log(ux[i]), 1e-12)
+            return uk[i] + (uk[i + 1] - uk[i]) * a
+    j = 0 if x < ux[0] else len(ux) - 1
+    return min(max(formula(x) + (uk[j] - formula(ux[j])), 0.15), 0.55)
+
+
+def accuracy_notes(settings: "BendSettings", bends, t) -> list:
+    """전개 정확도 알림: K 직접 입력이 R/t 에 맞지 않을 때, 에어 벤딩의 실제 R 이 모델 R 과 다를 때."""
+    out = []
+    if not bends or t <= 0:
+        return out
+    if settings.method == K_DIRECT:
+        worst = None
+        for b in bends:
+            km = k_smooth(settings.mat.group, b.inner_radius, t, settings.process)
+            dl = math.radians(b.angle_deg) * (settings.k - km) * t
+            if worst is None or abs(dl) > abs(worst[0]):
+                worst = (dl, b, km)
+        dl, b, km = worst
+        if abs(dl) > 0.1:
+            out.append(f"정확도: K {settings.k:g} 고정 — B{b.number} R/t {b.inner_radius / t:.2f} 에서 재질 K 는 약 {km:.2f} "
+                       f"(펼친 길이 절곡 하나에 {dl:+.2f} mm). [계산 방법] 을 [재질별] 또는 [DIN 6935] 로, "
+                       "더 정확하게는 시험 절곡으로 연신 표를 채우세요.")
+    if settings.process == AIR and not settings.use_process_radius:
+        v = settings.die_v if settings.die_v > 0 else default_die_v(t)
+        nat = settings.mat.air_ratio * v
+        small = [b for b in bends if b.inner_radius + 0.3 * t < nat and b.angle_deg < 150]
+        if small:
+            b = min(small, key=lambda x: x.inner_radius)
+            dl = sum(2 * math.tan(math.radians(x.angle_deg) / 2) * (nat - x.inner_radius)
+                     - math.radians(x.angle_deg) * (nat - x.inner_radius) for x in small)
+            out.append(f"정확도: 에어 벤딩 V{v:g} 의 실제 안쪽 R 은 약 {nat:.1f} (V × {settings.mat.air_ratio:.0%}) — "
+                       f"모델 R {b.inner_radius:g} 보다 큼 ({len(small)} 곳). 바깥 치수를 맞추려면 펼친 길이가 약 "
+                       f"{-dl:+.2f} mm 달라집니다: [상형 R · 하형 V 로 실제 R 계산] 을 켜세요.")
+    return out
 
 
 def deduction_table(settings: BendSettings, thicknesses, punch_rs):

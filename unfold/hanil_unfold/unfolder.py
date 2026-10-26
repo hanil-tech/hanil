@@ -186,6 +186,7 @@ class UnfoldResult:
     mode: str = SHEET                             # 실제로 쓴 전개 방식
     forming: FormingInfo | None = None
     coverage: float = 1.0                         # 펼친 겉면 넓이 × 두께 / 부품 부피
+    advice: list = field(default_factory=list)    # 정확도 알림 (K·실제 R) — 형상 오류인 warnings 와 따로
 
     @property
     def bbox(self):
@@ -1346,4 +1347,11 @@ def unfold(solid, k_factor: float = 0.44, thickness: float | None = None,
     """settings 가 없으면 K 계수 직접 입력 방식으로 계산한다."""
     if settings is None:
         settings = BendSettings(k=k_factor)
-    return SheetMetalUnfolder(solid, settings, thickness, mode).unfold()
+    r = SheetMetalUnfolder(solid, settings, thickness, mode).unfold()
+    if r.mode == SHEET and r.bends:
+        from .bendcalc import accuracy_notes
+        try:
+            r.advice += accuracy_notes(settings, [b for b in r.bends if b.kind == "원통"], r.thickness)
+        except Exception:
+            pass
+    return r

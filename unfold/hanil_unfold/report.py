@@ -130,7 +130,7 @@ def bend_rows(d: ReportData):
 
 
 def notes(d: ReportData):
-    out = list(d.result.warnings)
+    out = list(d.result.warnings) + list(getattr(d.result, "advice", []))
     if d.result.mode == "forming":
         out.append("두께 변화는 블랭크→제품 면적 비로 어림한 값입니다 (체적 일정). "
                    "실제 성형성은 성형 해석으로 확인하세요.")

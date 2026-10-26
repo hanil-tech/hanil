@@ -1,6 +1,6 @@
 # 정답 대조 시험 (oracle)
 
-`python tools/oracle_report.py` 로 만듦 — 2026-10-26, 버전 1.36.1.
+`python tools/oracle_report.py` 로 만듦 — 2026-10-26, 버전 1.37.0.
 사례는 [tests/oracle_cases.py](../tests/oracle_cases.py), 통과 여부는 `tests/test_oracle.py` 가 CI 에서 확인한다.
 정답은 손으로 계산한 해석식이나 문헌의 계산 예제이고, 프로그램 결과를 거기에 견준다 (SolidCraft 의 reference tests 방식).
 

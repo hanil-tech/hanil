@@ -105,7 +105,7 @@ def test_process_radius_keeps_outside_dimensions():
     s = bc.BendSettings(method=bc.K_MATERIAL, material="SPCC", process=bc.BOTTOM,
                         use_process_radius=True, punch_r=3.0)
     r = unfold(solid(profile_part(STEPS, T, 40)), settings=s)
-    k = bc.k_from_table(bc.MEDIUM, 3.0, T, bc.BOTTOM)
+    k = bc.k_smooth(bc.MEDIUM, 3.0, T, bc.BOTTOM)
     assert long_side(r) == pytest.approx(mold_total() - bc.bend_deduction(HALF_PI, 3.0, k, T), abs=1e-4)
     b = r.bends[0]
     assert b.inner_radius == 3.0 and b.model_radius == pytest.approx(2.0)
@@ -131,7 +131,7 @@ def test_non_right_angle_with_material_method(angle):
     steps = [("L", 40), ("B", angle, 2), ("L", 25)]
     s = bc.BendSettings(method=bc.K_MATERIAL, material="SUS304")
     r = unfold(solid(profile_part(steps, T, 30)), settings=s)
-    k = bc.k_from_table(bc.HARD, 2.0, T)
+    k = bc.k_smooth(bc.HARD, 2.0, T)
     assert long_side(r) == pytest.approx(flat_length(steps, T, k), abs=1e-4)
     assert r.bends[0].angle_deg == pytest.approx(angle)
     # 이 각도의 연신 = 2·tan(θ/2)(R+t) − BA
@@ -332,3 +332,56 @@ def test_drawn_cup_one_step_beats_arap():
     assert abs(float(np.median(fi.thinning[bottom]))) < 0.05
     ca = ra.forming.U[ra.forming.F].mean(1) - ra.forming.U.mean(0)
     assert float(np.median(ra.forming.thinning[np.linalg.norm(ca, axis=1) < 30])) > 0.2
+
+
+def test_k_smooth_has_no_steps():
+    """재질별 K: 표 (계단) 의 구간 대표점 값을 지나면서 R/t 1·3 에서 튀지 않음, R/t 클수록 커짐."""
+    for g in (bc.SOFT, bc.MEDIUM, bc.HARD):
+        for p in (bc.AIR, bc.BOTTOM, bc.COIN):
+            lo, mid, hi = bc.K_TABLE[p][g]
+            assert bc.k_smooth(g, 0.7, 1, p) == pytest.approx(lo) and bc.k_smooth(g, 3 ** 0.5, 1, p) == pytest.approx(mid)
+            assert bc.k_smooth(g, 5, 1, p) == pytest.approx(hi) and bc.k_smooth(g, 20, 1, p) == pytest.approx(0.5)
+            xs = [0.1 * 1.05 ** i for i in range(90)]
+            ks = [bc.k_smooth(g, x, 1, p) for x in xs]
+            assert all(b >= a - 1e-12 for a, b in zip(ks, ks[1:]))
+            assert max(abs(b - a) for a, b in zip(ks, ks[1:])) < 0.01                 # 5 % 걸음마다 0.01 안
+    # 예전 계단: R/t 0.99 → 1.01 에 0.38 → 0.43, 지금은 거의 같음
+    assert abs(bc.k_smooth(bc.MEDIUM, 1.01, 1) - bc.k_smooth(bc.MEDIUM, 0.99, 1)) < 0.002
+
+
+def test_k_from_test_bend_roundtrip():
+    for ang, r, t, k in ((90, 2.0, 2.0, 0.42), (60, 1.0, 1.6, 0.36), (120, 4.0, 3.0, 0.47)):
+        bd = bc.bend_deduction(math.radians(ang), r, k, t)
+        L = 50 + 60 - bd
+        k2, bd2, bd90 = bc.k_from_test(L, 50, 60, ang, r, t)
+        assert k2 == pytest.approx(k, abs=1e-12) and bd2 == pytest.approx(bd)
+        assert bd90 == pytest.approx(bc.bend_deduction(math.pi / 2, r, k, t))
+
+
+def test_shop_table_interpolates_by_r_over_t():
+    """같은 재질 측정 2 점 (R/t 0.5 · 2) 이 있으면 그 사이 두께·R 도 R/t 로 이어 쓰고, 밖은 식을 측정만큼 옮겨 씀."""
+    shop = bc.ShopTable()
+    # 측정: t1 R0.5 → K 0.30, t2 R4 → K 0.45 (바텀 벤딩이라 실제 R = 상형 R)
+    for t, r, k in ((1.0, 0.5, 0.30), (2.0, 4.0, 0.45)):
+        shop.set(bc.ShopEntry("SPCC", t, r, bc.bend_deduction(math.pi / 2, r, k, t)))
+    st = bc.BendSettings(method=bc.K_MATERIAL, material="SPCC", process=bc.BOTTOM, shop_table=shop)
+    k, src = st.k_for(1.0, 1.0)                                   # R/t 1: log 사이 (0.5 와 2 의 가운데)
+    assert "보간" in src and k == pytest.approx(0.375, abs=1e-9)
+    assert st.k_for(0.5, 1.0)[0] == pytest.approx(0.30) and "회사 연신 표" in st.k_for(0.5, 1.0)[1]   # 정확히 맞는 칸
+    k_out, _ = st.k_for(10.0, 2.0)                                # R/t 5: 측정 밖 → 식 + (0.45 − 식(2))
+    f = lambda x: bc.k_smooth(bc.MEDIUM, x, 1, bc.BOTTOM)          # noqa: E731
+    assert k_out == pytest.approx(min(max(f(5) + 0.45 - f(2), 0.15), 0.55))
+
+
+def test_accuracy_advice(tmp_path):
+    from models import profile_part
+
+    from hanil_unfold import loader
+    from hanil_unfold.unfolder import unfold
+    steps = [("L", 50), ("B", 90, 0.5), ("L", 40)]
+    sol = loader.list_solids(profile_part(steps, 2.0, 50))[0]
+    r = unfold(sol, settings=bc.BendSettings(k=0.44, material="SPCC"))
+    assert any("K 0.44 고정" in a for a in r.advice) and any("실제 안쪽 R" in a for a in r.advice)
+    assert not r.warnings
+    r2 = unfold(sol, settings=bc.BendSettings(method=bc.K_MATERIAL, material="SPCC", use_process_radius=True))
+    assert not any("고정" in a or "실제 안쪽 R" in a for a in r2.advice)
