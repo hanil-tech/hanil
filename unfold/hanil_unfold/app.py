@@ -682,6 +682,8 @@ class MainWindow(QMainWindow):
         self.result = None
         self.record_id = None
         self.history = History(self.settings.value("history_dir") or None)
+        from . import calibration
+        calibration.load(self.history.calib)        # 실적 보정 계수
 
         self._build_toolbar()
 
@@ -869,6 +871,9 @@ class MainWindow(QMainWindow):
         self.act_inspect = QAction("검사 성적서", self, shortcut="Ctrl+Shift+I", triggered=self.show_inspection)
         self.act_inspect.setToolTip("도면 치수·보통 공차 (JIS B 0408 · ISO 2768) 로 검사 항목 → 측정값 넣어 합격·불합격, "
                                     "Cp·Cpk, 초도품 (ISIR)·정기·출하 성적서 엑셀·PDF (회차마다 시트로 이력)")
+        self.act_calib = QAction("실적 보정", self, triggered=self.show_calibration)
+        self.act_calib.setToolTip("시험 타발·양산에서 잰 스프링백·두께·프레스 하중·공정 시간·금형비를 예측과 견줘 "
+                                  "보정 계수를 맞추고 다음 계산부터 곱함")
         self.act_doc_log = QAction("견적·금형 기록", self, triggered=self.show_doc_log)
         self.act_doc_log.setToolTip("저장한 생산 견적서·금형 견적서·금형 검토 기록 (찾기·메모·엑셀)")
         self.act_quit = QAction("끝내기", self, triggered=self.close)
@@ -955,7 +960,7 @@ class MainWindow(QMainWindow):
             "견적": [self.act_items, self.act_part_pkg, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
                    self.act_die_cost, self.act_doc_log],
             "품질": [self.act_sim, self.act_quality, self.act_inspect],
-            "기록": [self.act_history, self.act_doc_log, self.act_items],
+            "기록": [self.act_history, self.act_doc_log, self.act_items, self.act_calib],
             "설정·도움말": [self.act_help, self.act_about],
         }
         self.ribbon = QTabWidget()
@@ -1212,6 +1217,26 @@ class MainWindow(QMainWindow):
         PartPackageDialog(self.model, max(self.solid_box.currentIndex(), 0), select, self.bend_panel.settings, self,
                           history=self.history if self.history_box.isChecked() else None,
                           items_db=self.history).exec()
+
+    def show_calibration(self):
+        """실적 보정 창 (지금 부품이 있으면 예측값을 넣을 수 있음)."""
+        from . import quote as qt_
+        from .calibration_dialog import CalibrationDialog
+        name = ""
+        if self.model is not None and self.result is not None:
+            idx = max(self.solid_box.currentIndex(), 0)
+            name = (self.model.names[idx] if self.model.names else "") or os.path.splitext(os.path.basename(self.model.path))[0]
+        try:
+            machines = [m["name"] for m in qt_.load_rates(self.settings.value("quote_rates", ""))["costing"]["machines"]]
+        except Exception:
+            machines = []
+        CalibrationDialog(self.history.calib, self.result, self.bend_panel.settings(), name, machines, self).exec()
+        self.refresh_after_calibration()
+
+    def refresh_after_calibration(self):
+        from . import calibration
+        msg = calibration.summary()
+        self.statusBar().showMessage(f"실적 보정: {msg}" if msg else "실적 보정: 쓰는 계수 없음", 8000)
 
     def show_items(self):
         from .items_dialog import ItemsDialog
@@ -1726,6 +1751,8 @@ class MainWindow(QMainWindow):
         self.history.close()
         self.history = History(folder)
         self.settings.setValue("history_dir", folder)
+        from . import calibration
+        calibration.load(self.history.calib)
         return self.history
 
     def _open_part(self, path, part_index):

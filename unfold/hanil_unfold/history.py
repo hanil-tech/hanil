@@ -271,6 +271,8 @@ class History(_DocsMixin, _ItemsMixin):
                 self.db.execute(f"ALTER TABLE docs ADD COLUMN {name} {typ}")
         self.db.commit()
         _ensure_items(self.db)          # 아이템 (견적 요청) 대장
+        from . import calibration
+        self.calib = calibration.Store(self.db)     # 실적 보정 기록
 
     def close(self):
         self.db.close()

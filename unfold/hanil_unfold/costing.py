@@ -207,6 +207,13 @@ def _setup_cost(m, lot):
     return m.get("setup_min", 0) * m["rate"] / 60 / max(lot, 1)
 
 
+def _cal_sec(m, sec):
+    """(실적 보정한 시간, 비고 글) — 기계 이름별 공정 시간 계수."""
+    from . import calibration
+    k, note = calibration.factor("cycle", m["name"] if m else None)
+    return sec * k, (f" · {note}" if note else "")
+
+
 def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, costing, lot):
     """부품 하나의 공정별 힘·기계·시간·비용 목록."""
     mat = settings.mat
@@ -234,16 +241,18 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
         if m:
             sp = laser_speed(m, t)
             sec = cut_len / 1000 / sp * 60 + pierce * (0.5 + 0.1 * t) + 20     # + 올리고 내리기 20 초
+            sec, cal = _cal_sec(m, sec)
             out.append(OpCost("레이저 절단", LASER, 0.0, m["name"], sec,
                               sec * m["rate"] / 3600 + _setup_cost(m, lot),
-                              f"{cut_len / 1000:.2f} m @ {sp:.1f} m/분, 피어싱 {pierce}" + ("" if ok else " ⚠ 두께 초과")))
+                              f"{cut_len / 1000:.2f} m @ {sp:.1f} m/분, 피어싱 {pierce}" + ("" if ok else " ⚠ 두께 초과")
+                              + cal))
         for b in bends:
             f = bend_n(b)
             m, ok = pick(machines, BRAKE, f / dc.TON * sf, b.length)
-            sec = m.get("sec_per_op", 20) if m else 20
+            sec, cal = _cal_sec(m, m.get("sec_per_op", 20) if m else 20)
             out.append(OpCost(f"절곡 B{b.number}", BRAKE, f, m["name"] if m else "-", sec,
                               (sec * m["rate"] / 3600 + _setup_cost(m, lot)) if m else 0.0,
-                              f"길이 {b.length:.0f} · {f / dc.TON:.1f} tf" + ("" if ok else " ⚠ 용량 초과")))
+                              f"길이 {b.length:.0f} · {f / dc.TON:.1f} tf" + ("" if ok else " ⚠ 용량 초과") + cal))
         return out
 
     # 금형: 공정별 힘
@@ -286,6 +295,9 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
         else:
             f = 0.0
         forces.append(f)
+    from . import calibration
+    k_ton, _ = calibration.factor("tonnage", "드로잉" if draw_n else "전단·굽힘")     # 실적 보정 (하중 모니터)
+    forces = [f * k_ton for f in forces]
     one_press = "순차" in method or "트랜스퍼" in method or "복합" in method
     def curve_note(m):
         if not h_peak or not m:
@@ -301,13 +313,13 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
         spm = (m.get("spm") or 20) if m else 20
         if "트랜스퍼" in method:
             spm *= 0.6
-        sec = 60 / spm
+        sec, cal = _cal_sec(m, 60 / spm)
         cost = (sec * m["rate"] / 3600 + _setup_cost(m, lot)) if m else 0.0
         for i, (o, f) in enumerate(zip(ops, forces)):
             out.append(OpCost(o, PRESS, f, m["name"] if m else "-", sec if i == 0 else 0.0,
                               cost if i == 0 else 0.0,
                               (f"한 프레스에서 전 공정 합 {total / dc.TON:.1f} tf × {sf:g}" + curve_note(m)
-                               + ("" if ok else " ⚠ 용량 초과"))
+                               + ("" if ok else " ⚠ 용량 초과") + cal + (f" · 하중 실적 보정 ×{k_ton:.2f}" if k_ton != 1 else ""))
                               if i == 0 else "같은 프레스"))
     else:
         for o, f in zip(ops, forces):
@@ -315,10 +327,10 @@ def op_costs(item, settings: bc.BendSettings, method, ops, cut_len, pierce, cost
             m, ok = pick(machines, PRESS, f / dc.TON * sf, height=h_peak if drawing else 0.0,
                          depth=depth if drawing else 0.0)
             spm = (m.get("spm") or 20) if m else 20
-            sec = 60 / spm * 1.5            # 단발: 넣고 빼기 포함
+            sec, cal = _cal_sec(m, 60 / spm * 1.5)            # 단발: 넣고 빼기 포함
             out.append(OpCost(o, PRESS, f, m["name"] if m else "-", sec,
                               (sec * m["rate"] / 3600 + _setup_cost(m, lot)) if m else 0.0,
-                              (curve_note(m).lstrip(" ·") if drawing else "") + ("" if ok else " ⚠ 용량 초과")))
+                              (curve_note(m).lstrip(" ·") if drawing else "") + ("" if ok else " ⚠ 용량 초과") + cal))
     return out
 
 
@@ -418,6 +430,12 @@ def die_quote(item, method, ops, costing, settings: bc.BendSettings, plan=None, 
     oh = sub * d["overhead_pct"] / 100
     pf = (sub + oh) * d["profit_pct"] / 100
     lines += [(f"일반관리비 {d['overhead_pct']:g} %", "", oh), (f"이윤 {d['profit_pct']:g} %", "", pf)]
+    from . import calibration
+    key = calibration.die_key("주물" if cast else "강판", method)
+    k_die, note = calibration.factor("die_cost", key)
+    if k_die != 1.0:                                 # 실적 보정: 실제 금형비 / 견적 (따로 줄로 보임)
+        tot = sum(x[2] for x in lines)
+        lines.append((f"실적 보정 ×{k_die:.2f}", note, (k_die - 1) * tot))
     outline, holes = None, []
     try:
         from .nesting import NestPart

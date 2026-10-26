@@ -76,6 +76,7 @@ class Char:
     special: str = ""               # 특별 특성 (◇ 등)
     unit: str = "mm"
     values: list = field(default_factory=list)   # float · None · "OK"/"NG"
+    pred_thin: float | None = None  # 성형 해석 예측 얇아짐 (실적 보정 전 값) — 실적 보정 기록용
 
     @property
     def usl(self):
@@ -303,12 +304,16 @@ def build(result, settings, solid=None, fa=None, name="", cls="B", density=None)
         t_lim = round(t * (1 - fs.THIN_MAX), 3)
         ex = fa.explain
         spots = [i for i in (ex.issues if ex else []) if i.zone in (0, 1, 2)][:3]
+        from . import calibration
+        k_th, _ = calibration.factor("thinning", mat.code)
         for i in spots:
             add("성형", f"성형 부위 {i.mark} 두께 — {i.short or i.region} (예측 {t * (1 - i.thin_max):.2f})", t_lim,
                 kind=MIN, gauge=GAUGES["thick_formed"], source=f"얇아짐 ≤ {fs.THIN_MAX:.0%} (성형 해석)")
+            C[-1].pred_thin = i.thin_max / k_th
         if not spots:
             add("성형", f"가장 얇은 곳 두께 (예측 {fa.t_min:.2f})", t_lim, kind=MIN, gauge=GAUGES["thick_formed"],
                 source=f"얇아짐 ≤ {fs.THIN_MAX:.0%} (성형 해석)")
+            C[-1].pred_thin = max(fa.thin_hi, 0) / k_th
     # 외관
     for nm in ("균열·터짐 (특히 R 부·귀·구멍 가장자리)", "주름·꺼짐 (플랜지·넓은 면)", "버 (날카로운 버·말림 없음)",
                "긁힘·찍힘·녹·이물"):
@@ -717,6 +722,18 @@ def save_pdf(ins: Inspection, path):
         p.setFont(_font(9))
         p.drawText(R(W - m - 96, yb + 6, 32, 12), Qt.AlignCenter, ins.inspector)
     p.end()
+
+
+def calibration_rows(ins: Inspection):
+    """성형 부위 두께를 잰 항목 → 실적 보정 (얇아짐) 기록 [(조건, 예측 %, 실측 %)]. 실측 = 시료 평균 두께."""
+    out = []
+    t = ins.thickness
+    for c in ins.chars:
+        x = c.numbers()
+        if c.pred_thin is None or not x or t <= 0 or c.pred_thin <= 0:
+            continue
+        out.append((c.name, 100 * c.pred_thin, 100 * (1 - (sum(x) / len(x)) / t)))
+    return out
 
 
 def record(ins: Inspection):

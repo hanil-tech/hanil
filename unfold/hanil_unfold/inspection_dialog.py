@@ -397,3 +397,13 @@ class InspectionDialog(QDialog):
         except Exception:
             import traceback
             traceback.print_exc()
+        rows = ip.calibration_rows(ins)
+        store = getattr(self.history, "calib", None)
+        if rows and store is not None and QMessageBox.question(
+                self, "실적 보정", f"성형 부위 두께 {len(rows)} 항목을 [실적 보정] (얇아짐) 기록에 넣을까요?\n"
+                "넣으면 기록이 3 개 넘을 때부터 성형 해석 얇아짐에 보정 계수가 곱해집니다.") == QMessageBox.Yes:
+            for cond, pred, act in rows:
+                store.add("thinning", ins.material, ins.part_name, round(pred, 3), round(act, 3), cond,
+                          f"검사 성적서 {ins.kind} {ins.lot}".strip())
+            from . import calibration
+            calibration.load(store)

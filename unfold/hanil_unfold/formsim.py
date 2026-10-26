@@ -130,6 +130,10 @@ def fields(fi):
     from .forming import flc_risk
     e1, e2 = smooth(fi, fi.major), smooth(fi, fi.minor)
     th = 1 - np.exp(-(e1 + e2))              # 체적 일정: t/t0 = exp(ε3), ε3 = −(ε1 + ε2)
+    from . import calibration
+    k_th, _ = calibration.factor("thinning", getattr(fi, "material", "") or None)
+    if k_th != 1.0:                          # 실적 보정: 얇아지는 쪽만 (원스텝은 R 부 얇아짐을 작게 봄)
+        th = np.where(th > 0, th * k_th, th)
     rk = flc_risk(e1, e2, fi.flc0) if fi.flc0 > 0 else np.zeros(len(e1))
     return e1, e2, th, rk
 
@@ -400,7 +404,14 @@ def analyze(result, settings: bc.BendSettings) -> FormAnalysis:
                        + ("" if mat.source != "대표값" else " (밀시트 값을 넣으면 더 정확: 절곡 조건 → [밀시트 실측값])"))
     peak = max((f for _, f, _ in fa.loads), default=0.0)
     total = sum(f for name, f, _ in fa.loads if not name.startswith("굽힘")) if fi is not None else peak
-    fa.press_tonf = total * 1.3 / dc.TON
+    from . import calibration
+    k_ton, note_t = calibration.factor("tonnage", ("드로잉" if fa.ldr else "성형") if fi is not None else "전단·굽힘")
+    fa.press_tonf = total * 1.3 * k_ton / dc.TON
+    k_th, note_th = calibration.factor("thinning", mat.code) if fi is not None else (1.0, "")
+    k_sb, note_sb = calibration.factor("springback", mat.code) if fi is None and fa.bends else (1.0, "")
+    for note, what in ((note_t, "권장 프레스"), (note_th, "얇아짐"), (note_sb, "스프링백")):
+        if note:
+            fa.messages.append(f"{what}: {note} — 현장 실측으로 맞춘 계수 ([기록] → [실적 보정])")
     from . import formexplain
     try:
         fa.explain = formexplain.explain(fa)

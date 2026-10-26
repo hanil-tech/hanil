@@ -218,6 +218,9 @@ def springback(mat: bc.Material, r, t, angle_deg):
     kappa = 1 / (r + t / 2)
     d_kappa = 12 * m / (e_un * t ** 3)
     ks = (kappa - d_kappa) / kappa
+    from . import calibration
+    k_cal, _ = calibration.factor("springback", mat.code)      # 실적 보정 (되돌아가는 양에 곱함)
+    ks = 1 - k_cal * (1 - ks)
     if ks <= 0.05:                                 # R/t 가 아주 커서 거의 탄성으로 다 돌아옴
         return 0.0, float("inf"), 0.0
     return angle_deg * ks, angle_deg / ks, ks
@@ -678,8 +681,10 @@ def review(result, settings: bc.BendSettings, strip=True):
         except Exception:
             st = None
     cl = clearance_pct(mat, t)
+    from . import calibration
+    k_ton, _ = calibration.factor("tonnage", "전단·굽힘")
     rep = DieReport(t, mat.code, cl, cl / 100 * t, tau, loads, bends, total,
-                    max(total, max((b[2] for b in bends), default=0)) * 1.3 / TON, checks, st)
+                    max(total, max((b[2] for b in bends), default=0)) * 1.3 * k_ton / TON, checks, st)
     if result.forming is not None:
         rep.blank_d = math.sqrt(4 * m.blank_area / math.pi)
     rep.vdi_clearance_mm = vdi_clearance(mat, t)
