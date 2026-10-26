@@ -260,5 +260,40 @@ def test_dialog_new_tabs(cup):
     r, st, _ = cup
     d = FormSimDialog(r, st, "cup", solid=solid(drawn_cup()))
     names = [d.findChildren(QTabWidget)[0].tabText(i) for i in range(d.findChildren(QTabWidget)[0].count())]
-    for want in ("단면 (두께 그래프)", "하중 - 행정", "FLC 입력 (실측)", "재질·두께 비교"):
+    for want in ("성형 과정 (3D)", "단면 (두께 그래프)", "하중 - 행정", "FLC 입력 (실측)", "재질·두께 비교"):
         assert want in names
+
+
+def test_forming_process_onsets_and_frames(tmp_path):
+    """성형 과정: 깊은 오일 팬은 행정 도중 귀에서 먼저 터지기 시작 · 주름 시작, 처음 = 평판 (누르개 높이), 끝 = 제품."""
+    from models import oil_pan
+
+    from hanil_unfold import formprocess as fp
+    st = bc.BendSettings(material="SPCC")
+    r = unfold(solid(oil_pan(H=160, r_corner=15, flange=0)), settings=st, mode="forming")
+    fa = fs.analyze(r, st)
+    pr = fp.build(fa)
+    on = {o.kind: o for o in pr.onsets}
+    assert "crack" in on and 0 < on["crack"].s < 1 and "귀" in on["crack"].region
+    assert on["risk"].s <= on["crack"].s and "wrinkle" in on
+    assert on["crack"].depth == pytest.approx(on["crack"].s * pr.depth)
+    xx, yy, zz = pr.frame
+    V0, V1 = fp.stage_vertices(pr, 0.0), fp.stage_vertices(pr, 1.0)
+    assert np.ptp(V0 @ zz) == pytest.approx(0, abs=1e-6)                    # 처음은 평판
+    assert np.allclose(V1, pr.Vf)                                            # 끝은 제품
+    z0, _ = fp.stage_zones(pr, 0.0)
+    assert (z0 == 4).all()                                                   # 처음엔 모두 늘림 부족 (변형 0)
+    lines = fp.summary(pr)
+    assert len(lines) == 3 and "터지기 시작" in lines[0]
+    g = fp.save_gif(pr, str(tmp_path / "p.gif"), frames=4, w=200, h=150)
+    from PIL import Image
+    assert Image.open(g).n_frames >= 5
+    assert any("성형 과정" in t for t in fa.explain.reasons)
+
+
+def test_forming_process_safe_cup(cup):
+    from hanil_unfold import formprocess as fp
+    r, st, fa = cup
+    pr = fp.build(fa)
+    assert "끝까지 터지지 않음" in fp.summary(pr)[0]
+    assert not fp.render_stage(pr, 0.5, 300, 220).isNull()

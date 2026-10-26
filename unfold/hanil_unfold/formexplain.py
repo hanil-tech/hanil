@@ -402,6 +402,16 @@ def explain(fa) -> Explanation:
 
     _process(fa, ex)
     _reasons(fa, ex)
+    try:                                              # 성형 과정: 언제 · 어디서 먼저
+        from . import formprocess as fp
+        pr = fp.build(fa)
+        if pr is not None:
+            for o in pr.onsets:
+                if o.kind != "risk":
+                    ex.reasons.append(f"성형 과정: 행정 {o.s:.0%} (펀치 깊이 {o.depth:.0f} mm) 에서 {o.region} 이 먼저 "
+                                      + ("터지기 시작 (FLC 닿음)" if o.kind == "crack" else "주름지기 시작 (5 % 두꺼워짐)"))
+    except Exception:
+        pass
     return ex
 
 

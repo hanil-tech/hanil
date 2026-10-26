@@ -77,6 +77,115 @@ def _pct(rows, cols):
 REANALYZE = 2          # exec() 값: FLC 를 바꿔 다시 해석해 달라
 
 
+class ProcessPanel(QWidget):
+    """성형 과정 3D: 행정 막대 · 재생 — 펀치가 들어가며 성형성 존이 바뀌고, 처음 터지는 곳 · 주름 시작하는 곳 표시."""
+
+    def __init__(self, fa, parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import QSlider
+
+        from . import formprocess as fp
+        self.fp = fp
+        self.pr = fp.build(fa)
+        self.az, self.el, self._drag = -35.0, 30.0, None
+        self.pic = QLabel()
+        self.pic.setAlignment(Qt.AlignCenter)
+        self.pic.setMinimumSize(520, 400)
+        self.pic.setToolTip("끌어서 돌리기")
+        self.pic.installEventFilter(self)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(0, 100)
+        self.slider.setValue(100)
+        self.slider.valueChanged.connect(self._draw)
+        self.play = QPushButton("▶ 재생")
+        self.play.clicked.connect(self._toggle)
+        gif = QPushButton("움직이는 그림 저장 (GIF)…")
+        gif.clicked.connect(self._gif)
+        self.timer = QTimer(self, interval=90, timeout=self._tick)
+        self.lab = QLabel()
+        row = QHBoxLayout()
+        row.addWidget(self.play)
+        row.addWidget(QLabel("행정"))
+        row.addWidget(self.slider, 1)
+        row.addWidget(self.lab)
+        row.addWidget(gif)
+        self.info = QLabel()
+        self.info.setWordWrap(True)
+        lay = QVBoxLayout(self)
+        lay.addLayout(row)
+        lay.addWidget(self.pic, 1)
+        lay.addWidget(self.info)
+        note = QLabel("원스텝 해석은 블랭크 (처음) 와 제품 (끝) 만 알므로, 가운데는 비례 변형 (행정 s 에서 변형 = s × 끝 변형) 과 "
+                      "펀치 깊이에 따라 블랭크를 제품으로 이어 붙인 모양으로 그립니다 — 실제 금형 접촉 순서·다단 공정은 아님. "
+                      "빨간 동그라미 = 처음 FLC 에 닿는 곳 (터지기 시작), 보라 = 처음 5 % 넘게 두꺼워지는 곳 (주름 시작).")
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#444; background:#f4f6fa; padding:4px")
+        lay.addWidget(note)
+        if self.pr is None:
+            self.info.setText("성형 과정을 그릴 수 없습니다 (성형품 메시 없음).")
+            return
+        self.info.setText("<br>".join(("⚠ " if "시작" in t else "✔ ") + t for t in fp.summary(self.pr)))
+        self._draw()
+
+    def _draw(self, *_):
+        if self.pr is None:
+            return
+        s = self.slider.value() / 100
+        self.lab.setText(f"{s:.0%} · 깊이 {s * self.pr.depth:.0f} mm")
+        w, h = max(self.pic.width(), 640), max(self.pic.height(), 480)
+        self.pic.setPixmap(QPixmap.fromImage(self.fp.render_stage(self.pr, s, w, h, self.az, self.el)))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        QTimer.singleShot(0, self._draw)
+
+    def _toggle(self):
+        if self.timer.isActive():
+            self.timer.stop()
+            self.play.setText("▶ 재생")
+        else:
+            if self.slider.value() >= 100:
+                self.slider.setValue(0)
+            self.timer.start()
+            self.play.setText("❚❚ 멈춤")
+
+    def _tick(self):
+        v = self.slider.value() + 2
+        if v > 100:
+            self.timer.stop()
+            self.play.setText("▶ 재생")
+            v = 100
+        self.slider.setValue(v)
+
+    def eventFilter(self, obj, ev):
+        from PySide6.QtCore import QEvent
+        if obj is self.pic and self.pr is not None:
+            if ev.type() == QEvent.MouseButtonPress:
+                self._drag = (ev.position().x(), ev.position().y(), self.az, self.el)
+            elif ev.type() == QEvent.MouseMove and self._drag:
+                x0, y0, az, el = self._drag
+                self.az = az + (ev.position().x() - x0) * 0.5
+                self.el = max(-89.0, min(89.0, el + (ev.position().y() - y0) * 0.5))
+                self._draw()
+            elif ev.type() == QEvent.MouseButtonRelease:
+                self._drag = None
+        return super().eventFilter(obj, ev)
+
+    def _gif(self):
+        if self.pr is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "성형 과정 GIF", "성형과정.gif", "GIF (*.gif)")
+        if not path:
+            return
+        from PySide6.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.fp.save_gif(self.pr, path, 30, 720, 540, self.az, self.el)
+        finally:
+            QApplication.restoreOverrideCursor()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+
 class SectionPanel(QWidget):
     """단면: X·Y·Z 평면 위치를 옮기며 그 단면을 따라 두께 변화 그래프 (시험품을 잘라 잰 두께와 견주기)."""
 
@@ -396,6 +505,7 @@ class FormSimDialog(QDialog):
             hl.setStyleSheet("color:#444; background:#f4f6fa; padding:4px")
             fl.addWidget(hl)
             info.addTab(fw, "성형 한계도 (FLD)")
+            info.insertTab(1, ProcessPanel(fa), "성형 과정 (3D)")
             info.addTab(SectionPanel(fa), "단면 (두께 그래프)")
             ls = fs.load_stroke(fa, settings.mat)
             if ls is not None:

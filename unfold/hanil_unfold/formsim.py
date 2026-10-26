@@ -669,6 +669,17 @@ def add_sheets(wb, fa: FormAnalysis, name="", first=False):
             tmps.append(_add_image(pic, render_product(fa, view, 900, 680), f"{'AK'[k % 2]}{1 + 36 * (k // 2)}", 640))
         if not any(ws_.title == "두께 변화" for ws_ in wb.worksheets):
             tmps.append(_add_image(wb.create_sheet("성형 한계도"), render_fld(fa.fi, 900, 700), "A1", 700))
+        try:
+            from . import formprocess as fp
+            pr = fp.build(fa)
+        except Exception:
+            pr = None
+        if pr is not None:
+            ws_p = wb.create_sheet("성형 과정")
+            for i, line in enumerate(fp.summary(pr), 1):
+                ws_p.cell(i, 1, line).font = Font(bold="시작" in line, color="C00000" if "터지기" in line else "000000")
+            for k, sv in enumerate((0.25, 0.5, 0.75, 1.0)):
+                tmps.append(_add_image(ws_p, fp.render_stage(pr, sv, 800, 600), f"{'AK'[k % 2]}{5 + 32 * (k // 2)}", 560))
         secs = default_sections(fa)
         if secs:
             ws_s = wb.create_sheet("단면 두께")
@@ -920,6 +931,28 @@ def save_pdf(fa: FormAnalysis, path, name=""):
         p.drawImage(R(m + 200, y, 196, 148), render_product(fa, VIEWS[4], 1200, 900))
         p.drawImage(R(m + 60, y + 150, 140, 109), render_fld(fa.fi, 900, 700))
     if fa.mode == "forming":
+        try:
+            from . import formprocess as fp
+            pr = fp.build(fa)
+        except Exception:
+            pr = None
+        if pr is not None:
+            pdf.newPage()
+            y = header(f"성형 과정 (행정마다) — {name}")
+            for k, sv in enumerate((0.25, 0.5, 0.75, 1.0)):
+                p.drawImage(R(m + k * 99, y, 97, 73), fp.render_stage(pr, sv, 970, 730))
+            yy = y + 78
+            p.setFont(_font(10))
+            for line in fp.summary(pr):
+                p.setPen(QColor(200, 20, 20) if "터지기" in line else QColor(130, 60, 190) if "주름 시작" in line
+                         else QColor(30, 30, 30))
+                p.drawText(R(m, yy, W - 2 * m, 7), Qt.AlignLeft | Qt.AlignVCenter, ("⚠ " if "시작" in line else "✔ ") + line)
+                yy += 7
+            p.setPen(QColor(110, 110, 110))
+            p.setFont(_font(8.5))
+            p.drawText(R(m, yy + 2, W - 2 * m, 12), Qt.AlignLeft | Qt.TextWordWrap,
+                       "원스텝 해석의 처음 (블랭크) 과 끝 (제품) 사이를 비례 변형 (행정 s 에서 변형 = s × 끝 변형) 과 펀치 깊이로 "
+                       "이어 그린 그림 — 실제 금형 접촉 순서·다단 공정은 아님.")
         secs = default_sections(fa)
         ls = load_stroke(fa)
         if secs or ls is not None:
