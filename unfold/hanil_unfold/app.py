@@ -32,7 +32,8 @@ from .drawing import (DARK, FlatTransform, assembly_polylines, paint_assembly, p
 from .unfolder import AUTO, MODE_NAMES, UnfoldError, unfold
 
 APP_NAME = "한일 판금 전개"
-OPEN_FILTER = "3D 도면 (*.stp *.step *.igs *.iges *.brep);;STEP (*.stp *.step);;모든 파일 (*.*)"
+OPEN_FILTER = ("도면 (*.stp *.step *.igs *.iges *.brep *.dxf *.dwg);;3D 도면 (*.stp *.step *.igs *.iges *.brep);;"
+               "2D 도면 — 블랭크 (*.dxf *.dwg);;STEP (*.stp *.step);;모든 파일 (*.*)")
 
 BG = QColor(32, 34, 38)
 CUT = QColor(235, 235, 235)
@@ -682,6 +683,8 @@ class MainWindow(QMainWindow):
         self.result = None
         self.record_id = None
         self.history = History(self.settings.value("history_dir") or None)
+        from . import dxf2d
+        dxf2d.USER_CONVERTER = self.settings.value("dwg_converter", "") or ""
         from . import calibration
         calibration.load(self.history.calib)        # 실적 보정 계수
 
@@ -823,6 +826,9 @@ class MainWindow(QMainWindow):
         tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
 
         self.act_open = QAction("열기", self, shortcut="Ctrl+O", triggered=self.open_dialog)
+        self.act_open.setToolTip("3D 도면 (STEP·IGES) 또는 2D 도면 (DXF·DWG — 블랭크 윤곽을 평판으로)")
+        self.act_dwg_conv = QAction("DWG 변환기 위치", self, triggered=self.pick_dwg_converter)
+        self.act_dwg_conv.setToolTip("DWG 를 여는 무료 ODA File Converter (ODAFileConverter.exe) 가 기본 폴더가 아닌 곳에 있을 때")
         self.act_save = QAction("DXF 저장", self, shortcut="Ctrl+S", triggered=self.save_dxf)
         self.act_batch = QAction("여러 파일 한꺼번에", self, triggered=self.batch)
         self.act_help = QAction("도움말", self, triggered=self.show_help)
@@ -961,7 +967,7 @@ class MainWindow(QMainWindow):
                    self.act_die_cost, self.act_doc_log],
             "품질": [self.act_sim, self.act_quality, self.act_inspect],
             "기록": [self.act_history, self.act_doc_log, self.act_items, self.act_calib],
-            "설정·도움말": [self.act_help, self.act_about],
+            "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_about],
         }
         self.ribbon = QTabWidget()
         self.ribbon.setDocumentMode(True)
@@ -1095,8 +1101,55 @@ class MainWindow(QMainWindow):
         if path:
             self.open_file(path)
 
+    def _open_flat(self, path):
+        """2D 도면 (DXF·DWG): 윤곽을 찾아 가져오기 창 → 평판 부품. 취소하면 None."""
+        from . import dxf2d
+        from .flat_import_dialog import FlatImportDialog
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            fd = dxf2d.read(path)
+        except dxf2d.DwgConverterMissing as e:
+            QApplication.restoreOverrideCursor()
+            box = QMessageBox(QMessageBox.Information, "DWG 변환기가 필요합니다", str(e), parent=self)
+            pick = box.addButton("변환기 위치 고르기…", QMessageBox.ActionRole)
+            box.addButton(QMessageBox.Close)
+            box.exec()
+            if box.clickedButton() is pick and self.pick_dwg_converter():
+                return self._open_flat(path)
+            return None
+        finally:
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+        dlg = FlatImportDialog(fd, float(self.settings.value("flat_t", 1.0)), self.bend_panel.settings().material, self)
+        if not dlg.exec() or not dlg.parts():
+            return None
+        self.settings.setValue("flat_t", dlg.thickness())
+        from .bend_panel import BendPanel
+        BendPanel._select(self.bend_panel.material, dlg.material())
+        return loader.load(path, flat={"thickness": dlg.thickness(), "parts": dlg.parts(), "drawing": fd})
+
+    def pick_dwg_converter(self):
+        from . import dxf2d
+        exe, _ = QFileDialog.getOpenFileName(self, "ODA File Converter (ODAFileConverter.exe) 또는 dwg2dxf",
+                                             self.settings.value("dwg_converter", "") or "C:/Program Files/ODA",
+                                             "실행 파일 (*.exe);;모든 파일 (*)")
+        if exe:
+            self.settings.setValue("dwg_converter", exe)
+            dxf2d.USER_CONVERTER = exe
+        return bool(exe)
+
     def open_file(self, path):
         self.settings.setValue("last_dir", os.path.dirname(path))
+        if os.path.splitext(path)[1].lower() in loader.FLAT_EXTENSIONS:
+            try:
+                model = self._open_flat(path)
+            except Exception as e:
+                QMessageBox.warning(self, "2D 도면 열기 실패", str(e))
+                return
+            if model is None:
+                return
+            self._show_model(model, path)
+            return
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             model = loader.load(path)
@@ -1109,7 +1162,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "열기 실패", str(e))
             return
         QApplication.restoreOverrideCursor()
+        self._show_model(model, path)
 
+    def _show_model(self, model, path):
         self.model = model
         self.setWindowTitle(f"{APP_NAME}  v{__version__} — {os.path.basename(path)}  —  {company.MAKER}")
         self.solid_box.blockSignals(True)
@@ -1898,7 +1953,8 @@ def batch_convert(paths, out_dir, settings, thickness, notes, mode=AUTO, reports
     for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
         try:
-            model = loader.load(path)
+            flat = {"thickness": thickness or None} if os.path.splitext(path)[1].lower() in loader.FLAT_EXTENSIONS else None
+            model = loader.load(path, flat=flat)
             for i, solid in enumerate(model.solids, 1):
                 r = unfold(solid, thickness=thickness, settings=settings, mode=mode)
                 suffix = f"_{i}" if len(model.solids) > 1 else ""

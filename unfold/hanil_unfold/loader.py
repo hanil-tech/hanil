@@ -33,8 +33,6 @@ _CONVERT_HELP = {
     ".prt": "NX 파일(.prt)",
     ".sldprt": "솔리드웍스 파일(.sldprt)",
     ".sldasm": "솔리드웍스 조립 파일(.sldasm)",
-    ".dwg": "AutoCAD 파일(.dwg)",
-    ".dxf": "DXF 파일",
     ".x_t": "Parasolid 파일(.x_t)",
     ".x_b": "Parasolid 파일(.x_b)",
     ".sat": "ACIS 파일(.sat)",
@@ -52,7 +50,8 @@ CONVERT_GUIDE = """\
 판금 부품 하나씩 저장하시면 가장 정확합니다.
 """
 
-SUPPORTED_EXTENSIONS = (".stp", ".step", ".igs", ".iges", ".brep", ".brp")
+SUPPORTED_EXTENSIONS = (".stp", ".step", ".igs", ".iges", ".brep", ".brp", ".dxf", ".dwg")
+FLAT_EXTENSIONS = (".dxf", ".dwg")          # 2D 도면 → 블랭크 평판 (dxf2d)
 
 
 class LazySolids:
@@ -115,6 +114,8 @@ class LoadedModel:
     paths: list = None          # 부품마다 위 조립품들 [(이름, 놓인 자리 번호), ...] (STEP 조립 구조, 없으면 None)
     cache_dir: str = ""         # 다시 열 때 쓰는 보관 폴더 (메시 등도 여기에)
     from_cache: bool = False
+    flat: object = None         # 2D 도면에서 만든 평판이면 dxf2d.FlatDrawing
+    flat_thickness: float = 0.0
 
     @property
     def recognized(self):
@@ -130,8 +131,40 @@ class LoadedModel:
         return f"{i + 1}. {self.names[i]}" if self.names else f"{i + 1}"
 
 
-def load(path: str, use_cache: bool = True) -> LoadedModel:
+def load_flat(path, thickness=None, parts=None, drawing=None, converter=""):
+    """2D 도면 (DXF·DWG) → 블랭크 평판 부품들. thickness 가 없으면 도면 글자의 두께, 그것도 없으면 1.0.
+    parts: 쓸 부품 번호 (None = 테두리 빼고 모두). drawing: 이미 읽은 dxf2d.FlatDrawing."""
+    from . import dxf2d
+    fd = drawing or dxf2d.read(path, converter)
+    t = thickness or fd.thickness or 1.0
+    idx = [i for i, p in enumerate(fd.parts) if not p.frame] if parts is None else list(parts)
+    if not idx:
+        raise ValueError("도면에서 닫힌 블랭크 윤곽을 찾지 못했습니다.\n" + "\n".join(fd.warnings))
+    solids, names = [], []
+    for i in idx:
+        p = fd.parts[i]
+        sh = dxf2d.plate(p, t)
+        s = list_solids(sh)
+        if s:
+            solids.append(s[0])
+            names.append(p.name)
+    if not solids:
+        raise ValueError("평판을 만들지 못했습니다 (윤곽이 꼬였을 수 있음)")
+    if len(solids) == 1:
+        names = [os.path.splitext(os.path.basename(path))[0]]
+    m = LoadedModel(path=path, shape=_compound(solids), solids=LazySolids(solids), names=names)
+    m.flat = fd
+    m.flat_thickness = t
+    return m
+
+
+def load(path: str, use_cache: bool = True, flat: dict | None = None) -> LoadedModel:
+    """flat: 2D 도면 옵션 {thickness, parts, drawing, converter} (DXF·DWG 일 때)."""
     ext = os.path.splitext(path)[1].lower()
+    if ext in FLAT_EXTENSIONS:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"파일이 없습니다: {path}")
+        return load_flat(path, **(flat or {}))
 
     if ext in _CONVERT_HELP:
         raise UnsupportedFormat(CONVERT_GUIDE.format(name=_CONVERT_HELP[ext]))

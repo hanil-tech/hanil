@@ -145,7 +145,7 @@ def test_step_round_trip_and_dxf(tmp_path):
     assert len(msp.query('LINE[layer=="BEND"]')) == 2
 
 
-@pytest.mark.parametrize("ext", [".CATPart", ".dwg", ".sldprt", ".prt"])
+@pytest.mark.parametrize("ext", [".CATPart", ".sldprt", ".prt"])
 def test_native_cad_files_explain_how_to_convert(tmp_path, ext):
     p = tmp_path / ("a" + ext)
     p.write_bytes(b"x")
