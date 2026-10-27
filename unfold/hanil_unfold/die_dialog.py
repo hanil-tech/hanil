@@ -177,7 +177,7 @@ class DieDialog(QDialog):
         self.tabs = tabs
 
         row = QHBoxLayout()
-        d3 = QPushButton("금형 3D · 조립도 · 가공도 · 파트리스트…")
+        d3 = QPushButton("금형 3D · 도면집 · 가공도 · 파트리스트…")
         d3.setToolTip("블랭킹·피어싱 금형을 판 쌓기·가이드·펀치·스트리퍼·스프링·볼트로 자동 조립해 STEP (3D), "
                       "조립도 PDF (평면도 + 정면도, 풍선 번호), 파트리스트 엑셀로 저장 — 견적·검토용 첫 안")
         d3.clicked.connect(self.save_die3d)
@@ -196,7 +196,7 @@ class DieDialog(QDialog):
         """금형 3D 조립 (STEP) · 조립도 PDF · 파트리스트 엑셀."""
         from . import die3d
         base = os.path.splitext(self.name or "part")[0] + "_금형"
-        path, _ = QFileDialog.getSaveFileName(self, "금형 3D · 조립도 · 가공도 · 파트리스트 저장 (이름만 고르면 네 파일)",
+        path, _ = QFileDialog.getSaveFileName(self, "금형 3D · 도면집 · 가공도 · 파트리스트 저장 (이름만 고르면 여섯 파일)",
                                               base + ".step", "STEP (*.step)")
         if not path:
             return
@@ -222,6 +222,10 @@ class DieDialog(QDialog):
             out = [die3d.save_step(assy, stem + ".step"), die3d.save_pdf(assy, stem + "_조립도.pdf", self.name),
                    die3d.save_xlsx(assy, stem + "_파트리스트.xlsx", self.name),
                    die3d.save_dxf(assy, stem + "_가공도.dxf")]
+            from . import diedraw
+            sheets = diedraw.build(assy, {"product": os.path.splitext(os.path.basename(self.name or "part"))[0],
+                                          "material": f"{self.settings.material} t{self.result.thickness:g}"})
+            out += [diedraw.save_pdf(sheets, stem + "_도면집.pdf"), diedraw.save_dxf(sheets, stem + "_도면집.dxf")]
         except Exception as e:
             QMessageBox.warning(self, "금형 3D 저장 실패", str(e))
             return
@@ -231,7 +235,7 @@ class DieDialog(QDialog):
                f"점검 {len(assy.checks)} 가지 중 검토 {len(bad)}" + "".join(f"\n  · {c[0]}: {c[1]} ({c[2]})" for c in bad)
                + "\n\n" + "\n".join(out))
         QMessageBox.information(self, "금형 3D", msg)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(out[1]))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(out[4]))
 
     def _draw_tab(self):
         w = QWidget()

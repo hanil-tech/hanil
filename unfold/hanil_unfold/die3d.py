@@ -47,7 +47,8 @@ EN = {"하형 다이 세트": "LOWER DIE SET", "다이 받침판": "DIE BACKING 
       "블랭킹 펀치": "BLANKING PUNCH", "피어싱 펀치": "PIERCE PUNCH", "이형 피어싱 펀치": "SHAPED PIERCE PUNCH",
       "스트리퍼 볼트": "STRIPPER BOLT", "다이 스프링": "DIE SPRING", "육각 구멍 붙이 볼트": "SOCKET HEAD BOLT",
       "다우얼 핀": "DOWEL PIN", "생크": "SHANK", "파일럿 핀": "PILOT PIN", "스트립 가이드": "STRIP GUIDE",
-      "(하형)": "(LOWER)", "(상형)": "(UPPER)"}
+      "스톱 블록": "STOP BLOCK", "(펀치 고정)": "(PUNCH FIX)", "(스트립 가이드)": "(STRIP GUIDE)",
+      "(스톱 블록)": "(STOP BLOCK)", "(하형)": "(LOWER)", "(상형)": "(UPPER)"}
 PLATES = ("하형 다이 세트", "다이 받침판", "다이 플레이트", "스트리퍼 플레이트", "펀치 플레이트", "펀치 받침판", "상형 다이 세트")
 
 
@@ -55,7 +56,10 @@ def en_name(name):
     out = name
     for k in sorted(EN, key=len, reverse=True):
         out = out.replace(k, EN[k])
-    return out
+    # 표에 없는 한글이 남으면 STEP 에서 깨지므로 빼고 PART 로
+    out = "".join(ch if ord(ch) < 128 else " " for ch in out)
+    out = " ".join(out.split())
+    return out or "PART"
 
 
 @dataclass
@@ -121,6 +125,7 @@ class DieAssy:
     edges: list = field(default_factory=list)      # 날 치수표
     press: dict = field(default_factory=dict)      # 프레스 하중·에너지·고른 프레스
     usage: dict = field(default_factory=dict)      # 스트립 재료 이용
+    stations: list = field(default_factory=list)   # [(이름, 가운데 x, 그 공정 부품 외곽)]
 
     def rows(self):
         return [[p.no, p.name, p.qty, p.material, p.size, "표준품" if p.std else "가공품",
@@ -203,6 +208,38 @@ def _dist(P, pt):
 def _poly_gap(P, Q):
     """두 다각형 사이 가장 짧은 거리 (경계 점들로)."""
     return min(min(_dist(Q, p) for p in P), min(_dist(P, q) for q in Q))
+
+
+def _deep_point(P, n=30):
+    """다각형 안 경계에서 가장 먼 점 (격자 찾기)."""
+    P = np.asarray(P, float)
+    x0, y0 = P.min(0)
+    x1, y1 = P.max(0)
+    best, bd = None, 0.0
+    for x in np.linspace(x0, x1, n):
+        for y in np.linspace(y0, y1, n):
+            d = -_dist(P, (x, y))
+            if d > bd:
+                best, bd = (float(x), float(y)), d
+    return best
+
+
+def _inner_pair(P, inset, avoid, r, n=28):
+    """다각형 안 (경계에서 inset 이상) 의 서로 먼 두 점, avoid [(x, y, r)] 와 r + 3 이상 떨어짐."""
+    P = np.asarray(P, float)
+    x0, y0 = P.min(0)
+    x1, y1 = P.max(0)
+    cand = []
+    for x in np.linspace(x0, x1, n):
+        for y in np.linspace(y0, y1, n):
+            if -_dist(P, (x, y)) >= inset and all(math.hypot(x - ax, y - ay) >= ar + r + 3 for ax, ay, ar in avoid):
+                cand.append((float(x), float(y)))
+    if len(cand) < 2:
+        return cand[:1]
+    C = np.array(cand)
+    D = np.linalg.norm(C[:, None] - C[None], axis=2)
+    i, j = np.unravel_index(np.argmax(D), D.shape)
+    return [cand[i], cand[j]]
 
 
 def _cop(polys):
@@ -315,16 +352,20 @@ def _layout(result, t, plan):
             a_ = np.linspace(0, 2 * np.pi, 48, endpoint=False)
             circ = np.column_stack([np.cos(a_), np.sin(a_)]) * plan.pilot_d / 2
             ops.append((circ + np.array([(0 - (n_st - 1) / 2) * P, yc]), "pierce"))
+        stations = []
         for i, s in enumerate(plan.stations):
             dx = (i - (n_st - 1) / 2) * P - cx
             for k in getattr(s, "holes", []) or []:
                 ops.append((plan.holes[k] + np.array([dx, -cy]), "pierce"))
+            stations.append((f"S{s.no} {s.title}", (i - (n_st - 1) / 2) * P, plan.outer + np.array([dx, -cy])))
+        _layout.stations = stations
         return ops, pil, (n_st * P, plan.strip_width), (P, plan.strip_width), f"순차 ({n_st} 공정)", blank, holes
     W = float(np.ptp(blank[:, 1]))
     L = float(np.ptp(blank[:, 0]))
     Wst = W + 2 * side
     if not holes:
         P = L + max(1.5 * t, 1.5)
+        _layout.stations = [("S1 블랭킹", 0.0, blank)]
         return [(blank, "blank")], [], (L, Wst), (P, Wst), "단발 (블랭킹)", blank, holes
     P = math.ceil((L + max(1.5 * t, 1.5)) * 2) / 2
     sh1, sh2 = np.array([-P / 2, 0.0]), np.array([P / 2, 0.0])
@@ -340,6 +381,7 @@ def _layout(result, t, plan):
                     best = (a_, b_)
         for h, d, c in ({id(x): x for x in best}).values():
             pil.append((c[0] + P / 2, c[1], d))
+    _layout.stations = [("S1 피어싱", -P / 2, blank + sh1), ("S2 블랭킹", P / 2, blank + sh2)]
     return ops, pil, (P + L, Wst), (P, Wst), "2 공정 (피어싱 → 블랭킹)", blank, holes
 
 
@@ -351,13 +393,16 @@ def build(result, settings: bc.BendSettings, kind=None, plan=None, tol="m", mach
     # 압력 중심이 금형 가운데 (프레스 슬라이드 가운데) 에 오게 이송 방향으로 옮김
     sx = -_cop([P for P, _ in ops])[0]
     ops = [(P + np.array([sx, 0.0]), k_) for P, k_ in ops]
+    stations = [(nm, x + sx, Q + np.array([sx, 0.0])) for nm, x, Q in _layout.stations]
     pilots = [(x + sx, y, d) for x, y, d in pilots]
     half = max(float(np.abs(np.vstack([P for P, _ in ops])[:, 0]).max()), work[0] / 2)
     work = (2 * half, work[1])
     for k in range(8):
         try:
-            return _assemble(result, settings, kind or kname, plan, t, ops, pilots, work, strip, blank, holes,
+            assy = _assemble(result, settings, kind or kname, plan, t, ops, pilots, work, strip, blank, holes,
                              extra=10.0 * k, tol=tol, machines=machines)
+            assy.stations = stations
+            return assy
         except _NoRoom:
             continue
     raise ValueError("표준 부품 자리를 못 찾았습니다 (여유 70 mm 넓혀도) — 손으로 배치하세요")
@@ -523,10 +568,12 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         if _is_round(P):
             pil_d[round(_circle_d(P)[0], 2)] = _circle_d(Pp)[0]
     pilots = [(x, y, pil_d.get(round(d, 2), d)) for x, y, d in pilots]
+    blank_punches = []
     for P in blank_ops:
         pr = Prim(PRISM, (p_bot, p_len), poly=P)
-        add("블랭킹 펀치", 1, "SKD11 HRC 58~62", f"{np.ptp(P[:, 0]):.1f} × {np.ptp(P[:, 1]):.1f} × {p_len:.1f}",
-                 [pr], upper=True, note="외곽 = 블랭크 치수 (클리어런스는 다이 쪽) · 윗면 M 탭 2 로 받침판에 고정")
+        blank_punches.append(add("블랭킹 펀치", 1, "SKD11 HRC 58~62",
+                                 f"{np.ptp(P[:, 0]):.1f} × {np.ptp(P[:, 1]):.1f} × {p_len:.1f}", [pr], upper=True,
+                                 note="외곽 = 블랭크 치수 − 2c (클리어런스는 다이 쪽) · 윗면 탭으로 상형 세트에 고정"))
         for x, y, d in pilots:
             pd = round(d - 0.05, 2)
             pr.holes.append(Hole(x, y, pd, "H7", p_bot, p_len, f"Ø{pd:g} H7 관통 (파일럿)"))
@@ -645,6 +692,35 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         + [Prim(CYL, (x, y, z_top - bcbh - L_up, bolt / 2, L_up)) for x, y in ub_xy], std=True, upper=True,
         order=f"JIS B 1176 M{bolt} × {L_up:.0f}", note=f"물림 {L_up - g_up:.0f} mm")
 
+    # 블랭킹 펀치 고정: 상형 세트 윗면 카운터보어 → 받침판 통과 → 펀치 윗면 탭 (2 개, 펀치 안쪽 1.5 d 이상)
+    cop0 = _cop(polys)
+    shank_on = max(Ls, Ws) < 450
+    for bp in blank_punches:
+        P = bp.prims[0].poly
+        pd_ = 6 if min(np.ptp(P[:, 0]), np.ptp(P[:, 1])) < 60 else 8
+        k6, kh6, d16, cb6, cbh6, tap6 = ds.SHCS[pd_]
+        avoid = [(x, y, d / 2) for x, y, d in pilots]
+        if shank_on:
+            avoid.append((cop0[0], cop0[1], 19.0 + 2))
+        avoid += [(x, y, bcb / 2) for x, y in ub_xy]
+        pts = _inner_pair(P, max(1.5 * pd_, cb6 / 2 + 3), avoid, cb6 / 2 + 3)
+        if not pts:
+            bp.note += " · 고정 탭 자리 없음 (플랜지·키로 고정)"
+            continue
+        g = tus - cbh6 + tb
+        Lp = ds.up_std(g + ds.ENGAGE * pd_, ds.SHCS_L)
+        e = Lp - g
+        for x, y in pts:
+            upper_shoe.holes.append(Hole(x, y, d16, "통과", z_us, tus, f"Ø{d16:g} 통과, 자리 Ø{cb6:g} 깊이 {cbh6:g} (펀치 고정)",
+                                         cb=(cb6, z_top - cbh6, cbh6)))
+            pb.holes.append(Hole(x, y, d16, "통과", z_pb, tb, f"Ø{d16:g} 통과 (펀치 고정 M{pd_})"))
+            bp.prims[0].holes.append(Hole(x, y, tap6, "탭", z_pb - (e + 3), e + 3,
+                                          f"M{pd_} 탭 깊이 {e + 3:.0f} (윗면, 드릴 Ø{tap6:g})"))
+        add(f"육각 구멍 붙이 볼트 M{pd_} (펀치 고정)", len(pts), "SCM435 (12.9)", f"M{pd_} × {Lp:.0f}",
+            [Prim(CYL, (x, y, z_top - cbh6, k6 / 2, kh6)) for x, y in pts]
+            + [Prim(CYL, (x, y, z_top - cbh6 - Lp, pd_ / 2, Lp)) for x, y in pts], std=True, upper=True,
+            order=f"JIS B 1176 M{pd_} × {Lp:.0f}", note=f"물림 {e:.0f} mm")
+
     # 다우얼 핀: H7 리머 — 하형 다이 플레이트·받침판 관통 + 하형 세트, 상형 펀치 플레이트·받침판 관통 + 상형 세트
     dl_lo = ds.up_std(H + tb + max(1.5 * dwd, 10), ds.DOWEL_L)
     dl_up = ds.up_std(tpp + tb + max(1.5 * dwd, 10), ds.DOWEL_L)
@@ -666,17 +742,84 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         [Prim(CYL, (x, y, z_pp, dwd / 2, dl_up)) for x, y in ud_xy], std=True, upper=True,
         order=f"평행 핀 ISO 8734 Ø{dwd:g} m6 × {dl_up:.0f}")
 
-    # 스트립 가이드 (다이 윗면, 스트립 양쪽) · 스트리퍼 밑면 홈
-    gw, gh = 12.0, t + 1.0
+    # 스트립 가이드 (다이 윗면, 스트립 양쪽): M5 카운터보어 볼트 + Ø5 다우얼 → 다이 플레이트 탭·H7, 스트리퍼 밑면 홈
+    gw = 16.0
+    gh = max(t + 2.0, 8.0)                               # M5 머리 자리 (5.4) + 바닥 2.6
     gd = gh - t + 1.0                                    # 스트리퍼 밑면 홈 깊이 (하사점에서 가이드가 1 들어옴)
+    if gd > tst - 8:
+        gh, gd = t + 1.0, 2.0                            # 스트리퍼가 얇으면 얇은 가이드 (밑면에서 핀·접착 — 주기)
     ys = Wst / 2 + 0.1
-    rails = [Prim(BOX, (-a, s * ys + (0 if s > 0 else -gw), z_die_top, Ld, gw, gh)) for s in (-1, 1)]
-    for s in (-1, 1):
-        y0 = s * ys + (0 if s > 0 else -gw) - 0.5
-        groove = np.array([[-a - 1, y0], [a + 1, y0], [a + 1, y0 + gw + 1], [-a - 1, y0 + gw + 1]])
+    rails = []
+    kg6, kgh, gd1, gcb, gcbh, gtap = ds.SHCS[5]
+    n_g = max(2, int(math.ceil(Ld / 120.0)))
+    for sgn in (-1, 1):
+        y0 = sgn * ys + (0 if sgn > 0 else -gw)
+        rail = Prim(BOX, (-a, y0, z_die_top, Ld, gw, gh))
+        rails.append(rail)
+        groove = np.array([[-a - 1, y0 - 0.5], [a + 1, y0 - 0.5], [a + 1, y0 + gw + 0.5], [-a - 1, y0 + gw + 0.5]])
         stripper.cuts.append((groove, 0.0, z_st - 1, gd + 1))
+        if gh >= 8.0:
+            yc = y0 + gw / 2
+            xs = np.linspace(-a + 15, a - 15, n_g + 2)
+            used = [(q[0], q[1], q[2]) for q in lo.taken]
+            screws, pins = [], []
+            for i, x in enumerate(xs):
+                is_pin = i in (0, len(xs) - 1)
+                r_ = 2.5 if is_pin else gcb / 2
+                for dx in (0, 6, -6, 12, -12, 18, -18):
+                    if all(math.hypot(x + dx - qx, yc - qy) >= r_ + qr + 2 for qx, qy, qr in used):
+                        (pins if is_pin else screws).append((x + dx, yc))
+                        used.append((x + dx, yc, r_))
+                        break
+            for x, y in screws:
+                rail.holes.append(Hole(x, y, gd1, "통과", z_die_top, gh, f"Ø{gd1:g} 통과, 자리 Ø{gcb:g} 깊이 {gcbh:g}",
+                                       cb=(gcb, z_die_top + gh - gcbh, gcbh)))
+                die.holes.append(Hole(x, y, gtap, "탭", z_die_top - 11, 11, f"M5 탭 깊이 11 (스트립 가이드, 드릴 Ø{gtap:g})"))
+            for x, y in pins:
+                rail.holes.append(Hole(x, y, 5.0, "H7", z_die_top, gh, "Ø5 H7 리머 관통 (다우얼)"))
+                die.holes.append(Hole(x, y, 5.0, "H7", z_die_top - 10, 10, "Ø5 H7 리머 깊이 10 (스트립 가이드)"))
     add("스트립 가이드", 2, "S50C (HRC 40~45)", f"{Ld:.0f} × {gw:g} × {gh:g}", rails,
-        note=f"스트립 폭 {Wst:.1f} + 0.2 · M5 볼트·Ø5 핀으로 다이에 · 스트리퍼 밑면 홈 {gw + 1:g} × {gd:g}")
+        note=f"스트립 폭 {Wst:.1f} + 0.2 · 스트리퍼 밑면 홈 {gw + 1:g} × {gd:g}"
+        + ("" if gh >= 8.0 else " · 얇은 가이드: 밑면 핀 + 접착 (설계자 확인)"))
+    if gh >= 8.0:
+        g_scr = [(h.x, h.y) for r_ in rails for h in r_.holes if h.kind == "통과"]
+        g_pin = [(h.x, h.y) for r_ in rails for h in r_.holes if h.kind == "H7"]
+        z_hd = z_die_top + gh - gcbh                     # 머리 밑면
+        Lg = ds.down_std(z_hd - (z_die_top - 11) - 1, ds.SHCS_L)
+        add("육각 구멍 붙이 볼트 M5 (스트립 가이드)", len(g_scr), "SCM435 (12.9)", f"M5 × {Lg:.0f}",
+            [Prim(CYL, (x, y, z_hd, kg6 / 2, kgh)) for x, y in g_scr]
+            + [Prim(CYL, (x, y, z_hd - Lg, 2.5, Lg)) for x, y in g_scr], std=True, order=f"JIS B 1176 M5 × {Lg:.0f}")
+        Lgp = ds.down_std(gh + 10, ds.DOWEL_L)
+        add("다우얼 핀 (스트립 가이드)", len(g_pin), "SUJ2 (m6)", f"Ø5 × {Lgp:.0f}",
+            [Prim(CYL, (x, y, z_die_top - 10, 2.5, Lgp)) for x, y in g_pin],
+            std=True, order=f"평행 핀 ISO 8734 Ø5 m6 × {Lgp:.0f}")
+
+    # 스톱 블록 (하사점 받침): 하형 세트 위, 가이드 포스트 사이 — 하사점에서 상형 세트 밑면과 0.5 틈 (심으로 맞춤)
+    travel_ = gap + RETRACT + ENTRY
+    sb_h = (z_us - travel_) - ts - 0.5
+    sbw = 30.0 if Ws >= 160 else 20.0
+    sxs = [sgn * (a + post_d / 2 + 15) for sgn in (-1, 1)]
+    blocks = [Prim(BOX, (x - sbw / 2, -sbw / 2, ts, sbw, sbw, sb_h)) for x in sxs]
+    for x, blk in zip(sxs, blocks):
+        lower.holes.append(Hole(x, 0.0, 9.0, "통과", z_ls, ts, "Ø9 통과, 자리 Ø14 깊이 8.6 (스톱 블록)",
+                                cb=(14.0, z_ls, 8.6), side="밑면"))
+        blk.holes.append(Hole(x, 0.0, 6.8, "탭", ts, 15, "M8 탭 깊이 15 (밑면, 드릴 Ø6.8)", side="밑면"))
+    add("스톱 블록", 2, "S50C", f"{sbw:g} × {sbw:g} × {sb_h:.1f}", blocks,
+        note="하사점에서 상형 세트와 0.5 틈 — 보관할 때 사이에 받침, 재연마 뒤 같이 연삭")
+    Lsb = ds.down_std(ts - 8.6 + 14, ds.SHCS_L)          # 블록 탭 물림 ≤ 14 (탭 깊이 15)
+    add("육각 구멍 붙이 볼트 M8 (스톱 블록)", 2, "SCM435 (12.9)", f"M8 × {Lsb:.0f}",
+        [Prim(CYL, (x, 0.0, z_ls + 8.6 - 8, 6.5, 8)) for x in sxs]
+        + [Prim(CYL, (x, 0.0, z_ls + 8.6, 4.0, Lsb)) for x in sxs], std=True, order=f"JIS B 1176 M8 × {Lsb:.0f}")
+
+    # 와이어 시작 구멍 (날 안쪽 — 다이·스트리퍼·펀치 플레이트 이형 구멍)
+    for i, (P, k) in enumerate(ops):
+        if k == "pierce" and _is_round(P) and _circle_d(P)[0] < 30:
+            continue                                     # 작은 둥근 구멍은 드릴 → 리머 / 지그 연삭
+        q = _deep_point(P)
+        if q is None:
+            continue
+        for pr_, z0 in ((die, z_die), (stripper, z_st)):
+            pr_.holes.append(Hole(q[0], q[1], 2.0, "와이어 시작", z0 + 0.0, pr_.p[5], "Ø2 와이어 시작 구멍 (날 안)"))
 
     # 생크: 압력 중심
     cop = _cop(polys)
@@ -907,6 +1050,8 @@ def _solid(pr: Prim):
         bld.Add(tools, prism(poly, zc, hc, grow))
         n += 1
     for h in pr.holes:
+        if h.kind == "와이어 시작":
+            continue                                     # 날 안 (이미 빠진 곳) — 솔리드에는 없음, 도면에만
         # 막힌 구멍이 판 끝에 닿으면 조금 넘겨 깨끗이
         z0_, h_ = h.z0, h.h
         if abs(z0_ - z_lo) < 1e-6:

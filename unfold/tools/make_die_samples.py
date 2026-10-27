@@ -1,4 +1,4 @@
-"""금형 3D 예제 STEP 만들기: samples/ 의 부품 · 시험 모델을 전개해 die3d 로 금형을 짜고 samples/dies/ 에 저장.
+"""금형 3D 예제 STEP · 도면집 PDF 만들기: samples/ 의 부품 · 시험 모델을 전개해 die3d 로 금형을 짜고 samples/dies/ 에 저장.
 
     python tools/make_die_samples.py
 """
@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 import models  # noqa: E402
 
 from hanil_unfold import bendcalc as bc  # noqa: E402
-from hanil_unfold import die3d, loader, process  # noqa: E402
+from hanil_unfold import die3d, diedraw, loader, process  # noqa: E402
 from hanil_unfold.unfolder import unfold  # noqa: E402
 
 OUT = os.path.join(ROOT, "samples", "dies")
@@ -39,6 +39,8 @@ def main():
         plan = process.progressive(r, st) if prog else None
         a = die3d.build(r, st, plan=plan)
         path = die3d.save_step(a, os.path.join(OUT, name + ".step"))
+        sheets = diedraw.build(a, {"product": name.replace("die_", ""), "material": f"{mat} t{r.thickness:g}"})
+        diedraw.save_pdf(sheets, os.path.join(OUT, name + "_도면집.pdf"))
         bad = [c[0] for c in a.checks if c[3] != "적합"]
         print(f"{name}: {a.kind} {a.L:.0f}×{a.W:.0f} 닫힌 높이 {a.shut:.1f} 부품 {len(a.parts)} 종 "
               f"{os.path.getsize(path) / 1e6:.1f} MB 검토 {bad}")

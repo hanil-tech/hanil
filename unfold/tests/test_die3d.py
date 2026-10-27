@@ -69,6 +69,9 @@ def test_holes_clear_of_cutting_edges(plate):
             assert x0 + r <= h.x <= x0 + dx - r and y0 + r <= h.y <= y0 + dy - r
             if "펀치" in h.spec or "포스트" in h.spec or "부시" in h.spec or "생크" in h.spec:
                 continue
+            if h.kind == "와이어 시작":                       # 날 안쪽 (와이어 들어가는 구멍)
+                assert all(die3d._dist(P, (h.x, h.y)) < -h.d for P in openings if die3d._inside(P, (h.x, h.y)))
+                continue
             assert all(die3d._dist(P, (h.x, h.y)) > r for P in openings), (name, h.spec)
     # 같은 판 구멍끼리 겹치지 않음
     for name in die3d.PLATES:
@@ -102,6 +105,7 @@ def test_step_names_and_reload(plate, tmp_path):
     n_solids = sum(len(x.prims) for x in a.parts)
     assert len(m.solids) == n_solids
     assert m.names[0] == "01 LOWER DIE SET" and any("PIERCE PUNCH" in n for n in m.names)
+    assert all(n.isascii() for n in m.names)              # 한글은 STEP 에서 깨짐
     # 곡선 외곽은 B-스플라인 (면 수 적게) — 파일 작고 솔리드가 성함, 부피는 구멍 뺀 어림과 2 % 안
     import os
 
@@ -207,3 +211,70 @@ def test_small_press_flags_and_more_bolts():
     assert nb > 4                                          # 스트리핑 힘이 커서 볼트를 늘림
     assert any(c[0].startswith("상형 볼트 인장") and c[3] == "적합" for c in a.checks)
     assert any("Ø5 압축 응력" in c[0] and c[3] == "검토" for c in a.checks)   # d / t 1.6 고장력강
+
+
+def test_detail_parts(plate):
+    """현장 상세: 블랭킹 펀치 고정 볼트, 스트립 가이드 볼트·핀, 스톱 블록 (하사점 0.5 틈), 와이어 시작 구멍."""
+    _, _, a = plate
+    names = [p.name for p in a.parts]
+    for must in ("육각 구멍 붙이 볼트 M8 (펀치 고정)", "육각 구멍 붙이 볼트 M5 (스트립 가이드)", "다우얼 핀 (스트립 가이드)",
+                 "스톱 블록", "육각 구멍 붙이 볼트 M8 (스톱 블록)"):
+        assert any(n.startswith(must) for n in names), must
+    punch = next(p for p in a.parts if p.name == "블랭킹 펀치").prims[0]
+    taps = [h for h in punch.holes if h.kind == "탭"]
+    assert len(taps) == 2
+    assert all(-die3d._dist(punch.poly, (h.x, h.y)) >= 1.5 * 8 for h in taps)
+    blk = next(p for p in a.parts if p.name == "스톱 블록").prims[0]
+    top = blk.p[2] + blk.p[5]
+    us = a.plate("상형 다이 세트").prims[0].p[2]
+    travel = a.open_h - a.shut
+    assert (us - travel) - top == pytest.approx(0.5)
+    die = a.plate("다이 플레이트").prims[0]
+    assert any(h.kind == "와이어 시작" for h in die.holes)
+    assert sum(1 for h in die.holes if "스트립 가이드" in h.spec) >= 4
+
+
+def test_drawing_set(plate, tmp_path):
+    """도면집: 표지 · 조립도 · 스트립 배치도 · 부품도 (표제란, 척도, 구멍표) → PDF · DXF."""
+    import ezdxf
+
+    from hanil_unfold import diedraw
+    _, _, a = plate
+    sheets = diedraw.build(a, {"product": "판", "material": "SPCC t2"})
+    titles = [s.title for s in sheets]
+    assert titles[:3] == ["금형 설계 도면집", "금형 조립도", "스트립 배치도"]
+    for nm in ("다이 플레이트", "펀치 플레이트", "블랭킹 펀치", "스트립 가이드", "스톱 블록"):
+        assert nm in titles
+    die = sheets[titles.index("다이 플레이트")]
+    texts = [e[3] for e in die.ents if e[0] == "text"]
+    assert "도번" in texts and "척도" in texts and die.scale in texts
+    assert any(t.startswith("W1") for t in texts)                 # 와이어 날 기호
+    assert any("H7" in t for t in texts) and any("M10 탭" in t for t in texts)
+    pdf = diedraw.save_pdf(sheets, str(tmp_path / "set.pdf"))
+    assert open(pdf, "rb").read(4) == b"%PDF"
+    dx = diedraw.save_dxf(sheets, str(tmp_path / "set.dxf"))
+    doc = ezdxf.readfile(dx)
+    assert not doc.audit().errors
+    assert {"FRAME", "OUTLINE", "HIDDEN", "CENTER", "DIM", "WIRE", "TEXT"} <= {e.dxf.layer for e in doc.modelspace()}
+    assert not diedraw.render(sheets[1], 800).isNull()
+
+
+def test_dialog_saves_all(plate, tmp_path, monkeypatch):
+    """[금형 3D · 도면집 · 가공도 · 파트리스트…]: 여섯 파일 (STEP · 조립도 PDF · 파트리스트 · 가공 DXF · 도면집 PDF · DXF)."""
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+
+    from hanil_unfold import die_dialog
+    r, st, _ = plate
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(tmp_path / "판_금형.step"), ""))
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("m (보통)", True))
+    shown = {}
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.setdefault("msg", a[2]))
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: shown.setdefault("err", a[2]))
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda *a, **k: True)
+    dlg = die_dialog.DieDialog(r, st, "판.step")
+    dlg.save_die3d()
+    assert "err" not in shown, shown.get("err")
+    for suf in (".step", "_조립도.pdf", "_파트리스트.xlsx", "_가공도.dxf", "_도면집.pdf", "_도면집.dxf"):
+        assert (tmp_path / ("판_금형" + suf)).exists(), suf
+    dlg.close()
