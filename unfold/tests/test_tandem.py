@@ -1,5 +1,6 @@
 """공정별 금형 (1차 ~ N차): 접기 · 공정 짜기 · 절곡 · 캠 · 후 피어싱 금형 · 저장."""
 import math
+import os
 
 import numpy as np
 import pytest
@@ -151,7 +152,7 @@ def test_save_all(chan, tmp_path):
     s, r, F, ops = chan
     out, notes = tandem.save_all(r, ST, ops, str(tmp_path / "ch"), {"product": "ch", "material": "SPCC t2", "solid": s,
                                                                   "result": r}, folder=F)
-    names = [p.split("/")[-1] for p in out]
+    names = [os.path.basename(p) for p in out]
     assert sum(n.endswith(".step") for n in names) == 5
     assert "ch_03차_U 굽힘.step" in names
     pdf = next(p for p in out if p.endswith(".pdf"))
