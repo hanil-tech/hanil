@@ -39,7 +39,8 @@ def main():
         plan = process.progressive(r, st) if prog else None
         a = die3d.build(r, st, plan=plan)
         path = die3d.save_step(a, os.path.join(OUT, name + ".step"))
-        sheets = diedraw.build(a, {"product": name.replace("die_", ""), "material": f"{mat} t{r.thickness:g}"})
+        sheets = diedraw.build(a, {"product": name.replace("die_", ""), "material": f"{mat} t{r.thickness:g}",
+                                   "solid": shape, "result": r})
         diedraw.save_pdf(sheets, os.path.join(OUT, name + "_도면집.pdf"))
         bad = [c[0] for c in a.checks if c[3] != "적합"]
         print(f"{name}: {a.kind} {a.L:.0f}×{a.W:.0f} 닫힌 높이 {a.shut:.1f} 부품 {len(a.parts)} 종 "

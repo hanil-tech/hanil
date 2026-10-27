@@ -831,7 +831,7 @@ class MainWindow(QMainWindow):
         self.act_open.setToolTip("3D 도면 (STEP·IGES) 또는 2D 도면 (DXF·DWG — 블랭크 윤곽을 평판으로)")
         self.act_dwg_conv = QAction("DWG 변환기 위치", self, triggered=self.pick_dwg_converter)
         self.act_dwg_conv.setToolTip("DWG 를 여는 무료 ODA File Converter (ODAFileConverter.exe) 가 기본 폴더가 아닌 곳에 있을 때")
-        self.act_save = QAction("DXF 저장", self, shortcut="Ctrl+S", triggered=self.save_dxf)
+        self.act_save = QAction("전개도 저장 (DXF·DWG·STEP)", self, shortcut="Ctrl+S", triggered=self.save_dxf)
         self.act_batch = QAction("여러 파일 한꺼번에", self, triggered=self.batch)
         self.act_help = QAction("도움말", self, triggered=self.show_help)
         self.act_about = QAction("프로그램 정보", self, triggered=self.show_about)
@@ -1387,7 +1387,7 @@ class MainWindow(QMainWindow):
         try:
             dlg = DieDialog(self.result, self.bend_panel.settings(), name, self,
                             history=self.history if self.history_box.isChecked() else None,
-                            source_path=self.model.path if self.model else "")
+                            source_path=self.model.path if self.model else "", solid=self.current_solid())
         finally:
             QApplication.restoreOverrideCursor()
         dlg.tabs.setCurrentIndex(tab if isinstance(tab, int) else 0)
@@ -1819,17 +1819,35 @@ class MainWindow(QMainWindow):
     def save_dxf(self):
         if self.result is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "DXF 저장", self._default_dxf_name(),
-                                              "DXF (*.dxf)")
+        path, flt = QFileDialog.getSaveFileName(
+            self, "전개도 저장 (DXF · DWG · STEP)", self._default_dxf_name(),
+            "DXF (*.dxf);;DWG — AutoCAD 2018 (*.dwg);;STEP 평판 솔리드 (*.step);;STEP 전개도 선 (*.stp)")
         if not path:
             return
         self.settings.setValue("notes", "true" if self.notes_box.isChecked() else "false")
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:
+            ext = ".dwg" if "DWG" in flt else ".step" if "솔리드" in flt else ".stp" if "선" in flt else ".dxf"
+            path += ext
         try:
-            dxf_export.save(self.result, path,
-                            part_name=os.path.splitext(os.path.basename(self.model.path))[0],
-                            notes=self.notes_box.isChecked(), dims=self.dims_box.isChecked(),
-                            density=self.bend_panel.settings().mat.density,
-                            user_dims=self.flat_view.user_dims)
+            from . import drawfmt, dxf2d
+            if ext == ".step":                                   # 평판 솔리드 (바깥 − 구멍, 두께)
+                drawfmt.flat_step(self.result, path, os.path.splitext(os.path.basename(path))[0])
+            else:
+                dxf_path = path if ext == ".dxf" else os.path.splitext(path)[0] + ".dxf"
+                dxf_export.save(self.result, dxf_path,
+                                part_name=os.path.splitext(os.path.basename(self.model.path))[0],
+                                notes=self.notes_box.isChecked(), dims=self.dims_box.isChecked(),
+                                density=self.bend_panel.settings().mat.density,
+                                user_dims=self.flat_view.user_dims)
+                if ext == ".dwg":
+                    try:
+                        drawfmt.dxf_to_dwg(dxf_path, path, dxf2d.USER_CONVERTER)
+                    except dxf2d.DwgConverterMissing as e:
+                        QMessageBox.information(self, "DWG", str(e))
+                        path = dxf_path
+                elif ext == ".stp":                              # 전개도 선 (STEP 와이어)
+                    drawfmt.dxf_to_step(dxf_path, path)
         except Exception as e:
             QMessageBox.warning(self, "저장 실패", str(e))
             return

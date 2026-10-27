@@ -107,8 +107,10 @@ def render_strip(result, strip, w=1100, h=360, copies=4):
 
 
 class DieDialog(QDialog):
-    def __init__(self, result, settings: bc.BendSettings, name="", parent=None, history=None, source_path=""):
+    def __init__(self, result, settings: bc.BendSettings, name="", parent=None, history=None, source_path="",
+                 solid=None):
         super().__init__(parent)
+        self.solid = solid                       # 제품 3D (도면집 제품도·입체도)
         self.setWindowTitle(f"금형 검토 — {name}" if name else "금형 검토")
         self.resize(1150, 720)
         self.result, self.settings, self.name = result, settings, name
@@ -196,7 +198,7 @@ class DieDialog(QDialog):
         """금형 3D 조립 (STEP) · 조립도 PDF · 파트리스트 엑셀."""
         from . import die3d
         base = os.path.splitext(self.name or "part")[0] + "_금형"
-        path, _ = QFileDialog.getSaveFileName(self, "금형 3D · 도면집 · 가공도 · 파트리스트 저장 (이름만 고르면 여섯 파일)",
+        path, _ = QFileDialog.getSaveFileName(self, "금형 3D · 도면집 (PDF·DXF·DWG·STEP) · 가공도 · 파트리스트 저장 (이름만 고르면 한꺼번에)",
                                               base + ".step", "STEP (*.step)")
         if not path:
             return
@@ -222,10 +224,23 @@ class DieDialog(QDialog):
             out = [die3d.save_step(assy, stem + ".step"), die3d.save_pdf(assy, stem + "_조립도.pdf", self.name),
                    die3d.save_xlsx(assy, stem + "_파트리스트.xlsx", self.name),
                    die3d.save_dxf(assy, stem + "_가공도.dxf")]
-            from . import diedraw
+            from . import diedraw, drawfmt, dxf2d
             sheets = diedraw.build(assy, {"product": os.path.splitext(os.path.basename(self.name or "part"))[0],
-                                          "material": f"{self.settings.material} t{self.result.thickness:g}"})
-            out += [diedraw.save_pdf(sheets, stem + "_도면집.pdf"), diedraw.save_dxf(sheets, stem + "_도면집.dxf")]
+                                          "material": f"{self.settings.material} t{self.result.thickness:g}",
+                                          "solid": self.solid, "result": self.result})
+            dxf_set = diedraw.save_dxf(sheets, stem + "_도면집.dxf")
+            out += [diedraw.save_pdf(sheets, stem + "_도면집.pdf"), dxf_set,
+                    drawfmt.sheets_to_step(sheets, stem + "_도면집_2D.step")]
+            notes = []
+            for src, dst in ((dxf_set, stem + "_도면집.dwg"), (stem + "_가공도.dxf", stem + "_가공도.dwg")):
+                try:
+                    out.append(drawfmt.dxf_to_dwg(src, dst, self._dwg_converter()))
+                except dxf2d.DwgConverterMissing:
+                    notes.append("DWG: 변환기 (ODA File Converter) 가 없어 DXF 만 저장 — 설치하면 DWG 도 같이")
+                    break
+                except Exception as e:  # noqa: BLE001
+                    notes.append(f"DWG 변환 실패: {e}")
+                    break
         except Exception as e:
             QMessageBox.warning(self, "금형 3D 저장 실패", str(e))
             return
@@ -233,9 +248,13 @@ class DieDialog(QDialog):
         bad = [c for c in assy.checks if c[3] != "적합"]
         msg = (f"{assy.kind} · {assy.L:.0f} × {assy.W:.0f} · 닫힌 높이 {assy.shut:.1f} · 부품 {len(assy.parts)} 종\n"
                f"점검 {len(assy.checks)} 가지 중 검토 {len(bad)}" + "".join(f"\n  · {c[0]}: {c[1]} ({c[2]})" for c in bad)
-               + "\n\n" + "\n".join(out))
+               + "\n\n" + "\n".join(out) + "".join("\n※ " + n for n in notes))
         QMessageBox.information(self, "금형 3D", msg)
         QDesktopServices.openUrl(QUrl.fromLocalFile(out[4]))
+
+    def _dwg_converter(self):
+        from PySide6.QtCore import QSettings
+        return QSettings("Hanil", "SheetUnfold").value("dwg_converter", "") or ""
 
     def _draw_tab(self):
         w = QWidget()

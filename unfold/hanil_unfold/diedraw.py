@@ -172,8 +172,9 @@ NOTES_BASE = ["일반 공차 ISO 2768-m (지시 없는 치수)", "모서리 C0.5
               "탭 JIS B 0205 (보통 나사), 리머 구멍 H7", "구멍 좌표는 원점 (왼쪽 아래 귀, ⊕) 에서"]
 
 
-def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number):
+def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
     pr = part.prims[0]
+    lines3d = _part_lines(pr) if iso else []
     x0, y0, dx, dy, z0, dz = _part_extent(pr)
     sh = Sheet(f"{part.name}", number, A3, material=part.material.split(" HRC")[0].split(" (")[0],
                heat=_heat(part.material), qty=part.qty, weight=part.weight)
@@ -275,20 +276,7 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number):
     sh.dim_v(F(0, z0)[1], F(0, z0 + dz)[1], F(x0 + dx, 0)[0], F(x0 + dx, 0)[0] + 12, _num(dz))
     sh.text(fx, fy_top + dy * s + 16, "평면도", 3.0, "L", bold=True)
     sh.text(fx, fy_front + dz * s + 4, "정면도", 3.0, "L", bold=True)
-    # 구멍 좌표표
-    tx = MARGIN + W * 0.62
-    ty = H - MARGIN - 10
-    cols = [10, 8, 20, 20, 78]
-    _table(sh, tx, ty, cols, ["기호", "번호", "X", "Y", "가공"],
-           [[sym if i == 1 else "", i, f"{hx - x0:.2f}", f"{hy - y0:.2f}",
-             (spec + (f" ({h.side})" if h.side != "윗면" else "")) if i == 1 else ""]
-            for sym, kind, cnt, pts, spec in tab for i, (hx, hy, h) in enumerate(pts, 1)]
-           + [[f"W{i}", "", f"{np.mean(P[:, 0]) - x0:.2f}", f"{np.mean(P[:, 1]) - y0:.2f}",
-                "와이어 날 " + (f"Ø{d3._circle_d(P)[0]:.3f}" if d3._is_round(P)
-                               else f"{np.ptp(P[:, 0]):.3f} × {np.ptp(P[:, 1]):.3f}") + " (가운데 좌표)"]
-              for i, P in enumerate(wires, 1)],
-           max_rows=int((H - MARGIN - TB_H - 70) / 4.2))
-    # 주기
+    # 주기 (아래부터) · 입체도 (그 위) · 구멍 좌표표 (맨 위)
     notes = list(NOTES_BASE)
     if any(len(c) > 2 and c[1] for c in pr.cuts):
         notes.insert(0, "날: 와이어 — 위 랜드 곧게, 아래 한쪽 +0.5 빠짐 (숨은선), 프로파일은 가공 DXF 의 WIRE 레이어")
@@ -303,10 +291,61 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number):
     if part.note:
         notes.append(part.note)
     ny = MARGIN + TB_H + 6 + 4.5 * len(notes)
+    tx = MARGIN + W * 0.62
+    ty = H - MARGIN - 10
+    iso_top = ny + 10 + ISO_H
+    if lines3d:
+        _iso(sh, lines3d, tx, ny + 10, W - MARGIN - 4 - tx, ISO_H, "입체도")
+    else:
+        iso_top = ny + 6
+    # 구멍 좌표표
+    cols = [10, 8, 20, 20, 78]
+    _table(sh, tx, ty, cols, ["기호", "번호", "X", "Y", "가공"],
+           [[sym if i == 1 else "", i, f"{hx - x0:.2f}", f"{hy - y0:.2f}",
+             (spec + (f" ({h.side})" if h.side != "윗면" else "")) if i == 1 else ""]
+            for sym, kind, cnt, pts, spec in tab for i, (hx, hy, h) in enumerate(pts, 1)]
+           + [[f"W{i}", "", f"{np.mean(P[:, 0]) - x0:.2f}", f"{np.mean(P[:, 1]) - y0:.2f}",
+                "와이어 날 " + (f"Ø{d3._circle_d(P)[0]:.3f}" if d3._is_round(P)
+                               else f"{np.ptp(P[:, 0]):.3f} × {np.ptp(P[:, 1]):.3f}") + " (가운데 좌표)"]
+              for i, P in enumerate(wires, 1)],
+           max_rows=max(int((ty - iso_top - 10) / 4.2) - 1, 3))
     sh.text(tx, ny + 4, "주기", 3.0, "L", bold=True)
     for k, n in enumerate(notes, 1):
         sh.text(tx, ny - 4.5 * (k - 1), f"{k}. {n}", 2.2)
     return sh
+
+
+ISO_H = 62.0              # 부품도 오른쪽 입체도 칸 높이 (mm)
+ISO_YAW, ISO_PITCH = math.radians(-35), math.radians(28)
+
+
+def _part_lines(pr: d3.Prim):
+    """부품 솔리드 (구멍·날 판 것) 의 모서리 선 (3D) — 입체도용."""
+    try:
+        from .drawing import solid_polylines
+        return solid_polylines(d3._solid(pr), samples=20, iso=False)
+    except Exception:  # noqa: BLE001 — 입체도는 덤
+        return []
+
+
+def _iso(sh: Sheet, lines3d, x, y, w, h, title, layer="THIN"):
+    """3D 선을 등각 (yaw −35°, pitch 28°) 으로 투영해 (x, y, w, h) 칸에 맞춰 넣음 (위 글 칸 5 mm)."""
+    from .drawing import view_rotation
+    if not lines3d:
+        return
+    allp = np.vstack(lines3d)
+    c = 0.5 * (allp.min(0) + allp.max(0))
+    R = view_rotation(ISO_YAW, ISO_PITCH)
+    proj = [(L - c) @ R.T for L in lines3d]
+    q = np.vstack(proj)
+    lo, hi = q.min(0), q.max(0)
+    s = min((w - 4) / max(hi[0] - lo[0], 1e-9), (h - 9) / max(hi[1] - lo[1], 1e-9))
+    mx, my = 0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1])
+    cx, cy = x + w / 2, y + (h - 5) / 2
+    sh.rect(x, y, w, h, "THIN", 0.18)
+    for P in proj:
+        sh.poly([(cx + (p_[0] - mx) * s, cy + (p_[1] - my) * s) for p_ in P], False, layer, 0.25)
+    sh.text(x + 1.5, y + h - 4.2, title, 2.6, "L", bold=True)
 
 
 def _heat(material):
@@ -385,41 +424,156 @@ def assembly_sheet(assy: d3.DieAssy, info, number):
                 if len(c) > 2 and not c[1]:
                     sh.poly([T(*q) for q in d3._simplify(c[0], 0.05)], True, "WIRE", 0.35)
         if part.prims:
-            pr = max(part.prims, key=lambda q: (q.p[0] + q.p[3]) if q.kind in (d3.BOX, d3.CYL) else q.poly[:, 0].max())
-            if pr.kind == d3.BOX:
-                at = F(pr.p[0] + pr.p[3], pr.p[2] + pr.p[5] / 2)
-            elif pr.kind == d3.CYL:
-                at = F(pr.p[0] + pr.p[3], pr.p[2] + pr.p[4] / 2)
-            else:
-                at = F(pr.poly[:, 0].max(), pr.p[0] + pr.p[1] / 2)
-            balloons.append((part.no, at))
-    # 풍선 (정면도 오른쪽 세로 줄, 위에서부터)
-    bx = F(assy.L / 2, 0)[0] + 14
-    balloons.sort(key=lambda b: -b[1][1])
-    top, bot = F(0, zmax)[1] + 4, F(0, 0)[1]
-    step = (top - bot) / max(len(balloons) - 1, 1)
-    for k, (no, at) in enumerate(balloons):
-        by_ = top - k * step
-        bxx = bx + (k % 2) * 7
-        sh.line(at[0], at[1], bxx - 2.6, by_, "THIN", 0.18)
-        sh.circle(bxx, by_, 2.6, "OUTLINE", 0.25)
-        sh.text(bxx, by_ - 0.9, str(no), 2.0, "C")
+            # 부품마다 (x 범위, z 가운데) — 풍선 자리를 먼저 정하고 그 x 로 내려가게
+            def xr(q):
+                if q.kind == d3.BOX:
+                    return q.p[0], q.p[0] + q.p[3], q.p[2] + q.p[5] / 2
+                if q.kind == d3.CYL:
+                    return q.p[0] - q.p[3], q.p[0] + q.p[3], q.p[2] + q.p[4] / 2
+                return float(q.poly[:, 0].min()), float(q.poly[:, 0].max()), q.p[0] + q.p[1] / 2
+            spans = [xr(q) for q in part.prims]
+            narrow = min(spans, key=lambda r_: (r_[1] - r_[0], -r_[1]))
+            balloons.append((part.no, spans, 0.5 * (narrow[0] + narrow[1])))
+    # 풍선: 정면도 위 빈자리에 가로 두 줄 — 부품의 좁은 프리미티브 가운데 x 순으로 자리를 정하고, 그 자리 x 에서
+    # 수직으로 내려가 부품에 닿게 (판처럼 넓은 부품은 아무 x 에나 닿음) — 지시선이 엇갈리지 않음
+    balloons.sort(key=lambda b: (b[2], b[0]))
+    xa, xb = F(-assy.L / 2, 0)[0], F(assy.L / 2, 0)[0]
+    n_b = len(balloons)
+    base = F(0, zmax)[1] + 12
+    for k, (no, spans, _) in enumerate(balloons):
+        bx_ = xa + (xb - xa) * (k + 0.5) / max(n_b, 1)
+        by_ = base + (k % 2) * 7.0
+        xm = (bx_ - fx0) / s - assy.L / 2                   # 풍선 자리의 모델 x
+        best = min(spans, key=lambda r_: 0 if r_[0] <= xm <= r_[1] else min(abs(xm - r_[0]), abs(xm - r_[1])))
+        ax = min(max(xm, best[0]), best[1])
+        at = F(ax, best[2])
+        sh.line(at[0], at[1], bx_, by_ - 2.6, "THIN", 0.18)
+        sh.circle(at[0], at[1], 0.5, "THIN", 0.18)
+        sh.circle(bx_, by_, 2.6, "OUTLINE", 0.25)
+        sh.text(bx_, by_ - 0.9, str(no), 2.0, "C")
     # 높이 치수
     xl = F(-assy.L / 2, 0)[0]
     sh.dim_v(F(0, 0)[1], F(0, zmax)[1], xl, xl - 8, f"열림 {zmax:.1f}")
     sh.line(xl - 12, F(0, assy.shut)[1], xl, F(0, assy.shut)[1], "DIM", 0.18)
-    sh.text(xl - 12, F(0, assy.shut)[1] + 0.8, f"닫힌 높이 {assy.shut:.1f} (하사점, 상형 세트 윗면)", 2.0, "L", "DIM")
+    sh.text(xl - 9, F(0, assy.shut)[1] + 0.8, f"닫힘 {assy.shut:.1f}", 2.0, "R", "DIM")
     sh.dim_h(T(-assy.L / 2, 0)[0], T(assy.L / 2, 0)[0], T(0, assy.W / 2)[1], T(0, assy.W / 2)[1] + 6, f"{assy.L:g}")
     sh.text(tx0, ty0 + assy.W * s + 10, "평면도 (하형, 펀치는 숨은선)", 2.8, "L", bold=True)
-    sh.text(fx0, F(0, zmax)[1] + 3, "정면도 (열린 상태)", 2.8, "L", bold=True)
+    sh.text(fx0, F(0, zmax)[1] + 23, "정면도 (열린 상태)", 2.8, "L", bold=True)
     # 부품표 (표제란 위, 오른쪽)
     x = W - MARGIN - 190
     rows = [[p.no, p.name, p.qty, p.material.split(" HRC")[0], p.size, "표준" if p.std else "가공"]
             for p in assy.parts]
     cols = [8, 52, 8, 34, 66, 12]
     ytop = H - MARGIN - 6
-    _table(sh, x + 2, ytop, cols, ["번호", "품명", "수량", "재질", "크기 · 규격", "구분"], rows, h=3.9,
-           max_rows=int((ytop - MARGIN - TB_H - 10) / 3.9) - 1)
+    nrow = min(len(rows), int((ytop - MARGIN - TB_H - 10) / 3.9) - 1)
+    y_bot = _table(sh, x + 2, ytop, cols, ["번호", "품명", "수량", "재질", "크기 · 규격", "구분"], rows, h=3.9,
+                   max_rows=int((ytop - MARGIN - TB_H - 10) / 3.9) - 1)
+    # 제품도 (조립도 옆): 정면도·풍선 오른쪽, 부품표 아래, 표제란 위
+    bx0 = max(F(assy.L / 2, 0)[0] + 12, W * 0.45)
+    by0 = MARGIN + TB_H + 30
+    bw, bh = W - MARGIN - 4 - bx0, y_bot - 6 - by0
+    if bw > 60 and bh > 40:
+        _product_box(sh, assy, info, bx0, by0, bw, bh)
+    del nrow
+    return sh
+
+
+def _flat_loops(assy, info):
+    """제품 전개 (블랭크) 외곽·구멍 (다이 좌표가 아니라 전개도 좌표) 과 절곡선."""
+    res = info.get("result")
+    bends = []
+    if res is not None:
+        try:
+            from .nesting import NestPart
+            np_ = NestPart.from_result("p", res)
+            outer = np.asarray(np_.outer, float)
+            holes = [np.asarray(h, float) for h in np_.holes]
+            bends = [np.asarray(b.line, float) for b in res.bends]
+            return outer, holes, bends
+        except Exception:  # noqa: BLE001
+            pass
+    return np.asarray(assy.blank, float), [np.asarray(h, float) for h in assy.holes], bends
+
+
+def _flat_view(sh, outer, holes, bends, x, y, w, h, dims=True, title="전개도"):
+    """전개도 (블랭크) 를 칸에 맞춰: 외곽·구멍 실선, 절곡선 중심선, 바깥 치수."""
+    lo, hi = outer.min(0), outer.max(0)
+    dx, dy = hi - lo
+    s = min((w - 22) / max(dx, 1e-9), (h - 22) / max(dy, 1e-9))
+    ox, oy = x + 14 + (w - 22 - dx * s) / 2, y + 10 + (h - 22 - dy * s) / 2
+
+    def T(q):
+        return ox + (q[0] - lo[0]) * s, oy + (q[1] - lo[1]) * s
+    sh.rect(x, y, w, h, "THIN", 0.18)
+    sh.poly([T(q) for q in d3._simplify(outer, 0.02)], True, "OUTLINE", 0.4)
+    for hh in holes:
+        sh.poly([T(q) for q in d3._simplify(hh, 0.01)], True, "OUTLINE", 0.3)
+    for b in bends:
+        sh.line(*T(b[0]), *T(b[1]), "CENTER", 0.25)
+    if dims:
+        sh.dim_h(T(lo)[0], T((hi[0], lo[1]))[0], T(lo)[1], T(lo)[1] - 6, _num(dx, 2))
+        sh.dim_v(T(lo)[1], T((lo[0], hi[1]))[1], T(lo)[0], T(lo)[0] - 6, _num(dy, 2))
+    sh.text(x + 1.5, y + h - 4.2, title + ("" if not bends else f" (절곡선 {len(bends)} — 중심선)"), 2.6, "L", bold=True)
+    return s
+
+
+def _product_box(sh, assy, info, x, y, w, h):
+    """조립도 옆 제품도: 왼쪽 입체도 (3D 가 있으면), 오른쪽 전개도 (바깥 치수)."""
+    solid = info.get("solid")
+    outer, holes, bends = _flat_loops(assy, info)
+    sh.text(x, y + h + 1.5, f"제품도 — {info.get('product', '')} · {info.get('material', '')}", 2.8, "L", bold=True)
+    lines = _solid_lines(solid)
+    if lines:
+        _iso(sh, lines, x, y, w * 0.45, h, "제품 입체도", "OUTLINE")
+        _flat_view(sh, outer, holes, bends, x + w * 0.47, y, w * 0.53, h)
+    else:
+        _flat_view(sh, outer, holes, bends, x, y, w, h)
+
+
+def _solid_lines(solid):
+    if solid is None:
+        return []
+    try:
+        from .drawing import solid_polylines
+        return solid_polylines(solid, samples=24, iso=True)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def product_sheet(assy: d3.DieAssy, info, number):
+    """제품도: 입체도 (3D 모델) + 전개도 (바깥 치수 · 절곡선) + 절곡표 · 사양."""
+    res = info.get("result")
+    sh = Sheet("제품도 · 전개도", number, A3, material=info.get("material", ""), qty=1,
+               weight=float(assy.usage.get("part_kg", 0.0)) if assy.usage else 0.0)
+    W, H = sh.size
+    top = H - MARGIN - 8
+    area_y = MARGIN + TB_H + 8
+    lines = _solid_lines(info.get("solid"))
+    outer, holes, bends = _flat_loops(assy, info)
+    if lines:
+        _iso(sh, lines, MARGIN + 6, area_y + 40, W * 0.42, top - area_y - 40, "제품 입체도 (3D 모델)", "OUTLINE")
+        fx = MARGIN + 10 + W * 0.42
+    else:
+        fx = MARGIN + 6
+    sc = _flat_view(sh, outer, holes, bends, fx, area_y + 40, W - MARGIN - 4 - fx, top - area_y - 40,
+                    title="전개도 (블랭크)")
+    sh.scale = "NTS"                                  # 그림 칸에 맞춰 그림 (치수가 실제 값)
+    del sc
+    # 절곡표 · 사양 (아래)
+    rows = []
+    if res is not None and res.bends:
+        rows = [[f"B{b.number}", f"{b.angle_deg:.1f}°", f"R{b.inner_radius:g}", "UP" if b.direction == "UP" else "DOWN",
+                 f"{b.length:.1f}", f"{b.allowance:.3f}", f"{b.k:.3f}"] for b in res.bends]
+        _table(sh, MARGIN + 6, area_y + 34, [12, 16, 14, 14, 18, 20, 14],
+               ["절곡", "각도", "안쪽 R", "방향", "길이", "펼친 폭 BA", "K"], rows, h=4.0, max_rows=6)
+    u = assy.usage or {}
+    lo, hi = outer.min(0), outer.max(0)
+    spec = [f"전개 크기 {np.ptp(outer[:, 0]):.2f} × {np.ptp(outer[:, 1]):.2f} mm · 구멍 {len(holes)} 개 · 절곡 {len(bends)} 곳",
+            f"제품 무게 {u.get('part_kg', 0):.3f} kg · 재질 {info.get('material', '')}",
+            "전개도 실치수 가공 데이터는 전개 DXF (1:1) 를 쓰세요"]
+    for k, ln in enumerate(spec):
+        sh.text(W * 0.55, area_y + 30 - 5 * k, ln, 2.5)
+    del lo, hi
     return sh
 
 
@@ -511,15 +665,17 @@ DRAWN = set(d3.PLATES) | {"블랭킹 펀치", "이형 피어싱 펀치", "스트
 
 
 def build(assy: d3.DieAssy, info=None):
-    """도면집 Sheet 목록 [표지, 조립도, 스트립 배치도, 부품도 …]."""
+    """도면집 Sheet 목록 [표지, 조립도 (옆에 제품도), 스트립 배치도, 제품도, 부품도 (옆에 입체도) …].
+    info: product · material · prefix · designer · solid (제품 3D) · result (전개 결과)."""
     info = dict(info or {})
     info.setdefault("die", assy.kind)
     pre = info.get("prefix") or "HD-" + _dt.date.today().strftime("%y%m%d")
     parts = [p for p in assy.parts if p.name in DRAWN and p.prims and p.prims[0].kind in (d3.BOX, d3.PRISM)]
-    index = [(f"{pre}-00", "표지 · 사양 · 점검"), (f"{pre}-01", "금형 조립도"), (f"{pre}-02", "스트립 배치도")]
-    index += [(f"{pre}-{p.no + 10:02d}", f"{p.no:02d} {p.name}") for p in parts]
+    index = [(f"{pre}-00", "표지 · 사양 · 점검"), (f"{pre}-01", "금형 조립도 (제품도 옆)"), (f"{pre}-02", "스트립 배치도"),
+             (f"{pre}-03", "제품도 · 전개도")]
+    index += [(f"{pre}-{p.no + 10:02d}", f"{p.no:02d} {p.name} (입체도 옆)") for p in parts]
     sheets = [cover_sheet(assy, info, index[0][0], index), assembly_sheet(assy, info, index[1][0]),
-              strip_sheet(assy, info, index[2][0])]
+              strip_sheet(assy, info, index[2][0]), product_sheet(assy, info, index[3][0])]
     sheets += [part_sheet(p, assy, info, f"{pre}-{p.no + 10:02d}") for p in parts]
     for i, sh in enumerate(sheets, 1):
         _frame(sh, info, i, len(sheets))

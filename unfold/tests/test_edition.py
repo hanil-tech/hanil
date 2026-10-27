@@ -43,7 +43,7 @@ def test_unfold_only_edition():
     assert r["tabs"] == ["파일", "전개", "기록", "설정·도움말"]
     for gone in ("성형 해석", "금형 검토", "견적", "원가계산서", "검사 성적서", "철판 배치", "BOM", "실적 보정"):
         assert gone not in r["acts"], gone
-    for keep in ("열기", "DXF 저장", "보고서 PDF", "보고서 엑셀", "여러 파일 한꺼번에", "전개 기록"):
+    for keep in ("열기", "전개도 저장 (DXF·DWG·STEP)", "보고서 PDF", "보고서 엑셀", "여러 파일 한꺼번에", "전개 기록"):
         assert keep in r["acts"], keep
     assert r["result"] and "성형 해석" not in r["sheets"] and "보고서" in r["sheets"]
 

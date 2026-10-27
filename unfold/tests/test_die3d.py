@@ -272,9 +272,13 @@ def test_dialog_saves_all(plate, tmp_path, monkeypatch):
     monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.setdefault("msg", a[2]))
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: shown.setdefault("err", a[2]))
     monkeypatch.setattr(QDesktopServices, "openUrl", lambda *a, **k: True)
+    monkeypatch.setattr(die_dialog.DieDialog, "_dwg_converter", lambda self: "")
+    from hanil_unfold import drawfmt
+    monkeypatch.setattr(drawfmt, "find_dwg_writer", lambda user_path="": None)
     dlg = die_dialog.DieDialog(r, st, "판.step")
     dlg.save_die3d()
     assert "err" not in shown, shown.get("err")
-    for suf in (".step", "_조립도.pdf", "_파트리스트.xlsx", "_가공도.dxf", "_도면집.pdf", "_도면집.dxf"):
+    assert "DWG: 변환기" in shown["msg"]                      # 변환기 없으면 DXF 만 — 알림
+    for suf in (".step", "_조립도.pdf", "_파트리스트.xlsx", "_가공도.dxf", "_도면집.pdf", "_도면집.dxf", "_도면집_2D.step"):
         assert (tmp_path / ("판_금형" + suf)).exists(), suf
     dlg.close()
