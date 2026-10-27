@@ -184,11 +184,11 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
     # 그림 자리: 왼쪽 (표제란 위), 오른쪽 구멍표
     area_x, area_y = MARGIN + 12, MARGIN + TB_H + 16
     area_w, area_h = W * 0.58, H - area_y - MARGIN - 14
-    s, sh.scale = _pick_scale(dx + dy + 14, dy + dz + 30 / 1.0, area_w, area_h - 24)   # 정면도 옆에 우측면도
+    s, sh.scale = _pick_scale(dx + dy + 40, dy + dz + 40, area_w, area_h - 24)   # 정면도 옆에 우측면도 (사이 띄움)
     # 평면도 (위) · 정면도 (아래, 3각법)
     fx = area_x + 10
     fy_front = area_y + 6
-    fy_top = fy_front + dz * s + 22
+    fy_top = fy_front + dz * s + 28
 
     def T(x, y):
         return fx + (x - x0) * s, fy_top + (y - y0) * s
@@ -281,7 +281,7 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
             za, zb = max(c[2], z0), min(c[2] + c[3], z0 + dz)
             sh.rect(*F(xa_, za), (xb_ - xa_) * s, (zb - za) * s, "HIDDEN", 0.25)
     # 우측면도 (정면도 오른쪽, 3각법): 오른쪽에서 본 y–z — 숨은선 지운 정투상 (구멍 = 파선)
-    rx = F(x0 + dx, 0)[0] + 14
+    rx = F(x0 + dx, 0)[0] + 28
     try:
         from . import dieview
         vis, hid = dieview.hlr([d3._solid(pr)], view=dieview.RIGHT[0], hidden=True, up=dieview.RIGHT[1])
@@ -926,7 +926,7 @@ def _bbox3(shapes):
     return np.array([p0.X(), p0.Y(), p0.Z()]), np.array([p1.X(), p1.Y(), p1.Z()])
 
 
-def _views3(sh, shapes, x0, y0, w, h, work=None, gap=16.0, dims=True, hidden=True):
+def _views3(sh, shapes, x0, y0, w, h, work=None, gap=34.0, dims=True, hidden=True):
     """3각법 세 그림을 칸 (x0, y0, w, h) 에: 정면도 왼쪽 아래, 평면도 그 위, 우측면도 그 오른쪽 — 숨은선 (HLR) 까지.
     축척은 표준 척도 (1:1, 1:2 …) 에서. 돌려줌: (척도 s, {이름: 변환}) — 변환 T(a, b) 는 그 그림의 2D 좌표 → 종이."""
     from . import dieview
@@ -936,12 +936,12 @@ def _views3(sh, shapes, x0, y0, w, h, work=None, gap=16.0, dims=True, hidden=Tru
     s, label = SCALES[-1][0] / SCALES[-1][1], f"{SCALES[-1][0]}:{SCALES[-1][1]:g}"
     for a_, b_ in SCALES:                                  # 큰 척도부터: 세 그림 + 사이 + 치수 자리가 칸에 들어가면
         k = a_ / b_
-        if (L + Wd) * k + g + 24 <= w and (Wd + H) * k + g + 22 <= h:
+        if (L + Wd) * k + g + 30 <= w and (Wd + H) * k + g + 30 <= h:
             s, label = k, (f"{a_}:{b_:g}" if b_ != 1 else "1:1")
             break
     sh.scale = label
-    fx = x0 + 14 + max(0.0, (w - 24 - (L + Wd) * s - g) / 2)          # 가운데로
-    fy = y0 + 10 + max(0.0, (h - 22 - (Wd + H) * s - g) / 2)
+    fx = x0 + 18 + max(0.0, (w - 30 - (L + Wd) * s - g) / 2)          # 가운데로
+    fy = y0 + 14 + max(0.0, (h - 30 - (Wd + H) * s - g) / 2)
     ty = fy + H * s + g
     rx = fx + L * s + g
     T = {"정면도": lambda a, b: (fx + (a - lo[0]) * s, fy + (b - lo[2]) * s),
@@ -958,15 +958,14 @@ def _views3(sh, shapes, x0, y0, w, h, work=None, gap=16.0, dims=True, hidden=Tru
             for P3, tag in work:
                 Q = [dieview.project_point(q, v, up) for q in P3]
                 sh.poly([T[nm](*q) for q in Q], False, "PART" if tag == "before" else "PART2", 0.5 if tag == "before" else 0.3)
-    sh.text(fx, fy + H * s + 3, "정면도", 2.8, "L", bold=True)
-    sh.text(fx, ty + Wd * s + 3, "평면도", 2.8, "L", bold=True)
-    sh.text(rx, fy + H * s + 3, "우측면도", 2.8, "L", bold=True)
+    sh.text(fx, fy + H * s + 5, "정면도", 3.0, "L", bold=True)
+    sh.text(fx, ty + Wd * s + 5, "평면도", 3.0, "L", bold=True)
+    sh.text(rx, fy + H * s + 5, "우측면도", 3.0, "L", bold=True)
     if dims:
-        y_ = fy - 4
-        sh.dim_h(T["정면도"](lo[0], 0)[0], T["정면도"](hi[0], 0)[0], fy, y_ - 2, _num(L, 1))
-        sh.dim_v(T["정면도"](0, lo[2])[1], T["정면도"](0, hi[2])[1], fx, fx - 6, _num(H, 1))
-        sh.dim_v(T["평면도"](0, lo[1])[1], T["평면도"](0, hi[1])[1], fx, fx - 6, _num(Wd, 1))
-        sh.dim_h(T["우측면도"](lo[1], 0)[0], T["우측면도"](hi[1], 0)[0], fy, y_ - 2, _num(Wd, 1))
+        sh.dim_h(T["정면도"](lo[0], 0)[0], T["정면도"](hi[0], 0)[0], fy, fy - 10, _num(L, 1))
+        sh.dim_v(T["정면도"](0, lo[2])[1], T["정면도"](0, hi[2])[1], fx, fx - 10, _num(H, 1))
+        sh.dim_v(T["평면도"](0, lo[1])[1], T["평면도"](0, hi[1])[1], fx, fx - 10, _num(Wd, 1))
+        sh.dim_h(T["우측면도"](lo[1], 0)[0], T["우측면도"](hi[1], 0)[0], fy, fy - 10, _num(Wd, 1))
     return s, T, (lo, hi)
 
 
