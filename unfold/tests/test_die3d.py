@@ -65,6 +65,8 @@ def test_holes_clear_of_cutting_edges(plate):
         pr = a.plate(name).prims[0]
         x0, y0, _, dx, dy, _ = pr.p
         for h in pr.holes:
+            if h.axis != "z":
+                continue
             r = (h.cb[0] if h.cb else h.d) / 2
             assert x0 + r <= h.x <= x0 + dx - r and y0 + r <= h.y <= y0 + dy - r
             if "펀치" in h.spec or "포스트" in h.spec or "부시" in h.spec or "생크" in h.spec:
@@ -73,9 +75,20 @@ def test_holes_clear_of_cutting_edges(plate):
                 assert all(die3d._dist(P, (h.x, h.y)) < -h.d for P in openings if die3d._inside(P, (h.x, h.y)))
                 continue
             assert all(die3d._dist(P, (h.x, h.y)) > r for P in openings), (name, h.spec)
-    # 같은 판 구멍끼리 겹치지 않음
+    # 옆면 아이볼트 탭은 세로 구멍·U 홈과 부딪히지 않음 (3D 범위)
     for name in die3d.PLATES:
         hs = a.plate(name).prims[0].holes
+        for sh_ in [h for h in hs if h.axis != "z"]:
+            y_in = sh_.y + (sh_.h if sh_.axis == "+y" else -sh_.h)
+            ylo, yhi = sorted((sh_.y, y_in))
+            for v in [h for h in hs if h.axis == "z"]:
+                r = (v.cb[0] if v.cb else v.d) / 2
+                hit = (abs(v.x - sh_.x) < r + sh_.d / 2 and ylo - r < v.y < yhi + r
+                       and v.z0 < sh_.z0 + sh_.d / 2 and v.z0 + v.h > sh_.z0 - sh_.d / 2)
+                assert not hit, (name, sh_.spec, v.spec)
+    # 같은 판 구멍끼리 겹치지 않음
+    for name in die3d.PLATES:
+        hs = [h for h in a.plate(name).prims[0].holes if h.axis == "z"]
         for i in range(len(hs)):
             for j in range(i + 1, len(hs)):
                 ri = (hs[i].cb[0] if hs[i].cb else hs[i].d) / 2
@@ -112,7 +125,7 @@ def test_step_names_and_reload(plate, tmp_path):
     from OCP.BRepCheck import BRepCheck_Analyzer
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
-    assert os.path.getsize(p) < 4e6
+    assert os.path.getsize(p) < 8e6
     assert all(BRepCheck_Analyzer(s_).IsValid() for s_ in m.solids)
     g = GProp_GProps()
     BRepGProp.VolumeProperties_s(m.solids[2], g)
@@ -142,8 +155,10 @@ def test_plate_dxf(plate, tmp_path):
     msp = doc.modelspace()
     lay = {e.dxf.layer for e in msp}
     assert {"CONTOUR", "WIRE", "RELIEF", "TAP", "REAM", "CBORE", "TEXT"} <= lay
-    assert len(msp.query("LWPOLYLINE[layer=='CONTOUR']")) == len(die3d.PLATES)
-    n_holes = sum(len(a.plate(n).prims[0].holes) for n in die3d.PLATES)
+    n_slot = sum(1 for n in die3d.PLATES for c in a.plate(n).prims[0].cuts if len(c) > 4 and c[4] == "slot")
+    assert n_slot == 8                                    # 클램프 U 홈: 상·하형 세트 양 끝 2 개씩
+    assert len(msp.query("LWPOLYLINE[layer=='CONTOUR']")) == len(die3d.PLATES) + n_slot
+    n_holes = sum(len(a.plate(n).prims[0].holes) for n in die3d.PLATES)     # 옆면 탭도 원으로 (좌표표 자리)
     assert len(msp.query("CIRCLE[layer!='CBORE']")) == n_holes
     rows = die3d.hole_tables(a)
     assert len(rows) == len(die3d.PLATES) and all(isinstance(r[2], float) for _, rs in rows for r in rs)
@@ -282,3 +297,112 @@ def test_dialog_saves_all(plate, tmp_path, monkeypatch):
     for suf in (".step", "_조립도.pdf", "_파트리스트.xlsx", "_가공도.dxf", "_도면집.pdf", "_도면집.dxf", "_도면집_2D.step"):
         assert (tmp_path / ("판_금형" + suf)).exists(), suf
     dlg.close()
+
+
+def test_round_parts_real_shapes(plate):
+    """둥근 표준품: 볼트 머리 육각 구멍 · 스프링·부시 속 빔 · 포스트 끝 모따기 — 솔리드가 성하고 부피가 맞음."""
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    _, _, a = plate
+
+    def vol(s_):
+        g = GProp_GProps()
+        BRepGProp.VolumeProperties_s(s_, g)
+        return g.Mass()
+    bolt = next(p for p in a.parts if p.name.startswith("육각 구멍 붙이 볼트")).prims[0]
+    assert bolt.socket is not None and bolt.stack
+    s_ = die3d._solid(bolt)
+    assert BRepCheck_Analyzer(s_).IsValid()
+    assert vol(s_) == pytest.approx(die3d._volume(bolt), rel=0.03)
+    sp = a.plate("다이 스프링").prims[0]
+    assert sp.bore > 0
+    full = math.pi * sp.p[3] ** 2 * sp.p[4]
+    assert vol(die3d._solid(sp)) < 0.8 * full                  # 속이 빔
+    post = a.plate("가이드 포스트").prims[0]
+    assert len(post.stack) >= 2                                 # 몸통 + 끝 모따기
+    assert a.plate("가이드 부시").prims[0].bore == pytest.approx(post.p[3], abs=0.6)
+
+
+def test_clamp_slots_eye_taps_guide_checks(plate):
+    """다이 세트 클램프 U 홈 (양 끝) · 옆면 아이볼트 탭 · 가이드 포스트 물림 점검."""
+    _, _, a = plate
+    for nm in ("하형 다이 세트", "상형 다이 세트"):
+        shoe = a.plate(nm).prims[0]
+        slots = [c for c in shoe.cuts if len(c) > 4 and c[4] == "slot"]
+        assert len(slots) == 4
+        assert any(h.axis != "z" for h in shoe.holes)
+    assert any("아이볼트" in n for n in a.notes) and any("U 홈" in n or "클램프" in n for n in a.notes)
+    rows = {r[0]: r for r in a.checks}
+    g = [r for k, r in rows.items() if "가이드 포스트" in k]
+    assert len(g) >= 2 and all(r[3] == "적합" for r in g)
+
+
+def test_step_assembly_colors(plate, tmp_path):
+    """STEP: DIE ASSEMBLY → LOWER DIE · UPPER DIE 조립 구조, 부품마다 색."""
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPCAFControl import STEPCAFControl_Reader
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.collections import Sequence_TDF_Label as TDF_LabelSequence
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+    _, _, a = plate
+    p = die3d.save_step(a, str(tmp_path / "die.step"))
+    doc = TDocStd_Document(TCollection_ExtendedString("MDTV-XCAF"))
+    rd = STEPCAFControl_Reader()
+    rd.SetNameMode(True)
+    rd.SetColorMode(True)
+    assert rd.ReadFile(p) == IFSelect_RetDone and rd.Transfer(doc)
+    st = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    ct = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+    free = TDF_LabelSequence()
+    st.GetFreeShapes(free)
+    assert free.Length() == 1
+
+    def nm(lab):
+        n = TDataStd_Name()
+        return n.Get().ToExtString() if lab.FindAttribute(TDataStd_Name.GetID_s(), n) else ""
+    root = free.Value(1)
+    assert nm(root) == "DIE ASSEMBLY"
+    comps = TDF_LabelSequence()
+    st.GetComponents_s(root, comps, False)
+    assert sorted(nm(comps.Value(i)) for i in range(1, comps.Length() + 1)) == ["LOWER DIE", "UPPER DIE"]
+    cols = TDF_LabelSequence()
+    ct.GetColors(cols)
+    assert cols.Length() >= 4                                    # 재질·스프링별 색
+
+
+def test_hlr_section_hatch(plate):
+    """숨은선 지운 입체도 · 단면 고리 · 빗금."""
+    from hanil_unfold import dieview
+    _, _, a = plate
+    dp = die3d._solid(a.plate("다이 플레이트").prims[0])
+    vis, hid = dieview.hlr([dp], hidden=True)
+    assert len(vis) > 20 and len(hid) > 0
+    secs = dieview.section(dp, 0.0)
+    assert secs
+    pr = a.plate("다이 플레이트").prims[0]
+    xs = np.vstack([o for o, _ in secs])
+    assert xs[:, 1].min() == pytest.approx(pr.p[2], abs=0.01)
+    assert xs[:, 1].max() == pytest.approx(pr.p[2] + pr.p[5], abs=0.01)
+    sq = [np.array([[0, 0], [10, 0], [10, 10], [0, 10]], float)]
+    hs = dieview.hatch(sq, 1.0)
+    assert hs and all(-1e-9 <= c <= 10 + 1e-9 for p_, q_ in hs for c in (*p_, *q_))
+    ring = sq + [np.array([[3, 3], [7, 3], [7, 7], [3, 7]], float)]
+    mid = [(p_ + q_) / 2 for p_, q_ in dieview.hatch(ring, 0.5)]
+    assert not any(3.2 < m[0] < 6.8 and 3.2 < m[1] < 6.8 for m in mid)   # 구멍 안은 빗금 없음
+
+
+def test_3d_sheets(plate):
+    """도면집에 입체 조립도·분해도 · 단면도 A-A (빗금), 조립도 평면도에 A-A 표시."""
+    from hanil_unfold import diedraw
+    _, _, a = plate
+    sheets = diedraw.build(a, {"product": "판", "material": "SPCC t2"})
+    titles = [s.title for s in sheets]
+    assert titles[4:6] == ["입체 조립도 · 분해도", "단면도 A-A"]
+    iso = sheets[4]
+    assert sum(1 for e in iso.ents if e[0] == "circle") > len(a.parts)        # 풍선
+    sec = sheets[5]
+    assert sum(1 for e in sec.ents if e[0] == "line" and e[5] == "HATCH") > 100
+    assert any(e[0] == "text" and e[3] == "A" for e in sheets[1].ents)
