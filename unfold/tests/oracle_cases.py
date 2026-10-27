@@ -80,11 +80,12 @@ def _cone(k):
 
 
 def _cone_exact(k, rb=40.0, rt=80.0, h=60.0, t=2.0):
-    """두께 가운데 아닌 K 면의 원뿔대 넓이 π (r1 + r2) · 빗변. 끝면은 벽에 수직 (두껍게 만들기) 이라 같은 빗변 자리에서
-    반지름이 (1 − K) t · cos α 만큼 작다 (α = 축과 벽 사이 반각의 여각 — cos α = h / 빗변)."""
+    """K 면의 원뿔대 넓이 π (r1 + r2) · 빗변. 모델 (두껍게 만들기) 의 끝면은 축에 수직인 평면 (z = 0, h) 이라
+    K 면의 끝도 그 평면 위: 같은 높이에서 반지름이 (1 − K) t / cos α 만큼 작다 (α = 반각, cos α = h / 빗변),
+    빗변 길이는 그대로. (1.48.0 전에는 끝면이 벽에 수직이라고 보아 (1 − K) t · cos α 로 썼음)"""
     L = math.hypot(rt - rb, h)
     d = (1 - k) * t
-    return math.pi * (rb + rt - 2 * d * (h / L)) * L
+    return math.pi * (rb + rt - 2 * d / (h / L)) * L
 
 
 def _dxf(kind):
@@ -183,7 +184,7 @@ def cases():
                     _tube(R_out, t, 0.44), 1e-6))
     for k in (0.3, 0.5):
         n += 1
-        out.append((n, "말기 (원뿔)", f"깔때기 K{k:g}", "해석", "π (r1 + r2 − 2 (1−K) t cos α) · 빗변", _cone_exact(k),
+        out.append((n, "말기 (원뿔)", f"깔때기 K{k:g}", "해석", "π (r1 + r2 − 2 (1−K) t / cos α) · 빗변 (끝면 수평)", _cone_exact(k),
                     _cone(k), 1e-3))
     n += 1
     out.append((n, "2D 도면 (DXF)", "블랭크 넓이 (R 모서리·구멍·장공)", "해석", "사각 − 모서리 (4−π)R² − 원 − 장공",

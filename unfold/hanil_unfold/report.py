@@ -51,6 +51,18 @@ class ReportData:
             self._d = dimsmod.compute(self.result, self.material.density)
         return self._d
 
+    @property
+    def check_rows(self):
+        """전개 검증표 (unfoldcheck) — 3D 솔리드가 있을 때."""
+        if not hasattr(self, "_chk"):
+            self._chk = []
+            try:
+                from . import unfoldcheck
+                self._chk = unfoldcheck.check(self.solid, self.result, self.settings)
+            except Exception:  # noqa: BLE001 — 검증은 덤
+                self._chk = []
+        return self._chk
+
     def dim_rows(self):
         """보고서 치수 표: 요약 표와 겹치는 면적·무게 줄은 빼고 위치·구멍만."""
         return [r for r in self.dims.rows()
@@ -131,6 +143,11 @@ def bend_rows(d: ReportData):
 
 def notes(d: ReportData):
     out = list(d.result.warnings) + list(getattr(d.result, "advice", []))
+    rows = d.check_rows
+    if rows:
+        from . import unfoldcheck
+        out.append(f"전개 검증 {unfoldcheck.verdict(rows)}: " + " · ".join(
+            f"{r[0].split(' (')[0]} {r[3] or r[2]}" for r in rows))
     if d.result.mode == "forming":
         out.append("두께 변화는 블랭크→제품 면적 비로 어림한 값입니다 (체적 일정). "
                    "실제 성형성은 성형 해석으로 확인하세요.")
@@ -592,6 +609,21 @@ def save_xlsx(d: ReportData, path: str):
             if b.kind in ("원뿔", "곡선 단면"):
                 wsb.cell(i, 5, b.radius_text)
         wsb.freeze_panes = "A2"
+
+    rows = d.check_rows
+    if rows:
+        from openpyxl.styles import Font
+
+        from . import unfoldcheck
+        wsc = wb.create_sheet("전개 검증")
+        for j, h in enumerate(unfoldcheck.HEAD, 1):
+            c = wsc.cell(1, j, h)
+            c.font = Font(bold=True)
+        for i, r in enumerate(rows, 2):
+            for j, v in enumerate(r, 1):
+                wsc.cell(i, j, v)
+        for col, wd in zip("ABCDEF", (40, 24, 24, 14, 22, 8)):
+            wsc.column_dimensions[col].width = wd
 
     # 치수
     wsd = wb.create_sheet("치수")

@@ -572,6 +572,81 @@ class ComparePanel(QWidget):
                           f"(판정 → 한계 비 순)" if b else "비교 결과 없음")
 
 
+class RobustPanel(QWidget):
+    """강건성 (AutoForm Sigma 비슷하게): 두께·n·r̄·인장강도·드로잉 효율 (마찰) 을 흩어 원스텝 보정·FLC 를 여러 번 —
+    삼각형마다 파단 확률, 공정 능력 Cpk, 가장 크게 흔드는 값."""
+
+    def __init__(self, result, settings, fa, parent=None):
+        super().__init__(parent)
+        from . import formrobust as fr
+        self.result, self.settings, self.fa = result, settings, fa
+        lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        self.n_box = QComboBox()
+        self.n_box.addItems(["12", "24", "48", "96"])
+        self.n_box.setCurrentIndex(1)
+        top.addWidget(QLabel("표본"))
+        top.addWidget(self.n_box)
+        self.run_btn = QPushButton("▶ 강건성 해석")
+        self.run_btn.clicked.connect(self.run)
+        top.addWidget(self.run_btn)
+        self.view_box = QComboBox()
+        self.view_box.addItems(fr.ROBUST_VIEWS)
+        self.view_box.setEnabled(False)
+        top.addWidget(QLabel("보기"))
+        top.addWidget(self.view_box)
+        top.addStretch(1)
+        lay.addLayout(top)
+        h = QLabel("흩어짐 (균등, 라틴 하이퍼큐브): " + " · ".join(f"{nm} ±{sc:.0%}" for _, nm, sc in fr.PARAMS)
+                   + " — 원스텝 막 변형률은 그대로, 드로잉 보정 (장력·굽힘·아이어닝) 과 FLC 를 표본마다 다시 계산. "
+                   "Cpk ≥ 1.33 안정 · 1 ~ 1.33 주의 · 1 미만 불안정.")
+        h.setWordWrap(True)
+        h.setStyleSheet("color:#444; background:#f4f6fa; padding:4px")
+        lay.addWidget(h)
+        self.body = QVBoxLayout()
+        lay.addLayout(self.body, 1)
+        self.rob = None
+
+    def run(self):
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+
+        from . import formrobust as fr
+        n = int(self.n_box.currentText())
+        prog = QProgressDialog("강건성 해석 중…", None, 0, n, self)
+        prog.setWindowModality(Qt.WindowModal)
+        prog.setMinimumDuration(0)
+
+        def step(k, n_):
+            prog.setValue(k)
+            QApplication.processEvents()
+        try:
+            self.rob = fr.run(self.result, self.settings, n=n, progress=step)
+        except Exception as e:
+            prog.close()
+            QMessageBox.warning(self, "강건성 해석 실패", str(e))
+            return
+        prog.close()
+        self.fa.robust = self.rob
+        while self.body.count():
+            w = self.body.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        col = {"안정": VERDICT_COLOR[fs.OK].name(), "주의": VERDICT_COLOR[fs.WARN].name(), "불안정": VERDICT_COLOR[fs.NG].name()}
+        lab = QLabel("<br>".join(("<b>" + x + "</b>") if i == 0 else x for i, x in enumerate(self.rob.summary())))
+        lab.setWordWrap(True)
+        lab.setStyleSheet(f"padding:4px; border-left:6px solid {col.get(self.rob.verdict, '#888')}")
+        self.body.addWidget(lab)
+        sp = QSplitter(Qt.Horizontal)
+        v = ProductView(self.fa)
+        v.set_view(fr.ROBUST_VIEWS[0])
+        self.view_box.setEnabled(True)
+        self.view_box.currentTextChanged.connect(v.set_view)
+        sp.addWidget(v)
+        sp.addWidget(_table(self.rob.head(), self.rob.rows()))
+        self.body.addWidget(sp, 1)
+        self.run_btn.setText("↻ 다시 해석")
+
+
 class OpsPanel(QWidget):
     """공정별 해석: 다이 페이스 (바인더·어덴덤) 위 원스텝 OP10 → OP20 트림·피어싱 → OP30 플랜지 → OP40 리스트라이크.
     다이 페이스를 푸는 데 몇 초~수십 초 걸려 단추를 눌러 시작한다."""
@@ -589,6 +664,10 @@ class OpsPanel(QWidget):
         self.view_box.setEnabled(False)
         top.addWidget(QLabel("다이 페이스 보기"))
         top.addWidget(self.view_box)
+        self.trim_btn = QPushButton("트림선 DXF 저장…")
+        self.trim_btn.setEnabled(False)
+        self.trim_btn.clicked.connect(self.save_trim)
+        top.addWidget(self.trim_btn)
         top.addStretch(1)
         lay.addLayout(top)
         self.help = QLabel("트림선 바깥에 어덴덤 벽 (빼기 10°) · 다이 R · 바인더 (폭 25 mm, 트림선에 맞춘 평면) 를 붙여 그 판 전체로 "
@@ -625,11 +704,29 @@ class OpsPanel(QWidget):
             self.view_box.setEnabled(True)
             self.view_box.currentTextChanged.connect(v.set_view)
             self.body.addWidget(v, 1)
+        tl = getattr(self.ops, "trim", None)
+        if tl is not None:
+            from . import formtrim
+            img = QLabel()
+            img.setPixmap(QPixmap.fromImage(formtrim.render(tl, 520, 300)))
+            self.body.addWidget(img)
+            self.trim_btn.setEnabled(True)
         if self.ops.notes:
             n = QLabel("<br>".join("• " + x for x in self.ops.notes))
             n.setWordWrap(True)
             self.body.addWidget(n)
         self.run_btn.setText("↻ 다시 해석")
+
+    def save_trim(self):
+        from . import formtrim
+        tl = getattr(self.ops, "trim", None) if self.ops is not None else None
+        if tl is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "트림선 DXF 저장", "트림선.dxf", "DXF (*.dxf)")
+        if not path:
+            return
+        formtrim.save_dxf(tl, path)
+        QMessageBox.information(self, "트림선", f"저장: {path}\nTRIM_2D (평면 트림 날 윤곽) · TRIM_3D · CAM (30° 넘음) · WARN")
 
 
 class FormSimDialog(QDialog):
@@ -703,6 +800,8 @@ class FormSimDialog(QDialog):
             info.addTab(ComparePanel(solid, settings, fa), "재질·두께 비교")
             self.ops_panel = OpsPanel(result, settings, fa)
             info.insertTab(2, self.ops_panel, "공정별 (다이 페이스)")
+            self.robust_panel = RobustPanel(result, settings, fa)
+            info.insertTab(3, self.robust_panel, "강건성 (Sigma)")
 
         if fa.mode == "forming":
             self.view = ProductView(fa)

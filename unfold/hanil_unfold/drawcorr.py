@@ -57,7 +57,7 @@ def wall_capacity(mat, t):
     from . import diecalc as dc
     hp = dc._hill_ps(mat.r)
     e1 = np.linspace(0.0, 1.0, 4001)
-    T = hp * np.array([dc.flow_stress(mat, e / hp) for e in e1]) * t * np.exp(-e1)
+    T = hp * dc.flow_stress_v(mat, e1 / hp) * t * np.exp(-e1)
     i = int(np.argmax(T))
     return float(T[i]), float(e1[i])
 
@@ -70,7 +70,7 @@ def draw_tension(mat, t, a_rem, a_open, a_blank, stroke, r_die):
     ln_b = 0.5 * np.log1p(a_rem / a_open)                      # ln(R(s) / r)
     ln_0 = 0.5 * math.log(max(a_blank / a_open, 1.0))           # ln(R0 / r)
     flange = np.maximum(ln_0 - ln_b, 0.0)                       # 플랜지 끝의 둘레 줄어듦 (경화)
-    kf = np.array([dc.flow_stress(mat, 0.5 * f) for f in np.atleast_1d(flange)])
+    kf = dc.flow_stress_v(mat, 0.5 * np.atleast_1d(flange))
     rise = np.minimum(np.asarray(stroke, float) / max(r_die + 3 * t, 1e-6), 1.0)
     return t * 1.1 * kf * ln_b / ETA_F * rise
 
@@ -165,7 +165,7 @@ def correct(V, F, U, major, minor, t, mat, die_r=None, N=None):
     hp = dc._hill_ps(r)
     eq = eq_strain(e1, e2, r)
     te = t * np.exp(-(e1 + e2))
-    sig = np.array([dc.flow_stress(mat, float(x)) for x in eq])
+    sig = dc.flow_stress_v(mat, eq)
     Ty = hp * sig * te                                # 그 자리의 평면 변형 항복 장력 [N/mm]
 
     # 주 변형률 방향의 곡률 → 감긴 반지름 (가운데 면)
@@ -222,7 +222,7 @@ def correct(V, F, U, major, minor, t, mat, die_r=None, N=None):
         for i in np.nonzero(load & (T_carry > Ty))[0]:
             Tc = T_carry[i]
             de = np.linspace(0.0, 0.6, 601)
-            g = hp * np.array([dc.flow_stress(mat, eq[i] + x / hp) for x in de]) * te[i] * np.exp(-de)
+            g = hp * dc.flow_stress_v(mat, eq[i] + de / hp) * te[i] * np.exp(-de)
             j = int(np.argmax(g))
             if Tc >= g[j]:
                 necked[i] = True

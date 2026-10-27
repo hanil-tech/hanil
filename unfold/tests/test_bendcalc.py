@@ -162,9 +162,10 @@ def test_funnel_unrolls_to_sector():
     r = unfold(solid(funnel(rb, rt, hgt, t)), k_factor=0.5)
     assert r.thickness == pytest.approx(t, abs=1e-6)
     sin_a = (rt - rb) / math.hypot(rt - rb, hgt)
-    cot_a = hgt / (rt - rb)
-    # 바깥 원뿔 꼭짓점 거리에서 중립면(두께 가운데)까지 cot(반각) × t/2 만큼 줄어든다.
-    expect = sorted([rb / sin_a - cot_a * t / 2, rt / sin_a - cot_a * t / 2])
+    cos_a = hgt / math.hypot(rt - rb, hgt)
+    # 끝면이 축에 수직인 평면 (z = 0, h) — 중립면 (두께 가운데) 끝도 그 평면 위: 같은 높이에서 반지름이
+    # (t/2) / cos α 작고, 꼭짓점 거리 (부채꼴 반지름) 로는 (t/2) / (sin α · cos α) 만큼 줄어든다.
+    expect = sorted([(rb - t / 2 / cos_a) / sin_a, (rt - t / 2 / cos_a) / sin_a])
     arcs = sorted(e.radius for e in r.entities if isinstance(e, Arc))
     assert arcs == pytest.approx(expect, abs=1e-6)
     assert r.rolled and "원뿔" in r.rolled[0]

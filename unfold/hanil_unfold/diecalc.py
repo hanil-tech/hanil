@@ -165,6 +165,12 @@ def flow_stress(mat: bc.Material, strain: float) -> float:
     return k * (e0 + max(strain, 0.0)) ** max(mat.n, 0.02)
 
 
+def flow_stress_v(mat: bc.Material, strain):
+    """flow_stress 의 배열판 (Swift 계수를 한 번만 구함)."""
+    k, e0 = swift(mat)
+    return k * (e0 + np.maximum(np.asarray(strain, float), 0.0)) ** max(mat.n, 0.02)
+
+
 # 하중을 뺄 때 탄성 계수가 줄어드는 것 (Yoshida·Uemori 2002): E = E0 − (E0 − Ea)(1 − exp(−ξ ε̄))
 # DP600 t1.62: E0 206, Ea 152 GPa, ξ 61 (JSTAMP Yoshida-Uemori 스프링백 논문). 고장력강 (590 이상) 에만 쓰고,
 # 980 급 공개값을 못 찾아 같은 값을 쓴다 (보수적 아님 — 실측 권장). 연강·스테인리스·알루미늄은 E0 그대로.

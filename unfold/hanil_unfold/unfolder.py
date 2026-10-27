@@ -330,7 +330,9 @@ class _Face:
     # 원뿔
     ref_radius: float = 0.0
     sin_a: float = 0.0
-    s_shift: float = 0.0          # 중립면으로 옮길 때 꼭짓점 거리 보정
+    s_shift: float = 0.0          # 중립면으로 옮길 때 꼭짓점 거리 보정 (v0 끝)
+    s_shift1: float | None = None  # v1 끝의 보정 (끝면이 서로 다르게 잘렸을 때 — 없으면 s_shift)
+    v_range: tuple = (0.0, 1.0)
     k: float = 0.0
     parent: int | None = None
     # 곡선 단면 (일반 원통): 민 방향, 단면 매개변수 ('u'/'v'), 단면 매개변수 → 중립선 길이 표
@@ -356,7 +358,12 @@ class _Face:
             return np.array([sv, float(_pnt(self.surf.Value(u, v)) @ self.ruled_dir)])
         if self.kind == "cone":
             sa = abs(self.sin_a)
-            s = (self.ref_radius + v * self.sin_a) / sa + self.s_shift
+            sh = self.s_shift
+            if self.s_shift1 is not None:
+                v0, v1 = self.v_range
+                w = (v - v0) / (v1 - v0) if v1 != v0 else 0.0
+                sh = self.s_shift + (self.s_shift1 - self.s_shift) * w
+            s = (self.ref_radius + v * self.sin_a) / sa + sh
             phi = u * sa
             return np.array([s * math.cos(phi), s * math.sin(phi)])
         return np.array([u, v])
@@ -676,7 +683,44 @@ class SheetMetalUnfolder:
         f.inner_radius = max(inner, 0.0)
         # 중립면까지 법선 방향 거리 (축에서 멀어지는 쪽이 +)
         delta = -(1 - k) * t if f.convex else k * t
-        f.s_shift = delta / math.tan(abs(cone.SemiAngle()))
+        # 끝면이 벽에 수직 (판을 말아 만든 그대로) 이면 법선으로 옮긴 점의 꼭짓점 거리: δ / tan α.
+        # CAD 에서 끝을 축에 수직인 평면으로 자른 원뿔대 (깔때기 모델링 관례) 는 그 평면 위에서 중립면 끝을 잡아야 하므로
+        # 같은 높이에서 옮김: δ / (sin α · cos α) (차이 δ · tan α — 안 하면 부채꼴 두 호가 0.5 ~ 1 mm 커짐)
+        a = abs(cone.SemiAngle())
+        normal_shift = delta / math.tan(a)
+        axial_shift = delta / (math.sin(a) * math.cos(a))
+        ends = self._cone_end_kinds(f, cone)
+        f.v_range = (v0, v1)
+        f.s_shift = axial_shift if ends[0] else normal_shift
+        s1 = axial_shift if ends[1] else normal_shift
+        f.s_shift1 = s1 if s1 != f.s_shift else None
+
+    def _cone_end_kinds(self, f: _Face, cone):
+        """원뿔 면의 v0 · v1 끝 원이 축에 수직인 평면 면 위에 있나 (True = CAD 에서 끝을 수평으로 자른 원뿔대)."""
+        out = [False, False]
+        try:
+            ax = cone.Axis().Direction()
+            axis = np.array([ax.X(), ax.Y(), ax.Z()])
+            u0, u1, v0, v1 = _uv_bounds(f.face)
+            surf = BRepAdaptor_Surface(f.face)
+            ends = [_pnt(surf.Value(0.5 * (u0 + u1), v)) for v in (v0, v1)]
+            ex = TopExp_Explorer(self.solid, TopAbs_FACE)
+            while ex.More():
+                nf = TopoDS.Face_s(ex.Current()) if hasattr(TopoDS, "Face_s") else TopoDS.Face(ex.Current())
+                ad = BRepAdaptor_Surface(nf)
+                if ad.GetType() == GeomAbs_Plane:
+                    pl = ad.Plane()
+                    d = pl.Axis().Direction()
+                    nrm = np.array([d.X(), d.Y(), d.Z()])
+                    if abs(abs(nrm @ axis) - 1) < 1e-6:
+                        o = _pnt(pl.Location())
+                        for k, q in enumerate(ends):
+                            if abs((q - o) @ nrm) < 1e-4:
+                                out[k] = True
+                ex.Next()
+        except Exception:  # noqa: BLE001 — 못 보면 벽에 수직으로 (예전과 같음)
+            return [False, False]
+        return out
 
     def _setup_ruled(self, f: _Face, t: float):
         """곡선 단면 (일반 원통) 의 중립선 길이 표. 단면 곡선을 RULED_SAMPLES 점으로 나눠 점마다 곡률 반지름 ρ 와

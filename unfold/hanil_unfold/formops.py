@@ -163,7 +163,7 @@ def build(fa, result, settings, dieface_on=True):
     fi = fa.fi
     t = fa.thickness
     ops, notes = [], []
-    z = None
+    z = z0 = None
     df = fa_die = None
     fmask, frac_f, tilt = np.zeros(0, bool), 0.0, None
     if fi is not None and fi.V is not None:
@@ -201,6 +201,17 @@ def build(fa, result, settings, dieface_on=True):
         except Exception as e:                       # 다이 페이스는 덤 — 제품 결과로 계속
             notes.append(f"다이 페이스 해석 실패: {e}")
             df = fa_die = None
+
+    # 트림선 전개 (플랜지를 드로잉 형면 위로 펼침) — 플랜지가 없으면 제품 가장자리가 트림선
+    trim = None
+    if fi is not None and fi.V is not None and z is not None:
+        from . import formtrim
+        try:
+            z_t = z0 if z0 is not None else z
+            trim = formtrim.develop(fi.V, fi.F, fi.U, fmask if frac_f > 0.1 else None, z_t,
+                                    df=df if (df is not None and frac_f > 0.1) else None, t=t, mat=mat)
+        except Exception as e:                       # 트림선은 덤
+            notes.append(f"트림선 전개 실패: {e}")
 
     # OP10 드로잉
     src = fa_die or fa
@@ -243,7 +254,13 @@ def build(fa, result, settings, dieface_on=True):
         from .unfolder import _tri_areas2
         scrap = float(_tri_areas2(df.U, df.F).sum() - _tri_areas2(df.U, df.F[:df.n_product]).sum())
         lines.append(f"버리는 판 (어덴덤·바인더) {scrap:,.0f} mm² · {scrap * t * mat.density / 1e6:.2f} kg")
-    ops.append(Op("OP20", "트림 · 피어싱", fs.OK, f_trim, lines))
+    v20 = fs.OK
+    if trim is not None:
+        lines += trim.summary()
+        if trim.cam_frac > 0.02:
+            v20 = fs.WARN
+            lines.append("트림 각 30° 넘는 구간 — 캠 트림 (또는 트림 공정을 나눔)")
+    ops.append(Op("OP20", "트림 · 피어싱", v20, f_trim, lines))
     # OP30 플랜지
     if fi is not None and fi.V is not None and z is not None:
         L_out = L_trim
@@ -258,15 +275,22 @@ def build(fa, result, settings, dieface_on=True):
                 fl_lines.append(f"줄임 플랜지 두꺼워짐 {shrink:.1%} — 주름 (패드 힘·플랜지 높이)")
                 v = fs.WARN if v == fs.OK else v
             r_in = max(2 * t, 3.0)
-            after, die, _ = dc.springback(mat, r_in, t, 90.0)
-            fl_lines.append(f"스프링백 어림 (안쪽 R {r_in:g}, 90°): {after:.1f}° 로 벌어짐 → 금형 {die:.1f}°")
+            ang = 90.0
+            if trim is not None and trim.bend:
+                bb = np.concatenate(trim.bend)
+                bb = bb[np.isfinite(bb) & (bb > 5)]
+                if len(bb):
+                    ang = float(np.median(bb))
+            after, die, _ = dc.springback(mat, r_in, t, ang)
+            fl_lines.append(f"스프링백 (안쪽 R {r_in:g}, 꺾는 각 {ang:.0f}° — 트림선 전개에서): {after:.1f}° 로 벌어짐 → "
+                            f"금형 {die:.1f}°")
             f_fl = L_out * frac_f * t * dc.flow_stress(mat, 0.05) * 0.6
             ops.append(Op("OP30", "플랜지", v, f_fl, fl_lines))
-            need = mat.tensile_mpa >= 590 or abs(90.0 - after) > 1.0
+            need = mat.tensile_mpa >= 590 or abs(ang - after) > 1.0
             cam = tilt is not None and tilt > 15
             l4 = []
             if need:
-                l4.append(f"스프링백 {abs(90.0 - after):.1f}° · TS {mat.tensile_mpa:g} MPa — 다시 눌러 각도·R 맞춤")
+                l4.append(f"스프링백 {abs(ang - after):.1f}° · TS {mat.tensile_mpa:g} MPa — 다시 눌러 각도·R 맞춤")
             if cam:
                 l4.append(f"플랜지가 프레스 방향과 {tilt:.0f}° 비스듬 — 캠 플랜지")
             if need or cam:
@@ -276,6 +300,7 @@ def build(fa, result, settings, dieface_on=True):
             notes.append("트림 뒤 꺾는 플랜지가 거의 없음 — 플랜지·리스트라이크 공정 없이 드로잉에서 다 만듦")
     o = Ops(ops, df, fa_die, notes)
     o.flange = fmask
+    o.trim = trim
     return o
 
 

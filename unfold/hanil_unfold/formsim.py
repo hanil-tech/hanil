@@ -551,6 +551,10 @@ def tri_colors(fa: FormAnalysis, view: str):
 
 def _tri_colors(fa: FormAnalysis, view: str):
     from .drawing import THIN_LIMIT, thinning_color
+    from .formrobust import ROBUST_VIEWS
+    if view in ROBUST_VIEWS and getattr(fa, "robust", None) is not None:
+        from .formrobust import colors
+        return colors(fa.robust, view)
     fi = fa.fi
     if view == VIEWS[0]:
         pal = np.array([z_[1] for z_ in ZONES], float)
@@ -898,6 +902,33 @@ def save_xlsx(fa: FormAnalysis, path, name=""):
     if getattr(fa, "ops", None) is not None:          # [공정별 해석] 을 돌렸으면 그 시트도
         from . import formops
         formops.add_sheet(wb, fa.ops, name)
+        tl = getattr(fa.ops, "trim", None)
+        if tl is not None:
+            ws = wb.create_sheet("트림선 전개")
+            ws.append([f"트림선 전개 · 스프링백 보정 — {name}"])
+            for line in tl.summary():
+                ws.append(["• " + line])
+            ws.append([])
+            ws.append(["고리", "번호", "X (평면)", "Y (평면)", "Z", "펼친 플랜지 mm", "트림 각 °", "꺾는 각 °", "보정 각 °"])
+            for li, (P2, P3, L, S, B, C) in enumerate(zip(tl.loops2d, tl.loops3d, tl.flange_len, tl.slope,
+                                                          tl.bend or [None] * len(tl.loops2d),
+                                                          tl.comp or [None] * len(tl.loops2d)), 1):
+                step = max(1, len(P2) // 400)
+                for i in range(0, len(P2), step):
+                    b_ = None if B is None or not np.isfinite(B[i]) else round(float(B[i]), 1)
+                    c_ = None if C is None or not np.isfinite(C[i]) else round(float(C[i]), 2)
+                    ws.append([li, i + 1, round(float(P2[i, 0]), 2), round(float(P2[i, 1]), 2),
+                               round(float(P3[i] @ tl.z), 2), round(float(L[i]), 2), round(float(S[i]), 1), b_, c_])
+    rob = getattr(fa, "robust", None)
+    if rob is not None:
+        ws = wb.create_sheet("강건성")
+        ws.append([f"강건성 해석 (Sigma) — {name} · 판정 {rob.verdict}"])
+        for line in rob.summary():
+            ws.append(["• " + line])
+        ws.append([])
+        ws.append(rob.head())
+        for r in rob.rows():
+            ws.append(r)
     from .company import stamp_workbook
     stamp_workbook(wb)
     wb.save(path)
@@ -1062,6 +1093,44 @@ def save_pdf(fa: FormAnalysis, path, name=""):
                 p.setFont(_font(9))
                 p.setPen(QColor(30, 30, 30))
                 p.drawText(R(m, y + 252, W - 2 * m, 10), Qt.AlignLeft | Qt.TextWordWrap, ls.note)
+    ops = getattr(fa, "ops", None)
+    if ops is not None and ops.ops:                       # 공정별 해석 · 트림선 전개 · 스프링백 보정
+        from . import formops as fo
+        from . import process as proc
+        pdf.newPage()
+        y = header(f"공정별 해석 (OP10 ~ OP40) — {name}")
+        rows = [[r[0], r[1], r[2], f"{r[3]:,.0f}", f"{r[4]:,.1f}", r[5][:150]] for r in ops.rows()]
+        y = proc._table(p, R, k, m, y, [(fo.HEAD[0], 16), (fo.HEAD[1], 40), (fo.HEAD[2], 16), (fo.HEAD[3], 22),
+                                      (fo.HEAD[4], 26), (fo.HEAD[5], 276)], rows, 7.5)
+        if ops.fa_die is not None:
+            p.drawImage(R(m, y + 4, 196, 148), render_product(ops.fa_die, VIEWS[0], 1200, 900))
+        tl = getattr(ops, "trim", None)
+        if tl is not None:
+            from . import formtrim
+            p.drawImage(R(m + 200, y + 4, 196, 130), formtrim.render(tl, 1200, 800))
+            p.setFont(_font(9))
+            p.setPen(QColor(30, 30, 30))
+            yy = y + 138
+            for line in tl.summary():
+                p.drawText(R(m + 200, yy, 196, 5), Qt.AlignLeft | Qt.AlignVCenter, "• " + line)
+                yy += 5
+    rob = getattr(fa, "robust", None)
+    if rob is not None:
+        from . import formrobust as fr
+        pdf.newPage()
+        y = header(f"강건성 해석 (Sigma) — {name} · 판정 {rob.verdict}")
+        p.drawImage(R(m, y, 196, 148), render_product(fa, fr.ROBUST_VIEWS[0], 1200, 900))
+        p.drawImage(R(m + 200, y, 196, 148), render_product(fa, fr.ROBUST_VIEWS[2], 1200, 900))
+        p.setFont(_font(10))
+        p.setPen(QColor(30, 30, 30))
+        yy = y + 152
+        for line in rob.summary():
+            p.drawText(R(m, yy, W - 2 * m, 6), Qt.AlignLeft | Qt.AlignVCenter, "• " + line)
+            yy += 6
+        heads = rob.head()
+        cols = [(h_, 14 if i == 0 else 30) for i, h_ in enumerate(heads)]
+        from . import process as proc
+        proc._table(p, R, k, m, yy + 2, cols, [[str(v) for v in r] for r in rob.rows()[:14]], 7.5)
     _explain_pages(p, pdf, R, k, W, H, m, header, fa, name)
     p.end()
 
