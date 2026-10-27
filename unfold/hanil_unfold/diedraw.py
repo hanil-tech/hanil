@@ -19,8 +19,18 @@ A3 = (420.0, 297.0)
 MARGIN = 10.0
 SCALES = [(1, 1), (1, 2), (1, 2.5), (1, 5), (1, 10), (1, 20)]
 TB_W, TB_H = 180.0, 52.0          # 표제란
-LAYERS = {"OUTLINE": 7, "HIDDEN": 8, "CENTER": 1, "DIM": 3, "TEXT": 7, "FRAME": 7, "THIN": 9, "WIRE": 1, "HATCH": 8}
-LTYPE = {"HIDDEN": "DASHED", "CENTER": "CENTER"}
+LAYERS = {"OUTLINE": 7, "HIDDEN": 8, "CENTER": 1, "DIM": 3, "TEXT": 7, "FRAME": 7, "THIN": 9, "WIRE": 1, "HATCH": 8,
+          "PART": 6, "PART2": 6}
+LTYPE = {"HIDDEN": "DASHED", "CENTER": "CENTER", "PART2": "PHANTOM"}   # PART 금형 안 제품 (공정 전), PART2 공정 뒤 (하사점)
+
+
+def _work(sh, assy, T, which=("before", "after"), proj=None):
+    """금형 안 제품 선 (절곡 금형): 공정 전 = PART 굵은 선, 공정 뒤 (하사점) = PART2 가상선. proj: 3D → 2D."""
+    for P, tag in getattr(assy, "work", None) or []:
+        if tag not in which:
+            continue
+        Q = [proj(q) for q in P] if proj else [(q[0], q[1]) for q in P]
+        sh.poly([T(*q) for q in Q], False, "PART" if tag == "before" else "PART2", 0.5 if tag == "before" else 0.3)
 
 
 @dataclass
@@ -156,16 +166,8 @@ def _pick_scale(wd_mm, ht_mm, box_w, box_h):
 # ---------------------------------------------------------------- 부품도
 
 def _part_extent(pr: d3.Prim):
-    if pr.kind == d3.BOX:
-        x0, y0, z0, dx, dy, dz = pr.p
-        return x0, y0, dx, dy, z0, dz
-    if pr.kind == d3.PRISM:
-        P = np.asarray(pr.poly, float)
-        x0, y0 = P.min(0)
-        dx, dy = np.ptp(P, 0)
-        return x0, y0, dx, dy, pr.p[0], pr.p[1]
-    x, y, z0, r, h = pr.p
-    return x - r, y - r, 2 * r, 2 * r, z0, h
+    x0, y0, z0, dx, dy, dz = d3.extent(pr)
+    return x0, y0, dx, dy, z0, dz
 
 
 NOTES_BASE = ["일반 공차 ISO 2768-m (지시 없는 치수)", "모서리 C0.5 (날 끝은 날카롭게)",
@@ -248,7 +250,10 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
     # 정면도 (앞에서, x–z): 외곽 + 구멍 숨은선 (깊이)
     def F(x, z):
         return fx + (x - x0) * s, fy_front + (z - z0) * s
-    sh.rect(*F(x0, z0), dx * s, dz * s, "OUTLINE", 0.5)
+    if pr.kind == d3.PROF and pr.ax == "y":             # 옆 단면 (절곡 다이·펀치: R · 경사 그대로)
+        sh.poly([F(*q) for q in pr.poly], True, "OUTLINE", 0.5)
+    else:
+        sh.rect(*F(x0, z0), dx * s, dz * s, "OUTLINE", 0.5)
     seen = set()
     for h in pr.holes:
         if h.kind == "와이어 시작":
@@ -422,6 +427,14 @@ def assembly_sheet(assy: d3.DieAssy, info, number):
                 if not part.upper or "펀치" in part.name:
                     sh.circle(*T(x, y), r * s, "HIDDEN" if part.upper else "OUTLINE", 0.25)
                 sh.rect(*F(x - r, z0), 2 * r * s, h * s, "OUTLINE", 0.25)
+            elif pr.kind == d3.PROF:
+                bx, by, bz, dx, dy, dz = d3.extent(pr)
+                if not part.upper:
+                    sh.rect(*T(bx, by), dx * s, dy * s, "OUTLINE", 0.35)
+                if pr.ax == "y":
+                    sh.poly([F(*q) for q in pr.poly], True, "OUTLINE", 0.35)
+                else:
+                    sh.rect(*F(bx, bz), dx * s, dz * s, "OUTLINE", 0.35)
             else:
                 z0, h = pr.p
                 P = d3._simplify(pr.poly, 0.05)
@@ -434,11 +447,8 @@ def assembly_sheet(assy: d3.DieAssy, info, number):
         if part.prims:
             # 부품마다 (x 범위, z 가운데) — 풍선 자리를 먼저 정하고 그 x 로 내려가게
             def xr(q):
-                if q.kind == d3.BOX:
-                    return q.p[0], q.p[0] + q.p[3], q.p[2] + q.p[5] / 2
-                if q.kind == d3.CYL:
-                    return q.p[0] - q.p[3], q.p[0] + q.p[3], q.p[2] + q.p[4] / 2
-                return float(q.poly[:, 0].min()), float(q.poly[:, 0].max()), q.p[0] + q.p[1] / 2
+                e = d3.extent(q)
+                return e[0], e[0] + e[3], e[2] + e[5] / 2
             spans = [xr(q) for q in part.prims]
             narrow = min(spans, key=lambda r_: (r_[1] - r_[0], -r_[1]))
             balloons.append((part.no, spans, 0.5 * (narrow[0] + narrow[1])))
@@ -459,6 +469,8 @@ def assembly_sheet(assy: d3.DieAssy, info, number):
         sh.circle(at[0], at[1], 0.5, "THIN", 0.18)
         sh.circle(bx_, by_, 2.6, "OUTLINE", 0.25)
         sh.text(bx_, by_ - 0.9, str(no), 2.0, "C")
+    _work(sh, assy, F, proj=lambda q: (q[0], q[2]))
+    _work(sh, assy, T, ("before",))
     # 높이 치수
     xl = F(-assy.L / 2, 0)[0]
     sh.dim_v(F(0, 0)[1], F(0, zmax)[1], xl, xl - 8, f"열림 {zmax:.1f}")
@@ -668,6 +680,11 @@ def cover_sheet(assy: d3.DieAssy, info, number, index):
             ("다이 스프링", assy.spring.label() + f" × {assy.spring.n}" if assy.spring else "-"),
             ("금형 무게 (어림)", f"{sum(p.weight * p.qty for p in assy.parts):,.0f} kg"),
             ("압력 중심", f"({assy.cop[0]:+.1f}, {assy.cop[1]:+.1f}) mm")]
+    if getattr(assy, "spec", None):
+        spec = [("금형 크기 (L × W)", f"{assy.L:g} × {assy.W:g} mm"),
+                ("닫힌 높이 / 열린 높이", f"{assy.shut:.1f} / {assy.open_h:.1f} mm"),
+                ("필요 행정", f"≥ {assy.stroke:.0f} mm")] + spec + [
+                ("금형 무게 (어림)", f"{sum(p.weight * p.qty for p in assy.parts):,.0f} kg")]
     for k, v in spec:
         sh.text(MARGIN + 14, y, k, 3.0)
         sh.text(MARGIN + 74, y, v, 3.0)
@@ -706,38 +723,49 @@ def _solids(assy, cache):
 
 
 def _zmid(pr):
-    if pr.kind == d3.BOX:
-        return pr.p[2] + pr.p[5] / 2
-    if pr.kind == d3.CYL:
-        return pr.p[2] + pr.p[4] / 2
-    return pr.p[0] + pr.p[1] / 2
+    e = d3.extent(pr)
+    return e[2] + e[5] / 2
 
 
 def _center3(pr):
-    if pr.kind == d3.BOX:
-        x0, y0, z0, dx, dy, dz = pr.p
-        return np.array([x0 + dx / 2, y0 + dy / 2, z0 + dz / 2])
-    if pr.kind == d3.CYL:
-        return np.array([pr.p[0], pr.p[1], pr.p[2] + pr.p[4] / 2])
-    c = np.asarray(pr.poly, float).mean(0)
-    return np.array([c[0], c[1], pr.p[0] + pr.p[1] / 2])
+    x0, y0, z0, dx, dy, dz = d3.extent(pr)
+    if pr.kind == d3.PRISM:
+        c = np.asarray(pr.poly, float).mean(0)
+        return np.array([c[0], c[1], z0 + dz / 2])
+    return np.array([x0 + dx / 2, y0 + dy / 2, z0 + dz / 2])
+
+
+def _plates(assy):
+    """판 (쌓기 층): 전단 금형은 이름 차례, 그 밖 (절곡 금형) 은 가공품 상자·단면 중 넓은 것을 밑면 높이 순."""
+    out = []
+    for nm in PLATE_ORDER:
+        try:
+            pr = assy.plate(nm).prims[0]
+            out.append((nm, pr.p[2], pr.p[2] + pr.p[5]))
+        except StopIteration:
+            pass
+    if len(out) >= 3:
+        return out
+    out = []
+    for p in assy.parts:
+        if p.std or not p.prims or p.prims[0].kind not in (d3.BOX, d3.PROF):
+            continue
+        e = d3.extent(p.prims[0])
+        if e[3] >= 0.25 * assy.L or len(p.prims) == 1 and e[3] * e[4] >= 0.05 * assy.L * assy.W:
+            out.append((p.name, e[2], e[2] + e[5]))
+    out.sort(key=lambda q: (q[1], q[2]))
+    return out
 
 
 def _explode_offsets(assy):
     """부품마다 분해 높이: 판 쌓기 차례 (가장 가까운 아래 판) × 간격."""
-    plates = []
-    for nm in PLATE_ORDER:
-        try:
-            pr = assy.plate(nm).prims[0]
-            plates.append((nm, pr.p[2]))
-        except StopIteration:
-            pass
+    plates = [(nm, z0) for nm, z0, _ in _plates(assy)]
     gap = max(assy.open_h / max(len(plates), 1), 30.0)
     off = {}
     for part in assy.parts:
         if not part.prims:
             continue
-        if part.name in PLATE_ORDER:
+        if part.name in [n for n, _ in plates]:
             rank = [n for n, _ in plates].index(part.name)
         else:
             zc = _zmid(part.prims[0])
@@ -788,7 +816,9 @@ def iso3d_sheet(assy: d3.DieAssy, info, number, cache):
     sol = _solids(assy, cache)
     vis, _ = dieview.hlr([s_ for _, _, s_ in sol])
     w1 = W * 0.44
-    _iso(sh, vis, MARGIN + 4, y0, w1, hh, "입체 조립도 (숨은선 지움 · 열린 상태)", "OUTLINE")
+    T1 = _iso(sh, vis, MARGIN + 4, y0, w1, hh, "입체 조립도 (숨은선 지움 · 열린 상태)", "OUTLINE")
+    if T1 is not None:
+        _work(sh, assy, lambda *q: T1(q), ("before",), proj=dieview.project_point)
     off = _explode_offsets(assy)
     moved = [(_translated(s_, off.get(part.no, 0.0)), part, pr) for part, pr, s_ in sol]
     vis2, _ = dieview.hlr([m for m, _, _ in moved])
@@ -852,26 +882,22 @@ def section_sheet(assy: d3.DieAssy, info, number, cache, y_cut=0.0):
     # 판 두께 치수 사슬 (왼쪽) · 전체 높이
     xl = F(-assy.L / 2, 0)[0]
     zs = []
-    for nm in PLATE_ORDER:
-        try:
-            pr = assy.plate(nm).prims[0]
-        except StopIteration:
-            continue
-        zs += [pr.p[2], pr.p[2] + pr.p[5]]
+    for _, za, zb in _plates(assy):
+        zs += [za, zb]
     zs = sorted(set(round(z, 3) for z in zs))
     for z_a, z_b in zip(zs[:-1], zs[1:]):
         sh.dim_v(F(0, z_a)[1], F(0, z_b)[1], xl, xl - 6, _num(z_b - z_a, 1), 2.0)
     sh.dim_v(F(0, 0)[1], F(0, zmax)[1], xl, xl - 16, f"열림 {zmax:.1f}", 2.2)
-    sh.text(area_x, top + 6, f"단면도 A-A (y = {y_cut:g}, 열린 상태) — 닫힌 높이 {assy.shut:.1f} · 열림 틈 "
+    _work(sh, assy, F, proj=lambda q: (q[0], q[2]))
+    sh.text(area_x, top + 6, f"단면도 A-A (y = {y_cut:.0f}, 열린 상태) — 닫힌 높이 {assy.shut:.1f} · 열림 틈 "
             f"{assy.open_h - assy.shut:.1f}", 2.8, "L", bold=True)
-    sh.text(area_x, MARGIN + TB_H + 4, "판·펀치 = 빗금, 볼트·핀·포스트·스프링 (표준품) = 빗금 없음 (제도 관례) · 풍선 = 부품표 번호",
-            2.2, "L")
+    sh.text(area_x, MARGIN + TB_H + 4, "판·펀치 = 빗금, 볼트·핀·포스트·스프링 (표준품) = 빗금 없음 (제도 관례) · 풍선 = 부품표 번호"
+            + (" · 제품: 굵은 자주 = 공정 전, 가상선 = 하사점 (공정 뒤)" if getattr(assy, "work", None) else ""), 2.2, "L")
     return sh
 
 
 # ---------------------------------------------------------------- 묶음 · 출력
 
-DRAWN = set(d3.PLATES) | {"블랭킹 펀치", "이형 피어싱 펀치", "스트립 가이드", "스톱 블록"}
 
 
 def build(assy: d3.DieAssy, info=None):
@@ -880,16 +906,28 @@ def build(assy: d3.DieAssy, info=None):
     info = dict(info or {})
     info.setdefault("die", assy.kind)
     pre = info.get("prefix") or "HD-" + _dt.date.today().strftime("%y%m%d")
-    parts = [p for p in assy.parts if p.name in DRAWN and p.prims and p.prims[0].kind in (d3.BOX, d3.PRISM)]
-    index = [(f"{pre}-00", "표지 · 사양 · 점검"), (f"{pre}-01", "금형 조립도 (제품도 옆)"), (f"{pre}-02", "스트립 배치도"),
-             (f"{pre}-03", "제품도 · 전개도"), (f"{pre}-04", "입체 조립도 · 분해도"), (f"{pre}-05", "단면도 A-A")]
+    parts = [p for p in assy.parts if not p.std and p.prims and p.prims[0].kind in (d3.BOX, d3.PRISM, d3.PROF)]
+    strip = any(p.name == "다이 플레이트" for p in assy.parts) and assy.strip[0] > 0
+    product = info.get("product_sheet", True)
+    index = [(f"{pre}-00", "표지 · 사양 · 점검"), (f"{pre}-01", "금형 조립도 (제품도 옆)")]
+    if strip:
+        index.append((f"{pre}-02", "스트립 배치도"))
+    if product:
+        index.append((f"{pre}-03", "제품도 · 전개도"))
+    index += [(f"{pre}-04", "입체 조립도 · 분해도"), (f"{pre}-05", "단면도 A-A")]
     index += [(f"{pre}-{p.no + 10:02d}", f"{p.no:02d} {p.name} (입체도 옆)") for p in parts]
+    num = {nm: nb for nb, nm in index}
     cache = {}
-    sheets = [cover_sheet(assy, info, index[0][0], index), assembly_sheet(assy, info, index[1][0]),
-              strip_sheet(assy, info, index[2][0]), product_sheet(assy, info, index[3][0])]
-    for fn, ix in ((iso3d_sheet, 4), (section_sheet, 5)):
+    sheets = [cover_sheet(assy, info, index[0][0], index), assembly_sheet(assy, info, index[1][0])]
+    if strip:
+        sheets.append(strip_sheet(assy, info, num["스트립 배치도"]))
+    if product:
+        sheets.append(product_sheet(assy, info, num["제품도 · 전개도"]))
+    for fn, nm in ((iso3d_sheet, "입체 조립도 · 분해도"), (section_sheet, "단면도 A-A")):
+        ix = [k for k, (_, n_) in enumerate(index) if n_ == nm][0]
         try:
-            sheets.append(fn(assy, info, index[ix][0], cache))
+            kw = {"y_cut": info["y_cut"]} if fn is section_sheet and "y_cut" in info else {}
+            sheets.append(fn(assy, info, index[ix][0], cache, **kw))
         except Exception:  # noqa: BLE001 — 3D 도면은 덤 (목록에서 빼고 계속)
             index[ix] = (index[ix][0], index[ix][1] + " (못 만듦)")
     sheets += [part_sheet(p, assy, info, f"{pre}-{p.no + 10:02d}") for p in parts]
@@ -943,7 +981,8 @@ def paint(p, sheet: Sheet, k, page_h):
     from PySide6.QtGui import QColor, QFont, QPen, QPolygonF
     col = {"OUTLINE": QColor(0, 0, 0), "HIDDEN": QColor(60, 60, 60), "CENTER": QColor(180, 0, 0),
            "DIM": QColor(0, 110, 0), "TEXT": QColor(0, 0, 0), "FRAME": QColor(0, 0, 0), "THIN": QColor(90, 90, 90),
-           "WIRE": QColor(200, 0, 0), "HATCH": QColor(120, 120, 120)}
+           "WIRE": QColor(200, 0, 0), "HATCH": QColor(120, 120, 120), "PART": QColor(190, 0, 160),
+           "PART2": QColor(190, 0, 160)}
 
     def pt(x, y):
         return QPointF(x * k, (page_h - y) * k)
@@ -954,6 +993,8 @@ def paint(p, sheet: Sheet, k, page_h):
             pn.setStyle(Qt.DashLine)
         elif lay == "CENTER":
             pn.setStyle(Qt.DashDotLine)
+        elif lay == "PART2":
+            pn.setStyle(Qt.DashDotDotLine)
         return pn
     p.setBrush(Qt.NoBrush)
     f = QFont()

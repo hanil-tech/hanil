@@ -184,6 +184,11 @@ class DieDialog(QDialog):
                       "조립도 PDF (평면도 + 정면도, 풍선 번호), 파트리스트 엑셀로 저장 — 견적·검토용 첫 안")
         d3.clicked.connect(self.save_die3d)
         row.addWidget(d3)
+        tdm = QPushButton("공정별 금형 1차 ~ N차…")
+        tdm.setToolTip("탠덤 (공정마다 금형 한 벌): 1차 블랭킹 → 2차 피어싱 (블랭크 네스트) → 절곡 (와이핑 · U · 각도 · 헤밍) → "
+                       "후 피어싱 → 캠 피어싱 — 공정마다 STEP, 공정표 + 금형마다 도면집 한 PDF · DXF · DWG, 부품표 엑셀")
+        tdm.clicked.connect(self.save_tandem)
+        row.addWidget(tdm)
         row.addWidget(QLabel("모든 탭 (하중·설계 규칙·스트립·드로잉·자동 공정 설계·공정도) 을 한 파일로"))
         row.addStretch(1)
         for text_, kind in (("엑셀…", "xlsx"), ("PDF…", "pdf"), ("엑셀 + PDF 모두…", "both")):
@@ -251,6 +256,52 @@ class DieDialog(QDialog):
                + "\n\n" + "\n".join(out) + "".join("\n※ " + n for n in notes))
         QMessageBox.information(self, "금형 3D", msg)
         QDesktopServices.openUrl(QUrl.fromLocalFile(out[4]))
+
+    def save_tandem(self):
+        """공정별 금형 (1차 ~ N차) 모두 저장."""
+        from PySide6.QtCore import QSettings
+        from PySide6.QtWidgets import QInputDialog
+
+        from . import quote as qt_
+        from . import tandem
+        base = os.path.splitext(self.name or "part")[0]
+        path, _ = QFileDialog.getSaveFileName(self, "공정별 금형 1차 ~ N차 저장 (이름만 고르면 공정마다 STEP · 도면집 · 부품표)",
+                                              base + "_공정별금형.pdf", "PDF (*.pdf)")
+        if not path:
+            return
+        stem = os.path.splitext(path)[0].removesuffix("_공정별금형_도면집").removesuffix("_공정별금형")
+        tols = ["m (보통)", "f (정밀)", "c (거침)"]
+        pick, ok = QInputDialog.getItem(self, "일반 공차", "도면에 공차가 없는 치수의 일반 공차 (ISO 2768) — 날 치수 마모 여유에 씀",
+                                        tols, 0, False)
+        if not ok:
+            return
+        try:
+            machines = qt_.load_rates(QSettings("Hanil", "SheetUnfold").value("quote_rates", ""))["costing"]["machines"]
+            F = tandem.Folder(self.result)
+            ops = tandem.design(self.result, self.settings, tol=pick[0], machines=machines, folder=F)
+            out, notes = tandem.save_all(
+                self.result, self.settings, ops, stem,
+                {"product": os.path.splitext(os.path.basename(self.name or "part"))[0],
+                 "material": f"{self.settings.material} t{self.result.thickness:g}", "solid": self.solid,
+                 "result": self.result}, self._dwg_converter(), folder=F)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "공정별 금형 저장 실패", str(e))
+            return
+        self._log(out)
+        lines = []
+        for op in ops:
+            a = op.die
+            if a is None:
+                lines.append(f"{op.label}: 못 만듦 — {op.error}")
+                continue
+            bad = [c for c in a.checks if c[3] != "적합"]
+            lines.append(f"{op.label} — {op.detail}\n    {a.L:.0f} × {a.W:.0f} · 닫힌 {a.shut:.0f} · 부품 {len(a.parts)} 종 · "
+                         f"검토 {len(bad)}" + "".join(f"\n      · {c[0]}: {c[1]}" for c in bad))
+        QMessageBox.information(self, f"공정별 금형 {len(ops)} 벌", "\n".join(lines) + "\n\n" + "\n".join(out)
+                                + "".join("\n※ " + n for n in notes))
+        pdf = next((p_ for p_ in out if p_.endswith(".pdf")), None)
+        if pdf:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(pdf))
 
     def _dwg_converter(self):
         from PySide6.QtCore import QSettings

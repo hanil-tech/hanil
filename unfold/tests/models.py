@@ -766,3 +766,12 @@ def _grid_plate(rows, t):
     g = GProp_GProps()
     BRepGProp.VolumeProperties_s(sol, g)
     return sol.Reversed() if g.Mass() < 0 else sol
+
+
+def channel_holes(t=2.0):
+    """ㄷ 채널 (플랜지 40 · 바닥 100 · 폭 120): 양쪽 플랜지 동축 Ø8 (R4 → 캠 피어싱), 바닥 절곡선 가까운 Ø6 (R3 → 후 피어싱),
+    바닥 먼 Ø10 (R2 → 피어싱) — 공정별 금형 1차 ~ 5차 예제."""
+    s = profile_part([("L", 40), ("B", 90, 2.0), ("L", 100), ("B", 90, 2.0), ("L", 40)], t, 120)
+    s = drill(s, 20, 50, 30, 8, axis=(0, 1, 0))
+    s = drill(s, 43, 9, 90, 6, axis=(1, 0, 0))
+    return drill(s, 43, 52, 60, 10, axis=(1, 0, 0))

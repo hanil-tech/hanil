@@ -13,10 +13,11 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 import models  # noqa: E402
 
 from hanil_unfold import bendcalc as bc  # noqa: E402
-from hanil_unfold import die3d, diedraw, loader, process  # noqa: E402
+from hanil_unfold import die3d, diedraw, loader, process, tandem  # noqa: E402
 from hanil_unfold.unfolder import unfold  # noqa: E402
 
 OUT = os.path.join(ROOT, "samples", "dies")
+OUT_T = os.path.join(ROOT, "samples", "tandem")
 
 
 def cases():
@@ -47,5 +48,24 @@ def main():
               f"{os.path.getsize(path) / 1e6:.1f} MB 검토 {bad}")
 
 
+def tandem_samples():
+    """공정별 금형 1차 ~ 5차 예제 (구멍 있는 ㄷ 채널): 공정마다 STEP + 공정표 · 도면집 PDF."""
+    os.makedirs(OUT_T, exist_ok=True)
+    s = models.channel_holes()
+    st = bc.BendSettings(material="SPCC")
+    r = unfold(s, settings=st)
+    F = tandem.Folder(r)
+    ops = tandem.design(r, st, folder=F)
+    out, notes = tandem.save_all(r, st, ops, os.path.join(OUT_T, "channel_t2"),
+                                 {"product": "ㄷ 채널 (구멍 4)", "material": "SPCC t2", "solid": s, "result": r}, folder=F)
+    for p in out:
+        if p.endswith((".dxf", ".dwg", ".xlsx")):
+            os.remove(p)                                  # 예제는 STEP · PDF 만 (저장소 크기)
+    for op in ops:
+        print(op.label, op.error or f"{op.die.L:.0f}×{op.die.W:.0f} 닫힌 {op.die.shut:.1f}")
+    return ops, F, s, r
+
+
 if __name__ == "__main__":
     main()
+    tandem_samples()

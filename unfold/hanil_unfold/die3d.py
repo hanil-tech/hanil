@@ -24,7 +24,7 @@ from . import bendcalc as bc
 from . import diecalc as dc
 from . import diestd as ds
 
-BOX, CYL, PRISM = "box", "cyl", "prism"
+BOX, CYL, PRISM, PROF = "box", "cyl", "prism", "prof"   # prof: 옆 단면 (x, z) 을 y 로 민 것 (절곡 다이·펀치)
 STRIP_K = 0.07        # 스트리핑 힘 / 절단력 (교재 2 ~ 20 %, 보통 5 ~ 10 %)
 ENTRY = 1.0           # 닫힘에서 펀치가 다이 안으로 들어가는 깊이
 RETRACT = 1.0         # 열림에서 펀치 끝이 스트리퍼 안으로 들어가 있는 깊이
@@ -80,8 +80,8 @@ class Hole:
 @dataclass
 class Prim:
     kind: str
-    p: tuple                      # box: (x0, y0, z0, dx, dy, dz) · cyl: (x, y, z0, r, h) · prism: (z0, h)
-    poly: np.ndarray | None = None   # prism 의 2D 다각형 (x, y)
+    p: tuple                      # box: (x0, y0, z0, dx, dy, dz) · cyl: (x, y, z0, r, h) · prism: (z0, h) · prof: (y0, 길이)
+    poly: np.ndarray | None = None   # prism 의 2D 다각형 (x, y) · prof 의 옆 단면 (x, z)
     cuts: list = field(default_factory=list)   # 빼낼 프리즘 [(다각형, 넓힘[, z0, 깊이])] — z 없으면 관통
     holes: list = field(default_factory=list)  # 둥근 구멍 [Hole]
     # 둥근 표준품의 실제 모양 (cyl 만): 아래부터 [(z0, 높이, 아래 반지름, 위 반지름)] 을 돌려 만든 솔리드,
@@ -89,6 +89,7 @@ class Prim:
     stack: list = field(default_factory=list)
     bore: float = 0.0
     socket: tuple | None = None
+    ax: str = "y"                 # prof 를 미는 방향: "y" (단면 x-z, p = (y0, 길이)) · "x" (단면 y-z, p = (x0, 길이))
 
 
 @dataclass
@@ -132,6 +133,8 @@ class DieAssy:
     press: dict = field(default_factory=dict)      # 프레스 하중·에너지·고른 프레스
     usage: dict = field(default_factory=dict)      # 스트립 재료 이용
     stations: list = field(default_factory=list)   # [(이름, 가운데 x, 그 공정 부품 외곽)]
+    spec: list = field(default_factory=list)       # 표지 사양 줄 [(이름, 값)] (절곡 금형 등 — 없으면 전단 금형 꼴)
+    work: list = field(default_factory=list)       # 금형 안 제품 선 [(3D 꺾은선, "before"/"after")] (절곡 금형)
 
     def rows(self):
         return [[p.no, p.name, p.qty, p.material, p.size, "표준품" if p.std else "가공품",
@@ -260,6 +263,23 @@ def _cop(polys):
     return tuple(m / max(s, 1e-30))
 
 
+def extent(pr: Prim):
+    """(x0, y0, z0, dx, dy, dz) — 프리미티브를 둘러싼 상자."""
+    if pr.kind == BOX:
+        return tuple(pr.p)
+    if pr.kind == CYL:
+        x, y, z0, r, h = pr.p
+        return x - r, y - r, z0, 2 * r, 2 * r, h
+    P = np.asarray(pr.poly, float)
+    if pr.kind == PROF:
+        (a0, z0), (a1, z1) = P.min(0), P.max(0)
+        if pr.ax == "x":
+            return pr.p[0], a0, z0, pr.p[1], a1 - a0, z1 - z0
+        return a0, pr.p[0], z0, a1 - a0, pr.p[1], z1 - z0
+    (x0, y0), (x1, y1) = P.min(0), P.max(0)
+    return x0, y0, pr.p[0], x1 - x0, y1 - y0, pr.p[1]
+
+
 def _volume(pr: Prim):
     if pr.kind == BOX:
         v = pr.p[3] * pr.p[4] * pr.p[5]
@@ -271,6 +291,9 @@ def _volume(pr: Prim):
                 v -= math.sqrt(3) / 2 * pr.socket[2] ** 2 * pr.socket[1]
             return max(v - math.pi * pr.bore ** 2 * pr.p[4], 0.0)
         return math.pi * pr.p[3] ** 2 * pr.p[4]
+    elif pr.kind == PROF:
+        v = abs(_area(pr.poly)) * pr.p[1]
+        h_all = float(np.ptp(np.asarray(pr.poly)[:, 1]))
     else:
         v = abs(_area(pr.poly)) * pr.p[1]
         h_all = pr.p[1]
@@ -420,7 +443,10 @@ def build(result, settings: bc.BendSettings, kind=None, plan=None, tol="m", mach
 
 
 def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, holes, extra=0.0, tol="m",
-              machines=None):
+              machines=None, nest=None, fit=None, outer=None, depth_below=0.0, up_h=0.0):
+    """fit: 다이 쌓기 판 (다이·받침·스트리퍼·펀치 판) 크기 (L, W) 고정 — 후 피어싱 (접은 제품 안쪽에 들어가는 다이).
+    outer: 금형 안 제품 바깥 크기 (L, W) — 가이드 포스트 · 스톱 블록을 그 밖으로. depth_below: 다이 윗면 아래로 내려간
+    플랜지 깊이 (받침판을 그만큼 높임), up_h: 위로 선 높이 (점검)."""
     mat = settings.mat
     tau = dc.shear_strength(mat)
     polys = [P for P, _ in ops]
@@ -437,14 +463,20 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     pitch, Wst = strip
     m = max(1.5 * H, 30.0) + extra
     Ld, Wd = _up5(work_L + 2 * m), _up5(work_W + 2 * m)
+    if fit is not None:
+        Ld, Wd = float(fit[0]), float(fit[1])
     a, b = Ld / 2, Wd / 2
-    post_d = 25.0 if max(Ld, Wd) < 250 else 32.0 if max(Ld, Wd) < 450 else 38.0
-    Ls, Ws = _up5(Ld + 2 * (post_d + 35)), _up5(Wd + 20)
+    oL, oW = (max(Ld, outer[0] + 30), max(Wd, outer[1] + 30)) if outer is not None else (Ld, Wd)
+    a_out = oL / 2
+    post_d = 25.0 if max(oL, oW) < 250 else 32.0 if max(oL, oW) < 450 else 38.0
+    Ls, Ws = _up5(oL + 2 * (post_d + 35)), _up5(oW + 20)
     ts = max(40.0, _up5(0.08 * max(Ls, Ws)))
     tus = ts - 5
     bolt = ds.bolt_for(max(Ld, Wd))
     H = max(H, _up5(ds.ENGAGE * bolt + 6))               # 다이·펀치 플레이트에 볼트 탭 (물림 1.5 d + 3, 바닥 3)
     tb, tpp, tst = 10.0, max(20.0, _up5(0.8 * H), _up5(ds.ENGAGE * bolt + 6)), max(15.0, _up5(0.6 * H))
+    if depth_below > 0:
+        tb = max(tb, _up5(depth_below + 8 - H))             # 아래로 접힌 플랜지 끝이 하형 세트에 닿지 않게
     gap = max(10.0, 4 * t)                       # 열림: 다이 윗면 ↔ 스트리퍼 아랫면
     s_w = RETRACT + t + ENTRY                    # 스트리퍼 움직임 (닿음 → 하사점)
     f_strip = STRIP_K * F
@@ -556,7 +588,7 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     add("상형 다이 세트", 1, "SS400 (FC250)", f"{Ls:.0f} × {Ws:.0f} × {tus:.0f}", [upper_shoe], upper=True)
 
     # 가이드 포스트 · 부시 (다이 플레이트 바깥 네 귀) — 하형 세트 압입 구멍, 상형 세트 부시 구멍
-    px, py = a + post_d / 2 + 15, b - post_d
+    px, py = a_out + post_d / 2 + 15, (b if outer is None else Ws / 2 - 10) - post_d
     corners = [(sx * px, sy * py) for sx in (-1, 1) for sy in (-1, 1)]
     post_L = _up5(z_us - z_ls + 20)
     bush_o = post_d + 12
@@ -754,6 +786,8 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         [_pin(x, y, z_pp, dwd, dl_up) for x, y in ud_xy], std=True, upper=True,
         order=f"평행 핀 ISO 8734 Ø{dwd:g} m6 × {dl_up:.0f}")
 
+    if nest is not None:
+        _nest_pins(add, nest, t, die, stripper, lo, z_die_top, H, tst, z_st)
     # 스트립 가이드 (다이 윗면, 스트립 양쪽): M5 카운터보어 볼트 + Ø5 다우얼 → 다이 플레이트 탭·H7, 스트리퍼 밑면 홈
     gw = 16.0
     gh = max(t + 2.0, 8.0)                               # M5 머리 자리 (5.4) + 바닥 2.6
@@ -764,7 +798,7 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     rails = []
     kg6, kgh, gd1, gcb, gcbh, gtap = ds.SHCS[5]
     n_g = max(2, int(math.ceil(Ld / 120.0)))
-    for sgn in (-1, 1):
+    for sgn in ((-1, 1) if nest is None else ()):
         y0 = sgn * ys + (0 if sgn > 0 else -gw)
         rail = Prim(BOX, (-a, y0, z_die_top, Ld, gw, gh))
         rails.append(rail)
@@ -790,10 +824,11 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
             for x, y in pins:
                 rail.holes.append(Hole(x, y, 5.0, "H7", z_die_top, gh, "Ø5 H7 리머 관통 (다우얼)"))
                 die.holes.append(Hole(x, y, 5.0, "H7", z_die_top - 10, 10, "Ø5 H7 리머 깊이 10 (스트립 가이드)"))
-    add("스트립 가이드", 2, "S50C (HRC 40~45)", f"{Ld:.0f} × {gw:g} × {gh:g}", rails,
-        note=f"스트립 폭 {Wst:.1f} + 0.2 · 스트리퍼 밑면 홈 {gw + 1:g} × {gd:g}"
-        + ("" if gh >= 8.0 else " · 얇은 가이드: 밑면 핀 + 접착 (설계자 확인)"))
-    if gh >= 8.0:
+    if rails:
+        add("스트립 가이드", 2, "S50C (HRC 40~45)", f"{Ld:.0f} × {gw:g} × {gh:g}", rails,
+            note=f"스트립 폭 {Wst:.1f} + 0.2 · 스트리퍼 밑면 홈 {gw + 1:g} × {gd:g}"
+            + ("" if gh >= 8.0 else " · 얇은 가이드: 밑면 핀 + 접착 (설계자 확인)"))
+    if gh >= 8.0 and rails:
         g_scr = [(h.x, h.y) for r_ in rails for h in r_.holes if h.kind == "통과"]
         g_pin = [(h.x, h.y) for r_ in rails for h in r_.holes if h.kind == "H7"]
         z_hd = z_die_top + gh - gcbh                     # 머리 밑면
@@ -840,7 +875,7 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     travel_ = gap + RETRACT + ENTRY
     sb_h = (z_us - travel_) - ts - 0.5
     sbw = 30.0 if Ws >= 160 else 20.0
-    sxs = [sgn * (a + post_d / 2 + 15) for sgn in (-1, 1)]
+    sxs = [sgn * (a_out + post_d / 2 + 15) for sgn in (-1, 1)]
     blocks = [Prim(BOX, (x - sbw / 2, -sbw / 2, ts, sbw, sbw, sb_h)) for x in sxs]
     for x, blk in zip(sxs, blocks):
         lower.holes.append(Hole(x, 0.0, 9.0, "통과", z_ls, ts, "Ø9 통과, 자리 Ø14 깊이 8.6 (스톱 블록)",
@@ -987,11 +1022,64 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         notes.append(f"프레스 행정 {p_stroke:.0f} mm 상사점에서는 가이드 포스트가 부시에서 {-engage:.0f} mm 빠짐 "
                      f"(선행 안내 {pre:.0f} mm 는 됨) — 정밀 금형은 행정을 {max(10.0, p_stroke + engage - 10):.0f} mm 안으로 "
                      "조정하거나 볼 부시 (긴 것) 로")
+    if nest is not None:
+        notes[5] = "블랭크를 네스트 핀에 맞춰 넣음 (손 · 로봇) — 스트립 아님"
+    if fit is not None:
+        notes.append(f"후 피어싱: 다이를 접은 제품 안쪽에 맞춤 ({Ld:.0f} × {Wd:.0f}), 아래로 접힌 플랜지 깊이 {depth_below:.0f} "
+                     f"→ 받침판 {tb:.0f}")
+        chk("위로 선 부분 ↔ 상형 (하사점)", f"{up_h:.0f} mm", f"≤ {tst + sgap - s_w + tpp - 5:.0f} (스트리퍼 + 틈 + 펀치 판 − 5)",
+            up_h <= tst + sgap - s_w + tpp - 5)
     if plan is not None:
         notes.append("순차: 파일럿·피어싱 공정 구멍만 다이에 팠음 — 노칭·절곡·컷오프 인서트와 다음 공정 파일럿 핀은 "
                      "공정도를 보고 설계자가")
     return DieAssy(kind, parts, Ls, Ws, shut, F, notes, blank, holes, checks, cop, z_top, stroke, (pitch, Wst), spring,
                    edges, press, usage)
+
+
+def _nest_pins(add, blank, t, die, stripper, lo, z_die_top, H, tst, z_st):
+    """블랭크 네스트 (3-2-1): 가장 긴 외곽 변에 핀 2 개, 그 옆 변에 1 개, 맞은편 끝에 1 개 (넣기 쉬운 쪽은 비움) —
+    핀은 블랭크 바깥 0.1 띄움, 다이 플레이트 H7 압입, 판 위로 t + 3, 스트리퍼는 피함 구멍."""
+    from scipy.spatial import ConvexHull
+    P = np.asarray(blank, float)
+    hull = P[ConvexHull(P).vertices]
+    if _area(hull) < 0:
+        hull = hull[::-1]
+    d = 6.0 if max(np.ptp(P, 0)) < 120 else 8.0
+    edges = [(hull[i], hull[(i + 1) % len(hull)]) for i in range(len(hull))]
+    lens = [float(np.linalg.norm(b - a)) for a, b in edges]
+    i0 = int(np.argmax(lens))
+
+    def out_pt(a, b, f):
+        q = a + f * (b - a)
+        tng = (b - a) / max(np.linalg.norm(b - a), 1e-9)
+        nrm = np.array([tng[1], -tng[0]])              # 반시계 외곽의 바깥 법선
+        return q + nrm * (d / 2 + 0.1)
+    want = [out_pt(*edges[i0], 0.2), out_pt(*edges[i0], 0.8)]
+    # 옆 변: 긴 변과 가장 수직인 변 중 긴 것
+    t0 = (edges[i0][1] - edges[i0][0]) / lens[i0]
+    side = max((j for j in range(len(edges)) if j != i0 and lens[j] > 3 * d),
+               key=lambda j: (abs(t0[0] * (edges[j][1] - edges[j][0])[1] - t0[1] * (edges[j][1] - edges[j][0])[0]) / lens[j],
+                               lens[j]), default=None)
+    if side is not None:
+        want.append(out_pt(*edges[side], 0.5))
+    pins = []
+    for q in want:
+        x, y = float(q[0]), float(q[1])
+        if all(_dist(Q, (x, y)) >= d / 2 + 2 for Q in lo.polys) and all(
+                math.hypot(x - qx, y - qy) >= d / 2 + qr + 2 for qx, qy, qr in lo.taken) and abs(x) < lo.a - d and abs(y) < lo.b - d:
+            pins.append((x, y))
+            lo.taken.append((x, y, d / 2))
+    hp = t + 3.0
+    L = ds.up_std(hp + 1.5 * d + 2, ds.DOWEL_L)
+    dep = L - hp
+    for x, y in pins:
+        die.holes.append(Hole(x, y, d, "H7", z_die_top - dep, dep, f"Ø{d:g} H7 리머 깊이 {dep:.0f} (네스트 핀)"))
+        stripper.holes.append(Hole(x, y, d + 2, "통과", z_st, tst, f"Ø{d + 2:g} 통과 (네스트 핀 피함)"))
+    if pins:
+        add("네스트 핀", len(pins), "SUJ2 (m6) HRC 58", f"Ø{d:g} × {L:.0f}", [_pin(x, y, z_die_top - dep, d, L) for x, y in pins],
+            std=True, order=f"평행 핀 ISO 8734 Ø{d:g} m6 × {L:.0f} (윗면 모따기 크게)",
+            note=f"블랭크 외곽 3-2-1 자리 — 판 위로 {hp:.0f} 나옴, 긴 변 2 · 옆 변 1 (반대쪽에서 밀어 넣음)")
+    return pins
 
 
 # ---------------------------------------------------------------- 둥근 표준품 모양
@@ -1200,6 +1288,18 @@ def _solid(pr: Prim):
         x, y, z0, r, h = pr.p
         s = _revolve(pr) if pr.stack else cyl(x, y, z0, r, h)
         z_lo, hh = z0, h
+    elif pr.kind == PROF:
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakePolygon
+        c0, L = pr.p
+        Q = np.asarray(pr.poly, float)
+        mk = BRepBuilderAPI_MakePolygon()
+        for q in Q:
+            mk.Add(gp_Pnt(float(c0), float(q[0]), float(q[1])) if pr.ax == "x"
+                   else gp_Pnt(float(q[0]), float(c0), float(q[1])))
+        mk.Close()
+        face = BRepBuilderAPI_MakeFace(mk.Wire(), True).Face()
+        s = BRepPrimAPI_MakePrism(face, gp_Vec(float(L), 0, 0) if pr.ax == "x" else gp_Vec(0, float(L), 0)).Shape()
+        z_lo, hh = float(Q[:, 1].min()), float(np.ptp(Q[:, 1]))
     else:
         z0, h = pr.p
         s = prism(pr.poly, z0, h)
@@ -1340,8 +1440,7 @@ def paint(p, rect, assy: DieAssy, title=True):
         p.drawText(QRectF(x0, y0, W, top_h), Qt.AlignLeft | Qt.AlignVCenter,
                    f"금형 조립도 — {assy.kind} · {assy.L:.0f} × {assy.W:.0f} · 닫힌 높이 약 {assy.shut:.0f} mm")
     half = W * 0.5
-    zmax = max(pr.p[2] + pr.p[5] if pr.kind == BOX else (pr.p[2] + pr.p[4] if pr.kind == CYL else pr.p[0] + pr.p[1])
-               for part in assy.parts for pr in part.prims)
+    zmax = max(extent(pr)[2] + extent(pr)[5] for part in assy.parts for pr in part.prims)
     balloons = []
     f = QFont()
     f.setPixelSize(int(max(9, H * 0.018)))
@@ -1381,11 +1480,17 @@ def paint(p, rect, assy: DieAssy, title=True):
                 x, y, _, r, _ = pr.p
                 c = T(x, y)
                 p.drawEllipse(c, r * s, r * s)
+            elif pr.kind == PROF:
+                bx, by, _, dx, dy, _ = extent(pr)
+                p.drawRect(QRectF(T(bx, by + dy), T(bx + dx, by)))
             else:
                 p.drawPolygon(QPolygonF([T(*q) for q in pr.poly]))
         pr = part.prims[0]
         if pr.kind == CYL:
             at = T(pr.p[0], pr.p[1])
+        elif pr.kind == PROF:
+            bx, by, _, dx, dy, _ = extent(pr)
+            at = T(bx + dx / 2, by + 0.8 * dy)
         elif pr.kind == BOX:
             if part.name not in ("하형 다이 세트", "다이 플레이트"):
                 continue                                   # 받침판은 다이 플레이트 밑에 가려 보이지 않음
@@ -1412,15 +1517,25 @@ def paint(p, rect, assy: DieAssy, title=True):
             elif pr.kind == CYL:
                 x, _, z0, r, h = pr.p
                 p.drawRect(QRectF(Tf(x - r, z0 + h), Tf(x + r, z0)))
+            elif pr.kind == PROF:
+                if pr.ax == "y":
+                    p.drawPolygon(QPolygonF([Tf(*q) for q in pr.poly]))
+                else:
+                    e = extent(pr)
+                    p.drawRect(QRectF(Tf(e[0], e[2] + e[5]), Tf(e[0] + e[3], e[2])))
             else:
                 z0, h = pr.p
                 xs = pr.poly[:, 0]
                 p.drawRect(QRectF(Tf(xs.min(), z0 + h), Tf(xs.max(), z0)))
         # 지시선이 그림을 가로지르지 않게 오른쪽 끝 (x 가 가장 큰) 프리미티브에 붙임
         def right(pr):
-            return pr.p[0] + pr.p[3] if pr.kind in (BOX, CYL) else float(pr.poly[:, 0].max())
+            e = extent(pr)
+            return e[0] + e[3]
         pr = max(part.prims, key=right)
-        if pr.kind == BOX:
+        if pr.kind == PROF:
+            e = extent(pr)
+            at = Tf(e[0] + e[3], e[2] + e[5] / 2)
+        elif pr.kind == BOX:
             at = Tf(pr.p[0] + pr.p[3], pr.p[2] + pr.p[5] / 2)
         elif pr.kind == CYL:
             at = Tf(pr.p[0] + pr.p[3], pr.p[2] + pr.p[4] / 2)
