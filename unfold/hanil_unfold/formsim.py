@@ -536,6 +536,11 @@ FILLED_RGB = (225, 225, 228)
 def tri_colors(fa: FormAnalysis, view: str):
     """삼각형별 색 (m, 3) 과 범례 [(글, RGB)]. 막은 피어싱 구멍 자리는 옅은 회색."""
     cols, leg = _tri_colors(fa, view)
+    region = getattr(fa.fi, "region", None) if fa.fi is not None else None
+    if region is not None and (region > 0).any():          # 다이 페이스: 어덴덤·바인더는 옅게 (제품이 보이게)
+        cols = np.array(cols, float)
+        cols[region > 0] = 0.45 * cols[region > 0] + 0.55 * 255
+        leg = list(leg) + [("어덴덤·바인더 (옅게)", (225, 232, 240))]
     filled = getattr(fa.fi, "filled", None) if fa.fi is not None else None
     if filled is not None and filled.any():
         cols = np.array(cols, float)
@@ -890,6 +895,9 @@ def save_xlsx(fa: FormAnalysis, path, name=""):
     from openpyxl import Workbook
     wb = Workbook()
     tmps = add_sheets(wb, fa, name, first=True)
+    if getattr(fa, "ops", None) is not None:          # [공정별 해석] 을 돌렸으면 그 시트도
+        from . import formops
+        formops.add_sheet(wb, fa.ops, name)
     from .company import stamp_workbook
     stamp_workbook(wb)
     wb.save(path)
@@ -904,8 +912,8 @@ NOTES = ["원스텝 (한 번에 성형) 해석입니다: 다단 공정 이력·�
          "성형성 존: 파단 = 성형 한계(FLC) 넘음, 파단 위험 = 80 % 이상, 과도 얇아짐 > 25 %, 늘림 부족 = 변형 3 % 미만, "
          "주름 경향 = 압축으로 두꺼워짐 2~5 %, 주름 = 5 % 넘음 (AutoForm Formability 판정과 같은 구분).",
          "FLC: 강판 Keeler-Brazier 식, 그 밖은 재질 대표값. 금형 확정 전에는 성형 해석 프로그램·시험으로 확인하세요.",
-         "원스텝은 펀치 R 근처 얇아짐을 작게 본다 (굽힘-펴짐·마찰 이력 없음): 실험 컵은 펀치 R 에서 15~18 % 얇아지고 "
-         "위 끝이 약 10 % 두꺼워진다 — 두꺼워짐은 맞고 얇아짐은 실험보다 작다.",
+         "원스텝 (막) 이 못 보는 인장 아래 굽힘·드로잉 장력·아이어닝은 드로잉 보정으로 더한다 (1.42.0) — 원통 컵 펀치 R 쪽 "
+         "얇아짐 14 % (연강 컵 시험 15~18 %). [공정별 해석] 은 바인더·어덴덤을 붙인 다이 페이스 위에서 다시 푼다.",
          "절곡: 바깥 면 공칭 변형률 1/(2R/t+1) 을 재질의 최소 굽힘 R/t (90°, 압연 방향과 직각) 에서의 값과 비교 "
          "(Datsko·Yang, Kalpakjian). 스프링백은 가공 경화 유동 응력의 탄성-소성 식."]
 

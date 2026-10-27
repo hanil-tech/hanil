@@ -177,6 +177,11 @@ class DieDialog(QDialog):
         self.tabs = tabs
 
         row = QHBoxLayout()
+        d3 = QPushButton("금형 3D · 조립도 · 파트리스트…")
+        d3.setToolTip("블랭킹·피어싱 금형을 판 쌓기·가이드·펀치·스트리퍼·스프링·볼트로 자동 조립해 STEP (3D), "
+                      "조립도 PDF (평면도 + 정면도, 풍선 번호), 파트리스트 엑셀로 저장 — 견적·검토용 첫 안")
+        d3.clicked.connect(self.save_die3d)
+        row.addWidget(d3)
         row.addWidget(QLabel("모든 탭 (하중·설계 규칙·스트립·드로잉·자동 공정 설계·공정도) 을 한 파일로"))
         row.addStretch(1)
         for text_, kind in (("엑셀…", "xlsx"), ("PDF…", "pdf"), ("엑셀 + PDF 모두…", "both")):
@@ -186,6 +191,33 @@ class DieDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.addWidget(tabs)
         lay.addLayout(row)
+
+    def save_die3d(self):
+        """금형 3D 조립 (STEP) · 조립도 PDF · 파트리스트 엑셀."""
+        from . import die3d
+        base = os.path.splitext(self.name or "part")[0] + "_금형"
+        path, _ = QFileDialog.getSaveFileName(self, "금형 3D · 조립도 · 파트리스트 저장 (이름만 고르면 세 파일)",
+                                              base + ".step", "STEP (*.step)")
+        if not path:
+            return
+        stem = os.path.splitext(path)[0]
+        try:
+            plan = None
+            try:
+                pp = self.process_plan()
+                plan = pp if pp is not None and getattr(pp, "kind", "") == "progressive" else None
+            except Exception:
+                plan = None
+            assy = die3d.build(self.result, self.settings, plan=plan)
+            out = [die3d.save_step(assy, stem + ".step"), die3d.save_pdf(assy, stem + "_조립도.pdf", self.name),
+                   die3d.save_xlsx(assy, stem + "_파트리스트.xlsx", self.name)]
+        except Exception as e:
+            QMessageBox.warning(self, "금형 3D 저장 실패", str(e))
+            return
+        self._log(out)
+        QMessageBox.information(self, "금형 3D", f"{assy.kind} · {assy.L:.0f} × {assy.W:.0f} · 부품 {len(assy.parts)} 종\n"
+                                + "\n".join(out))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(out[1]))
 
     def _draw_tab(self):
         w = QWidget()

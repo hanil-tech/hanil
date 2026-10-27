@@ -572,6 +572,66 @@ class ComparePanel(QWidget):
                           f"(판정 → 한계 비 순)" if b else "비교 결과 없음")
 
 
+class OpsPanel(QWidget):
+    """공정별 해석: 다이 페이스 (바인더·어덴덤) 위 원스텝 OP10 → OP20 트림·피어싱 → OP30 플랜지 → OP40 리스트라이크.
+    다이 페이스를 푸는 데 몇 초~수십 초 걸려 단추를 눌러 시작한다."""
+
+    def __init__(self, result, settings, fa, parent=None):
+        super().__init__(parent)
+        self.result, self.settings, self.fa = result, settings, fa
+        lay = QVBoxLayout(self)
+        top = QHBoxLayout()
+        self.run_btn = QPushButton("▶ 다이 페이스 · 공정별 해석")
+        self.run_btn.clicked.connect(self.run)
+        top.addWidget(self.run_btn)
+        self.view_box = QComboBox()
+        self.view_box.addItems(fs.VIEWS)
+        self.view_box.setEnabled(False)
+        top.addWidget(QLabel("다이 페이스 보기"))
+        top.addWidget(self.view_box)
+        top.addStretch(1)
+        lay.addLayout(top)
+        self.help = QLabel("트림선 바깥에 어덴덤 벽 (빼기 10°) · 다이 R · 바인더 (폭 25 mm, 트림선에 맞춘 평면) 를 붙여 그 판 전체로 "
+                           "원스텝을 풀고 (OP10), 트림·피어싱 전단력 (OP20), 트림 뒤 꺾는 플랜지의 늘림·줄임·스프링백 (OP30), "
+                           "리스트라이크·캠 (OP40) 을 공정마다 봅니다. 아래로 꺾는 플랜지는 떼어 낸 드로잉 모양에 다이 페이스를 붙입니다.")
+        self.help.setWordWrap(True)
+        self.help.setStyleSheet("color:#444; background:#f4f6fa; padding:4px")
+        lay.addWidget(self.help)
+        self.body = QVBoxLayout()
+        lay.addLayout(self.body, 1)
+        self.ops = None
+
+    def run(self):
+        from PySide6.QtWidgets import QApplication
+
+        from . import formops
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.ops = formops.build(self.fa, self.result, self.settings)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "공정별 해석 실패", str(e))
+            return
+        QApplication.restoreOverrideCursor()
+        self.fa.ops = self.ops
+        while self.body.count():
+            w = self.body.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        rows = [[r[0], r[1], r[2], f"{r[3]:,.0f}", f"{r[4]:,.1f}", r[5]] for r in self.ops.rows()]
+        self.body.addWidget(_table(formops.HEAD, rows, [VERDICT_COLOR[o.verdict] for o in self.ops.ops]))
+        if self.ops.fa_die is not None:
+            v = ProductView(self.ops.fa_die)
+            self.view_box.setEnabled(True)
+            self.view_box.currentTextChanged.connect(v.set_view)
+            self.body.addWidget(v, 1)
+        if self.ops.notes:
+            n = QLabel("<br>".join("• " + x for x in self.ops.notes))
+            n.setWordWrap(True)
+            self.body.addWidget(n)
+        self.run_btn.setText("↻ 다시 해석")
+
+
 class FormSimDialog(QDialog):
     def __init__(self, result, settings: bc.BendSettings, name="", parent=None, history=None, source_path="",
                  solid=None):
@@ -641,6 +701,8 @@ class FormSimDialog(QDialog):
                 info.addTab(lw2, "하중 - 행정")
             info.addTab(FlcPanel(self, fa.material, fa.flc0), "FLC 입력 (실측)")
             info.addTab(ComparePanel(solid, settings, fa), "재질·두께 비교")
+            self.ops_panel = OpsPanel(result, settings, fa)
+            info.insertTab(2, self.ops_panel, "공정별 (다이 페이스)")
 
         if fa.mode == "forming":
             self.view = ProductView(fa)

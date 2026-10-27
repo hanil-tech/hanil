@@ -123,7 +123,8 @@ def _inside(P, A, B, chunk=2000):
 
 def mesh(faces, target=6000):
     """(V, F, N) 또는 None (못 만들면 — 이음매 없는 닫힌 면 등은 CAD 메시를 쓴다).
-    점이 target 의 MAX_FACTOR 배를 넘으면 크기·각 간격을 1.5 배씩 키워 다시 (큰 외판·굽은 곳이 많은 부품)."""
+    점이 target 의 MAX_FACTOR 배를 넘으면 평평한 곳 간격만 1.5 배씩 키워 다시 — 그래도 많으면 (굽은 곳이 넓게 흩어진 큰
+    외판) None (CAD 메시가 굽은 곳만 촘촘해 낫다)."""
     from OCP.BRepTools import BRepTools
     for f in faces:                  # 붙어 있는 CAD 메시를 지운다 — 있으면 면 안·밖 판정이 그 다각형을 써서 수백 배 느림
         BRepTools.Clean_s(f)
@@ -151,7 +152,7 @@ def _mesh(faces, target, scale):
     if area <= 0:
         return None
     h = math.sqrt(2 * area / target) * scale
-    ang = ANGLE_STEP * scale
+    ang = ANGLE_STEP                  # 굽은 곳 칸 각은 그대로 (키우면 절곡·캐릭터 라인에서 현이 짧아져 변형이 틀림)
     emap = _Index()
     eparams = {}
     P3, PN = [], []                # 꼭짓점 (3D), 법선

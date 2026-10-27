@@ -972,9 +972,11 @@ class SheetMetalUnfolder:
                 um = None
         V, F, N = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
         # 구멍 수 (경계 고리) 가 같고 (이음매 틈 없음) 모양이 더 좋을 때만
-        if um is not None and len(forming.boundary_loops(um[1])) == len(forming.boundary_loops(F)) \
-                and np.quantile(forming.quality(*um[:2]), 0.05) > np.quantile(forming.quality(V, F), 0.05):
-            V, F, N = um
+        if um is not None and len(forming.boundary_loops(um[1])) == len(forming.boundary_loops(F)):
+            qu, qo = forming.quality(*um[:2]), forming.quality(V, F)
+            # 바늘 (5° 아래) 이 더 적거나, 같으면 하위 5 % 각이 더 좋을 때
+            if np.mean(qu < 5) < np.mean(qo < 5) or np.quantile(qu, 0.05) > np.quantile(qo, 0.05):
+                V, F, N = um
         holes = []
         if forming.FILL_PIERCED:
             V, F, N, holes = forming.fill_pierced_holes(V, F, N, t)
