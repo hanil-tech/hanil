@@ -126,12 +126,16 @@ class FormingInfo:
     V: np.ndarray | None = None   # 제품 (두께 가운데 면) 꼭짓점 (n, 3) — 성형 해석 3D 그림
     cylinders: list = field(default_factory=list)   # 원통 면 (반지름, 축 방향) — 사각 드로잉 귀 R 판정
     membrane: tuple | None = None    # 보정 전 원스텝 (막) 변형률 (major, minor) — 드로잉 보정을 했을 때
+    filled: np.ndarray | None = None  # 막은 피어싱 구멍 자리 삼각형 (성형 뒤 잘려 나감 — 판정·통계에서 뺌)
+    holes: list = field(default_factory=list)   # 막은 구멍 [dict(center, normal, poly, d)]
     correction: dict | None = None   # drawcorr.correct 의 설명 (장력·다이 R·얇아짐 몫)
 
     def _weights(self):
         w = _tri_areas2(self.U, self.F)
         if self.reliable is not None and self.reliable.any():
             w = w * self.reliable
+        if self.filled is not None and self.filled.any() and not self.filled.all():
+            w = w * ~self.filled
         return w / max(w.sum(), 1e-30)
 
     @property
@@ -170,8 +174,12 @@ class FormingInfo:
         넓이 기준 위아래 0.5 % 는 빼서, 메시 탓에 튀는 값이 판정을 흔들지 않게 한다."""
         th = self.thinning
         w = _tri_areas2(self.U, self.F)
+        keep = np.ones(len(th), bool)
         if self.reliable is not None and self.reliable.any():
-            th, w = th[self.reliable], w[self.reliable]
+            keep &= self.reliable
+        if self.filled is not None and (keep & ~self.filled).any():
+            keep &= ~self.filled
+        th, w = th[keep], w[keep]
         order = np.argsort(th)
         cw = np.cumsum(w[order]) / w.sum()
         lo = th[order][np.searchsorted(cw, 0.005)]
@@ -953,7 +961,23 @@ class SheetMetalUnfolder:
         from . import forming
 
         faces = [self.info[fi].face for fi in sorted(skin)]
+        um = None
+        if forming.UNIFORM_MESH:
+            # 면마다 고른 크기의 메시 (CAD 메시의 바늘 삼각형 부채꼴 대신). CAD 메시보다 먼저 만든다 — CAD 메시가
+            # 있으면 면 안·밖 판정이 그 촘촘한 다각형을 써서 수십 배 느려진다.
+            from . import facemesh
+            try:
+                um = facemesh.mesh(faces)
+            except Exception:
+                um = None
         V, F, N = forming.mesh_faces(self.solid, faces, _diagonal(self.solid))
+        # 구멍 수 (경계 고리) 가 같고 (이음매 틈 없음) 모양이 더 좋을 때만
+        if um is not None and len(forming.boundary_loops(um[1])) == len(forming.boundary_loops(F)) \
+                and np.quantile(forming.quality(*um[:2]), 0.05) > np.quantile(forming.quality(V, F), 0.05):
+            V, F, N = um
+        holes = []
+        if forming.FILL_PIERCED:
+            V, F, N, holes = forming.fill_pierced_holes(V, F, N, t)
         mat = self.settings.mat
         how = {}
         from .diecalc import HOLDER_P, _family
@@ -1001,8 +1025,13 @@ class SheetMetalUnfolder:
                          product_area=area3d, blank_area=area2d,
                          reliable=forming.quality(Vm, F) > 5.0, method=how.get("method", "ARAP"),
                          flc0=mat.flc0_for(t), material=mat.code, V=Vm, cylinders=cyl,
-                         membrane=membrane, correction=corr)
+                         membrane=membrane, correction=corr,
+                         filled=forming.filled_mask(Vm, F, holes, t) if holes else None, holes=holes)
         notes = []
+        if holes:
+            ds = sorted(h["d"] for h in holes)
+            notes.append(f"평평한 판의 구멍 {len(holes)} 개 (지름 {ds[0]:.0f}~{ds[-1]:.0f} mm) 는 성형 뒤 피어싱으로 보고 막아서 "
+                         "해석했습니다 (블랭크에도 없음). 세운 구멍 (버링) 은 그대로.")
         if n_free:
             notes.append(f"자유곡면 {n_free}개가 있어 성형품 근사 전개를 했습니다.")
         notes.append("성형품 근사 전개: 블랭크 크기·재료비 추정용입니다. "

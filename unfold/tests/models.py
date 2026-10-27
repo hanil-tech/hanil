@@ -394,8 +394,9 @@ def burring(R=20.0, H=8.0, R_out=50.0, t=1.0, ri=2.0):
     return BRepPrimAPI_MakeRevol(face, gp.OZ_s(), 2 * math.pi).Shape()
 
 
-def _bspline_shell(pts, t, deg=3):
-    """점 격자 (list of rows of (x, y, z)) → B-스플라인 면 → 두께 t 판."""
+def _bspline_shell(pts, t, deg=3, interp=False):
+    """점 격자 (list of rows of (x, y, z)) → B-스플라인 면 → 두께 t 판. interp=True 면 점을 정확히 지나는 3차 보간
+    (촘촘한 격자에서 근사 맞춤이 출렁여 두께 솔리드가 깨지는 것을 피함)."""
     from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
     from OCP.collections import Array2_gp_Pnt as TColgp_Array2OfPnt
     from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
@@ -405,7 +406,12 @@ def _bspline_shell(pts, t, deg=3):
     for i in range(nu):
         for j in range(nv):
             arr.SetValue(i + 1, j + 1, gp_Pnt(*pts[i][j]))
-    surf = GeomAPI_PointsToBSplineSurface(arr, deg, deg, GeomAbs_C2, 1e-3).Surface()
+    if interp:
+        fit = GeomAPI_PointsToBSplineSurface()
+        fit.Interpolate(arr)
+        surf = fit.Surface()
+    else:
+        surf = GeomAPI_PointsToBSplineSurface(arr, deg, deg, GeomAbs_C2, 1e-3).Surface()
     face = BRepBuilderAPI_MakeFace(surf, 1e-6).Face()
     mk = BRepOffsetAPI_MakeThickSolid()
     mk.MakeThickSolidBySimple(face, t)
@@ -612,3 +618,151 @@ def spline_plate(t=2.0, hole_d=12.0):
     solid = BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, t)).Shape()
     solid = drill(solid, 70, 40, -1, hole_d, axis=(0, 0, 1))
     return solid, g.Mass()
+
+
+def _soft(x):
+    """0 → 1 로 매끈하게 (tanh, 몇 번 미분해도 매끈 — B-스플라인 맞춤이 출렁이지 않게)."""
+    return 0.5 * (1 + math.tanh(2.5 * (2 * x - 1)))
+
+
+def biw_floor(L=1100.0, W=800.0, tunnel_w=260.0, tunnel_h=110.0, wall=90.0, beads=4, bead_h=6.0, t=0.8,
+              n=(67, 49), holes=((250, 220, 30.0), (850, 600, 40.0), (550, 120, 20.0), (300, 680, 25.0))):
+    """차체 플로어 패널 대용 (높이 함수 판): 가운데 길이 방향으로 터널 (윗폭 tunnel_w, 높이 tunnel_h, 벽 폭 wall),
+    양쪽 바닥에 가로 비드 (높이 bead_h), 성형 뒤 피어싱하는 평면 구멍들 (x, y, 지름)."""
+    nu, nv = n
+    yc = W / 2
+    rows = []
+    for i in range(nu):
+        x = i / (nu - 1) * L
+        row = []
+        for j in range(nv):
+            y = j / (nv - 1) * W
+            d = abs(y - yc)
+            z = tunnel_h * (1 - _soft((d - tunnel_w / 2) / wall))                 # 터널
+            side = _soft((d - tunnel_w / 2 - wall) / 60) * (1 - _soft((d - (W / 2 - 110)) / 60))
+            for k in range(beads):                                                  # 바닥 가로 비드
+                xb = L * (k + 1) / (beads + 1)
+                z += bead_h * math.exp(-((x - xb) / 22.0) ** 2) * side
+            row.append((x, y, z))
+        rows.append(row)
+    sh = _grid_plate(rows, t)
+    for (x, y, dd) in holes:
+        sh = drill(sh, x, y, 0, dd, axis=(0, 0, 1))
+    return sh
+
+
+def side_member(t=1.6, depth=60.0, top=80.0, flange=20.0, r=5.0, length=600.0, sweep=90.0, kick=60.0):
+    """프론트 사이드 멤버 대용: 햇 단면 (플랜지 flange · 벽 깊이 depth · 윗면 top · R r) 을 위에서 보아 S 자로
+    sweep 만큼 휘고 옆에서 보아 kick 만큼 올라가는 3차 곡선을 따라 쓸어 만든 것."""
+    from OCP.Geom import Geom_BezierCurve
+    from OCP.collections import Array1_gp_Pnt
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipe
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopoDS import TopoDS
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.gp import gp_Ax1
+    steps = [("L", flange), ("B", 90, r), ("L", depth), ("B", -90, r), ("L", top), ("B", -90, r), ("L", depth),
+             ("B", 90, r), ("L", flange)]
+    prof = profile_part(steps, t, 1.0)
+    best = None
+    e = TopExp_Explorer(prof, TopAbs_FACE)
+    while e.More():
+        f = TopoDS.Face(e.Current())
+        g = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(f, g)
+        if abs(g.CentreOfMass().Z()) < 1e-6 and (best is None or g.Mass() > best[0]):
+            best = (g.Mass(), f, g.CentreOfMass())
+        e.Next()
+    face, c = best[1], best[2]
+    # 단면 (XY 평면) 을 경로 시작점의 수직 평면 (YZ) 으로: 단면 X → Y, 단면 Y → Z, 가운데를 원점에
+    tr = gp_Trsf()
+    tr.SetTranslation(gp_Vec(-c.X(), 0, 0))
+    face = BRepBuilderAPI_Transform(face, tr, True).Shape()
+    for ax, ang in (((1, 0, 0), math.pi / 2), ((0, 0, 1), math.pi / 2)):
+        tr = gp_Trsf()
+        tr.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(*ax)), ang)
+        face = BRepBuilderAPI_Transform(face, tr, True).Shape()
+    pts = [(0, 0, 0), (length * 0.35, 0, 0), (length * 0.55, sweep, kick), (length, sweep, kick)]
+    arr = Array1_gp_Pnt(1, 4)
+    for i, p in enumerate(pts):
+        arr.SetValue(i + 1, gp_Pnt(*p))
+    path = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(Geom_BezierCurve(arr)).Edge()).Wire()
+    return BRepOffsetAPI_MakePipe(path, face).Shape()
+
+
+def wheel_house(a=330.0, b=230.0, H=140.0, flange=60.0, t=0.8, n=(45, 35)):
+    """휠하우스 (에이프런) 대용: 타원 둘레 a × b, 깊이 H 의 깊은 사발을 둘레 플랜지 폭 flange 로 (높이 함수 판)."""
+    nu, nv = n
+    A, B = a + flange, b + flange
+    rows = []
+    for i in range(nu):
+        x = -A + 2 * A * i / (nu - 1)
+        row = []
+        for j in range(nv):
+            y = -B + 2 * B * j / (nv - 1)
+            rr = math.sqrt((x / a) ** 2 + (y / b) ** 2)
+            row.append((x, y, -H * (1 - _soft((rr - 0.3) / 0.75))))
+        rows.append(row)
+    return _grid_plate(rows, t)
+
+
+def _grid_plate(rows, t):
+    """점 격자 (위 겉면) → 두께 t 솔리드: 위 면과 법선 쪽으로 t 내린 아래 면을 각각 3차 보간하고, 네 옆면을
+    두 면의 경계선 사이 선직면으로 이어 꿰맨다 (BRepOffset 두께 만들기가 촘촘한 곡면에서 깨지는 것을 피함)."""
+    import numpy as np
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+    from OCP.BRepFill import BRepFill
+    from OCP.BRepAdaptor import BRepAdaptor_Curve
+    from OCP.collections import Array2_gp_Pnt as TColgp_Array2OfPnt
+    from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
+    from OCP.ShapeFix import ShapeFix_Solid
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_SHELL
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    P = np.array(rows, float)
+    du = np.gradient(P, axis=0)
+    dv = np.gradient(P, axis=1)
+    N = np.cross(du, dv)
+    N /= np.linalg.norm(N, axis=2, keepdims=True)
+    if N[..., 2].mean() < 0:
+        N = -N
+    faces = []
+    for Q in (P, P - t * N):
+        arr = TColgp_Array2OfPnt(1, Q.shape[0], 1, Q.shape[1])
+        for i in range(Q.shape[0]):
+            for j in range(Q.shape[1]):
+                arr.SetValue(i + 1, j + 1, gp_Pnt(*Q[i, j]))
+        fit = GeomAPI_PointsToBSplineSurface()
+        fit.Interpolate(arr)
+        faces.append(BRepBuilderAPI_MakeFace(fit.Surface(), 1e-6).Face())
+
+    def edges(f):
+        out = []
+        e = TopExp_Explorer(f, TopAbs_EDGE)
+        while e.More():
+            ed = TopoDS.Edge(e.Current())
+            c = BRepAdaptor_Curve(ed)
+            m = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()))
+            out.append((ed, np.array([m.X(), m.Y(), m.Z()])))
+            e.Next()
+        return out
+    top, bot = edges(faces[0]), edges(faces[1])
+    sw = BRepBuilderAPI_Sewing(1e-4)
+    for f in faces:
+        sw.Add(f)
+    for ed, m in top:
+        eb = min(bot, key=lambda b: np.linalg.norm(b[1] - m))[0]
+        sw.Add(BRepFill.Face_s(ed, eb))
+    sw.Perform()
+    e = TopExp_Explorer(sw.SewedShape(), TopAbs_SHELL)
+    shell = TopoDS.Shell(e.Current())
+    fx = ShapeFix_Solid(BRepBuilderAPI_MakeSolid(shell).Solid())
+    fx.Perform()
+    sol = fx.Solid()
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    g = GProp_GProps()
+    BRepGProp.VolumeProperties_s(sol, g)
+    return sol.Reversed() if g.Mass() < 0 else sol

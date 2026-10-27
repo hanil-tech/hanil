@@ -186,11 +186,13 @@ def correct(V, F, U, major, minor, t, mat, die_r=None, N=None):
     d_iron = np.zeros(len(F))
     necked = np.zeros(len(F), bool)
     # 장력이 없는 곳 (늘어나지 않는 곳) 은 굽혀도 얇아지지 않는다: 늘어나는 (항복한) 곳만 흐름 법칙의 σ1/σ̄
-    local = np.where((eq > 0.002) & (e1 > 0), stress_ratio(e1, e2, r) / hp, 0.0)
+    # 원스텝의 잔 변형 (1 % 안팎, 메시 흔들림) 을 장력으로 보지 않게 ε1 1 → 3 % 에서 0 → 1 로 올린다
+    ramp = np.clip((e1 - 0.01) / 0.02, 0.0, 1.0)
+    local = np.where((eq > 0.002) & (e1 > 0), stress_ratio(e1, e2, r) / hp * ramp, 0.0)
     t_ratio = local.copy()
     r_die = None
     if drawn:
-        cav = hc < h_top - 0.5 * t
+        cav = (hc < h_top - 0.5 * t) | (cz < STEEP)      # 다이 면 아래 (선 벽은 맨 위 줄까지)
         a_open = float(abs((A3[cav] * (nrm[cav] @ z)).sum()))
         if a_open <= 0.05 * a_blank:
             drawn = False

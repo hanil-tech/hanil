@@ -100,9 +100,12 @@ def build(fa) -> Process | None:
     s_crack = np.full(m, np.inf)
     s_risk = np.full(m, np.inf)
     s_wr = np.full(m, np.inf)
+    # 해석이 변형률 밖에서 올린 한계 비 (사각 드로잉 귀의 경험식 등) 는 행정에 비례해 같이 오르게
+    base = flc_risk(e1, e2, fi.flc0, mat) if fi.flc0 > 0 else np.zeros(m)
+    boost = np.where(base > 1e-6, np.maximum(rk / np.maximum(base, 1e-6), 1.0), 1.0)
     for s in S[::-1]:                                 # 거꾸로 돌며 덮어쓰면 가장 작은 s 가 남음
         if fi.flc0 > 0:
-            r = flc_risk(s * e1, s * e2, fi.flc0, mat)
+            r = np.maximum(flc_risk(s * e1, s * e2, fi.flc0, mat) * boost, np.where(base <= 1e-6, s * rk, 0.0))
             s_crack = np.where(r >= 1.0, s, s_crack)
             s_risk = np.where(r >= 1 - fs.MARGIN, s, s_risk)
         thick = -s * (e1 + e2)

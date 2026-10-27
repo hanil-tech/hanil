@@ -34,6 +34,10 @@ class FormingError(Exception):
 
 # ---------------------------------------------------------------- 메시
 
+# 평평한 판의 구멍은 성형 뒤 피어싱으로 보고 막아서 해석 (fill_pierced_holes)
+FILL_PIERCED = True
+# 성형품 근사의 메시: 면마다 고른 크기 (facemesh) — CAD 메시보다 모양이 좋을 때 씀
+UNIFORM_MESH = True
 MAX_MESH_TRIS = 40_000    # CAD 메시가 이보다 많으면 성글게 다시 (큰 외판·촘촘한 B-스플라인에서 수십만 개가 나옴)
 
 
@@ -662,6 +666,12 @@ def _tool_setup(Vm, F, F_all, Ap, tools, n_exp):
         P = Vm[outer]
         seg = np.linalg.norm(P - np.roll(P, -1, axis=0), axis=1)
         w = 0.5 * (seg + np.roll(seg, 1))
+        # 누르개 아래에서 끌려 들어오는 가장자리는 다이 면을 따라 눕는다 (트림선이 수평에 가까움). 벽을 따라 위아래로
+        # 내려가는 경계 (잘린 끝 단면 — 햇 단면 멤버의 끝) 는 끌려 들어오지 않고, 위에서 본 투영이 한 줄로 겹쳐
+        # 저항이 단면을 억지로 당겨 끝 귀퉁이가 100 % 넘게 늘어났다 → 경계 접선이 프레스 방향에 가까운 만큼 뺀다.
+        tg = np.roll(P, -1, axis=0) - np.roll(P, 1, axis=0)
+        tg /= np.maximum(np.linalg.norm(tg, axis=1), 1e-30)[:, None]
+        w = w * (1 - np.abs(tg @ z)) ** 2
         np.add.at(wb, outer, w)
     rd = tools.get("die_r", 5 * t)
     sb_hat = sig_k * t / (2 * rd + t) * cap
@@ -1037,3 +1047,138 @@ def _align_min_box(U):
     if best[2]:
         R = np.array([[0.0, -1.0], [1.0, 0.0]]) @ R
     return U @ R.T
+
+
+# ------------------------------------------------------------------ 피어싱 구멍 막기
+#
+# 차체 부품의 구멍은 대부분 드로잉 뒤 피어싱으로 뚫는다. 구멍이 처음부터 있는 것으로 펼치면 구멍 둘레가
+# 자유 가장자리라 늘어나 버려 (실제로는 판이 이어져 있음) 변형률·블랭크가 틀린다. 평평한 판에 뚫린 구멍
+# (경계가 한 평면에 놓이고 둘레 판이 그 평면과 나란함) 은 막아서 해석하고, 세운 구멍 (버링 — 둘레가 벽) 은
+# 그대로 둔다 (버링은 미리 뚫은 구멍을 넓혀 세움).
+PIERCE_FLAT_DEG = 40.0      # 구멍 둘레 삼각형 법선이 구멍 평면 법선과 이 각 안이면 평평한 구멍 (버링 벽은 약 90°)
+
+
+def fill_pierced_holes(V, F, N=None, t=1.0):
+    """(V, F, N, 막은 구멍 목록 [dict(center, normal, poly, d)]). 바깥 경계 (가장 긴 고리) 는 건드리지 않는다."""
+    from scipy.spatial import Delaunay
+    loops = boundary_loops(F)
+    if len(loops) < 2:
+        return V, F, N, []
+
+    def length(lp):
+        P = V[lp]
+        return float(np.linalg.norm(P - np.roll(P, -1, axis=0), axis=1).sum())
+    outer = max(loops, key=length)
+    fn = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
+    fn /= np.maximum(np.linalg.norm(fn, axis=1), 1e-30)[:, None]
+    vt = {}
+    for ti, tri in enumerate(F):
+        for k in tri:
+            vt.setdefault(int(k), []).append(ti)
+    Vl, Fl, Nl = [V], [F], [N] if N is not None else None
+    nv = len(V)
+    holes = []
+    edge_len = float(np.median(np.linalg.norm(V[F[:, 1]] - V[F[:, 0]], axis=1)))
+    for lp in loops:
+        if lp is outer or len(lp) < 3:
+            continue
+        P = V[lp]
+        c = P.mean(0)
+        _, _, vh = np.linalg.svd(P - c)
+        nrm = vh[2]
+        flat = np.abs((P - c) @ nrm).max()
+        d_eq = 2 * math.sqrt(max(abs(_poly_area2(P, vh)), 1e-12) / math.pi)
+        if flat > max(0.15 * d_eq, 0.5 * t):
+            continue                                   # 휜 구멍 (곡면을 가로지름) — 그대로
+        adj = sorted({ti for k in lp for ti in vt.get(int(k), ())})
+        cosang = np.abs(fn[adj] @ nrm)
+        if np.median(cosang) < math.cos(math.radians(PIERCE_FLAT_DEG)):
+            continue                                   # 둘레가 벽 (버링·세운 구멍) — 그대로
+        # 구멍 평면 위 2D 로: 경계점 + 안쪽 격자 → 들로네, 다각형 안 삼각형만
+        Q = (P - c) @ vh[:2].T
+        step = max(edge_len, 1e-6)
+        lo, hi = Q.min(0), Q.max(0)
+        gx = np.arange(lo[0] + step / 2, hi[0], step)
+        gy = np.arange(lo[1] + step / 2, hi[1], step)
+        G = np.array([(x, y) for x in gx for y in gy]).reshape(-1, 2)
+        if len(G):
+            inside = _in_poly(G, Q)
+            dmin = np.min(np.linalg.norm(G[:, None, :] - Q[None, :, :], axis=2), axis=1) if len(G) * len(Q) < 4e6 \
+                else np.full(len(G), step)
+            G = G[inside & (dmin > 0.5 * step)]
+        pts = np.vstack([Q, G])
+        try:
+            tri = Delaunay(pts).simplices
+        except Exception:
+            continue
+        cen = pts[tri].mean(1)
+        tri = tri[_in_poly(cen, Q)]
+        if not len(tri):
+            continue
+        ids = np.concatenate([np.asarray(lp, int), nv + np.arange(len(G))])
+        newV = c + G @ vh[:2]
+        Ft = ids[tri]
+        # 방향: 이웃 삼각형과 같게 (구멍 경계 모서리 a→b 가 이웃에서 b→a 로 돌면 맞음)
+        a, b = int(lp[0]), int(lp[1])
+        own = None
+        for ti in vt.get(a, ()):
+            tr = list(F[ti])
+            if b in tr:
+                i = tr.index(a)
+                own = tr[(i + 1) % 3] == b              # 이웃이 a→b 로 돎
+                break
+        patch_dir = None
+        for tr in Ft:
+            tr = list(tr)
+            if a in tr and b in tr:
+                i = tr.index(a)
+                patch_dir = tr[(i + 1) % 3] == b
+                break
+        if own is not None and patch_dir is not None and own == patch_dir:
+            Ft = Ft[:, ::-1]
+        Vl.append(newV)
+        Fl.append(Ft)
+        if Nl is not None:
+            nn = np.tile(nrm if (N[lp] @ nrm).mean() >= 0 else -nrm, (len(G), 1))
+            Nl.append(nn)
+        nv += len(G)
+        holes.append(dict(center=c, normal=nrm, poly=P.copy(), d=d_eq))
+    if not holes:
+        return V, F, N, []
+    V2 = np.vstack(Vl)
+    F2 = np.vstack(Fl)
+    N2 = np.vstack(Nl) if Nl is not None else None
+    return V2, F2, N2, holes
+
+
+def _poly_area2(P, vh):
+    Q = (P - P.mean(0)) @ vh[:2].T
+    x, y = Q[:, 0], Q[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
+def _in_poly(pts, poly):
+    """점들이 다각형 안인가 (짝홀 규칙)."""
+    x, y = pts[:, 0][:, None], pts[:, 1][:, None]
+    x1, y1 = poly[:, 0][None, :], poly[:, 1][None, :]
+    x2, y2 = np.roll(poly[:, 0], -1)[None, :], np.roll(poly[:, 1], -1)[None, :]
+    cross = ((y1 > y) != (y2 > y)) & (x < (x2 - x1) * (y - y1) / np.where(y2 - y1 == 0, 1e-30, y2 - y1) + x1)
+    return (cross.sum(1) % 2) == 1
+
+
+def filled_mask(V, F, holes, t=1.0):
+    """막은 구멍 자리 삼각형 (가운데가 구멍 다각형 안 · 구멍 평면에서 t 안)."""
+    m = np.zeros(len(F), bool)
+    if not holes:
+        return m
+    C = V[F].mean(1)
+    for h in holes:
+        c, n, P = h["center"], h["normal"], h["poly"]
+        _, _, vh = np.linalg.svd(P - c)
+        near = np.abs((C - c) @ n) < max(2 * t, 0.15 * h["d"])          # fill 의 평평함 기준과 같게
+        if not near.any():
+            continue
+        Q = (P - c) @ vh[:2].T
+        idx = np.nonzero(near)[0]
+        m[idx] |= _in_poly((C[idx] - c) @ vh[:2].T, Q)
+    return m

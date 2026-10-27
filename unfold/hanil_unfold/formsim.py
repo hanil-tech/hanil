@@ -32,16 +32,20 @@ ZONES = [
 # - SPCC·SECC·SGCC: JIS G 3141 굽힘 시험 180° 밀착 (표준·소둔 질별)
 # - SPFC590: JIS G 3135 180° 안쪽 R 1.0 t (SPFC980Y 는 4.0 t)
 # - SPFC980: Baosteel DP980 냉연 90° 시험 Rmin/t ≈ 2.0 (용융아연 2.2) — 180° 규격값 4.0 t 보다 실제 90° 절곡에 가까움
+# - SPFC440 0.5 t · SPFC780 1.5 t · SPFC1180 3.0 t: AHSS 대표 90° 굽힘 R/t (DP780 1~1.5, 1180 급 2.5~3.5 의 보수 쪽)
 # - AL5052-H32: 0~1 t (The Fabricator, 3.2 mm), AL6061-T6: 2~4 t (FAA AC 43.13 0.375", 현장 자료) → 2.5 t
 # - 그 밖: 재질 굽힘 시험 대표값 (SPHC·SAPH 0.5 t, SS275 1.0 t (JIS G 3101 180° 1.5 t 의 90° 쪽), SUS304 0.5 t …)
 MIN_BEND_RT = {"SPCC": 0.0, "SECC": 0.0, "SGCC": 0.0, "SPHC": 0.5, "SS275": 1.0, "SAPH440": 0.5,
-               "SGARC440": 0.5, "SPFC590": 1.0, "SPFC980": 2.0, "SUS304": 0.5, "SUS430": 1.0,
+               "SGARC440": 0.5, "SPFC440": 0.5, "SPFC590": 1.0, "SPFC780": 1.5, "SPFC980": 2.0, "SPFC1180": 3.0,
+               "SUS304": 0.5, "SUS430": 1.0,
                "AL5052": 1.0, "AL1050": 0.0, "AL6061": 2.5, "C1100": 0.0, "C2600": 0.5}
 # 가장자리 늘림 한계 = 구멍 확장률 HER (ISO 16630, 펀칭한 10 mm 구멍을 60° 원뿔로 넓혀 균열까지):
 # 연강·일반 고장력강 100 % 넘음, AHSS (DP·TRIP 등) 약 50 % (AHSS Insights · The Fabricator 「edge cracking
 # in hole flanging of AHSS」). 그 밖 재질은 공개값을 못 찾아 판정하지 않음 (None).
 HER = {"SPCC": 1.0, "SECC": 1.0, "SGCC": 1.0, "SPHC": 1.0, "SS275": 1.0, "SAPH440": 1.0, "SGARC440": 1.0,
-       "SPFC590": 0.5, "SPFC980": 0.5}
+       "SPFC440": 1.0, "SPFC590": 0.5, "SPFC780": 0.2, "SPFC980": 0.5}
+# SPFC780 0.2: DP780 펀칭 구멍 약 14 %, 밀링·워터젯 약 38 % (MIT, Engineering Fracture Mechanics 2014) — 펀칭 기준의 보수 쪽.
+# SPFC1180 은 공개값을 못 찾아 판정하지 않음 (소재 업체 값 권장).
 THIN_MAX = 0.25        # 과도 얇아짐 기준 (문헌 관례 25 % 또는 30 %)
 STRETCH_MIN = 0.03     # 늘림 부족: 얇아짐·주 변형률 3 % 미만 (스프링백·면 결함 기준 3~5 %)
 MARGIN = 0.20          # 파단 위험 = FLC 아래 20 % 안 (LS-DYNA 기본 안전 여유 20 %, 문헌 10~20 %)
@@ -91,6 +95,7 @@ class FormAnalysis:
     edge: tuple = ()                 # (가장자리 늘림 최대, 어디, HER 한계 또는 None)
     box: tuple = ()                  # 사각 드로잉 (귀 R, 깊이, 깊이/R)
     box_ng: bool = False
+    corner_floor: float = 0.0        # 사각 드로잉 귀에 깐 경험식 한계 비 (0 = 없음)
     edge_verdict: str = OK
     edge_pt: object = None           # 가장자리 늘림이 가장 큰 점 (제품 3D)
     draw_geom: dict = field(default_factory=dict)   # 드로잉: 둘레·깊이 (하중-행정 곡선용)
@@ -301,8 +306,59 @@ def _box_corners(fa, fi, z, depth, t):
         fa.box_ng = True
     else:
         fa.messages.append(f"사각 드로잉 깊이 / 귀 R = {hr:.1f} ≤ {BOX_HR:g} — 한 번 드로잉 범위 (MetalForming 경험식)")
+    _corner_risk(fa, fi, z, r, hr)
     if r < 5 * t:
         fa.messages.append(f"귀 R {r:g} < 5 t ({5 * t:g} mm) — 귀가 터지기 쉬움, R 을 키우세요")
+
+
+CORNER_RISK = True     # 사각 드로잉 귀의 한계 비에 경험식 (깊이/귀 R ÷ BOX_HR) 을 바닥 삼각형으로 깐다
+
+
+def _corner_risk(fa, fi, z, r, hr):
+    """원스텝 (전변형) 은 깊은 사각 드로잉의 귀 터짐을 작게 본다 (귀로 몰리는 플랜지 압축·장력의 역사를 못 봄 —
+    H/R 10 의 오일 팬도 한계 비 0.8 안팎). 그래서 귀 벽 아래 절반 (터지는 곳: 펀치 R 위 벽) 의 한계 비를
+    경험식 이용률 (깊이 / 귀 R) / BOX_HR 아래로 내려가지 않게 한다 — 판정 (한 번에 못 당김) 과 3D 그림이 같은 말을 하게."""
+    if not CORNER_RISK or fa.fields is None or fi.V is None:
+        return
+    from .drawcorr import _curvature_along
+    V, F = fi.V, fi.F
+    p0, p1, p2 = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    n = np.cross(p1 - p0, p2 - p0)
+    n /= np.maximum(np.linalg.norm(n, axis=1), 1e-30)[:, None]
+    from .forming import boundary_loops
+    hv = V @ z
+    loops = boundary_loops(F)
+    if loops:                                           # 트림선 (바깥 경계) 이 있는 쪽이 다이 면 — 바닥은 반대쪽
+        outer = max(loops, key=len)
+        if hv[outer].mean() < hv.mean():
+            hv = -hv
+    h = hv[F].mean(1)
+    lo, hi = float(hv.min()), float(hv.max())
+    hoop = np.cross(z, n)                               # 벽 위의 수평 방향
+    ln = np.linalg.norm(hoop, axis=1)
+    wall = (ln > 0.85)                                  # 거의 선 벽
+    hoop[wall] /= ln[wall, None]
+    kap = np.zeros(len(F))
+    kap[wall] = _curvature_along(V, F[wall], forming_normals(V, F), hoop[wall]) if wall.any() else 0
+    corner = wall & (kap > 1 / (1.6 * r)) & (kap < 1 / (0.6 * r)) & (h < lo + 0.5 * (hi - lo))
+    if not corner.any():
+        return
+    u = hr / BOX_HR
+    e1, e2, th, rk = fa.fields
+    rk = np.where(corner, np.maximum(rk, u), rk)
+    fa.fields = (e1, e2, th, rk)
+    fa.zone = zones(fi, fa.fields)
+    w = fi._weights()
+    fa.zone_frac = [float(w[fa.zone == i].sum()) for i in range(len(ZONES))]
+    fa.risk_top = max(fa.risk_top, _wq(rk, w, 0.995))
+    fa.corner_floor = u
+    fa.messages.append(f"사각 드로잉 귀 벽 아래 (펀치 R 위) 한계 비를 경험식 이용률 {u:.2f} (깊이/귀 R {hr:.1f} ÷ {BOX_HR:g}) "
+                       "아래로 내리지 않음 — 원스텝은 깊은 귀의 터짐을 작게 봄")
+
+
+def forming_normals(V, F):
+    from .forming import vertex_normals
+    return vertex_normals(V, F)
 
 
 def _edge_stretch(fa, fi, mat):
@@ -411,7 +467,7 @@ def analyze(result, settings: bc.BendSettings) -> FormAnalysis:
     if fi is not None and fi.flc0 > 0:
         fa.messages.append(f"성형 한계 (FLC): " + (f"{mat.code} 실측 FLC ({len(_fm.MEASURED_FLC[mat.code])} 점, ISO 12004-2)"
                                                  if mat.code in _fm.MEASURED_FLC else
-                                                 f"Keeler 식 (t {t:g}, n {mat.n:g}) — 소재 업체 실측 FLC 를 넣으면 더 정확"))
+                                                 f"Keeler 식 (t {round(t, 2):g}, n {mat.n:g}) — 소재 업체 실측 FLC 를 넣으면 더 정확"))
     fa.messages.append(f"재질값: {mat.source} — TS {mat.tensile_mpa:g} MPa · YS {dc.yield_strength(mat):g} MPa · "
                        f"n {mat.n:g} · r̄ {mat.r:.2f}" + (f" · Δr {mat.dr:+.2f}" if mat.dr else "")
                        + ("" if mat.source != "대표값" else " (밀시트 값을 넣으면 더 정확: 절곡 조건 → [밀시트 실측값])"))
@@ -474,8 +530,21 @@ def load_rows(fa: FormAnalysis):
 VIEWS = ["성형성 존", "두께 변화 %", "두께 mm", "주 변형률", "성형 한계 비"]
 
 
+FILLED_RGB = (225, 225, 228)
+
+
 def tri_colors(fa: FormAnalysis, view: str):
-    """삼각형별 색 (m, 3) 과 범례 [(글, RGB)]."""
+    """삼각형별 색 (m, 3) 과 범례 [(글, RGB)]. 막은 피어싱 구멍 자리는 옅은 회색."""
+    cols, leg = _tri_colors(fa, view)
+    filled = getattr(fa.fi, "filled", None) if fa.fi is not None else None
+    if filled is not None and filled.any():
+        cols = np.array(cols, float)
+        cols[filled] = FILLED_RGB
+        leg = list(leg) + [("피어싱 구멍 (막고 해석)", FILLED_RGB)]
+    return cols, leg
+
+
+def _tri_colors(fa: FormAnalysis, view: str):
     from .drawing import THIN_LIMIT, thinning_color
     fi = fa.fi
     if view == VIEWS[0]:
@@ -597,7 +666,7 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
         p.setPen(QColor(30, 30, 30))
         p.setFont(_font(12, True))
         p.drawText(QRectF(rect.left(), rect.top() + 4, rect.width(), 24), Qt.AlignCenter,
-                   f"제품 성형 해석 — {view}  ({fa.material}, t {fa.thickness:g}, 판정 {fa.verdict})")
+                   f"제품 성형 해석 — {view}  ({fa.material}, t {round(fa.thickness, 2):g}, 판정 {fa.verdict})")
         p.setFont(_font(9))
         n = min(len(leg), per_row)
         bw = min(170.0, (rect.width() - 20) / max(n, 1))
@@ -657,7 +726,7 @@ def add_sheets(wb, fa: FormAnalysis, name="", first=False):
         ws.title = "성형 해석"
     else:
         ws = wb.create_sheet("성형 해석")
-    ws["A1"] = f"제품 성형 해석 — {name}  ({fa.material}, t {fa.thickness:g}, n {fa.n:g}, r {fa.r:g})"
+    ws["A1"] = f"제품 성형 해석 — {name}  ({fa.material}, t {round(fa.thickness, 2):g}, n {fa.n:g}, r {fa.r:g})"
     ws["A1"].font = Font(bold=True, size=13)
     ws.cell(1, 8, company.MAKER)
     ws["A2"] = f"판정: {fa.verdict} · FLC0 {fa.flc0:.3f} · 권장 프레스 {fa.press_tonf:.1f} tf"
@@ -744,7 +813,7 @@ def _explain_sheet(wb, fa: FormAnalysis, name=""):
     wrap = Alignment(wrap_text=True, vertical="top")
     for col, wd in zip("ABCDEFGHI", (7, 14, 34, 9, 34, 8, 50, 55, 60)):
         ws.column_dimensions[col].width = wd
-    ws["A1"] = f"성형 해석 설명 — {name}  ({fa.material}, t {fa.thickness:g})"
+    ws["A1"] = f"성형 해석 설명 — {name}  ({fa.material}, t {round(fa.thickness, 2):g})"
     ws["A1"].font = Font(bold=True, size=13)
     ws["A2"] = ex.headline
     ws["A2"].font = Font(bold=True, color={OK: "2A8C3C", WARN: "C87F00", NG: "D22828"}[ex.verdict])
@@ -917,7 +986,7 @@ def save_pdf(fa: FormAnalysis, path, name=""):
         return [[v if isinstance(v, str) else f"{v:.1%}" if j in pct else f"{v:,.2f}" for j, v in enumerate(r)]
                 for r in rows]
 
-    y = header(f"제품 성형 해석 — {name}  ({fa.material}, t {fa.thickness:g}) · 판정 {fa.verdict}")
+    y = header(f"제품 성형 해석 — {name}  ({fa.material}, t {round(fa.thickness, 2):g}) · 판정 {fa.verdict}")
     if fa.mode == "forming":
         p.drawImage(R(m, y, 250, 190), render_product(fa, VIEWS[0], 1500, 1140))
         x2 = m + 256
