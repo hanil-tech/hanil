@@ -184,7 +184,7 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
     # 그림 자리: 왼쪽 (표제란 위), 오른쪽 구멍표
     area_x, area_y = MARGIN + 12, MARGIN + TB_H + 16
     area_w, area_h = W * 0.58, H - area_y - MARGIN - 14
-    s, sh.scale = _pick_scale(dx, dy + dz + 30 / 1.0, area_w, area_h - 24)
+    s, sh.scale = _pick_scale(dx + dy + 14, dy + dz + 30 / 1.0, area_w, area_h - 24)   # 정면도 옆에 우측면도
     # 평면도 (위) · 정면도 (아래, 3각법)
     fx = area_x + 10
     fy_front = area_y + 6
@@ -280,7 +280,22 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
             xa_, xb_ = max(P[:, 0].min(), x0), min(P[:, 0].max(), x0 + dx)
             za, zb = max(c[2], z0), min(c[2] + c[3], z0 + dz)
             sh.rect(*F(xa_, za), (xb_ - xa_) * s, (zb - za) * s, "HIDDEN", 0.25)
-    sh.dim_v(F(0, z0)[1], F(0, z0 + dz)[1], F(x0 + dx, 0)[0], F(x0 + dx, 0)[0] + 12, _num(dz))
+    # 우측면도 (정면도 오른쪽, 3각법): 오른쪽에서 본 y–z — 숨은선 지운 정투상 (구멍 = 파선)
+    rx = F(x0 + dx, 0)[0] + 14
+    try:
+        from . import dieview
+        vis, hid = dieview.hlr([d3._solid(pr)], view=dieview.RIGHT[0], hidden=True, up=dieview.RIGHT[1])
+        for P in hid:
+            sh.poly([(rx + (q[0] - y0) * s, fy_front + (q[1] - z0) * s) for q in P], False, "HIDDEN", 0.25)
+        for P in vis:
+            sh.poly([(rx + (q[0] - y0) * s, fy_front + (q[1] - z0) * s) for q in P], False, "OUTLINE", 0.5)
+        sh.dim_h(rx, rx + dy * s, fy_front, fy_front - 6, _num(dy))
+        sh.text(rx, fy_front + dz * s + 4, "우측면도", 3.0, "L", bold=True)
+        side_ok = True
+    except Exception:  # noqa: BLE001
+        side_ok = False
+    sh.dim_v(F(0, z0)[1], F(0, z0 + dz)[1], F(x0, 0)[0] if side_ok else F(x0 + dx, 0)[0],
+             F(x0, 0)[0] - 8 if side_ok else F(x0 + dx, 0)[0] + 12, _num(dz))
     sh.text(fx, fy_top + dy * s + 16, "평면도", 3.0, "L", bold=True)
     sh.text(fx, fy_front + dz * s + 4, "정면도", 3.0, "L", bold=True)
     # 주기 (아래부터) · 입체도 (그 위) · 구멍 좌표표 (맨 위)
@@ -896,6 +911,98 @@ def section_sheet(assy: d3.DieAssy, info, number, cache, y_cut=0.0):
     return sh
 
 
+# ---------------------------------------------------------------- 3면도 (평면도 · 정면도 · 우측면도, 3각법)
+
+def _bbox3(shapes):
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    b = Bnd_Box()
+    for s_ in shapes:
+        try:
+            BRepBndLib.AddOptimal_s(s_, b, False, False)        # 딱 맞는 상자 (B-스플라인 면도 부풀리지 않음)
+        except Exception:  # noqa: BLE001
+            BRepBndLib.Add_s(s_, b)
+    p0, p1 = b.CornerMin(), b.CornerMax()
+    return np.array([p0.X(), p0.Y(), p0.Z()]), np.array([p1.X(), p1.Y(), p1.Z()])
+
+
+def _views3(sh, shapes, x0, y0, w, h, work=None, gap=16.0, dims=True, hidden=True):
+    """3각법 세 그림을 칸 (x0, y0, w, h) 에: 정면도 왼쪽 아래, 평면도 그 위, 우측면도 그 오른쪽 — 숨은선 (HLR) 까지.
+    축척은 표준 척도 (1:1, 1:2 …) 에서. 돌려줌: (척도 s, {이름: 변환}) — 변환 T(a, b) 는 그 그림의 2D 좌표 → 종이."""
+    from . import dieview
+    lo, hi = _bbox3(shapes)
+    L, Wd, H = hi - lo
+    g = gap
+    s, label = SCALES[-1][0] / SCALES[-1][1], f"{SCALES[-1][0]}:{SCALES[-1][1]:g}"
+    for a_, b_ in SCALES:                                  # 큰 척도부터: 세 그림 + 사이 + 치수 자리가 칸에 들어가면
+        k = a_ / b_
+        if (L + Wd) * k + g + 24 <= w and (Wd + H) * k + g + 22 <= h:
+            s, label = k, (f"{a_}:{b_:g}" if b_ != 1 else "1:1")
+            break
+    sh.scale = label
+    fx = x0 + 14 + max(0.0, (w - 24 - (L + Wd) * s - g) / 2)          # 가운데로
+    fy = y0 + 10 + max(0.0, (h - 22 - (Wd + H) * s - g) / 2)
+    ty = fy + H * s + g
+    rx = fx + L * s + g
+    T = {"정면도": lambda a, b: (fx + (a - lo[0]) * s, fy + (b - lo[2]) * s),
+         "평면도": lambda a, b: (fx + (a - lo[0]) * s, ty + (b - lo[1]) * s),
+         "우측면도": lambda a, b: (rx + (a - lo[1]) * s, fy + (b - lo[2]) * s)}
+    views = {"정면도": dieview.FRONT, "평면도": dieview.TOP, "우측면도": dieview.RIGHT}
+    for nm, (v, up) in views.items():
+        vis, hid = dieview.hlr(shapes, view=v, hidden=hidden, up=up)
+        for P in hid:
+            sh.poly([T[nm](*q) for q in P], False, "HIDDEN", 0.18)
+        for P in vis:
+            sh.poly([T[nm](*q) for q in P], False, "OUTLINE", 0.35)
+        if work:
+            for P3, tag in work:
+                Q = [dieview.project_point(q, v, up) for q in P3]
+                sh.poly([T[nm](*q) for q in Q], False, "PART" if tag == "before" else "PART2", 0.5 if tag == "before" else 0.3)
+    sh.text(fx, fy + H * s + 3, "정면도", 2.8, "L", bold=True)
+    sh.text(fx, ty + Wd * s + 3, "평면도", 2.8, "L", bold=True)
+    sh.text(rx, fy + H * s + 3, "우측면도", 2.8, "L", bold=True)
+    if dims:
+        y_ = fy - 4
+        sh.dim_h(T["정면도"](lo[0], 0)[0], T["정면도"](hi[0], 0)[0], fy, y_ - 2, _num(L, 1))
+        sh.dim_v(T["정면도"](0, lo[2])[1], T["정면도"](0, hi[2])[1], fx, fx - 6, _num(H, 1))
+        sh.dim_v(T["평면도"](0, lo[1])[1], T["평면도"](0, hi[1])[1], fx, fx - 6, _num(Wd, 1))
+        sh.dim_h(T["우측면도"](lo[1], 0)[0], T["우측면도"](hi[1], 0)[0], fy, y_ - 2, _num(Wd, 1))
+    return s, T, (lo, hi)
+
+
+def ortho_sheet(assy: d3.DieAssy, info, number, cache):
+    """금형 3면도: 평면도 · 정면도 · 우측면도 (열린 상태, 숨은선, 금형 안 제품) + 닫힌 높이 · 열린 높이."""
+    sh = Sheet("금형 3면도 (평면 · 정면 · 우측면)", number, A3, material="-", qty=1,
+               weight=sum(p.weight * p.qty for p in assy.parts))
+    W, H = sh.size
+    sol = [s_ for _, _, s_ in _solids(assy, cache)]
+    y0 = MARGIN + TB_H + 6
+    s, T, (lo, hi) = _views3(sh, sol, MARGIN + 6, y0, W - 2 * MARGIN - 12, H - MARGIN - 8 - y0,
+                             work=getattr(assy, "work", None))
+    xr = T["우측면도"](hi[1], 0)[0] + 10
+    zs = T["우측면도"](0, assy.shut)[1]
+    sh.line(xr - 8, zs, xr + 4, zs, "DIM", 0.18)
+    sh.text(xr + 5, zs - 1.0, f"닫힌 높이 {assy.shut:.1f} (하사점)", 2.2, "L", "DIM")
+    zo = T["우측면도"](0, hi[2])[1]
+    sh.text(xr + 5, zo + (3.0 if abs(zo - zs) < 5 else -1.0), f"열린 높이 {assy.open_h:.1f}", 2.2, "L", "DIM")
+    sh.text(MARGIN + 16, H - MARGIN - 6, "3각법 · 열린 상태 · 숨은선 = 파선"
+            + (" · 제품: 자주 굵은 선 = 공정 전, 가상선 = 하사점" if getattr(assy, "work", None) else ""), 2.4, "L")
+    return sh
+
+
+def product_views_sheet(assy, info, number):
+    """제품 3면도: 3D 모델의 평면도 · 정면도 · 우측면도 (숨은선) + 바깥 치수."""
+    solid = info.get("solid")
+    sh = Sheet("제품 3면도 (평면 · 정면 · 우측면)", number, A3, material=info.get("material", ""), qty=1,
+               weight=float(assy.usage.get("part_kg", 0.0)) if assy.usage else 0.0)
+    W, H = sh.size
+    y0 = MARGIN + TB_H + 6
+    _views3(sh, [solid], MARGIN + 6, y0, W - 2 * MARGIN - 12, H - MARGIN - 8 - y0)
+    sh.text(MARGIN + 16, H - MARGIN - 6, f"{info.get('product', '')} · {info.get('material', '')} — 3각법 · 숨은선 = 파선 · "
+            "치수 = 바깥 크기 (전개 치수는 제품도 · 전개도 장)", 2.4, "L")
+    return sh
+
+
 # ---------------------------------------------------------------- 묶음 · 출력
 
 
@@ -914,7 +1021,10 @@ def build(assy: d3.DieAssy, info=None):
         index.append((f"{pre}-02", "스트립 배치도"))
     if product:
         index.append((f"{pre}-03", "제품도 · 전개도"))
-    index += [(f"{pre}-04", "입체 조립도 · 분해도"), (f"{pre}-05", "단면도 A-A")]
+    if product and info.get("solid") is not None:
+        index.append((f"{pre}-06", "제품 3면도"))
+    index += [(f"{pre}-07", "금형 3면도 (평면 · 정면 · 우측면)"), (f"{pre}-04", "입체 조립도 · 분해도"),
+              (f"{pre}-05", "단면도 A-A")]
     index += [(f"{pre}-{p.no + 10:02d}", f"{p.no:02d} {p.name} (입체도 옆)") for p in parts]
     num = {nm: nb for nb, nm in index}
     cache = {}
@@ -923,7 +1033,13 @@ def build(assy: d3.DieAssy, info=None):
         sheets.append(strip_sheet(assy, info, num["스트립 배치도"]))
     if product:
         sheets.append(product_sheet(assy, info, num["제품도 · 전개도"]))
-    for fn, nm in ((iso3d_sheet, "입체 조립도 · 분해도"), (section_sheet, "단면도 A-A")):
+    if "제품 3면도" in num:
+        try:
+            sheets.append(product_views_sheet(assy, info, num["제품 3면도"]))
+        except Exception:  # noqa: BLE001
+            index = [q for q in index if q[1] != "제품 3면도"]
+    for fn, nm in ((ortho_sheet, "금형 3면도 (평면 · 정면 · 우측면)"), (iso3d_sheet, "입체 조립도 · 분해도"),
+                   (section_sheet, "단면도 A-A")):
         ix = [k for k, (_, n_) in enumerate(index) if n_ == nm][0]
         try:
             kw = {"y_cut": info["y_cut"]} if fn is section_sheet and "y_cut" in info else {}

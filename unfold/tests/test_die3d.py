@@ -400,9 +400,28 @@ def test_3d_sheets(plate):
     _, _, a = plate
     sheets = diedraw.build(a, {"product": "판", "material": "SPCC t2"})
     titles = [s.title for s in sheets]
-    assert titles[4:6] == ["입체 조립도 · 분해도", "단면도 A-A"]
-    iso = sheets[4]
+    assert titles[4:7] == ["금형 3면도 (평면 · 정면 · 우측면)", "입체 조립도 · 분해도", "단면도 A-A"]
+    iso = sheets[5]
     assert sum(1 for e in iso.ents if e[0] == "circle") > len(a.parts)        # 풍선
-    sec = sheets[5]
+    sec = sheets[6]
     assert sum(1 for e in sec.ents if e[0] == "line" and e[5] == "HATCH") > 100
     assert any(e[0] == "text" and e[3] == "A" for e in sheets[1].ents)
+
+
+def test_three_view_sheets(plate):
+    """3각법 3면도: 금형 (평면 · 정면 · 우측면, 숨은선) · 제품 3면도 (3D 가 있으면) · 부품도마다 우측면도."""
+    from hanil_unfold import diedraw
+    r, _, a = plate
+    s, _ = models.spline_plate(t=2.0, hole_d=12.0)
+    sheets = diedraw.build(a, {"product": "판", "material": "SPCC t2", "solid": s, "result": r})
+    titles = [x.title for x in sheets]
+    assert "제품 3면도 (평면 · 정면 · 우측면)" in titles
+    ortho = sheets[titles.index("금형 3면도 (평면 · 정면 · 우측면)")]
+    texts = [e[3] for e in ortho.ents if e[0] == "text"]
+    for nm in ("평면도", "정면도", "우측면도"):
+        assert nm in texts
+    assert sum(1 for e in ortho.ents if e[0] == "poly" and e[3] == "HIDDEN") > 50      # 숨은선
+    assert sum(1 for e in ortho.ents if e[0] == "poly" and e[3] == "OUTLINE") > 50
+    assert f"{a.L:g}" in texts or any(t.startswith(f"{a.L:.0f}") for t in texts)         # 바깥 치수 (L)
+    die = sheets[titles.index("다이 플레이트")]
+    assert "우측면도" in [e[3] for e in die.ents if e[0] == "text"]

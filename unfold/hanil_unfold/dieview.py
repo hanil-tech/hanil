@@ -56,7 +56,7 @@ def projector(view=ISO_DIR, up=(0.0, 0.0, 1.0)):
     return HLRAlgo_Projector(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(*v), gp_Dir(*xd)))
 
 
-def hlr(shapes, view=ISO_DIR, hidden=False, poly=False):
+def hlr(shapes, view=ISO_DIR, hidden=False, poly=False, up=(0.0, 0.0, 1.0)):
     """숨은선 제거: (보이는 선, 숨은 선) — 투영 평면 (화면 x 오른쪽, y 위) 의 꺾은선 목록.
     poly: 메시로 (HLRBRep_PolyAlgo — 큰 조립품에서 빠름)."""
     from OCP.BRep import BRep_Builder
@@ -66,7 +66,7 @@ def hlr(shapes, view=ISO_DIR, hidden=False, poly=False):
     bld.MakeCompound(comp)
     for s in shapes:
         bld.Add(comp, s)
-    pr = projector(view)
+    pr = projector(view, up)
     if poly:
         from OCP.BRepMesh import BRepMesh_IncrementalMesh
         from OCP.HLRBRep import HLRBRep_PolyAlgo, HLRBRep_PolyHLRToShape
@@ -98,6 +98,12 @@ def hlr(shapes, view=ISO_DIR, hidden=False, poly=False):
             except Exception:  # noqa: BLE001
                 pass
     return vis, hid
+
+
+# 3각법 정투상 (보는 쪽 방향, 화면 위): 정면도 = 앞 (−y) 에서 (x, z), 평면도 = 위에서 (x, y), 우측면도 = 오른쪽 (+x) 에서 (y, z)
+FRONT = ((0.0, -1.0, 0.0), (0.0, 0.0, 1.0))
+TOP = ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
+RIGHT = ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
 
 
 def project_point(p, view=ISO_DIR, up=(0.0, 0.0, 1.0)):
