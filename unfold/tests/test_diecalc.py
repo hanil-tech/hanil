@@ -71,7 +71,9 @@ def test_clearance_by_material():
     assert dc.clearance_pct(bc.MATERIAL_BY_CODE["AL1050"], 1) == 5
     assert dc.clearance_pct(SPCC, 1) == 7
     assert dc.clearance_pct(bc.MATERIAL_BY_CODE["SUS304"], 1) == 9
-    assert dc.clearance_pct(bc.MATERIAL_BY_CODE["SPFC980"], 4) == 12
+    assert dc.clearance_pct(bc.MATERIAL_BY_CODE["SPFC980"], 4) == 15       # AHSS 넓게 (DP980 15 %)
+    assert dc.clearance_pct(bc.MATERIAL_BY_CODE["SPFC780"], 2) == 12
+    assert dc.clearance_pct(bc.MATERIAL_BY_CODE["SPFC1180"], 1.2) == 18
 
 
 def rect(w, h):

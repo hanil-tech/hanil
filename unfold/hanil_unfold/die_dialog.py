@@ -208,7 +208,17 @@ class DieDialog(QDialog):
                 plan = pp if pp is not None and getattr(pp, "kind", "") == "progressive" else None
             except Exception:
                 plan = None
-            assy = die3d.build(self.result, self.settings, plan=plan)
+            from PySide6.QtCore import QSettings
+            from PySide6.QtWidgets import QInputDialog
+
+            from . import quote as qt_
+            tols = ["m (보통)", "f (정밀)", "c (거침)"]
+            pick, ok = QInputDialog.getItem(self, "일반 공차", "도면에 공차가 없는 치수의 일반 공차 (ISO 2768) — "
+                                            "날 치수 마모 여유에 씀", tols, 0, False)
+            if not ok:
+                return
+            machines = qt_.load_rates(QSettings("Hanil", "SheetUnfold").value("quote_rates", ""))["costing"]["machines"]
+            assy = die3d.build(self.result, self.settings, plan=plan, tol=pick[0], machines=machines)
             out = [die3d.save_step(assy, stem + ".step"), die3d.save_pdf(assy, stem + "_조립도.pdf", self.name),
                    die3d.save_xlsx(assy, stem + "_파트리스트.xlsx", self.name),
                    die3d.save_dxf(assy, stem + "_가공도.dxf")]

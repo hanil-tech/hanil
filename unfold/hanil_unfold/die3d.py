@@ -31,6 +31,15 @@ RETRACT = 1.0         # 열림에서 펀치 끝이 스트리퍼 안으로 들어
 REGRIND = 3.0         # 펀치·다이 재연마 여유 (스프링·스트리퍼 볼트 자리)
 DENSITY = 7.85e-6     # kg/mm³ (강)
 PUNCH_SIGMA = 1500.0  # 피어싱 펀치 허용 압축 응력 MPa (SKH51 어림)
+# 파단까지 펀치가 들어가는 깊이 / t (전단 에너지 W = F · t · k) — 무를수록 깊게 (교재 어림: 연강 0.4~0.6, 경강 0.2~0.3)
+PENETRATION = [(300, 0.55), (450, 0.45), (600, 0.38), (800, 0.30), (1200, 0.22), (1e9, 0.15)]
+
+
+def penetration(mat):
+    for ts, k in PENETRATION:
+        if mat.tensile_mpa < ts:
+            return k
+    return 0.15
 # STEP 안의 부품 이름 (영문 — 한글은 CAD 마다 STEP 문자 인코딩이 달라 깨짐)
 EN = {"하형 다이 세트": "LOWER DIE SET", "다이 받침판": "DIE BACKING PLATE", "다이 플레이트": "DIE PLATE",
       "스트리퍼 플레이트": "STRIPPER PLATE", "펀치 플레이트": "PUNCH PLATE", "펀치 받침판": "PUNCH BACKING PLATE",
@@ -109,6 +118,9 @@ class DieAssy:
     stroke: float = 0.0                           # 필요한 프레스 행정 (어림)
     strip: tuple = (0.0, 0.0)                     # (피치, 스트립 폭)
     spring: object = None
+    edges: list = field(default_factory=list)      # 날 치수표
+    press: dict = field(default_factory=dict)      # 프레스 하중·에너지·고른 프레스
+    usage: dict = field(default_factory=dict)      # 스트립 재료 이용
 
     def rows(self):
         return [[p.no, p.name, p.qty, p.material, p.size, "표준품" if p.std else "가공품",
@@ -120,6 +132,7 @@ class DieAssy:
 
 HEAD = ["번호", "품명", "수량", "재질", "크기 (mm)", "구분", "단중 (kg)", "비고 · 주문 규격"]
 CHECK_HEAD = ["점검 항목", "값", "기준", "판정"]
+EDGE_HEAD = ["날", "호칭 (mm)", "일반 공차", "마모 계수 x", "한쪽 옮김", "다이 날", "펀치", "한쪽 클리어런스"]
 
 
 class _NoRoom(Exception):
@@ -330,8 +343,9 @@ def _layout(result, t, plan):
     return ops, pil, (P + L, Wst), (P, Wst), "2 공정 (피어싱 → 블랭킹)", blank, holes
 
 
-def build(result, settings: bc.BendSettings, kind=None, plan=None):
-    """전개 결과 하나의 금형 조립. plan: 순차 금형 공정도 (process.ProcessPlan) — 있으면 스트립 길이·공정 자리로."""
+def build(result, settings: bc.BendSettings, kind=None, plan=None, tol="m", machines=None):
+    """전개 결과 하나의 금형 조립. plan: 순차 금형 공정도 (process.ProcessPlan) — 있으면 스트립 길이·공정 자리로.
+    tol: 일반 공차 등급 (ISO 2768 f / m / c) — 날 치수 (마모 여유) 에. machines: 프레스 목록 (costing 꼴, 없으면 예시)."""
     t = result.thickness
     ops, pilots, work, strip, kname, blank, holes = _layout(result, t, plan)
     # 압력 중심이 금형 가운데 (프레스 슬라이드 가운데) 에 오게 이송 방향으로 옮김
@@ -343,13 +357,14 @@ def build(result, settings: bc.BendSettings, kind=None, plan=None):
     for k in range(8):
         try:
             return _assemble(result, settings, kind or kname, plan, t, ops, pilots, work, strip, blank, holes,
-                             extra=10.0 * k)
+                             extra=10.0 * k, tol=tol, machines=machines)
         except _NoRoom:
             continue
     raise ValueError("표준 부품 자리를 못 찾았습니다 (여유 70 mm 넓혀도) — 손으로 배치하세요")
 
 
-def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, holes, extra=0.0):
+def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, holes, extra=0.0, tol="m",
+              machines=None):
     mat = settings.mat
     tau = dc.shear_strength(mat)
     polys = [P for P, _ in ops]
@@ -409,15 +424,28 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     upper_shoe = Prim(BOX, (-Ls / 2, -Ws / 2, z_us, Ls, Ws, tus))
 
     # 날: 다이는 클리어런스만큼 넓혀 랜드, 아래는 한쪽 0.5 더 (빠짐), 받침판·하형 세트는 떨어질 구멍
-    for P, k in ops:
-        Po = _offset(P, clr)
-        die.cuts.append((Po, 0.0, z_die_top - land, land + 1))
-        die.cuts.append((Po, 0.5, z_die - 1, H - land + 1))
-        back.cuts.append((Po, 1.0))
-        lower.cuts.append((Po, 2.0))
-        stripper.cuts.append((P, 0.05))           # 펀치 안내 (블랭킹 펀치도)
-        if not (k == "pierce" and _is_round(P)):
-            pp.cuts.append((P, 0.0))              # 펀치 고정 (끼워 맞춤) — 둥근 펀치는 H7 구멍으로
+    # 날 치수 (마모 여유): 블랭킹 — 다이 = 최대 − xΔ, 펀치 = 다이 − 2c / 피어싱 — 펀치 = 최소 + xΔ, 다이 = 펀치 + 2c
+    edges = []
+    punch_of = {}
+    for i, (P, k) in enumerate(ops):
+        blank_ = k == "blank"
+        rnd = _is_round(P)
+        nom = _circle_d(P)[0] if rnd and not blank_ else float(max(np.ptp(P[:, 0]), np.ptp(P[:, 1])))
+        T, dl, x, sh = ds.size_edges(nom, t, tol, blank=blank_)
+        Pd = _offset(P, sh + (0.0 if blank_ else clr))   # 다이 날
+        Pp = _offset(P, sh - (clr if blank_ else 0.0))   # 펀치
+        punch_of[i] = Pp
+        def dims(Q, rnd=rnd, blank_=blank_):
+            return f"Ø{_circle_d(Q)[0]:.3f}" if rnd and not blank_ else f"{np.ptp(Q[:, 0]):.3f} × {np.ptp(Q[:, 1]):.3f}"
+        edges.append(["블랭킹 (외곽)" if blank_ else "피어싱", dims(P), f"±{T:g} ({tol})", f"{x:g}",
+                      f"{sh:+.3f}", dims(Pd), dims(Pp), f"{clr:.3f}"])
+        die.cuts.append((Pd, 0.0, z_die_top - land, land + 1))
+        die.cuts.append((Pd, 0.5, z_die - 1, H - land + 1))
+        back.cuts.append((Pd, 1.0))
+        lower.cuts.append((Pd, 2.0))
+        stripper.cuts.append((Pp, 0.05))          # 펀치 안내 (블랭킹 펀치도)
+        if not (k == "pierce" and rnd):
+            pp.cuts.append((Pp, 0.0))             # 펀치 고정 (끼워 맞춤) — 둥근 펀치는 H7 구멍으로
 
     # 펀치 길이: 펀치 플레이트 윗면에서 스트리퍼 아랫면 RETRACT 위까지
     p_bot = z_st + RETRACT
@@ -439,7 +467,15 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     if n_sb == 6:
         sb_xy += [up.place((0, sy * b), r_sb, e_sb) for sy in (-1, 1)]
     e_b = max(1.5 * bolt, bcb / 2 + 4)
+    # 볼트 개수: 상형 볼트가 스트리핑 힘을 되풀이 허용 응력 안에서 (4 → 6 → 8)
+    n_b = 4
+    while n_b < 8 and f_strip / (n_b * ds.STRESS_AREA[bolt]) > ds.BOLT_ALLOW:
+        n_b += 2
     b_t = [(sx * a, sy * b * 0.45) for sx in (-1, 1) for sy in (-1, 1)]
+    if n_b >= 6:
+        b_t += [(0.0, sy * b) for sy in (-1, 1)]
+    if n_b >= 8:
+        b_t += [(sx * a, 0.0) for sx in (-1, 1)]
     ub_xy = [up.place(p, bcb / 2, e_b) for p in b_t]
     lb_xy = [lo.place(p, bcb / 2, e_b) for p in b_t]
     dwd = float(bolt)
@@ -479,8 +515,14 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         order=f"가이드 부시 Ø{post_d:g} × Ø{bush_o:g} L{tus:.0f} (미끄럼 또는 볼)")
 
     # 펀치
-    blank_ops = [P for P, k in ops if k == "blank"]
-    pierce_ops = [P for P, k in ops if k == "pierce"]
+    blank_ops = [punch_of[i] for i, (P, k) in enumerate(ops) if k == "blank"]
+    pierce_ops = [(P, punch_of[i]) for i, (P, k) in enumerate(ops) if k == "pierce"]
+    # 파일럿: 뚫린 구멍 = 피어싱 펀치 지름 → 파일럿 = 그 − 0.05
+    pil_d = {}
+    for (P, Pp) in pierce_ops:
+        if _is_round(P):
+            pil_d[round(_circle_d(P)[0], 2)] = _circle_d(Pp)[0]
+    pilots = [(x, y, pil_d.get(round(d, 2), d)) for x, y, d in pilots]
     for P in blank_ops:
         pr = Prim(PRISM, (p_bot, p_len), poly=P)
         add("블랭킹 펀치", 1, "SKD11 HRC 58~62", f"{np.ptp(P[:, 0]):.1f} × {np.ptp(P[:, 1]):.1f} × {p_len:.1f}",
@@ -495,28 +537,29 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
             note=f"펀치 면에서 {pl:.1f} 나옴 (스트리퍼가 누르기 전에 구멍에 듦)",
             order=f"파일럿 핀 Ø{pilots[0][2] - 0.05:.2f} (구멍 −0.05)")
     groups = {}
-    for P in pierce_ops:
+    for P0, P in pierce_ops:
         d, c = _circle_d(P)
-        key = round(d, 2) if _is_round(P) else None
+        key = round(_circle_d(P0)[0], 2) if _is_round(P0) else None      # 구멍 호칭
         groups.setdefault(key, []).append((P, c, d))
     lf = sgap + RETRACT                                   # 안내 없는 길이 (펀치 플레이트 ↔ 스트리퍼, 열림)
     tip_len = tst + RETRACT + s_w + REGRIND + 2           # 어깨 펀치 끝 (스트리퍼 안에서만 움직임)
     punch_sf = {}
     for key, hs in groups.items():
         if key is not None:
+            dp = round(hs[0][2], 3)                       # 펀치 지름 (마모 여유 넣음)
             f_p = math.pi * key * t * tau
-            sf = math.pi ** 3 * 210000 * key ** 4 / 64 / (0.7 * lf) ** 2 / f_p
-            body = key
+            sf = math.pi ** 3 * 210000 * dp ** 4 / 64 / (0.7 * lf) ** 2 / f_p
+            body = dp
             if sf < 3:                                    # 가는 펀치 → 어깨 펀치 (굵은 몸통)
-                body = next(b_ for b_ in (6, 8, 10, 13, 16, 20, 25, 32) if b_ >= key + 2
+                body = next(b_ for b_ in (6, 8, 10, 13, 16, 20, 25, 32) if b_ >= dp + 2
                             and math.pi ** 3 * 210000 * b_ ** 4 / 64 / (0.7 * lf) ** 2 / f_p >= 3)
                 sf = math.pi ** 3 * 210000 * body ** 4 / 64 / (0.7 * lf) ** 2 / f_p
-            punch_sf[key] = (sf, body)
+            punch_sf[key] = (sf, body, dp)
             dk = body + (3 if body < 10 else 4)
             kh = 5.0 if body < 13 else 8.0
             prims = []
             for _, c, d in hs:
-                if body > key:
+                if body > dp:
                     prims.append(Prim(CYL, (c[0], c[1], p_bot, d / 2, tip_len)))
                     prims.append(Prim(CYL, (c[0], c[1], p_bot + tip_len, body / 2, p_len - kh - tip_len)))
                 else:
@@ -525,12 +568,12 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
                 pp.holes.append(Hole(c[0], c[1], body, "H7", z_pp, tpp, f"Ø{body:g} H7 관통 (펀치)",
                                      cb=(dk + 0.5, z_pb - kh, kh)))
             std = key <= 32
-            step = f", 어깨 Ø{body:g} · 끝 길이 {tip_len:.0f}" if body > key else ""
+            step = f", 어깨 Ø{body:g} · 끝 길이 {tip_len:.0f}" if body > dp else ""
             add(f"피어싱 펀치 Ø{key:g}", len(hs), "SKH51 HRC 62~64",
-                f"Ø{key:g} × {p_len:.1f} (머리 Ø{dk:g} × {kh:g}{step})",
-                prims, std=std, upper=True, note="어깨 붙임 펀치 (좌굴)" if body > key else "머리 붙임 펀치",
-                order=(f"{'어깨' if body > key else '머리'} 붙임 펀치 Ø{key:g} L{p_len:.1f} (길이 지정"
-                       + (f", 몸통 Ø{body:g} 끝 {tip_len:.0f})" if body > key else ")")) if std else "")
+                f"Ø{dp:g} × {p_len:.1f} (머리 Ø{dk:g} × {kh:g}{step})",
+                prims, std=std, upper=True, note="어깨 붙임 펀치 (좌굴)" if body > dp else "머리 붙임 펀치",
+                order=(f"{'어깨' if body > dp else '머리'} 붙임 펀치 P{dp:g} L{p_len:.1f} (길이 지정"
+                       + (f", 몸통 Ø{body:g} 끝 {tip_len:.0f})" if body > dp else ")")) if std else "")
         else:
             add("이형 피어싱 펀치", len(hs), "SKD11 HRC 58~62", f"구멍 모양 × {p_len:.1f}",
                 [Prim(PRISM, (p_bot, p_len), poly=h) for h, _, _ in hs], upper=True, note="와이어 · 플랜지 붙여 고정")
@@ -649,6 +692,24 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     stroke = travel + t + 5                              # 스트립 들어 올림 · 이송 여유 5
     pierce_d = [k for k in groups if k is not None]
     checks = []
+    # 프레스: 절단력 + 하사점 스프링 힘, 에너지 = F · t · 파단 깊이 비
+    f_spring = spring.n * spring.rate * (spring.preload + s_w)
+    F_total = F + f_spring
+    kp = penetration(mat)
+    energy = F * t * kp / 1000.0                        # J
+    from . import costing as cs
+    mlist = machines if machines is not None else cs.DEFAULT_MACHINES
+    need_t = F_total * cs.SAFETY / dc.TON
+    mach, mach_ok = cs.pick(mlist, cs.PRESS, need_t, height=t + ENTRY)
+    if mach is not None and mach_ok and float(mach.get("stroke") or cs.default_stroke(mach["capacity"])) < stroke:
+        mach_ok = False
+    press = {"cut_kn": F / 1000, "spring_kn": f_spring / 1000, "total_kn": F_total / 1000, "need_tf": need_t,
+             "energy_j": energy, "penetration": kp, "machine": mach["name"] if mach else "", "ok": bool(mach_ok),
+             "shear_h": t}
+    # 전단각 (펀치·다이에 경사): 경사 높이 h ≥ k t 이면 최대 힘 ≈ F · k t / h (에너지는 같음)
+    if not mach_ok:
+        press["shear_note"] = (f"전단각: 경사 높이 h = t 면 최대 힘 ≈ {F * kp / 1000:,.0f} kN "
+                               f"(블랭킹은 다이에, 피어싱은 펀치에 경사 — 제품이 휘지 않는 쪽)")
 
     def chk(item, val, crit, ok):
         checks.append([item, val, crit, "적합" if ok else "검토"])
@@ -663,12 +724,18 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     for nm, L_, g_ in (("하형", L_lo, g_lo), ("상형", L_up, g_up)):
         chk(f"볼트 물림 ({nm} M{bolt} × {L_:.0f})", f"{L_ - g_:.1f} mm", f"≥ {ds.ENGAGE * bolt:.0f} (1.5 d)",
             L_ - g_ >= ds.ENGAGE * bolt - 1e-6)
+    sig_b = f_strip / (len(ub_xy) * ds.STRESS_AREA[bolt])
+    chk(f"상형 볼트 인장 (스트리핑 힘 ÷ {len(ub_xy)})", f"{sig_b:,.0f} MPa", f"≤ {ds.BOLT_ALLOW:g} (12.9, 되풀이)",
+        sig_b <= ds.BOLT_ALLOW)
+    sig_sb = spring.f_max / (len(sb_xy) * ds.STRESS_AREA[sb_m])
+    chk(f"스트리퍼 볼트 나사 인장 (스프링 최대 ÷ {len(sb_xy)})", f"{sig_sb:,.0f} MPa", f"≤ {ds.BOLT_ALLOW:g}",
+        sig_sb <= ds.BOLT_ALLOW)
     chk("펀치 진입 (하사점)", f"{ENTRY:g} mm", "0.5 ~ 1.5 mm", True)
     for d in pierce_d:
         sig = 4 * tau * t / d
         chk(f"피어싱 펀치 Ø{d:g} 압축 응력", f"{sig:,.0f} MPa", f"≤ {PUNCH_SIGMA:,.0f} (SKH51)", sig <= PUNCH_SIGMA)
-        sf, body = punch_sf[d]
-        chk(f"피어싱 펀치 Ø{d:g} 좌굴" + (f" (어깨 Ø{body:g})" if body > d else ""), f"안전율 {sf:,.1f}",
+        sf, body, dp_ = punch_sf[d]
+        chk(f"피어싱 펀치 Ø{d:g} 좌굴" + (f" (어깨 Ø{body:g})" if body > dp_ else ""), f"안전율 {sf:,.1f}",
             f"≥ 3 (안내 없는 길이 {lf:.0f}, K 0.7)", sf >= 3)
     # 다이 벽: 날 사이 · 날 ↔ 다이 끝
     die_open = [_offset(P, clr) for P in polys]
@@ -679,28 +746,128 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
         chk("다이 날 사이 벽 두께", f"{g_min:.1f} mm", f"≥ {w_min:.1f} (1.5 t, 최소 2) — 얇으면 빈 공정", g_min >= w_min)
     edge = min(min(a - abs(P[:, 0]).max(), b - abs(P[:, 1]).max()) for P in die_open)
     chk("날 ↔ 다이 끝 여유", f"{edge:.0f} mm", f"≥ {1.5 * H:.0f} (1.5 H)", edge >= 1.5 * H - 1e-6)
+    chk("프레스", f"{press['machine'] or '없음'} (필요 {need_t:,.0f} tf, 행정 ≥ {stroke:.0f})",
+        f"(절단 {F / 1000:,.0f} + 스프링 {f_spring / 1000:,.0f} kN) × {cs.SAFETY:g}", mach_ok)
     off = math.hypot(*cop)
     chk("압력 중심 ↔ 금형 가운데", f"{off:.1f} mm", "생크를 압력 중심에 (옮김)" if max(Ls, Ws) < 450 else
         "큰 금형: 슬라이드 가운데와 맞춰 놓기", True)
-    notes = [f"절단 길이 {L_cut:,.0f} mm × t {t:g} × τ {tau:.0f} MPa = 절단력 {F / 1000:,.1f} kN "
-             f"(권장 프레스 {F * 1.3 / dc.TON:,.0f} tf)",
+    # 스트립 재료 이용
+    part_area = abs(_area(blank)) - sum(abs(_area(h)) for h in holes)
+    usage = {"part_mm2": part_area, "pitch": pitch, "width": Wst,
+             "ratio": part_area / (pitch * Wst) if pitch * Wst > 0 else 0.0,
+             "part_kg": part_area * t * DENSITY, "strip_kg": pitch * Wst * t * DENSITY}
+    notes = [f"절단 길이 {L_cut:,.0f} mm × t {t:g} × τ {tau:.0f} MPa = 절단력 {F / 1000:,.1f} kN, + 하사점 스프링 "
+             f"{f_spring / 1000:,.1f} kN → 권장 프레스 {need_t:,.0f} tf ({cs.SAFETY:g} 배)"
+             + (f" — {press['machine']}" if press["machine"] else ""),
+             f"전단 에너지 W = F × t × {kp:g} (파단 깊이 비) = {energy:,.0f} J / 타",
+             f"스트립 재료 이용률 {usage['ratio'] * 100:.1f} % (제품 {usage['part_kg']:.3f} kg / 피치 몫 "
+             f"{usage['strip_kg']:.3f} kg)",
+             f"날 치수: 일반 공차 ISO 2768-{tol} · 마모 계수 x 로 블랭킹 다이는 최대 − xΔ, 피어싱 펀치는 최소 + xΔ "
+             "(도면 공차가 따로 있으면 그 값으로 고칠 것)",
              f"다이 플레이트 두께 ∛(0.1 F) = {dc.die_plate_thickness(F):.1f} → {H:.0f} mm, 날 끝 여유 {m:.0f} mm",
              f"스트립 피치 {pitch:.1f} · 폭 {Wst:.1f} mm (이송 →)",
              f"높이: 열림 {z_top:.1f} · 하사점 (닫힌 높이) {shut:.1f} mm · 필요한 행정 ≥ {stroke:.0f} mm "
              f"(열림 {gap:.0f} + 스트리퍼 안 {RETRACT:g} + 진입 {ENTRY:g} + 들어 올림)",
              f"압력 중심 ({cop[0]:+.1f}, {cop[1]:+.1f}) mm (금형 가운데 기준)",
              "표준품 치수는 일반값 — 주문 전에 쓰는 업체 (MISUMI·Lesjöfors 등) 표로 확인, 스프링 상수는 Ø10 × 25 에서 닮은꼴 어림"]
+    if press.get("shear_note"):
+        notes.append(press["shear_note"])
     if plan is not None:
         notes.append("순차: 파일럿·피어싱 공정 구멍만 다이에 팠음 — 노칭·절곡·컷오프 인서트와 다음 공정 파일럿 핀은 "
                      "공정도를 보고 설계자가")
-    return DieAssy(kind, parts, Ls, Ws, shut, F, notes, blank, holes, checks, cop, z_top, stroke, (pitch, Wst), spring)
+    return DieAssy(kind, parts, Ls, Ws, shut, F, notes, blank, holes, checks, cop, z_top, stroke, (pitch, Wst), spring,
+                   edges, press, usage)
 
 
 # ---------------------------------------------------------------- 솔리드 · STEP
 
+SIMPLIFY_TOL = 0.005      # STEP 외곽 점 줄이기 (mm) — 클리어런스 (0.05 ~) 보다 훨씬 작게
+
+
+CORNER_DEG = 20.0         # 이보다 크게 꺾이면 귀 (곧은 선·곡선 끊음)
+
+
+def _wire(P, z0):
+    """닫힌 외곽 선: 귀에서 끊고, 점이 많은 매끈한 구간은 B-스플라인 (벗어남 ≤ 0.005) 하나로 — STEP 면 수가 적고
+    와이어 CAM 에도 매끈한 곡선. 짧은 구간은 곧은 선."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakePolygon, BRepBuilderAPI_MakeWire
+    from OCP.GeomAPI import GeomAPI_PointsToBSpline
+    from OCP.GeomAbs import GeomAbs_C2
+    from OCP.gp import gp_Pnt
+    from OCP.collections import Array1_gp_Pnt as TColgp_Array1OfPnt
+    P = np.asarray(P, float)
+    n = len(P)
+
+    def pnt(q):
+        return gp_Pnt(float(q[0]), float(q[1]), float(z0))
+    if n < 12:
+        mk = BRepBuilderAPI_MakePolygon()
+        for q in P:
+            mk.Add(pnt(q))
+        mk.Close()
+        return mk.Wire()
+    d1 = P - np.roll(P, 1, axis=0)
+    d2 = np.roll(P, -1, axis=0) - P
+    ang = np.degrees(np.abs(np.arctan2(d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0], (d1 * d2).sum(1))))
+    corners = list(np.nonzero(ang > CORNER_DEG)[0])
+    if not corners:
+        corners = [0, n // 3, 2 * n // 3]                 # 둥근 외곽: 세 조각
+    wm = BRepBuilderAPI_MakeWire()
+    for k, a in enumerate(corners):
+        b = corners[(k + 1) % len(corners)]
+        idx = list(range(a, b + 1)) if b > a else list(range(a, n)) + list(range(0, b + 1))
+        seg = P[idx]
+        if len(seg) >= 5:
+            arr = TColgp_Array1OfPnt(1, len(seg))
+            for i, q in enumerate(seg, 1):
+                arr.SetValue(i, pnt(q))
+            try:
+                c = GeomAPI_PointsToBSpline(arr, 3, 8, GeomAbs_C2, SIMPLIFY_TOL).Curve()
+                wm.Add(BRepBuilderAPI_MakeEdge(c, pnt(seg[0]), pnt(seg[-1])).Edge())
+                continue
+            except Exception:  # noqa: BLE001 — 맞추기 못하면 곧은 선으로
+                pass
+        for q0, q1 in zip(seg[:-1], seg[1:]):
+            if np.linalg.norm(q1 - q0) > 1e-7:
+                wm.Add(BRepBuilderAPI_MakeEdge(pnt(q0), pnt(q1)).Edge())
+    return wm.Wire()
+
+
+def _simplify(P, tol=SIMPLIFY_TOL):
+    """닫힌 다각형 점 줄이기 (Douglas–Peucker, 벗어남 ≤ tol). 곡선 외곽의 STEP 면 수를 줄임."""
+    P = np.asarray(P, float)
+    n = len(P)
+    if n <= 24:
+        return P
+    # 서로 가장 먼 두 점으로 둘로 나눠 열린 선 두 개
+    i0 = 0
+    i1 = int(np.argmax(np.linalg.norm(P - P[0], axis=1)))
+    keep = np.zeros(n, bool)
+    keep[[i0, i1]] = True
+    stack = [(i0, i1), (i1, n)]
+    while stack:
+        a, b = stack.pop()
+        idx = np.arange(a + 1, b)
+        if len(idx) == 0:
+            continue
+        A, B = P[a], P[b % n]
+        d = B - A
+        L = np.linalg.norm(d)
+        Q = P[idx]
+        if L < 1e-12:
+            dist = np.linalg.norm(Q - A, axis=1)
+        else:
+            dist = np.abs(d[0] * (Q[:, 1] - A[1]) - d[1] * (Q[:, 0] - A[0])) / L
+        k = int(np.argmax(dist))
+        if dist[k] > tol:
+            m = int(idx[k])
+            keep[m] = True
+            stack += [(a, m), (m, b)]
+    return P[keep]
+
 def _solid(pr: Prim):
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
-    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
     from OCP.BRepPrimAPI import (
         BRepPrimAPI_MakeBox,
         BRepPrimAPI_MakeCylinder,
@@ -711,12 +878,8 @@ def _solid(pr: Prim):
     from OCP.TopoDS import TopoDS_Compound
 
     def prism(poly, z0, h, grow=0.0):
-        P = _offset(poly, grow) if grow else np.asarray(poly, float)
-        mk = BRepBuilderAPI_MakePolygon()
-        for x, y in P:
-            mk.Add(gp_Pnt(float(x), float(y), float(z0)))
-        mk.Close()
-        face = BRepBuilderAPI_MakeFace(mk.Wire(), True).Face()
+        P = _simplify(_offset(poly, grow) if grow else np.asarray(poly, float))
+        face = BRepBuilderAPI_MakeFace(_wire(P, z0), True).Face()
         return BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, float(h))).Shape()
 
     def cyl(x, y, z0, r, h):
@@ -988,6 +1151,20 @@ def save_xlsx(assy: DieAssy, path, name=""):
                 c.font = Font(bold=True, color="C00000")
     for col, wd in zip("ABCD", (40, 18, 46, 8)):
         ws3.column_dimensions[col].width = wd
+    ws5 = wb.create_sheet("날 치수 · 프레스")
+    for j, hd in enumerate(EDGE_HEAD, 1):
+        c = ws5.cell(1, j, hd)
+        c.font, c.fill = hf, hfill
+    for i, row in enumerate(assy.edges, 2):
+        for j, v in enumerate(row, 1):
+            ws5.cell(i, j, v)
+    rr = len(assy.edges) + 3
+    for line in press_lines(assy):
+        ws5.cell(rr, 1, "• " + line)
+        rr += 1
+    for col, wd in zip("ABCDEFGH", (16, 22, 12, 12, 11, 22, 22, 16)):
+        ws5.column_dimensions[col].width = wd
+    tmp2 = _add_image(ws5, render_strip(assy), f"A{rr + 1}", 1000)
     ws4 = wb.create_sheet("가공 구멍표")
     r = 1
     for j, hd in enumerate(HOLE_HEAD, 1):
@@ -1005,11 +1182,86 @@ def save_xlsx(assy: DieAssy, path, name=""):
     from .company import stamp_workbook
     stamp_workbook(wb)
     wb.save(path)
-    try:
-        os.remove(tmp)
-    except OSError:
-        pass
+    for f_ in (tmp, tmp2):
+        try:
+            os.remove(f_)
+        except OSError:
+            pass
     return path
+
+
+def press_lines(assy: DieAssy):
+    pr, u = assy.press, assy.usage
+    if not pr:
+        return []
+    out = [f"프레스 하중: 절단 {pr['cut_kn']:,.1f} kN + 하사점 스프링 {pr['spring_kn']:,.1f} kN = {pr['total_kn']:,.1f} kN "
+           f"→ 필요 {pr['need_tf']:,.0f} tf · 고른 프레스: {pr['machine'] or '없음'}" + ("" if pr["ok"] else " (모자람 — 검토)"),
+           f"전단 에너지 {pr['energy_j']:,.0f} J / 타 (파단 깊이 비 {pr['penetration']:g} t) · 닫힌 높이 {assy.shut:.1f} mm · "
+           f"행정 ≥ {assy.stroke:.0f} mm"]
+    if pr.get("shear_note"):
+        out.append(pr["shear_note"])
+    if u:
+        out.append(f"스트립: 피치 {u['pitch']:.1f} × 폭 {u['width']:.1f} mm · 재료 이용률 {u['ratio'] * 100:.1f} % · "
+                   f"제품 {u['part_kg']:.3f} kg / 피치 몫 {u['strip_kg']:.3f} kg")
+    return out
+
+
+def paint_strip(p, rect, assy: DieAssy):
+    """스트립 배치 (위에서): 다이 플레이트 날 (다이 쪽) 을 공정 자리대로, 스트립 폭·피치, 이송 →."""
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF
+    die = assy.plate("다이 플레이트").prims[0]
+    pitch, Wst = assy.strip
+    opens = [c[0] for c in die.cuts if len(c) > 2 and not c[1]]
+    if not opens:
+        return
+    P = np.vstack(opens)
+    x0, x1 = P[:, 0].min() - 0.6 * pitch, P[:, 0].max() + 0.3 * pitch
+    s = min(rect.width() / (x1 - x0), rect.height() / (Wst * 1.6))
+    cx, cy = rect.x(), rect.y() + rect.height() / 2
+
+    def T(x, y):
+        return QPointF(cx + (x - x0) * s, cy - y * s)
+    p.setPen(QPen(QColor(90, 90, 90), max(1.0, 0.002 * rect.width())))
+    p.setBrush(QBrush(QColor(225, 232, 240)))
+    p.drawRect(QRectF(T(x0, Wst / 2), T(x1, -Wst / 2)))
+    # 앞 공정에서 뚫린 구멍은 피치마다 앞으로 (이송), 블랭크는 뒤 공정에 남은 모양 (회색 점선)
+    big = max(opens, key=lambda Q: abs(_area(Q)))
+    has_blank = any("블랭킹 펀치" == q.name for q in assy.parts)
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(QColor(130, 130, 130), max(1.0, 0.0015 * rect.width()), Qt.DashLine))
+    if has_blank:
+        p.drawPolygon(QPolygonF([T(q[0] - pitch, q[1]) for q in big]))
+    p.setBrush(QBrush(QColor(255, 255, 255)))
+    for Q in opens:
+        if has_blank and Q is big:
+            continue
+        for j in (1,):
+            Qj = Q + np.array([j * pitch, 0.0])
+            if Qj[:, 0].max() < x1:
+                p.drawPolygon(QPolygonF([T(*q) for q in Qj]))
+    p.setPen(QPen(QColor(200, 0, 0), max(1.0, 0.002 * rect.width())))
+    p.setBrush(Qt.NoBrush)
+    for Q in opens:
+        p.drawPolygon(QPolygonF([T(*q) for q in Q]))
+    p.setPen(QColor(20, 20, 20))
+    p.drawText(QRectF(T(x0, Wst / 2 + 0.25 * Wst), T(x1, Wst / 2)), Qt.AlignLeft | Qt.AlignBottom,
+               f"스트립 배치 — 피치 {pitch:.1f} · 폭 {Wst:.1f} mm · 이송 →  (빨강 = 다이 날)")
+
+
+def render_strip(assy: DieAssy, w=1600, h=500):
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from .report import ensure_gui
+    ensure_gui()
+    img = QImage(w, h, QImage.Format_ARGB32)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    paint_strip(p, QRectF(10, 10, w - 20, h - 20), assy)
+    p.end()
+    return img
 
 
 def save_pdf(assy: DieAssy, path, name=""):
@@ -1062,6 +1314,18 @@ def save_pdf(assy: DieAssy, path, name=""):
     for row in assy.checks:
         y += 6
         _row(p, R, m, y, cols, row, bad=row[3] != "적합")
+    # 날 치수표 · 프레스 · 스트립 배치
+    y += 12
+    cols = [34, 52, 26, 22, 22, 52, 52, 30]
+    _row(p, R, m, y, cols, EDGE_HEAD, head=True)
+    for row in assy.edges[:12]:
+        y += 6
+        _row(p, R, m, y, cols, row)
+    y += 10
+    for line in press_lines(assy):
+        p.drawText(R(m, y, W - 2 * m, 5), Qt.AlignVCenter | Qt.AlignLeft, "• " + line)
+        y += 5.5
+    paint_strip(p, R(m, y + 4, W - 2 * m, H - m - y - 6), assy)
     # 판마다 가공도
     for part in assy.parts:
         if part.name in PLATES:

@@ -155,3 +155,44 @@ def strongest_spring(stroke, pocket_max, n, sgap_max=60.0):
                 if best is None or f > best[0]:
                     best = (f, SpringPick(D, float(L), cls, n, k, s0, stroke, pocket, inst))
     return best[1] if best else None
+
+
+# 나사 유효 단면 As [mm²] (ISO 898-1)
+STRESS_AREA = {5: 14.2, 6: 20.1, 8: 36.6, 10: 58.0, 12: 84.3, 16: 157.0}
+BOLT_ALLOW = 200.0    # 되풀이 하중 볼트 허용 인장 응력 MPa (12.9 보증 응력 970 의 약 1/5, 피로 쪽 어림)
+
+# 일반 공차 ISO 2768-1 (길이, ± mm): (위 한계, f, m, c)
+ISO2768 = [(3, 0.05, 0.1, 0.2), (6, 0.05, 0.1, 0.3), (30, 0.1, 0.2, 0.5), (120, 0.15, 0.3, 0.8),
+           (400, 0.2, 0.5, 1.2), (1000, 0.3, 0.8, 2.0), (2000, 0.5, 1.2, 3.0), (4000, 0.5, 2.0, 4.0)]
+TOL_CLASS = {"f": 1, "m": 2, "c": 3}
+
+
+def general_tol(size, cls="m"):
+    """ISO 2768-1 일반 공차 ± (mm)."""
+    j = TOL_CLASS.get(cls, 2)
+    for row in ISO2768:
+        if size <= row[0]:
+            return row[j]
+    return ISO2768[-1][j]
+
+
+# 마모 계수 x (블랭킹 다이 = 최대 치수 − x Δ, 피어싱 펀치 = 최소 치수 + x Δ) — 판 두께별 공차 폭 Δ 경계
+# (중국 冲压 교재 표 꼴: Δ 가 좁으면 1, 중간 0.75, 넓으면 0.5)
+WEAR_X = [(1.0, 0.16, 0.36), (2.0, 0.20, 0.42), (4.0, 0.24, 0.50), (1e9, 0.30, 0.60)]
+
+
+def wear_x(t, delta):
+    for t_up, a, b in WEAR_X:
+        if t <= t_up:
+            return 1.0 if delta <= a else 0.75 if delta < b else 0.5
+    return 0.5
+
+
+def size_edges(nominal, t, cls="m", blank=True):
+    """날 치수: (공차 ±T, Δ, x, 한쪽 옮김 mm). 블랭킹은 다이가 제품 (최대 − xΔ), 피어싱은 펀치가 구멍 (최소 + xΔ).
+    공차 ± T 가 가운데 대칭이면 한쪽 옮김 = 블랭킹 (T − xΔ)/2 (≤ 0, 다이를 줄임), 피어싱 (xΔ − T)/2 (≥ 0, 펀치를 키움)."""
+    T = general_tol(nominal, cls)
+    delta = 2 * T
+    x = wear_x(t, delta)
+    s = (T - x * delta) / 2 if blank else (x * delta - T) / 2
+    return T, delta, x, s

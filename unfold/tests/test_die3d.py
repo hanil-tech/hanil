@@ -102,6 +102,17 @@ def test_step_names_and_reload(plate, tmp_path):
     n_solids = sum(len(x.prims) for x in a.parts)
     assert len(m.solids) == n_solids
     assert m.names[0] == "01 LOWER DIE SET" and any("PIERCE PUNCH" in n for n in m.names)
+    # 곡선 외곽은 B-스플라인 (면 수 적게) — 파일 작고 솔리드가 성함, 부피는 구멍 뺀 어림과 2 % 안
+    import os
+
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    assert os.path.getsize(p) < 4e6
+    assert all(BRepCheck_Analyzer(s_).IsValid() for s_ in m.solids)
+    g = GProp_GProps()
+    BRepGProp.VolumeProperties_s(m.solids[2], g)
+    assert g.Mass() == pytest.approx(die3d._volume(a.plate("다이 플레이트").prims[0]), rel=0.02)
 
 
 def test_drawing_and_parts_list(plate, tmp_path):
@@ -111,7 +122,7 @@ def test_drawing_and_parts_list(plate, tmp_path):
     x = die3d.save_xlsx(a, str(tmp_path / "pl.xlsx"), "판")
     import openpyxl
     wb = openpyxl.load_workbook(x)
-    assert wb.sheetnames[:4] == ["파트리스트", "조립도", "점검", "가공 구멍표"]
+    assert wb.sheetnames[:5] == ["파트리스트", "조립도", "점검", "날 치수 · 프레스", "가공 구멍표"]
     ws = wb["파트리스트"]
     assert [c.value for c in ws[3]][:len(die3d.HEAD)] == die3d.HEAD
     assert ws.cell(4, 2).value == "하형 다이 세트"
@@ -144,3 +155,55 @@ def test_progressive_die_uses_strip():
     die = next(p for p in a.parts if p.name == "다이 플레이트")
     assert die.prims[0].p[3] >= len(plan.stations) * plan.pitch
     assert "블랭킹 펀치" not in [p.name for p in a.parts]
+
+
+def test_edge_sizes_wear_allowance(plate):
+    """피어싱: 펀치 = 최소 + xΔ, 다이 = 펀치 + 2c / 블랭킹: 다이 = 최대 − xΔ, 펀치 = 다이 − 2c."""
+    r, st, a = plate
+    t = r.thickness
+    c = dc.clearance_pct(st.mat, t) / 100 * t
+    pierce = next(e for e in a.edges if e[0] == "피어싱")
+    T = diestd.general_tol(12.0, "m")
+    assert T == 0.2
+    x = diestd.wear_x(t, 2 * T)
+    assert x == 0.75                                       # t 2, Δ 0.4 (0.20 ~ 0.42)
+    dp = 12.0 - T + x * 2 * T
+    assert float(pierce[6][1:]) == pytest.approx(dp, abs=2e-3)
+    assert float(pierce[5][1:]) == pytest.approx(dp + 2 * c, abs=2e-3)
+    blank = next(e for e in a.edges if e[0].startswith("블랭킹"))
+    L = float(blank[1].split("×")[0])
+    Tb = diestd.general_tol(L, "m")
+    xb = diestd.wear_x(t, 2 * Tb)
+    assert float(blank[5].split("×")[0]) == pytest.approx(L + Tb - xb * 2 * Tb, abs=0.02)
+    assert float(blank[6].split("×")[0]) == pytest.approx(L + Tb - xb * 2 * Tb - 2 * c, abs=0.02)
+    # 파일럿 = 뚫린 구멍 (피어싱 펀치) − 0.05
+    pil = next(p for p in a.parts if p.name == "파일럿 핀")
+    assert pil.prims[0].p[3] * 2 == pytest.approx(dp - 0.05, abs=2e-3)
+
+
+def test_press_load_energy_and_bolts(plate):
+    r, st, a = plate
+    pr = a.press
+    assert pr["total_kn"] == pytest.approx(pr["cut_kn"] + pr["spring_kn"])
+    assert pr["spring_kn"] > 0
+    assert pr["need_tf"] == pytest.approx(pr["total_kn"] * 1000 * 1.3 / dc.TON)
+    assert pr["ok"] and pr["machine"]
+    # 에너지 = F t k (연강 0.45)
+    assert pr["energy_j"] == pytest.approx(a.force_n * r.thickness * die3d.penetration(st.mat) / 1000)
+    assert 0.3 < a.usage["ratio"] < 1.0
+    # 상형 볼트 인장 점검이 있고 적합
+    assert any(c[0].startswith("상형 볼트 인장") and c[3] == "적합" for c in a.checks)
+
+
+def test_small_press_flags_and_more_bolts():
+    st = bc.BendSettings(material="SPFC780")
+    s, _ = models.spline_plate(t=3.2, hole_d=5.0)
+    r = unfold(s, settings=st)
+    small = [{"name": "프레스 30톤", "kind": "프레스", "capacity": 30, "stroke": 100}]
+    a = die3d.build(r, st, machines=small)
+    assert not a.press["ok"] and "전단각" in a.press["shear_note"]
+    assert any(c[0] == "프레스" and c[3] == "검토" for c in a.checks)
+    nb = next(p for p in a.parts if p.name.startswith("육각 구멍 붙이 볼트") and "상형" in p.name).qty
+    assert nb > 4                                          # 스트리핑 힘이 커서 볼트를 늘림
+    assert any(c[0].startswith("상형 볼트 인장") and c[3] == "적합" for c in a.checks)
+    assert any("Ø5 압축 응력" in c[0] and c[3] == "검토" for c in a.checks)   # d / t 1.6 고장력강

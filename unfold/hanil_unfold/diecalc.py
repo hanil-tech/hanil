@@ -58,9 +58,14 @@ def shear_strength(mat: bc.Material) -> float:
 
 
 def clearance_pct(mat: bc.Material, t: float) -> float:
-    """한쪽 클리어런스 [두께의 %] (표준 등급). 단단할수록, 두꺼울수록 크게."""
+    """한쪽 클리어런스 [두께의 %] (표준 등급). 단단할수록, 두꺼울수록 크게.
+    연강·스테인리스 5~9 % (관례 표). 고장력강 (AHSS) 은 넓게: 인장 700 MPa 이상 12 %, 900 이상 15 %, 1100 이상 18 %
+    — DP780 10~15 % (버 높이 고름), DP980 15 %, 구멍 확장·가장자리 늘림은 TRIP780 15 %·DP980/1180 20 % 에서 가장 좋음
+    (The Fabricator 「Optimal tooling approaches for punching AHSS」, 성형 가장자리 시험 논문들)."""
     ts = mat.tensile_mpa
-    pct = 5.0 if ts < 300 else 7.0 if ts < 500 else 9.0 if ts < 800 else 11.0
+    if ts >= 700:
+        return 12.0 if ts < 900 else 15.0 if ts < 1100 else 18.0
+    pct = 5.0 if ts < 300 else 7.0 if ts < 500 else 9.0
     if t > 3.0:
         pct += 1.0
     return pct
