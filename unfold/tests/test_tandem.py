@@ -193,3 +193,41 @@ def test_rect_fit():
     r, left = bendie._rect_fit([0, 100, 0, 50], [(50, 48), (95, 25)], [0, 60, 10, 40], 2.0)
     assert left == 0 and r[3] <= 46 and r[1] <= 93
     assert math.isclose(r[0], 0) and math.isclose(r[2], 0)
+
+
+def test_blank_layouts(chan):
+    """1차 블랭킹 배치: 가로 · 세로 · 2열 후보, 이용률 ≤ 100 %, 2열은 두 블랭크가 겹치지 않음, 재료 적은 순 (2열은 3 % 넘게 줄 때만)."""
+    _, r, F, ops = chan
+    lays = tandem.blank_layouts(r, r.thickness)
+    names = [c.name for c in lays]
+    assert {"가로", "세로", "가로 2열", "세로 2열"} <= set(names)
+    for c in lays:
+        assert 0.3 < c.util <= 1.0
+        assert c.kg_per_part == pytest.approx(c.pitch * c.width / c.rows * r.thickness * die3d.DENSITY)
+        if c.rows == 2:
+            A, B = c.blanks
+            assert tandem._clear(A, B, 1.0) and tandem._clear(A + (c.pitch, 0), B, 1.0)
+            assert np.ptp(np.vstack(c.blanks)[:, 1]) + 2 * max(2 * r.thickness, 1.5) == pytest.approx(c.width)
+    one = [c for c in lays if c.rows == 1]
+    assert one[0].name == "세로" and one[0].strip_per_part <= one[1].strip_per_part        # ㄷ 채널은 세로 (189 폭 → 피치 123.5)
+    assert lays[0].rows == 1                                                              # 2열 이득 < 3 % → 1열
+    op = ops[0]
+    assert op.layout is lays[0] or op.layout.name == lays[0].name
+    assert "세로 배치" in op.detail and "이용률" in op.detail
+    assert op.die.strip[0] == pytest.approx(op.layout.pitch) and op.die.strip[1] == pytest.approx(op.layout.width)
+    assert len(op.die.stations) == 3                                                      # 배치도에 앞 · 뒤 피치
+    assert any("배치 비교" in n for n in op.die.notes)
+
+
+def test_two_row_when_it_pays(monkeypatch):
+    """2열 이득이 문턱을 넘으면 2열 — 블랭킹 금형에 펀치 둘, 스트립 폭이 두 줄."""
+    s = models.profile_part([("L", 30), ("B", 90, 2.0), ("L", 60), ("B", 90, 2.0), ("L", 30)], 2.0, 60)
+    r = unfold(s, settings=ST)
+    monkeypatch.setattr(tandem, "TWO_ROW_GAIN", -1.0)                                     # 늘 2열을 앞에
+    lays = tandem.blank_layouts(r, r.thickness)
+    assert lays[0].rows == 2
+    ops = tandem.design(r, ST)
+    op = ops[0]
+    assert op.layout.rows == 2 and op.die is not None, op.error
+    assert op.die.plate("블랭킹 펀치").qty == 1 and sum(1 for p in op.die.parts if p.name == "블랭킹 펀치") == 2
+    assert len(op.die.stations) == 6

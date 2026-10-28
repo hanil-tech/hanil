@@ -670,7 +670,8 @@ def strip_sheet(assy: d3.DieAssy, info, number):
         sh.dim_h(T(xs_st[0] - pitch / 2, 0)[0], T(xs_st[0] + pitch / 2, 0)[0], yt, yt + 10, f"피치 {pitch:.1f}")
     sh.dim_v(T(0, -Wst / 2)[1], T(0, Wst / 2)[1], T(x0, 0)[0], T(x0, 0)[0] - 8, f"폭 {Wst:.1f}")
     sh.text(T(x1, 0)[0] - 30, yt + 4, "이송 →", 3.0, "L", bold=True)
-    for k_, ln in enumerate(d3.press_lines(assy)):
+    lines = d3.press_lines(assy) + ([getattr(assy, "layout_note")] if getattr(assy, "layout_note", "") else [])
+    for k_, ln in enumerate(lines):
         sh.text(MARGIN + 12, MARGIN + TB_H + 24 - 5 * k_, ln, 2.5)
     return sh
 

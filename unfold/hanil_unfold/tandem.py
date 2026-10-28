@@ -331,6 +331,8 @@ class Op:
     notes: list = field(default_factory=list)
     die: object = None
     error: str = ""
+    layout: object = None                         # 1차 블랭킹 고른 배치 (Layout)
+    layouts: list = field(default_factory=list)   # 배치 후보 (재료 적은 순)
 
     @property
     def label(self):
@@ -471,8 +473,105 @@ def plan(result, settings: bc.BendSettings, folder: Folder | None = None):
 
 # ---------------------------------------------------------------- 금형 (공정마다 한 벌)
 
-def _cut_die(F, op, result, settings, tol, machines):
-    """1차 블랭킹 (스트립) · 피어싱 (블랭크 네스트) — die3d 전단 금형."""
+@dataclass
+class Layout:
+    """1차 블랭킹 스트립 배치 후보: 돌린 각도 · 열 수 · 피치 · 스트립 폭 · 재료 이용률."""
+    name: str
+    angle: float
+    rows: int
+    pitch: float
+    width: float
+    util: float
+    blanks: list = field(default_factory=list)     # 한 피치 안 블랭크들 (돌린 좌표, 스트립 가운데 y = 0)
+    kg_per_part: float = 0.0
+
+    @property
+    def strip_per_part(self):
+        return self.pitch * self.width / self.rows
+
+
+TWO_ROW_GAIN = 0.03     # 2열 배치를 고르려면 1열보다 재료가 이만큼 (3 %) 넘게 줄어야 (금형 값 · 프레스 힘 두 배)
+
+
+def _clear(P, Q, gap):
+    """두 닫힌 외곽이 겹치지 않고 (엇갈림 · 안에 들어감 없음) gap 이상 떨어짐."""
+    from . import diecalc as dc
+    from .die3d import _inside
+    from .unfoldcheck import crossings
+    if crossings([P, Q]) > 0 or _inside(P, Q[0]) or _inside(Q, P[0]):
+        return False
+    return dc._poly_dist(P, Q) >= gap
+
+
+def blank_layouts(result, t, bridge=None, side=None):
+    """1차 블랭킹 배치 후보 — 가로 (0°) · 세로 (90°) · 가장 좋은 각 (5° 씩) 을 1열로, 그리고 가로 · 세로를 2열 (둘째 줄은
+    180° 뒤집어 반 피치 어긋나게) 로. 재료비 = 한 개가 차지하는 스트립 넓이 × t × 밀도 — 가장 적은 것이 앞."""
+    from . import diecalc as dc
+    from .die3d import DENSITY
+    from .nesting import NestPart, _rot_poly
+    part = NestPart.from_result("p", result)
+    bridge = max(1.5 * t, 1.0) if bridge is None else bridge
+    side = max(2.0 * t, 1.5) if side is None else side
+    area = part.area
+
+    def rot(angle):
+        O = np.asarray(_rot_poly(part.outer, angle), float)
+        if np.linalg.norm(O[0] - O[-1]) < 1e-9:
+            O = O[:-1]
+        return O - 0.5 * (O.min(0) + O.max(0))                  # 상자 가운데 (뒤집어도 같은 자리)
+
+    def one_row(angle, name):
+        O = rot(angle)
+        wd = float(np.ptp(O[:, 1])) + 2 * side
+        lo, hi = float(np.ptp(O[:, 0])) * 0.3, float(np.ptp(O[:, 0])) + bridge   # 피치: 옆 부품과 bridge 띄움
+        for _ in range(18):
+            mid = 0.5 * (lo + hi)
+            if dc._poly_dist(O, O + (mid, 0)) >= bridge:
+                hi = mid
+            else:
+                lo = mid
+        p = math.ceil(hi * 2) / 2
+        return Layout(name, angle, 1, p, wd, area / (p * wd), [O])
+
+    def two_row(angle, name):
+        O = rot(angle)
+        p = one_row(angle, name).pitch
+        Q = -O + (p / 2, 0.0)                                   # 180° 뒤집어 반 피치 어긋나게
+        gap2 = bridge + 1.0                                     # 줄 사이: 다이 날 사이 벽 (클리어런스 몫 더함)
+        # 둘째 줄 y 띄움: gap2 이상 (이웃 피치의 것과도)
+        dy_lo, dy_hi = 0.0, float(np.ptp(O[:, 1])) + gap2
+
+        def ok(dy):
+            Q2 = Q + (0.0, dy)
+            return all(_clear(O + (k * p, 0.0), Q2, gap2) for k in (-1, 0, 1))
+        for _ in range(18):
+            mid = 0.5 * (dy_lo + dy_hi)
+            if ok(mid):
+                dy_hi = mid
+            else:
+                dy_lo = mid
+        Q = Q + (0.0, dy_hi)
+        allp = np.vstack([O, Q])
+        yc = 0.5 * (allp[:, 1].min() + allp[:, 1].max())
+        wd = float(np.ptp(allp[:, 1])) + 2 * side
+        return Layout(name + " 2열", angle, 2, p, wd, 2 * area / (p * wd), [O - (0, yc), Q - (0, yc)])
+    strip = dc.strip_layout(result, part, bridge, side)
+    cands = [one_row(0.0, "가로"), one_row(90.0, "세로"), two_row(0.0, "가로"), two_row(90.0, "세로")]
+    if min(abs(strip.angle - a_) for a_ in (0.0, 90.0, 180.0)) > 2.5:
+        cands.append(one_row(strip.angle, f"기울임 {strip.angle:.0f}°"))
+    for c in cands:
+        c.kg_per_part = c.strip_per_part * t * DENSITY
+    cands.sort(key=lambda c: (c.strip_per_part, c.rows))
+    # 2열은 금형이 크고 (펀치 둘 · 힘 두 배) 비싸니 재료가 TWO_ROW_GAIN 넘게 줄 때만 앞에 — 아니면 1열 중 가장 좋은 것
+    best1 = min((c for c in cands if c.rows == 1), key=lambda c: c.strip_per_part)
+    best2 = min((c for c in cands if c.rows == 2), key=lambda c: c.strip_per_part)
+    if best2.strip_per_part > (1 - TWO_ROW_GAIN) * best1.strip_per_part:
+        cands = [c for c in cands if c.rows == 1] + [c for c in cands if c.rows == 2]
+    return cands
+
+
+def _cut_die(F, op, result, settings, tol, machines, layout=None):
+    """1차 블랭킹 (스트립 — layout 배치) · 피어싱 (블랭크 네스트) — die3d 전단 금형."""
     from . import die3d as d3
     t = F.t
     lo, hi = F.outer.min(0), F.outer.max(0)
@@ -481,10 +580,13 @@ def _cut_die(F, op, result, settings, tol, machines):
     holes = [h - c0 for h in F.holes]
     L, W = hi - lo
     if op.kind == BLANK:
-        ops = [(blank, "blank")]
-        side = max(1.5 * t, 2.0)
-        Wst = W + 2 * side
-        work, strip, nest = (L, Wst), (L + max(1.5 * t, 1.5), Wst), None
+        if layout is None:
+            layout = blank_layouts(result, t)[0]
+        ops = [(B, "blank") for B in layout.blanks]
+        blank = layout.blanks[0]
+        holes = []
+        xs = np.vstack(layout.blanks)[:, 0]
+        work, strip, nest = (float(np.ptp(xs)), layout.width), (layout.pitch, layout.width), None
     else:
         ops = [(holes[i], "pierce") for i in op.holes]
         work, strip, nest = (L, W), (0.0, W), blank
@@ -500,7 +602,15 @@ def _cut_die(F, op, result, settings, tol, machines):
             a = d3._assemble(result, settings, op.label, None, t, ops, [], work, strip, blank_s,
                              [h + sh for h in holes], extra=10.0 * k, tol=tol, machines=machines,
                              nest=nest if op.kind == PIERCE else None)
-            a.stations = [(op.label, 0.0, blank_s)]
+            if op.kind != BLANK:
+                a.stations = [(op.label, 0.0, blank_s)]
+            else:                                            # 배치도에 이웃 피치 (앞 · 뒤) 까지 — 배치가 보이게
+                a.stations = []
+                for k, (B, _) in enumerate(ops):
+                    for j in (-1, 0, 1):
+                        nm = (f"{op.label}" + (f" ({k + 1}열)" if len(ops) > 1 else "")) if j == 0 else ""
+                        a.stations.append((nm, float(B[:, 0].mean()) + j * layout.pitch, B + (j * layout.pitch, 0.0)))
+                a.layout = layout
             return a
         except d3._NoRoom:
             continue
@@ -573,7 +683,27 @@ def design(result, settings: bc.BendSettings, tol="m", machines=None, folder=Non
     ops = ops if ops is not None else plan(result, settings, F)
     for op in ops:
         try:
-            if op.kind in (BLANK, PIERCE):
+            if op.kind == BLANK:
+                lays = blank_layouts(result, F.t)
+                op.layouts = lays
+                op.die = None
+                for lay in lays:                              # 재료 적게 드는 배치부터, 금형이 되는 것
+                    try:
+                        op.die = _cut_die(F, op, result, settings, tol, machines, layout=lay)
+                        op.layout = lay
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        op.error = str(e)
+                if op.die is not None:
+                    op.error = ""
+                    lay = op.layout
+                    op.detail = (f"{lay.name} 배치 ({lay.angle:.0f}°, {lay.rows}열) — 피치 {lay.pitch:.1f} × 폭 {lay.width:.1f}, "
+                                 f"이용률 {lay.util * 100:.1f} %, 한 개 {lay.kg_per_part * 1000:.1f} g")
+                    op.die.layout_note = ("배치 비교 (한 개 재료): " + " · ".join(
+                        f"{c.name} {c.util * 100:.1f} % {c.kg_per_part * 1000:.0f} g" for c in lays)
+                        + f" → {lay.name} (2열은 재료가 {TWO_ROW_GAIN * 100:.0f} % 넘게 줄 때만 — 금형 · 프레스 힘 두 배)")
+                    op.die.notes.insert(1, op.die.layout_note)
+            elif op.kind == PIERCE:
                 op.die = _cut_die(F, op, result, settings, tol, machines)
             elif op.kind == POST:
                 op.die = _post_die(F, op, result, settings, tol, machines)
@@ -613,7 +743,7 @@ def line_sheets(F, ops, info, prefix):
         W, H = sh.size
         x0, y_top = dd.MARGIN + 6, H - dd.MARGIN - 6
         sh.text(x0, y_top - 6, f"{info.get('product', '')} — 공정별 금형 {len(ops)} 벌 (1차 ~ {len(ops)}차)", 5.0, "L", bold=True)
-        cw, ch = (W - 2 * dd.MARGIN - 20) / 3, 92.0
+        cw, ch = (W - 2 * dd.MARGIN - 20) / 3, (92.0 if len(chunk) <= 3 else 78.0)
         for j, op in enumerate(chunk):
             k = ops.index(op)
             cx = x0 + (j % 3) * (cw + 3)
@@ -640,17 +770,24 @@ def line_sheets(F, ops, info, prefix):
             for m, ln in enumerate(lines_):
                 sh.text(cx + 2, cy + 15 - 5 * m, ln, 2.3, "L")
         if pg == len(pages) - 1:
+            lay_op = next((o for o in ops if o.kind == BLANK and o.layouts), None)
+            yt = y_top - 14 - ((len(chunk) + 2) // 3) * (ch + 3) - 4
+            room = max(int((yt - dd.MARGIN - dd.TB_H - 6) / 4.2) - 1, 0)
+            if lay_op is not None and room >= 2:
+                rows_l = [[c.name, f"{c.angle:.0f}°", c.rows, f"{c.pitch:.1f}", f"{c.width:.1f}", f"{c.util * 100:.1f} %",
+                           f"{c.kg_per_part * 1000:.1f}", "◀ 고름" if c is lay_op.layout else ""] for c in lay_op.layouts]
+                dd._table(sh, x0 + 232, yt, [26, 12, 8, 18, 18, 18, 20, 16],
+                          ["1차 배치", "각도", "열", "피치", "폭", "이용률", "g/개", ""], rows_l, h=4.2, max_rows=room)
             rows = []
             for op in ops:
                 a = op.die
-                rows.append([op.no, op.title, op.detail[:46],
+                rows.append([op.no, op.title, op.detail[:40],
                              f"{a.L:.0f}×{a.W:.0f}×{a.shut:.0f}" if a else "-",
                              f"{(op.force_n or 0) / 1000:,.1f}", ((a.press or {}).get("machine", "") if a else "") or "-",
                              (f"검토 {sum(1 for c in a.checks if c[3] != '적합')}" if a else "못 만듦")])
-            yt = y_top - 14 - 2 * (ch + 3) - 4
-            if yt - dd.MARGIN - dd.TB_H - 4 > 4.2 * (len(rows) + 1):
-                dd._table(sh, x0, yt, [10, 30, 92, 34, 18, 40, 20], ["차", "공정", "내용", "금형 L×W×닫힌", "하중 kN",
-                                                                  "프레스", "점검"], rows, h=4.2)
+            if room >= 2:
+                dd._table(sh, x0, yt, [10, 26, 80, 34, 18, 36, 18], ["차", "공정", "내용", "금형 L×W×닫힌", "하중 kN",
+                                                                  "프레스", "점검"], rows, h=4.2, max_rows=room)
         sheets.append(sh)
     return sheets
 
