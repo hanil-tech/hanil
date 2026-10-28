@@ -876,6 +876,8 @@ dialog select{font:inherit}
           delete job.inflight[key];
           if (job.state !== 'run') { mark(job, f, i, WAIT); return; }
           mark(job, f, i, RETRY); f.st = 'retry';
+          //  받는 곳 디스크가 가득 참 — 기다려도 안 풀린다, 바로 알린다
+          if (e && e.name === 'QuotaExceededError') throw new Error('받는 곳(디스크)의 자리가 모자랍니다 — ' + human(f.size) + ' 짜리 ' + f.p + ' 을(를) 쓸 수 없습니다. 자리를 비우고 [이어 받기]를 누르세요(받아 둔 파일은 건너뜁니다)');
           if (e.crc) crcBad++;
           if (crcBad >= 3) throw new Error(f.p + ': 조각 ' + i + ' 가 ' + crcBad + '번 모두 서버 기록과 다르게 옵니다 — 서버의 파일이 상했을 수 있습니다. 목록의 [검사]로 확인하고, 올린 사람이 [다시 올려 고치기]를 하면 됩니다');
           if (e.fatal || ++tries > 8) throw e;
@@ -963,21 +965,26 @@ dialog select{font:inherit}
       }, function () { return false; });
     }
     function one(f) {
-      var url = '/bigfile/api/file/' + f.id + '/dl';
       f.st = 'run'; later(job);
+      if (f.w) return write(f, f.w);           //  멈췄다 이어 받기 — 열어 둔 쓰기에 받다 만 조각부터
       return dirOf(parent(f.p)).then(function (d) {
         return already(d, f).then(function (yes) {
           if (yes) { f.st = 'done'; f.skipped = true; job.sent += f.size - f.sent; f.sent = f.size; later(job); return; }
           job.sent -= f.sent; f.sent = 0; f.gk = new Uint8Array(f.n);
           return d.getFileHandle(base(f.p), { create: true }).then(function (h) { return h.createWritable(); }).then(function (w) {
-            return dlChunks(job, f, url, w).then(function () {
-              if (job.state !== 'run') return w.abort().catch(function () {});
-              return w.close().then(function () { f.st = 'done'; later(job); });
-            }, function (e) { w.abort().catch(function () {}); throw e; });
+            f.w = w;
+            return write(f, w);
           });
         });
       });
     }
+    function write(f, w) {
+      return dlChunks(job, f, '/bigfile/api/file/' + f.id + '/dl', w).then(function () {
+        if (job.state !== 'run') return;       //  멈춤 — 쓰기를 열어 둔다(닫으면 받은 것이 사라지거나 덜 된 파일이 남는다)
+        return w.close().then(function () { f.w = null; f.st = 'done'; later(job); });
+      }, function (e) { f.w = null; w.abort().catch(function () {}); throw e; });
+    }
+    job.cancel = function () { job.files.forEach(function (f) { if (f.w) { f.w.abort().catch(function () {}); f.w = null; } }); };
     function go() {
       job.state = 'run'; job.err = ''; job.samples = []; draw(job);
       var todo = job.files.filter(function (f) { return f.st !== 'done' && f.st !== 'ok'; });
