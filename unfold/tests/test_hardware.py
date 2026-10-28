@@ -79,3 +79,16 @@ def test_app_opens_in_background_and_excludes_hardware(tmp_path):
         assert w.excluded == set(hw)
     finally:
         w.close()
+
+
+def test_app_unfolds_forming_part_in_background(tmp_path):
+    """부품 고르기: 성형품 (휀다) 전개를 뒤 스레드에서 돌려도 결과는 같은 자리에 (result · 3D 화면), 진행 창은 닫힘."""
+    from hanil_unfold.app import MainWindow
+    path = loader.save_step(loader.list_solids(models.dish())[0], str(tmp_path / "dish.step"), "dish")
+    w = MainWindow()
+    w.open_file(path)
+    try:
+        assert w.model is not None and w.result is not None and w.result.mode == "forming"
+        assert not any(x.isVisible() for x in w.findChildren(__import__("PySide6.QtWidgets").QtWidgets.QProgressDialog))
+    finally:
+        w.close()

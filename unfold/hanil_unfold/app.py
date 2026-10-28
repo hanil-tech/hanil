@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import re
 import os
+import time
 import sys
 import traceback
 
@@ -1756,34 +1757,58 @@ class MainWindow(QMainWindow):
     # ---- 전개
 
     def run_unfold(self):
-        solid = self.current_solid()
-        if solid is None:
+        if self.model is None:
             return
         idx = max(0, self.solid_box.currentIndex())
         self.assembly_view.set_highlight(idx)
         self.part_list.blockSignals(True)
         self.part_list.setCurrentRow(idx)
         self.part_list.blockSignals(False)
-        if self.use_gl:
-            self.model_view.set_parts(mesh_parts([solid]), [solid_polylines(solid, iso=False)])
-        else:
-            self.model_view.set_solid(solid)
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
-
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            self.result = unfold(solid, thickness=thickness, settings=self.bend_panel.settings(),
-                                 mode=self.mode_box.currentData())
-        except UnfoldError as e:
+        # 부품 꺼내기 (형상 보정) · 전개 (성형품은 원스텝 해석이라 몇 초 ~ 십몇 초) 를 뒤 스레드에서 — 창이 멈추지 않고,
+        # 오래 걸리면 진행 창의 [그만] 으로 끊는다
+        name = self.model.label(idx)
+        worker = _UnfoldThread(self.model, idx, thickness, self.bend_panel.settings(), self.mode_box.currentData())
+        worker.start()
+        dlg = None
+        t0 = time.monotonic()
+        while not worker.wait(30):
+            if dlg is None and time.monotonic() - t0 > 0.6:
+                from PySide6.QtWidgets import QProgressDialog
+                dlg = QProgressDialog(f"{name} 전개 중… (성형품은 원스텝 해석이라 몇 초 걸립니다)", "그만", 0, 0, self)
+                dlg.setWindowTitle("전개")
+                dlg.setWindowModality(Qt.WindowModal)
+                dlg.setMinimumDuration(0)
+                dlg.show()
+            QApplication.processEvents()
+            if dlg is not None and dlg.wasCanceled():
+                worker.abandon()                         # 결과는 버림 (스레드는 끝날 때까지 뒤에서)
+                break
+        if dlg is not None:
+            dlg.close()
+        if worker.abandoned:
             self.result = None
-            self._set_info(f"전개하지 못했습니다.<br>{e}", error=True)
-        except Exception as e:
-            self.result = None
-            traceback.print_exc()
-            self._set_info(f"전개 중 오류가 났습니다.<br>{e}<br>"
-                           "판금(두께 일정, 평면+원통 절곡) 형상인지 확인해 주세요.", error=True)
-        finally:
-            QApplication.restoreOverrideCursor()
+            self._set_info("전개를 그만두었습니다. 부품을 다시 고르면 다시 전개합니다.", error=True)
+            self.dims = None
+            self.flat_view.set_result(None, None, excluded=idx in self.excluded)
+            self._fill_table()
+            self._fill_dims()
+            self._update_actions()
+            return
+        solid = worker.solid
+        if solid is not None:
+            if self.use_gl:
+                self.model_view.set_parts(worker.mesh or mesh_parts([solid]), worker.lines or [solid_polylines(solid, iso=False)])
+            else:
+                self.model_view.set_solid(solid)
+        self.result = worker.result
+        if worker.error is not None:
+            kind, msg = worker.error
+            if kind == "unfold":
+                self._set_info(f"전개하지 못했습니다.<br>{msg}", error=True)
+            else:
+                self._set_info(f"전개 중 오류가 났습니다.<br>{msg}<br>"
+                               "판금(두께 일정, 평면+원통 절곡) 형상인지 확인해 주세요.", error=True)
 
         self.dims = None
         if self.result is not None:
@@ -2151,6 +2176,39 @@ HELP_TEXT = """\
 """
 
 
+class _UnfoldThread(QThread):
+    """부품 꺼내기 (형상 보정) → 3D 그물 · 선 → 전개. error = ("unfold" | "fail", 글) 또는 None."""
+
+    def __init__(self, model, idx, thickness, settings, mode):
+        super().__init__()
+        self.model, self.idx, self.thickness, self.settings_, self.mode = model, idx, thickness, settings, mode
+        self.solid = self.result = self.mesh = self.lines = None
+        self.error = None
+        self.abandoned = False
+
+    def abandon(self):
+        self.abandoned = True
+
+    def run(self):
+        try:
+            self.solid = self.model.solids[self.idx]
+        except Exception as e:  # noqa: BLE001
+            self.error = ("fail", str(e))
+            return
+        try:
+            self.mesh = mesh_parts([self.solid])
+            self.lines = [solid_polylines(self.solid, iso=False)]
+        except Exception:  # noqa: BLE001
+            self.mesh = self.lines = None
+        try:
+            self.result = unfold(self.solid, thickness=self.thickness, settings=self.settings_, mode=self.mode)
+        except UnfoldError as e:
+            self.error = ("unfold", str(e))
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            self.error = ("fail", str(e))
+
+
 class _LoadThread(QThread):
     """파일 읽기 + 조립품 선 · 그물 만들기를 뒤에서. error = (종류, 글) 또는 None."""
     progress = Signal(str)
@@ -2193,8 +2251,24 @@ def _warm_imports():
         pass
 
 
+def _crash_log():
+    """프로그램이 죽으면 (파이썬 밖, OpenCASCADE 안) 어디서 죽었는지 crash.log 에 남긴다 — 보고용."""
+    try:
+        import faulthandler
+        d = os.path.join(loader.cache_root(), "..")
+        os.makedirs(d, exist_ok=True)
+        f = open(os.path.join(d, "crash.log"), "a", encoding="utf-8")
+        f.write(f"\n=== {version_text(long=True)} {__import__('datetime').datetime.now():%Y-%m-%d %H:%M} ===\n")
+        f.flush()
+        faulthandler.enable(file=f, all_threads=True)
+        return f
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def main():
     app = QApplication(sys.argv)
+    _crash_file = _crash_log()  # noqa: F841 — 열어 둔 채로 (faulthandler 가 쓴다)
     app.setApplicationName(APP_NAME)
     icon = os.path.join(os.path.dirname(__file__), "icon.ico")
     if os.path.exists(icon):

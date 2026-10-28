@@ -101,3 +101,14 @@ def test_drawing_set_without_solid():
     sheets = diedraw.build(die3d.build(r, st), {"product": "판", "result": r})
     prod = next(x for x in sheets if x.title == "제품도 · 전개도")
     assert not any(e[3] == "제품 입체도 (3D 모델)" for e in prod.ents if e[0] == "text")
+
+
+def test_step_write_korean_space_folder(tmp_path):
+    """STEP 은 임시 영문 경로에 쓴 뒤 한글 · 띄어쓰기 폴더로 옮긴다 (윈도우에서 쓰기 쪽이 죽던 것)."""
+    import models
+    from hanil_unfold import loader
+    d = tmp_path / "배포용 stp 파일" / "권이사 전송도면"
+    p = loader.save_step(models.tray(), str(d / "트레이 부품.step"), "트레이")
+    assert (d / "트레이 부품.step").exists() and p == str(d / "트레이 부품.step")
+    m = loader.load(p, use_cache=False)
+    assert len(m.solids) == 1

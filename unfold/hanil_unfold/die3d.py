@@ -1431,9 +1431,8 @@ def save_step(assy: DieAssy, path):
     w.SetNameMode(True)
     w.SetColorMode(True)
     w.Transfer(doc, STEPControl_AsIs)
-    if w.Write(path) != IFSelect_RetDone:
-        raise ValueError("STEP 을 쓰지 못했습니다")
-    return path
+    from .loader import step_write
+    return step_write(w, path)
 
 
 # ---------------------------------------------------------------- 2D 조립도 (평면도 + 정면도, 풍선)

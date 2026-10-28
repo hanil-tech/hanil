@@ -118,9 +118,8 @@ def _write_named(shapes_names, path):
     w = STEPCAFControl_Writer()
     w.SetNameMode(True)
     w.Transfer(doc, STEPControl_AsIs)
-    if w.Write(path) != IFSelect_RetDone:
-        raise ValueError("STEP 을 쓰지 못했습니다")
-    return path
+    from .loader import step_write
+    return step_write(w, path)
 
 
 def _compound(edges):
@@ -196,18 +195,40 @@ def flat_step(result, path, name="FLAT"):
 
     from .die3d import _simplify, _wire
     from .nesting import NestPart
+    from OCP.BRepCheck import BRepCheck_Analyzer
+
+    from . import unfoldcheck
     part = NestPart.from_result("p", result)
     if part.outer is None:
         raise ValueError("전개 외곽이 닫혀 있지 않아 평판 솔리드를 만들 수 없습니다")
     t = float(result.thickness)
+    if not (t > 0):
+        raise ValueError("두께가 0 이라 평판 솔리드를 만들 수 없습니다")
+    outer = _simplify(np.asarray(part.outer, float), 0.002)
+    # 스스로 가로지르는 외곽 (성형품 전개의 주름 · 겹침) 으로 면을 만들면 OpenCASCADE 가 죽을 수 있어 먼저 거른다
+    if len(outer) < 3 or unfoldcheck.crossings([outer]):
+        raise ValueError("전개 외곽이 스스로 가로질러 (겹침) 평판 솔리드를 만들 수 없습니다 — DXF 로 저장해 CAD 에서 정리해 주세요")
 
     def prism(P, z0, h):
-        f = BRepBuilderAPI_MakeFace(_wire(_simplify(np.asarray(P, float), 0.002), z0), True).Face()
-        return BRepPrimAPI_MakePrism(f, gp_Vec(0, 0, h)).Shape()
-    s = prism(part.outer, 0.0, t)
+        f = BRepBuilderAPI_MakeFace(_wire(P, z0), True).Face()
+        if not BRepCheck_Analyzer(f).IsValid():
+            raise ValueError("면이 올바르지 않음")
+        sh = BRepPrimAPI_MakePrism(f, gp_Vec(0, 0, h)).Shape()
+        if not BRepCheck_Analyzer(sh).IsValid():
+            raise ValueError("밀어낸 솔리드가 올바르지 않음")
+        return sh
+    s = prism(outer, 0.0, t)
     for h in part.holes:
         try:
-            s = BRepAlgoAPI_Cut(s, prism(h, -1.0, t + 2)).Shape()
+            hp = _simplify(np.asarray(h, float), 0.002)
+            if len(hp) < 3 or unfoldcheck.crossings([hp]):
+                continue
+            cut = BRepAlgoAPI_Cut(s, prism(hp, -1.0, t + 2))
+            if not cut.IsDone():
+                continue
+            s2 = cut.Shape()
+            if BRepCheck_Analyzer(s2).IsValid():
+                s = s2
         except Exception:  # noqa: BLE001
             pass
     return _write_named([(s, name)], path)

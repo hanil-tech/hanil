@@ -112,7 +112,8 @@ def _major_dirs(V, F, U):
     P = U[F]
     D = np.stack([P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]], axis=2)
     Fd = Q @ np.linalg.inv(D)
-    Uu, _, _ = np.linalg.svd(Fd)
+    from .forming import _svd2
+    Uu, _, _ = _svd2(Fd)
     return np.einsum("mij,mj->mi", E, Uu[:, :, 0])
 
 

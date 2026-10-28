@@ -131,47 +131,57 @@ def delaunay_flips(V, F, passes=4, coplanar_deg=8.0):
     """거의 한 평면인 이웃 삼각형 쌍 (a, b, c)·(b, a, d) 에서 맞은편 두 각의 합이 180° 를 넘으면 모서리 ab 를
     cd 로 뒤집는다 (델로네 뒤집기). CAD 메시의 평면 벽 (긴 부채꼴 바늘 삼각형) 을 고른 모양으로 — 깊은 사각 드로잉
     (오일 팬) 시험에서 삼각형 2/3 의 가장 작은 각이 1° 아래라 원스텝이 시작을 못 하던 것.
-    굽은 곳 (두 면 법선 차 > coplanar_deg) 은 모양이 바뀌므로 뒤집지 않는다."""
+    굽은 곳 (두 면 법선 차 > coplanar_deg) 은 모양이 바뀌므로 뒤집지 않는다.
+    후보 (이웃 쌍 · 각 · 방향) 는 numpy 로 한꺼번에 — 삼각형 7,000 개 휀다에서 5 초 → 0.3 초."""
     F = np.array(F, int)
+    V = np.asarray(V, float)
     cos_c = math.cos(math.radians(coplanar_deg))
+    nv = len(V)
     for _ in range(passes):
         n_tri = len(F)
+        if n_tri == 0:
+            break
         nrm = np.cross(V[F[:, 1]] - V[F[:, 0]], V[F[:, 2]] - V[F[:, 0]])
         nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
-        edge = {}
-        for t in range(n_tri):
-            f = F[t]
-            for k in range(3):
-                a, b = int(f[k]), int(f[(k + 1) % 3])
-                edge.setdefault((min(a, b), max(a, b)), []).append((t, k))
+        # 삼각형 t 의 k 번째 변 (F[t,k], F[t,k+1]) 은 번호 3t + k
+        E = np.stack([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]], axis=1).reshape(-1, 2)
+        key = np.sort(E, axis=1)
+        key = key[:, 0].astype(np.int64) * nv + key[:, 1]
+        order = np.argsort(key, kind="stable")
+        ks = key[order]
+        _, start, cnt = np.unique(ks, return_index=True, return_counts=True)
+        two = start[cnt == 2]
+        if not len(two):
+            break
+        i1, i2 = order[two], order[two + 1]
+        t1, k1 = i1 // 3, i1 % 3
+        t2, k2 = i2 // 3, i2 % 3
+        p, q = F[t1, k1], F[t1, (k1 + 1) % 3]                   # t1 = (p, q, c), t2 = (q, p, d)
+        c, d = F[t1, (k1 + 2) % 3], F[t2, (k2 + 2) % 3]
+        ok = (np.einsum("ij,ij->i", nrm[t1], nrm[t2]) >= cos_c) & (c != d)
+
+        def ang(p_, q_, r_):              # q_ 에서의 각 (배열)
+            u, v = V[p_] - V[q_], V[r_] - V[q_]
+            den = np.maximum(np.linalg.norm(u, axis=1) * np.linalg.norm(v, axis=1), 1e-30)
+            return np.arccos(np.clip(np.einsum("ij,ij->i", u, v) / den, -1.0, 1.0))
+        ok &= ang(p, c, q) + ang(p, d, q) > math.pi + 1e-9
+        # 새 삼각형이 원래 방향을 지키는지 (뒤집혀 접히지 않게)
+        n1 = np.cross(V[p] - V[c], V[d] - V[c])               # 새 (c, p, d)
+        n2 = np.cross(V[q] - V[d], V[c] - V[d])               # 새 (d, q, c)
+        ok &= (np.einsum("ij,ij->i", n1, nrm[t1]) > 0) & (np.einsum("ij,ij->i", n2, nrm[t1]) > 0)
+        cand = np.nonzero(ok)[0]
+        if not len(cand):
+            break
+        cand = cand[np.argsort(np.minimum(i1[cand], i2[cand]), kind="stable")]   # 처음 나온 변부터 (전과 같은 차례)
         used = np.zeros(n_tri, bool)
         flips = 0
-        for (a, b), lst in edge.items():
-            if len(lst) != 2:
+        for j in cand:
+            a_, b_ = int(t1[j]), int(t2[j])
+            if used[a_] or used[b_]:
                 continue
-            (t1, k1), (t2, k2) = lst
-            if used[t1] or used[t2] or float(nrm[t1] @ nrm[t2]) < cos_c:
-                continue
-            f1, f2 = F[t1], F[t2]
-            c = int(f1[(k1 + 2) % 3])
-            d = int(f2[(k2 + 2) % 3])
-            if c == d:
-                continue
-
-            def ang(p, q, r):                 # q 에서의 각
-                u, v = V[p] - V[q], V[r] - V[q]
-                return math.acos(max(-1.0, min(1.0, float(u @ v) / max(np.linalg.norm(u) * np.linalg.norm(v), 1e-30))))
-            if ang(a, c, b) + ang(a, d, b) <= math.pi + 1e-9:
-                continue
-            # 새 삼각형이 원래 방향을 지키는지 (뒤집혀 접히지 않게)
-            p, q = int(f1[k1]), int(f1[(k1 + 1) % 3])      # t1 = (p, q, c), t2 = (q, p, d)
-            n1 = np.cross(V[p] - V[c], V[d] - V[c])          # 새 (c, p, d)
-            n2 = np.cross(V[q] - V[d], V[c] - V[d])          # 새 (d, q, c)
-            if float(n1 @ nrm[t1]) <= 0 or float(n2 @ nrm[t1]) <= 0:
-                continue
-            F[t1] = (c, p, d)
-            F[t2] = (d, q, c)
-            used[t1] = used[t2] = True
+            F[a_] = (c[j], p[j], d[j])
+            F[b_] = (d[j], q[j], c[j])
+            used[a_] = used[b_] = True
             flips += 1
         if not flips:
             break
@@ -445,6 +455,29 @@ def arap(V, F, U, iterations=60):
     return U
 
 
+def _svd2(M, compute_uv=True):
+    """(n, 2, 2) 행렬의 닫힌꼴 SVD — M = U · diag(s) · Vh, s 는 내림차순 ≥ 0 (numpy 의 배치 SVD 보다 4 ~ 10 배 빠름).
+    E = (a + d)/2, F = (a − d)/2, G = (c + b)/2, H = (c − b)/2 → s = (√(E²+H²) ± √(F²+G²)),
+    U = 회전 ((a2 + a1)/2), Vh = 회전 ((a2 − a1)/2), a1 = atan2(G, F), a2 = atan2(H, E) (Blinn 「Consider the lowly 2×2 matrix」)."""
+    M = np.asarray(M, float)
+    a, b, c, d = M[:, 0, 0], M[:, 0, 1], M[:, 1, 0], M[:, 1, 1]
+    E, F_, G, H = (a + d) / 2, (a - d) / 2, (c + b) / 2, (c - b) / 2
+    Q, R = np.hypot(E, H), np.hypot(F_, G)
+    s1, s2 = Q + R, Q - R
+    sv = np.stack([s1, np.abs(s2)], axis=1)
+    if not compute_uv:
+        return sv
+    a1, a2 = np.arctan2(G, F_), np.arctan2(H, E)
+    th, ph = (a2 - a1) / 2, (a2 + a1) / 2
+    ct, st, cp, sp = np.cos(th), np.sin(th), np.cos(ph), np.sin(ph)
+    U = np.empty_like(M)
+    Vh = np.empty_like(M)
+    U[:, 0, 0], U[:, 0, 1], U[:, 1, 0], U[:, 1, 1] = cp, -sp, sp, cp
+    Vh[:, 0, 0], Vh[:, 0, 1], Vh[:, 1, 0], Vh[:, 1, 1] = ct, -st, st, ct
+    Vh[:, 1, :] *= np.where(s2 < 0, -1.0, 1.0)[:, None]            # 뒤집힌 (det < 0) 것은 둘째 특이값 부호를 Vh 로
+    return U, sv, Vh
+
+
 def strains(V, F, U):
     """삼각형마다 (주 변형률 ε1, ε2 [진변형률], 넓이 비 = 제품/블랭크)."""
     q = _local_frames(V, F)
@@ -452,7 +485,7 @@ def strains(V, F, U):
     D_flat = np.stack([P[:, 1] - P[:, 0], P[:, 2] - P[:, 0]], axis=2)    # 2x2
     D_3d = np.stack([q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]], axis=2)
     Fdef = D_3d @ np.linalg.inv(D_flat)        # 블랭크 → 제품
-    s = np.linalg.svd(Fdef, compute_uv=False)
+    s = _svd2(Fdef, compute_uv=False)
     e1, e2 = np.log(s[:, 0]), np.log(s[:, 1])
     ratio = s[:, 0] * s[:, 1]
     return e1, e2, ratio
@@ -501,7 +534,7 @@ def plastic_work(Vm, F, U, n_exp, r_value=1.0, grad=True, q=None):
     Dinv[:, 0, 0], Dinv[:, 1, 1] = D[:, 1, 1] / det, D[:, 0, 0] / det
     Dinv[:, 0, 1], Dinv[:, 1, 0] = -D[:, 0, 1] / det, -D[:, 1, 0] / det
     Fd = Q @ Dinv                                                       # 블랭크 → 제품
-    Uu, s, Vh = np.linalg.svd(Fd)
+    Uu, s, Vh = _svd2(Fd)
     e = np.log(s)
     k = (1 + r_value) ** 2 / (1 + 2 * r_value)
     b = 2 * r_value / (1 + r_value)
@@ -544,7 +577,7 @@ def _elem_grad(Qm, A, P, n_exp, r_value):
     Dinv[:, 0, 0], Dinv[:, 1, 1] = D[:, 1, 1] / det, D[:, 0, 0] / det
     Dinv[:, 0, 1], Dinv[:, 1, 0] = -D[:, 0, 1] / det, -D[:, 1, 0] / det
     Fd = Qm @ Dinv
-    Uu, s, Vh = np.linalg.svd(Fd)
+    Uu, s, Vh = _svd2(Fd)
     e = np.log(s)
     k = (1 + r_value) ** 2 / (1 + 2 * r_value)
     b = 2 * r_value / (1 + r_value)
@@ -920,19 +953,19 @@ def flc_risk(major, minor, flc0, material=None):
 
 
 def boundary_loops(F):
-    """한 삼각형에만 속한 변을 이어 닫힌 경계들로."""
-    count = {}
-    for t in F:
-        for k in range(3):
-            a, b = int(t[k]), int(t[(k + 1) % 3])
-            key = (min(a, b), max(a, b))
-            count[key] = count.get(key, 0) + 1
+    """한 삼각형에만 속한 변을 이어 닫힌 경계들로 (변 세기는 numpy 로 — 큰 메시에서 1 초 → 0.05 초)."""
+    F = np.asarray(F, int)
+    if not len(F):
+        return []
+    E = np.stack([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]], axis=1).reshape(-1, 2)
+    nv = int(F.max()) + 1
+    key = np.sort(E, axis=1)
+    key = key[:, 0].astype(np.int64) * nv + key[:, 1]
+    _, inv, cnt = np.unique(key, return_inverse=True, return_counts=True)
+    single = E[cnt[inv] == 1]
     nxt = {}
-    for t in F:
-        for k in range(3):
-            a, b = int(t[k]), int(t[(k + 1) % 3])
-            if count[(min(a, b), max(a, b))] == 1:
-                nxt[a] = b
+    for a, b in single.tolist():            # 뒤에 나온 것이 남음 (전과 같음)
+        nxt[a] = b
     loops = []
     while nxt:
         start, cur = next(iter(nxt.items()))

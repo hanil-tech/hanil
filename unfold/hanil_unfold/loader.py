@@ -556,6 +556,24 @@ def _read_brep(path: str) -> TopoDS_Shape:
     return shape
 
 
+def step_write(writer, path):
+    """STEP 쓰기를 임시 영문 경로에 한 뒤 옮긴다 — 윈도우에서 한글 · 띄어쓰기 폴더로 바로 쓰면 OpenCASCADE 쓰기 쪽이
+    죽는 일이 있어 (읽기는 됨). writer 는 STEPControl_Writer 또는 STEPCAFControl_Writer. 실패하면 ValueError."""
+    import shutil
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".stp")
+    os.close(fd)
+    try:
+        if writer.Write(tmp) != IFSelect_RetDone:
+            raise ValueError("STEP 파일을 쓰지 못했습니다.")
+        os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+        shutil.move(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return path
+
+
 def save_step(shapes, path, name=""):
     """솔리드(들)만 STEP 으로 저장. path 가 .zip 이면 STEP 을 압축해 넣는다 (보내기 쉽게, 보통 1/10).
 
@@ -573,8 +591,7 @@ def save_step(shapes, path, name=""):
     if zipped:
         fd, target = tempfile.mkstemp(suffix=".stp")
         os.close(fd)
-    if w.Write(target) != IFSelect_RetDone:
-        raise ValueError("STEP 파일을 쓰지 못했습니다.")
+    step_write(w, target)
     if zipped:
         inner = (re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "part") + ".stp"
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
