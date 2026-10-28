@@ -117,6 +117,7 @@ class LoadedModel:
     flat: object = None         # 2D 도면에서 만든 평판이면 dxf2d.FlatDrawing
     flat_thickness: float = 0.0
     surface_t: float = 0.0      # 두께 없는 곡면 (판 한 겹) 을 이 두께로 두껍게 만들어 열었으면 그 두께
+    hardware: dict = None       # 부품 번호 → 체결품 종류 (볼트 · 너트 · 와셔 …, hardware.find) — 기본으로 제외할 것
 
     @property
     def recognized(self):
@@ -182,8 +183,10 @@ def load(path: str, use_cache: bool = True, flat: dict | None = None,
         cached = _read_cache(cdir)
         if cached is not None:
             solids, names, paths = cached
-            return LoadedModel(path=path, shape=_compound(solids), solids=LazySolids(solids),
-                               names=names, paths=paths, cache_dir=cdir, from_cache=True)
+            m = LoadedModel(path=path, shape=_compound(solids), solids=LazySolids(solids),
+                            names=names, paths=paths, cache_dir=cdir, from_cache=True)
+            m.hardware = _find_hardware(names, solids)
+            return m
 
     names = None
     paths = None
@@ -239,7 +242,19 @@ def load(path: str, use_cache: bool = True, flat: dict | None = None,
     m = LoadedModel(path=path, shape=shape, solids=LazySolids(solids), names=names,
                     paths=paths, cache_dir=cdir)
     m.surface_t = surface_t
+    m.hardware = _find_hardware(names, solids)
     return m
+
+
+def _find_hardware(names, solids):
+    """볼트 · 너트 · 와셔 같은 체결품 (이름 · 모양) — 부품 하나짜리 파일은 보지 않는다 (그 부품을 보려고 연 것)."""
+    if len(solids) < 2:
+        return {}
+    try:
+        from . import hardware
+        return hardware.find(names, solids)
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 # ---------------------------------------------------------------- 다시 열기 보관 (캐시)

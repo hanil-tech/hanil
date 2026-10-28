@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import math
+import re
 import os
 import sys
 import traceback
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath,
                            QPen, QPixmap)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
@@ -1163,23 +1164,43 @@ class MainWindow(QMainWindow):
                 return
             self._show_model(model, path)
             return
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            model = loader.load(path)
-        except loader.UnsupportedFormat as e:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.information(self, "STEP 으로 저장해 주세요", str(e))
+        model = self._load_with_progress(path)
+        if model is None:
             return
-        except Exception as e:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.warning(self, "열기 실패", str(e))
-            return
-        QApplication.restoreOverrideCursor()
         if model.surface_t:
             model = self._ask_surface_thickness(path, model)
             if model is None:
                 return
         self._show_model(model, path)
+
+    def _load_with_progress(self, path, sheet_thickness=None):
+        """파일을 뒤 스레드에서 읽는 동안 진행 창을 보인다 (큰 조립품도 창이 멈추지 않음). 그물 (3D 화면) 도 같이 만든다.
+        실패하면 안내하고 None."""
+        from PySide6.QtWidgets import QProgressDialog
+        size_mb = os.path.getsize(path) / 1e6 if os.path.isfile(path) else 0.0
+        dlg = QProgressDialog(f"{os.path.basename(path)} 읽는 중… ({size_mb:.1f} MB)", None, 0, 0, self)
+        dlg.setWindowTitle("도면 열기")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(300)
+        dlg.setCancelButton(None)
+        worker = _LoadThread(path, sheet_thickness, self.use_gl)
+        worker.progress.connect(dlg.setLabelText)
+        loop_done = []
+        worker.finished.connect(lambda: loop_done.append(True))
+        worker.start()
+        while not loop_done:
+            QApplication.processEvents()
+            worker.wait(30)
+        dlg.close()
+        if worker.error is not None:
+            kind, msg = worker.error
+            if kind == "unsupported":
+                QMessageBox.information(self, "STEP 으로 저장해 주세요", msg)
+            else:
+                QMessageBox.warning(self, "열기 실패", msg)
+            return None
+        self._preloaded = (worker.model, worker.polylines, worker.meshes)
+        return worker.model
 
     def _ask_surface_thickness(self, path, model):
         """두께 없는 곡면 판금 파일: 판 두께를 물어 그 두께로 다시 연다 (곡면 = 판 두께 가운데 면)."""
@@ -1194,14 +1215,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("surface_t", t)
         if abs(t - model.surface_t) < 1e-9:
             return model
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            return loader.load(path, sheet_thickness=t)
-        except Exception as e:
-            QMessageBox.warning(self, "열기 실패", str(e))
-            return None
-        finally:
-            QApplication.restoreOverrideCursor()
+        return self._load_with_progress(path, sheet_thickness=t)
 
     def _show_model(self, model, path):
         self.model = model
@@ -1213,22 +1227,39 @@ class MainWindow(QMainWindow):
         for i in range(len(model.solids)):
             self.solid_box.addItem(model.label(i))
             self.part_list.addItem(model.label(i))
+        # 볼트 · 너트 · 와셔 같은 체결품은 기본으로 제외 (전체 계산 · 철판 배치 · 견적에서 뺌, 목록에 [제외: 너트])
+        hw = model.hardware or {}
+        self.excluded = set(hw) if self.auto_hardware() else set()
+        first = next((i for i in range(len(model.solids)) if i not in self.excluded), 0)
+        self.solid_box.setCurrentIndex(first)
         self.solid_box.blockSignals(False)
         self.part_list.blockSignals(False)
 
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            self.assembly_parts = assembly_polylines(model.raw_solids)
-            if self.use_gl:
-                self.assembly_meshes = mesh_parts_cached(model.raw_solids, model.cache_dir)
-        finally:
-            QApplication.restoreOverrideCursor()
+        pre = getattr(self, "_preloaded", None)
+        if pre and pre[0] is model and pre[1] is not None:
+            self.assembly_parts, self.assembly_meshes = pre[1], pre[2]
+        else:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                self.assembly_parts = assembly_polylines(model.raw_solids)
+                if self.use_gl:
+                    self.assembly_meshes = mesh_parts_cached(model.raw_solids, model.cache_dir)
+            finally:
+                QApplication.restoreOverrideCursor()
+        self._preloaded = None
         if self.use_gl:
             self.assembly_view.set_parts(self.assembly_meshes, self.assembly_parts)
         else:
             self.assembly_view.set_parts(self.assembly_parts)
         self.assy_parts_result = None
-        self.excluded = set()
+        self._mark_excluded()
+        if hw:
+            kinds = {}
+            for k in hw.values():
+                kinds[k] = kinds.get(k, 0) + 1
+            self.statusBar().showMessage("체결품 " + " · ".join(f"{k} {n}" for k, n in kinds.items())
+                                         + (" 자동 제외 (부품 목록 오른쪽 단추로 되돌림)" if self.auto_hardware()
+                                            else " 발견 (자동 제외 꺼짐)"), 15000)
         self.calc_xlsx_btn.setEnabled(False)
         self.assy_summary.setText("[전체 계산] 을 누르면 모든 부품의\n두께·면적·무게 합계가 나옵니다.")
         # 부품이 많으면 번호는 고른 부품만 (화면이 번호로 덮이지 않게)
@@ -1259,7 +1290,7 @@ class MainWindow(QMainWindow):
         settings = self.bend_panel.settings()
         thickness = None if self.t_auto.isChecked() else self.t_spin.value()
         parts = assembly_calc.compute_all(self.model, settings, self.mode_box.currentData(),
-                                          thickness, progress)
+                                          thickness, progress, skip=self.excluded)
         dlg.setValue(n)
         self.assy_parts_result = parts
         self.calc_xlsx_btn.setEnabled(bool(parts))
@@ -1651,10 +1682,28 @@ class MainWindow(QMainWindow):
             self.set_excluded(max(0, self.solid_box.currentIndex()), on)
 
     def _mark_excluded(self):
+        hw = (self.model.hardware if self.model is not None else None) or {}
         for i in range(self.part_list.count()):
             it = self.part_list.item(i)
-            t = it.text().replace("  [제외]", "")
-            it.setText(t + ("  [제외]" if i in self.excluded else ""))
+            t = re.sub(r"  \[제외[^\]]*\]$", "", it.text())
+            it.setText(t + ((f"  [제외: {hw[i]}]" if i in hw else "  [제외]") if i in self.excluded else ""))
+
+    def auto_hardware(self):
+        return str(self.settings.value("auto_exclude_hardware", "1")) in ("1", "true", "True")
+
+    def _toggle_auto_hardware(self, on):
+        self.settings.setValue("auto_exclude_hardware", "1" if on else "0")
+        if self.model is None:
+            return
+        hw = self.model.hardware or {}
+        if on:
+            self.excluded |= set(hw)
+        else:
+            self.excluded -= set(hw)
+        self._mark_excluded()
+        self.flat_view.set_excluded(max(0, self.solid_box.currentIndex()) in self.excluded)
+        if self.assy_parts_result:
+            self._fill_summary()
 
     def _part_menu(self, pos):
         from PySide6.QtWidgets import QMenu
@@ -1676,6 +1725,11 @@ class MainWindow(QMainWindow):
                 m.addAction("다시 포함 (전체 계산·철판 배치)", lambda: self.set_excluded(idx, False))
             else:
                 m.addAction("제외 (전체 계산·철판 배치에서 뺌)", lambda: self.set_excluded(idx, True))
+        m.addSeparator()
+        ah = m.addAction("볼트·너트·와셔 자동 제외")
+        ah.setCheckable(True)
+        ah.setChecked(self.auto_hardware())
+        ah.toggled.connect(self._toggle_auto_hardware)
         if can_hide:
             m.addAction("모두 보이기", v.show_all)
         m.exec(self.part_list.mapToGlobal(pos))
@@ -2097,6 +2151,48 @@ HELP_TEXT = """\
 """
 
 
+class _LoadThread(QThread):
+    """파일 읽기 + 조립품 선 · 그물 만들기를 뒤에서. error = (종류, 글) 또는 None."""
+    progress = Signal(str)
+
+    def __init__(self, path, sheet_thickness, use_gl):
+        super().__init__()
+        self.path, self.sheet_thickness, self.use_gl = path, sheet_thickness, use_gl
+        self.model = self.polylines = self.meshes = None
+        self.error = None
+
+    def run(self):
+        try:
+            self.model = loader.load(self.path, sheet_thickness=self.sheet_thickness)
+        except loader.UnsupportedFormat as e:
+            self.error = ("unsupported", str(e))
+            return
+        except Exception as e:  # noqa: BLE001
+            self.error = ("fail", str(e))
+            return
+        if self.model.surface_t and self.sheet_thickness is None:
+            return                                   # 두께를 물은 뒤 다시 읽는다
+        try:
+            n = len(self.model.solids)
+            self.progress.emit(f"부품 {n} 개 — 조립품 그림 만드는 중…")
+            self.polylines = assembly_polylines(self.model.raw_solids)
+            if self.use_gl:
+                self.progress.emit(f"부품 {n} 개 — 3D 그물 만드는 중…")
+                self.meshes = mesh_parts_cached(self.model.raw_solids, self.model.cache_dir)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            self.polylines = self.meshes = None
+
+
+def _warm_imports():
+    """무거운 모듈 (scipy · 성형 해석 · 치수 · 보고서) 을 창이 뜬 뒤 뒤에서 미리 읽어 두어 첫 파일 열기가 바로 되게."""
+    try:
+        from . import canonical, dims, forming, formsim, metrics, unfolder  # noqa: F401
+        import scipy.sparse, scipy.spatial  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -2110,6 +2206,8 @@ def main():
     w = MainWindow()
     w.show()
     QTimer.singleShot(1200, lambda: splash.finish(w))
+    import threading
+    threading.Thread(target=_warm_imports, daemon=True).start()
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         w.open_file(sys.argv[1])
     sys.exit(app.exec())

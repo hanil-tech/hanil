@@ -66,6 +66,7 @@ class PartPackageDialog(QDialog):
 
         self.out = QTextBrowser()
         self.out.setOpenExternalLinks(False)
+        self.out.setOpenLinks(False)          # 글상자가 링크 파일 (PDF) 을 글로 열어 버리지 않게 — 바깥 프로그램으로만
         self.out.anchorClicked.connect(lambda u: QDesktopServices.openUrl(u))
         self.out.setHtml("<p>부품을 고르고 <b>[한 번에 분석]</b> 을 누르세요. 다음을 한 폴더에 만듭니다:</p><ol>"
                          "<li>전개도 DXF · 전개 보고서 (PDF·엑셀)</li><li>성형 해석 (성형성 존·두께·FLD / 절곡 균열·스프링백)</li>"

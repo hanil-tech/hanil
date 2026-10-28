@@ -27,14 +27,19 @@ class PartResult:
         return self.result.thickness if self.result else None
 
 
-def compute_all(model, settings, mode="auto", thickness=None, progress=None):
-    """progress(i, n, 이름) 가 False 를 돌려주면 멈춘다."""
+def compute_all(model, settings, mode="auto", thickness=None, progress=None, skip=None):
+    """progress(i, n, 이름) 가 False 를 돌려주면 멈춘다. skip: 전개하지 않을 부품 번호 (체결품 등 제외한 것) —
+    결과에는 '제외' 로 들어가 BOM · 견적 목록에는 남는다 (판금이 아니니 전개 시간을 쓰지 않음)."""
     out = []
     n = len(model.solids)
+    hw = getattr(model, "hardware", None) or {}
     for i in range(n):
         name = model.names[i] if model.names else f"부품 {i + 1}"
         if progress is not None and progress(i, n, name) is False:
             break
+        if skip and i in skip:
+            out.append(PartResult(i, name, error="제외" + (f" ({hw[i]})" if i in hw else "")))
+            continue
         try:
             r = unfold(model.solids[i], thickness=thickness, settings=settings, mode=mode)
             out.append(PartResult(i, name, r, metrics=mt.compute(r, settings.mat.density)))
