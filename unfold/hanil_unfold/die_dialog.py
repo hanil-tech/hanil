@@ -189,6 +189,13 @@ class DieDialog(QDialog):
                        "후 피어싱 → 캠 피어싱 — 공정마다 STEP, 공정표 + 금형마다 도면집 한 PDF · DXF · DWG, 부품표 엑셀")
         tdm.clicked.connect(self.save_tandem)
         row.addWidget(tdm)
+        if getattr(result, "forming", None) is not None:
+            cst = QPushButton("주물 드로잉 금형 (OP10)…")
+            cst.setToolTip("성형품: 다이 페이스 (제품 + 어덴덤 + 바인더) 위에 주물 드로우 다이 — 상형 다이 (FC300) · 펀치 · 누르개 "
+                           "(FCD550) · 하형 베이스, 가이드 · 쿠션 핀 · 밸런스 블록, 드로잉력 · 누르개 힘 · 프레스 · 금형비 — "
+                           "STEP · 도면집 PDF · DXF · 부품표 엑셀")
+            cst.clicked.connect(self.save_castdie)
+            row.addWidget(cst)
         row.addWidget(QLabel("모든 탭 (하중·설계 규칙·스트립·드로잉·자동 공정 설계·공정도) 을 한 파일로"))
         row.addStretch(1)
         for text_, kind in (("엑셀…", "xlsx"), ("PDF…", "pdf"), ("엑셀 + PDF 모두…", "both")):
@@ -279,11 +286,12 @@ class DieDialog(QDialog):
             machines = qt_.load_rates(QSettings("Hanil", "SheetUnfold").value("quote_rates", ""))["costing"]["machines"]
             F = tandem.Folder(self.result)
             ops = tandem.design(self.result, self.settings, tol=pick[0], machines=machines, folder=F)
+            rates = qt_.load_rates(QSettings("Hanil", "SheetUnfold").value("quote_rates", ""))["costing"]["die"]
             out, notes = tandem.save_all(
                 self.result, self.settings, ops, stem,
                 {"product": os.path.splitext(os.path.basename(self.name or "part"))[0],
                  "material": f"{self.settings.material} t{self.result.thickness:g}", "solid": self.solid,
-                 "result": self.result}, self._dwg_converter(), folder=F)
+                 "result": self.result}, self._dwg_converter(), folder=F, rates=rates)
         except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, "공정별 금형 저장 실패", str(e))
             return
@@ -295,10 +303,53 @@ class DieDialog(QDialog):
                 lines.append(f"{op.label}: 못 만듦 — {op.error}")
                 continue
             bad = [c for c in a.checks if c[3] != "적합"]
+            from . import diecost
             lines.append(f"{op.label} — {op.detail}\n    {a.L:.0f} × {a.W:.0f} · 닫힌 {a.shut:.0f} · 부품 {len(a.parts)} 종 · "
-                         f"검토 {len(bad)}" + "".join(f"\n      · {c[0]}: {c[1]}" for c in bad))
+                         f"검토 {len(bad)} · 금형비 어림 {diecost.estimate(a, rates)[1] / 1e4:,.0f} 만원"
+                         + "".join(f"\n      · {c[0]}: {c[1]}" for c in bad))
+        from . import diecost
+        lines.append(f"\n금형비 어림 합 {diecost.total(ops, rates) / 1e4:,.0f} 만원 (예시 단가 — [견적 단가] 창에서 고침, 엑셀 [금형비] 시트)")
         QMessageBox.information(self, f"공정별 금형 {len(ops)} 벌", "\n".join(lines) + "\n\n" + "\n".join(out)
                                 + "".join("\n※ " + n for n in notes))
+        pdf = next((p_ for p_ in out if p_.endswith(".pdf")), None)
+        if pdf:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(pdf))
+
+    def save_castdie(self):
+        """주물 드로잉 금형 (OP10) 저장."""
+        from PySide6.QtCore import QSettings
+
+        from . import castdie, diecost, dieface, quote as qt_, tandem
+        base = os.path.splitext(self.name or "part")[0]
+        path, _ = QFileDialog.getSaveFileName(self, "주물 드로잉 금형 저장 (이름만 고르면 STEP · 도면집 · 부품표)",
+                                              base + "_드로우금형.step", "STEP (*.step)")
+        if not path:
+            return
+        stem = os.path.splitext(path)[0]
+        try:
+            fi = self.result.forming
+            df = dieface.build(fi.V, fi.F, self.result.thickness)
+            if df is None:
+                raise ValueError("다이 페이스를 자동으로 못 만듦 (" + (dieface.LAST_WHY[0] or "프레스 방향이 뚜렷하지 않음") + ")")
+            machines = qt_.load_rates(QSettings("Hanil", "SheetUnfold").value("quote_rates", ""))["costing"]["machines"]
+            rates = qt_.load_rates(QSettings("Hanil", "SheetUnfold").value("quote_rates", ""))["costing"]["die"]
+            assy = castdie.design(df, self.result, self.settings, machines=machines, rates=rates)
+            out = castdie.save_all(assy, stem, {"product": os.path.splitext(os.path.basename(self.name or "part"))[0],
+                                                "material": f"{self.settings.material} t{self.result.thickness:g}",
+                                                "solid": self.solid, "result": self.result}, rates, self._dwg_converter())
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "주물 드로잉 금형 저장 실패", str(e))
+            return
+        self._log(out)
+        bad = [c for c in assy.checks if c[3] != "적합"]
+        lines_, tot = diecost.estimate(assy, rates)
+        msg = (f"{assy.kind} · {assy.L:.0f} × {assy.W:.0f} · 닫힌 높이 {assy.shut:.0f} · 부품 {len(assy.parts)} 종 · "
+               f"주물 {sum(p.weight * p.qty for p in assy.parts if '주물' in p.material):,.0f} kg\n"
+               f"점검 {len(assy.checks)} 중 검토 {len(bad)}" + "".join(f"\n  · {c[0]}: {c[1]} ({c[2]})" for c in bad)
+               + f"\n금형비 어림 {tot / 1e4:,.0f} 만원 (" + " · ".join(f"{n} {v / 1e4:,.0f}" for n, _, v in lines_[:5]) + " …)"
+               + "\n\n" + "\n".join(out))
+        QMessageBox.information(self, "주물 드로잉 금형", msg)
+        del tandem
         pdf = next((p_ for p_ in out if p_.endswith(".pdf")), None)
         if pdf:
             QDesktopServices.openUrl(QUrl.fromLocalFile(pdf))

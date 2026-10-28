@@ -66,6 +66,26 @@ def tandem_samples():
     return ops, F, s, r
 
 
+def cast_samples():
+    """주물 드로잉 금형 예제 (오일 팬): STEP + 도면집 PDF + 부품표."""
+    from hanil_unfold import castdie, dieface
+    out_dir = os.path.join(ROOT, "samples", "castdie")
+    os.makedirs(out_dir, exist_ok=True)
+    s = models.oil_pan()
+    st = bc.BendSettings(material="SPCC")
+    r = unfold(s, settings=st, mode="forming")
+    df = dieface.build(r.forming.V, r.forming.F, r.thickness)
+    a = castdie.design(df, r, st)
+    out = castdie.save_all(a, os.path.join(out_dir, "oil_pan_t1_드로우금형"),
+                           {"product": "오일 팬 320×220×110", "material": "SPCC t1", "solid": s, "result": r})
+    for p in out:
+        if p.endswith((".dxf", ".dwg")):
+            os.remove(p)
+    print("castdie", a.L, a.W, a.shut, len(a.parts))
+    return a
+
+
 if __name__ == "__main__":
     main()
     tandem_samples()
+    cast_samples()

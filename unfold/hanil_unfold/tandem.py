@@ -729,8 +729,9 @@ def stage_holes(ops, k):
     return out
 
 
-def line_sheets(F, ops, info, prefix):
-    """공정표: 공정마다 칸 (공정 뒤 제품 입체 · 금형 크기 · 하중 · 프레스 · 점검) — A3 한 장에 6 칸, 아래 표."""
+def line_sheets(F, ops, info, prefix, rates=None):
+    """공정표: 공정마다 칸 (공정 뒤 제품 입체 · 금형 크기 · 하중 · 프레스 · 점검 · 금형비) — A3 한 장에 6 칸, 아래 표."""
+    from . import diecost
     from . import diedraw as dd
     from . import dieview
     per = 6
@@ -742,7 +743,9 @@ def line_sheets(F, ops, info, prefix):
         sh.scale = "NTS"
         W, H = sh.size
         x0, y_top = dd.MARGIN + 6, H - dd.MARGIN - 6
-        sh.text(x0, y_top - 6, f"{info.get('product', '')} — 공정별 금형 {len(ops)} 벌 (1차 ~ {len(ops)}차)", 5.0, "L", bold=True)
+        tot = diecost.total(ops, rates)
+        sh.text(x0, y_top - 6, f"{info.get('product', '')} — 공정별 금형 {len(ops)} 벌 (1차 ~ {len(ops)}차) · 금형비 어림 합 "
+                f"{tot / 1e4:,.0f} 만원 (단가는 예시 — [견적 단가] 창에서 고침)", 4.2, "L", bold=True)
         cw, ch = (W - 2 * dd.MARGIN - 20) / 3, (92.0 if len(chunk) <= 3 else 78.0)
         for j, op in enumerate(chunk):
             k = ops.index(op)
@@ -764,7 +767,8 @@ def line_sheets(F, ops, info, prefix):
                 mach = (a.press or {}).get("machine", "") or "-"
                 lines_ = [f"금형 {a.L:.0f} × {a.W:.0f} · 닫힌 {a.shut:.0f} / 열린 {a.open_h:.0f}",
                           f"하중 {f_kn:,.1f} kN · {mach}",
-                          f"점검 {len(a.checks)} 중 검토 {bad}" + (" ✔" if not bad else "")]
+                          f"점검 {len(a.checks)} 중 검토 {bad}" + (" ✔" if not bad else "")
+                          + f" · 금형비 어림 {diecost.estimate(a, rates)[1] / 1e4:,.0f} 만원"]
             else:
                 lines_ = ["금형을 못 만듦: " + (op.error or "")[:70]]
             for m, ln in enumerate(lines_):
@@ -776,23 +780,24 @@ def line_sheets(F, ops, info, prefix):
             if lay_op is not None and room >= 2:
                 rows_l = [[c.name, f"{c.angle:.0f}°", c.rows, f"{c.pitch:.1f}", f"{c.width:.1f}", f"{c.util * 100:.1f} %",
                            f"{c.kg_per_part * 1000:.1f}", "◀ 고름" if c is lay_op.layout else ""] for c in lay_op.layouts]
-                dd._table(sh, x0 + 232, yt, [26, 12, 8, 18, 18, 18, 20, 16],
+                dd._table(sh, x0 + 226, yt, [26, 12, 8, 18, 18, 18, 20, 16],
                           ["1차 배치", "각도", "열", "피치", "폭", "이용률", "g/개", ""], rows_l, h=4.2, max_rows=room)
             rows = []
             for op in ops:
                 a = op.die
-                rows.append([op.no, op.title, op.detail[:40],
+                rows.append([op.no, op.title, op.detail[:36],
                              f"{a.L:.0f}×{a.W:.0f}×{a.shut:.0f}" if a else "-",
                              f"{(op.force_n or 0) / 1000:,.1f}", ((a.press or {}).get("machine", "") if a else "") or "-",
-                             (f"검토 {sum(1 for c in a.checks if c[3] != '적합')}" if a else "못 만듦")])
+                             (f"검토 {sum(1 for c in a.checks if c[3] != '적합')}" if a else "못 만듦"),
+                             f"{diecost.estimate(a, rates)[1] / 1e4:,.0f}" if a else "-"])
             if room >= 2:
-                dd._table(sh, x0, yt, [10, 26, 80, 34, 18, 36, 18], ["차", "공정", "내용", "금형 L×W×닫힌", "하중 kN",
-                                                                  "프레스", "점검"], rows, h=4.2, max_rows=room)
+                dd._table(sh, x0, yt, [8, 24, 70, 32, 16, 32, 16, 20], ["차", "공정", "내용", "금형 L×W×닫힌", "하중 kN",
+                                                                     "프레스", "점검", "금형비 만원"], rows, h=4.2, max_rows=room)
         sheets.append(sh)
     return sheets
 
 
-def save_all(result, settings, ops, stem, info=None, dwg_converter="", folder=None):
+def save_all(result, settings, ops, stem, info=None, dwg_converter="", folder=None, rates=None):
     """공정마다 STEP · 도면집 (한 PDF · DXF) · 부품표 엑셀 (공정표 + 공정마다 부품표 · 점검). [저장한 파일], [알림]."""
     from . import die3d as d3
     from . import diedraw as dd
@@ -801,7 +806,7 @@ def save_all(result, settings, ops, stem, info=None, dwg_converter="", folder=No
     info = dict(info or {})
     pre = info.get("prefix") or "HD-" + __import__("datetime").date.today().strftime("%y%m%d")
     out, notes, sheets = [], [], []
-    cover = line_sheets(F, ops, info, pre)
+    cover = line_sheets(F, ops, info, pre, rates)
     for op in ops:
         a = op.die
         if a is None:
@@ -825,21 +830,23 @@ def save_all(result, settings, ops, stem, info=None, dwg_converter="", folder=No
         out.append(drawfmt.dxf_to_dwg(dxf, stem + "_공정별금형_도면집.dwg", dwg_converter))
     except Exception:  # noqa: BLE001 — 변환기 없으면 DXF 만
         notes.append("DWG: 변환기 (ODA File Converter) 가 없어 DXF 만 저장")
-    out.append(save_xlsx(ops, stem + "_공정별금형_부품표.xlsx", info.get("product", "")))
+    out.append(save_xlsx(ops, stem + "_공정별금형_부품표.xlsx", info.get("product", ""), rates))
     return out, notes
 
 
-def save_xlsx(ops, path, name=""):
+def save_xlsx(ops, path, name="", rates=None):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
 
+    from . import diecost
     from . import die3d as d3
     wb = Workbook()
     ws = wb.active
     ws.title = "공정표"
     ws["A1"] = f"공정별 금형 공정표 — {name}"
     ws["A1"].font = Font(bold=True, size=13)
-    head = ["차", "공정", "내용", "금형 L", "금형 W", "닫힌 높이", "열린 높이", "하중 kN", "프레스", "점검 검토", "근거 규칙"]
+    head = ["차", "공정", "내용", "금형 L", "금형 W", "닫힌 높이", "열린 높이", "하중 kN", "프레스", "점검 검토", "근거 규칙",
+            "금형비 어림 (원)"]
     hf, hfill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="1F4E8C")
     for j, h in enumerate(head, 1):
         c = ws.cell(3, j, h)
@@ -849,11 +856,40 @@ def save_xlsx(ops, path, name=""):
         row = [op.no, op.title, op.detail, round(a.L) if a else "", round(a.W) if a else "",
                round(a.shut, 1) if a else "", round(a.open_h, 1) if a else "", round((op.force_n or 0) / 1000, 1),
                ((a.press or {}).get("machine", "") if a else "") or "",
-               (sum(1 for c in a.checks if c[3] != "적합") if a else op.error), " ".join(op.rules)]
+               (sum(1 for c in a.checks if c[3] != "적합") if a else op.error), " ".join(op.rules),
+               round(diecost.estimate(a, rates)[1]) if a else ""]
         for j, v in enumerate(row, 1):
             ws.cell(i, j, v).alignment = Alignment(wrap_text=True, vertical="top")
-    for col, wd in zip("ABCDEFGHIJK", (5, 14, 50, 8, 8, 10, 10, 9, 16, 10, 12)):
+    for col, wd in zip("ABCDEFGHIJKL", (5, 14, 50, 8, 8, 10, 10, 9, 16, 10, 12, 16)):
         ws.column_dimensions[col].width = wd
+    r0 = 5 + len(ops)
+    ws.cell(r0, 11, "합계").font = Font(bold=True)
+    ws.cell(r0, 12, round(diecost.total(ops, rates))).font = Font(bold=True)
+    ws.cell(r0 + 1, 1, "금형비는 설계한 부품표 (무게 · 표준품 개수) 와 예시 단가 (costing.DEFAULT_DIE, [견적 단가] 창) 로 어림 — 업체 견적으로 맞출 것")
+    wc = wb.create_sheet("금형비")
+    wc["A1"] = f"금형비 어림 — {name}"
+    wc["A1"].font = Font(bold=True, size=12)
+    rr = 3
+    for op in ops:
+        if op.die is None:
+            continue
+        wc.cell(rr, 1, op.label).font = Font(bold=True)
+        rr += 1
+        for j, h in enumerate(("항목", "근거", "원"), 1):
+            c = wc.cell(rr, j, h)
+            c.font, c.fill = hf, hfill
+        rr += 1
+        lines_, tot_ = diecost.estimate(op.die, rates)
+        for nm_, why_, v_ in lines_:
+            wc.cell(rr, 1, nm_)
+            wc.cell(rr, 2, why_)
+            wc.cell(rr, 3, round(v_))
+            rr += 1
+        wc.cell(rr, 1, "합계").font = Font(bold=True)
+        wc.cell(rr, 3, round(tot_)).font = Font(bold=True)
+        rr += 2
+    for col, wd in zip("ABC", (30, 70, 16)):
+        wc.column_dimensions[col].width = wd
     for op in ops:
         a = op.die
         if a is None:

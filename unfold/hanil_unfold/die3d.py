@@ -24,7 +24,7 @@ from . import bendcalc as bc
 from . import diecalc as dc
 from . import diestd as ds
 
-BOX, CYL, PRISM, PROF = "box", "cyl", "prism", "prof"   # prof: 옆 단면 (x, z) 을 y 로 민 것 (절곡 다이·펀치)
+BOX, CYL, PRISM, PROF, SHAPE = "box", "cyl", "prism", "prof", "shape"   # prof: 옆 단면 (x, z) 을 y 로 민 것, shape: 만든 솔리드 (주물)
 STRIP_K = 0.07        # 스트리핑 힘 / 절단력 (교재 2 ~ 20 %, 보통 5 ~ 10 %)
 ENTRY = 1.0           # 닫힘에서 펀치가 다이 안으로 들어가는 깊이
 RETRACT = 1.0         # 열림에서 펀치 끝이 스트리퍼 안으로 들어가 있는 깊이
@@ -90,6 +90,9 @@ class Prim:
     bore: float = 0.0
     socket: tuple | None = None
     ax: str = "y"                 # prof 를 미는 방향: "y" (단면 x-z, p = (y0, 길이)) · "x" (단면 y-z, p = (x0, 길이))
+    shape: object = None          # shape: OCC 솔리드 (형면 주물 등) — p = 둘러싼 상자 (x0, y0, z0, dx, dy, dz)
+    density: float = 0.0          # 0 = 강 (DENSITY), 주물은 7.2e-6
+    grid: dict | None = None      # shape 의 형면 격자 (castdie — 도면 등고선 · 실루엣)
 
 
 @dataclass
@@ -109,7 +112,7 @@ class DiePart:
     def weight(self):
         """한 개 무게 kg (구멍 뺌, 어림)."""
         v = _volume(self.prims[0]) if self.prims else 0.0
-        return v * DENSITY
+        return v * ((self.prims[0].density or DENSITY) if self.prims else DENSITY)
 
 
 @dataclass
@@ -265,7 +268,7 @@ def _cop(polys):
 
 def extent(pr: Prim):
     """(x0, y0, z0, dx, dy, dz) — 프리미티브를 둘러싼 상자."""
-    if pr.kind == BOX:
+    if pr.kind in (BOX, SHAPE):
         return tuple(pr.p)
     if pr.kind == CYL:
         x, y, z0, r, h = pr.p
@@ -281,6 +284,15 @@ def extent(pr: Prim):
 
 
 def _volume(pr: Prim):
+    if pr.kind == SHAPE:                                      # 만든 솔리드: 구멍 · 홈까지 판 것의 부피
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        try:
+            g = GProp_GProps()
+            BRepGProp.VolumeProperties_s(_solid(pr), g)
+            return max(float(g.Mass()), 0.0)
+        except Exception:  # noqa: BLE001
+            return pr.p[3] * pr.p[4] * pr.p[5] * 0.5
     if pr.kind == BOX:
         v = pr.p[3] * pr.p[4] * pr.p[5]
         h_all = pr.p[5]
@@ -1097,12 +1109,13 @@ def axi(x, y, stack, bore=0.0, socket=None):
 
 
 def _uslot(x_edge, yc, w, depth, sgn, n=10):
-    """판 끝 (x = x_edge, sgn: +1 오른쪽 끝) 에서 안으로 depth 들어간 U 홈 (끝 반원)."""
+    """판 끝 (x = x_edge, sgn: +1 오른쪽 끝) 에서 안으로 depth 들어간 U 홈 (끝 반원) — 반시계 다각형."""
     xi = x_edge - sgn * (depth - w / 2)                   # 반원 가운데
+    d = -sgn                                              # 안쪽 방향
     pts = [(x_edge + sgn * 1.0, yc - w / 2), (xi, yc - w / 2)]
     for i in range(1, n):
-        a = -math.pi / 2 - sgn * math.pi * i / n if sgn > 0 else -math.pi / 2 + math.pi * i / n
-        pts.append((xi + (w / 2) * math.cos(a) * (1 if sgn < 0 else 1), yc + (w / 2) * math.sin(a)))
+        phi = -math.pi / 2 + math.pi * i / n
+        pts.append((xi + d * (w / 2) * math.cos(phi), yc + (w / 2) * math.sin(phi)))
     pts += [(xi, yc + w / 2), (x_edge + sgn * 1.0, yc + w / 2)]
     P = np.array(pts)
     return P if _area(P) > 0 else P[::-1]
@@ -1288,6 +1301,9 @@ def _solid(pr: Prim):
         x, y, z0, r, h = pr.p
         s = _revolve(pr) if pr.stack else cyl(x, y, z0, r, h)
         z_lo, hh = z0, h
+    elif pr.kind == SHAPE:
+        s = pr.shape
+        z_lo, hh = pr.p[2], pr.p[5]
     elif pr.kind == PROF:
         from OCP.BRepBuilderAPI import BRepBuilderAPI_MakePolygon
         c0, L = pr.p
@@ -1304,15 +1320,24 @@ def _solid(pr: Prim):
         z0, h = pr.p
         s = prism(pr.poly, z0, h)
         z_lo, hh = z0, h
-    tools = TopoDS_Compound()
+    # 홈 (프리즘) 과 구멍을 따로 잘라냄 — 겹치는 공구를 한 묶음으로 넣으면 (빈 곳 ↔ 관통 구멍) 조각이 남음
     bld = BRep_Builder()
+    for group in ([c for c in pr.cuts if not (len(c) > 4 and c[4] == "slot")],      # 날 · 빈 곳
+                  [c for c in pr.cuts if len(c) > 4 and c[4] == "slot"]):           # 클램프 홈 (빈 곳과 겹칠 수 있음)
+        if not group:
+            continue
+        cuts = TopoDS_Compound()
+        bld.MakeCompound(cuts)
+        for c in group:
+            poly, grow = c[0], c[1]
+            zc, hc = (c[2], c[3]) if len(c) > 2 else (z_lo - 1, hh + 2)
+            bld.Add(cuts, prism(poly, zc, hc, grow))
+        op = BRepAlgoAPI_Cut(s, cuts)
+        if op.IsDone():
+            s = op.Shape()
+    tools = TopoDS_Compound()
     bld.MakeCompound(tools)
     n = 0
-    for c in pr.cuts:
-        poly, grow = c[0], c[1]
-        zc, hc = (c[2], c[3]) if len(c) > 2 else (z_lo - 1, hh + 2)
-        bld.Add(tools, prism(poly, zc, hc, grow))
-        n += 1
     for h in pr.holes:
         if h.kind == "와이어 시작":
             continue                                     # 날 안 (이미 빠진 곳) — 솔리드에는 없음, 도면에만
@@ -1480,7 +1505,7 @@ def paint(p, rect, assy: DieAssy, title=True):
                 x, y, _, r, _ = pr.p
                 c = T(x, y)
                 p.drawEllipse(c, r * s, r * s)
-            elif pr.kind == PROF:
+            elif pr.kind in (PROF, SHAPE):
                 bx, by, _, dx, dy, _ = extent(pr)
                 p.drawRect(QRectF(T(bx, by + dy), T(bx + dx, by)))
             else:
@@ -1488,7 +1513,7 @@ def paint(p, rect, assy: DieAssy, title=True):
         pr = part.prims[0]
         if pr.kind == CYL:
             at = T(pr.p[0], pr.p[1])
-        elif pr.kind == PROF:
+        elif pr.kind in (PROF, SHAPE):
             bx, by, _, dx, dy, _ = extent(pr)
             at = T(bx + dx / 2, by + 0.8 * dy)
         elif pr.kind == BOX:
@@ -1517,12 +1542,11 @@ def paint(p, rect, assy: DieAssy, title=True):
             elif pr.kind == CYL:
                 x, _, z0, r, h = pr.p
                 p.drawRect(QRectF(Tf(x - r, z0 + h), Tf(x + r, z0)))
-            elif pr.kind == PROF:
-                if pr.ax == "y":
-                    p.drawPolygon(QPolygonF([Tf(*q) for q in pr.poly]))
-                else:
-                    e = extent(pr)
-                    p.drawRect(QRectF(Tf(e[0], e[2] + e[5]), Tf(e[0] + e[3], e[2])))
+            elif pr.kind == PROF and pr.ax == "y":
+                p.drawPolygon(QPolygonF([Tf(*q) for q in pr.poly]))
+            elif pr.kind in (PROF, SHAPE):
+                e = extent(pr)
+                p.drawRect(QRectF(Tf(e[0], e[2] + e[5]), Tf(e[0] + e[3], e[2])))
             else:
                 z0, h = pr.p
                 xs = pr.poly[:, 0]
@@ -1532,7 +1556,7 @@ def paint(p, rect, assy: DieAssy, title=True):
             e = extent(pr)
             return e[0] + e[3]
         pr = max(part.prims, key=right)
-        if pr.kind == PROF:
+        if pr.kind in (PROF, SHAPE):
             e = extent(pr)
             at = Tf(e[0] + e[3], e[2] + e[5] / 2)
         elif pr.kind == BOX:

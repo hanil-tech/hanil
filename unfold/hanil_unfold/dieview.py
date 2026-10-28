@@ -97,7 +97,33 @@ def hlr(shapes, view=ISO_DIR, hidden=False, poly=False, up=(0.0, 0.0, 1.0)):
                 hid += _edges_polylines(get())
             except Exception:  # noqa: BLE001
                 pass
+    # 투영 상자 밖으로 뻗은 선 (B-스플라인 윤곽선의 엉뚱한 끝) 은 버림
+    lim = _proj_box(shapes, view, up)
+    if lim is not None:
+        (ax, ay), (bx, by) = lim
+        pad = 0.05 * max(bx - ax, by - ay, 1.0) + 1.0
+
+        def ok(P):
+            return bool(np.all((P[:, 0] >= ax - pad) & (P[:, 0] <= bx + pad) & (P[:, 1] >= ay - pad) & (P[:, 1] <= by + pad)))
+        vis = [P for P in vis if ok(P)]
+        hid = [P for P in hid if ok(P)]
     return vis, hid
+
+
+def _proj_box(shapes, view, up):
+    try:
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+        b = Bnd_Box()
+        for s in shapes:
+            BRepBndLib.Add_s(s, b)
+        p0, p1 = b.CornerMin(), b.CornerMax()
+        pts = [project_point((x, y, z), view, up) for x in (p0.X(), p1.X()) for y in (p0.Y(), p1.Y())
+               for z in (p0.Z(), p1.Z())]
+        P = np.array(pts)
+        return P.min(0), P.max(0)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # 3각법 정투상 (보는 쪽 방향, 화면 위): 정면도 = 앞 (−y) 에서 (x, z), 평면도 = 위에서 (x, y), 우측면도 = 오른쪽 (+x) 에서 (y, z)

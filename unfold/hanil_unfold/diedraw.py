@@ -176,6 +176,8 @@ NOTES_BASE = ["일반 공차 ISO 2768-m (지시 없는 치수)", "모서리 C0.5
 
 def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
     pr = part.prims[0]
+    if pr.kind == d3.SHAPE:
+        return shape_part_sheet(part, assy, info, number)
     lines3d = _part_lines(pr) if iso else []
     x0, y0, dx, dy, z0, dz = _part_extent(pr)
     sh = Sheet(f"{part.name}", number, A3, material=part.material.split(" HRC")[0].split(" (")[0],
@@ -340,13 +342,58 @@ def part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number, iso=True):
 ISO_H = 62.0              # 부품도 오른쪽 입체도 칸 높이 (mm)
 
 
+def shape_part_sheet(part: d3.DiePart, assy: d3.DieAssy, info, number):
+    """형면 주물 부품도: 3면도 (숨은선) + 입체도 + 주기 (주물 · 형면 NC · 화염 경화) + 구멍표."""
+    pr = part.prims[0]
+    sh = Sheet(f"{part.name}", number, A3, material=part.material.split(" HRC")[0].split(" (")[0],
+               heat=_heat(part.material), qty=part.qty, weight=part.weight)
+    W, H = sh.size
+    area_x, area_y = MARGIN + 6, MARGIN + TB_H + 10
+    try:
+        solid = d3._solid(pr)
+        _views3(sh, [solid], area_x, area_y, W * 0.60, H - MARGIN - 8 - area_y, prims=[pr])
+    except Exception:  # noqa: BLE001
+        solid = None
+    tx = MARGIN + W * 0.64
+    notes = [f"주물 {part.material} — 발포 모형 · 수축 여유 1 % · 형면 덧살 5 mm 뒤 NC 가공",
+             "형면: NC 황삭 → 정삭 → 사상 (Ra 1.6), 다이 R · 벽 화염 경화 (HS 55 이상)",
+             "리브 · 빈 곳: 벽 두께 40 · 리브 35 (그림의 홈), 모서리 R10",
+             "가이드 · 쿠션 핀 · 볼트 구멍은 가공 뒤 지그 보링", "일반 공차 ISO 2768-c (주물), 가공면 m"]
+    if part.note:
+        notes.append(part.note)
+    ny = MARGIN + TB_H + 6 + 4.5 * len(notes)
+    lines = _part_lines(pr)
+    if lines:
+        _iso(sh, lines, tx, ny + 10, W - MARGIN - 4 - tx, ISO_H, "입체도")
+    sh.text(tx, ny + 4, "주기", 3.0, "L", bold=True)
+    for k, n in enumerate(notes, 1):
+        sh.text(tx, ny - 4.5 * (k - 1), f"{k}. {n}", 2.2)
+    tab = d3.hole_table(part)
+    rows = [[sym if i == 1 else "", i, f"{hx - pr.p[0]:.1f}", f"{hy - pr.p[1]:.1f}", spec if i == 1 else ""]
+            for sym, kind, cnt, pts, spec in tab for i, (hx, hy, h) in enumerate(pts, 1)]
+    if rows:
+        _table(sh, tx, H - MARGIN - 10, [10, 8, 20, 20, 78], ["기호", "번호", "X", "Y", "가공"], rows,
+               max_rows=max(int((H - MARGIN - 10 - (ny + 10 + ISO_H) - 10) / 4.2) - 1, 3))
+    return sh
+
+
 def _part_lines(pr: d3.Prim):
     """부품 솔리드 (구멍·날 판 것) 를 숨은선 지워 등각으로 — 화면 2D 꺾은선 (보이는 선)."""
     try:
         from . import dieview
         vis, _ = dieview.hlr([d3._solid(pr)])
-        return vis
+        return vis + _grid_lines(pr, dieview.ISO_DIR)
     except Exception:  # noqa: BLE001 — 입체도는 덤
+        return []
+
+
+def _grid_lines(pr, view, up=(0.0, 0.0, 1.0)):
+    if not getattr(pr, "grid", None):
+        return []
+    try:
+        from .castdie import grid_lines
+        return grid_lines(pr, view, up)
+    except Exception:  # noqa: BLE001
         return []
 
 
@@ -442,11 +489,11 @@ def assembly_sheet(assy: d3.DieAssy, info, number):
                 if not part.upper or "펀치" in part.name:
                     sh.circle(*T(x, y), r * s, "HIDDEN" if part.upper else "OUTLINE", 0.25)
                 sh.rect(*F(x - r, z0), 2 * r * s, h * s, "OUTLINE", 0.25)
-            elif pr.kind == d3.PROF:
+            elif pr.kind in (d3.PROF, d3.SHAPE):
                 bx, by, bz, dx, dy, dz = d3.extent(pr)
                 if not part.upper:
                     sh.rect(*T(bx, by), dx * s, dy * s, "OUTLINE", 0.35)
-                if pr.ax == "y":
+                if pr.kind == d3.PROF and pr.ax == "y":
                     sh.poly([F(*q) for q in pr.poly], True, "OUTLINE", 0.35)
                 else:
                     sh.rect(*F(bx, bz), dx * s, dz * s, "OUTLINE", 0.35)
@@ -764,7 +811,7 @@ def _plates(assy):
         return out
     out = []
     for p in assy.parts:
-        if p.std or not p.prims or p.prims[0].kind not in (d3.BOX, d3.PROF):
+        if p.std or not p.prims or p.prims[0].kind not in (d3.BOX, d3.PROF, d3.SHAPE):
             continue
         e = d3.extent(p.prims[0])
         if e[3] >= 0.25 * assy.L or len(p.prims) == 1 and e[3] * e[4] >= 0.05 * assy.L * assy.W:
@@ -831,6 +878,9 @@ def iso3d_sheet(assy: d3.DieAssy, info, number, cache):
     hh = H - MARGIN - 6 - y0
     sol = _solids(assy, cache)
     vis, _ = dieview.hlr([s_ for _, _, s_ in sol])
+    for part, pr, _ in sol:
+        if not part.upper:                                  # 상형 형면 (오목) 은 닫혀 보이지 않음 — 분해도에만
+            vis += _grid_lines(pr, dieview.ISO_DIR)
     w1 = W * 0.44
     T1 = _iso(sh, vis, MARGIN + 4, y0, w1, hh, "입체 조립도 (숨은선 지움 · 열린 상태)", "OUTLINE")
     if T1 is not None:
@@ -838,6 +888,10 @@ def iso3d_sheet(assy: d3.DieAssy, info, number, cache):
     off = _explode_offsets(assy)
     moved = [(_translated(s_, off.get(part.no, 0.0)), part, pr) for part, pr, s_ in sol]
     vis2, _ = dieview.hlr([m for m, _, _ in moved])
+    for _, part, pr in moved:
+        for P in _grid_lines(pr, dieview.ISO_DIR):
+            vis2.append(P + np.array(dieview.project_point((0, 0, off.get(part.no, 0.0))))
+                        - np.array(dieview.project_point((0, 0, 0))))
     x2 = MARGIN + 8 + w1
     w2 = W - MARGIN - 4 - x2
     T = _iso(sh, vis2, x2 + 12, y0, w2 - 24, hh, "분해도 (풍선 = 부품표 번호)", "OUTLINE", frame=False)
@@ -927,7 +981,7 @@ def _bbox3(shapes):
     return np.array([p0.X(), p0.Y(), p0.Z()]), np.array([p1.X(), p1.Y(), p1.Z()])
 
 
-def _views3(sh, shapes, x0, y0, w, h, work=None, gap=34.0, dims=True, hidden=True):
+def _views3(sh, shapes, x0, y0, w, h, work=None, gap=34.0, dims=True, hidden=True, prims=()):
     """3각법 세 그림을 칸 (x0, y0, w, h) 에: 정면도 왼쪽 아래, 평면도 그 위, 우측면도 그 오른쪽 — 숨은선 (HLR) 까지.
     축척은 표준 척도 (1:1, 1:2 …) 에서. 돌려줌: (척도 s, {이름: 변환}) — 변환 T(a, b) 는 그 그림의 2D 좌표 → 종이."""
     from . import dieview
@@ -955,6 +1009,9 @@ def _views3(sh, shapes, x0, y0, w, h, work=None, gap=34.0, dims=True, hidden=Tru
             sh.poly([T[nm](*q) for q in P], False, "HIDDEN", 0.18)
         for P in vis:
             sh.poly([T[nm](*q) for q in P], False, "OUTLINE", 0.35)
+        for pr in prims:                                   # 형면 주물: 등고선 (평면도) · 실루엣 (정면 · 우측면도)
+            for P in _grid_lines(pr, v, up):
+                sh.poly([T[nm](*q) for q in P], False, "THIN" if abs(v[2]) > 0.5 else "OUTLINE", 0.25)
         if work:
             for P3, tag in work:
                 Q = [dieview.project_point(q, v, up) for q in P3]
@@ -975,10 +1032,11 @@ def ortho_sheet(assy: d3.DieAssy, info, number, cache):
     sh = Sheet("금형 3면도 (평면 · 정면 · 우측면)", number, A3, material="-", qty=1,
                weight=sum(p.weight * p.qty for p in assy.parts))
     W, H = sh.size
-    sol = [s_ for _, _, s_ in _solids(assy, cache)]
+    sol3 = _solids(assy, cache)
+    sol = [s_ for _, _, s_ in sol3]
     y0 = MARGIN + TB_H + 6
     s, T, (lo, hi) = _views3(sh, sol, MARGIN + 6, y0, W - 2 * MARGIN - 12, H - MARGIN - 8 - y0,
-                             work=getattr(assy, "work", None))
+                             work=getattr(assy, "work", None), prims=[pr for _, pr, _ in sol3 if getattr(pr, "grid", None)])
     xr = T["우측면도"](hi[1], 0)[0] + 10
     zs = T["우측면도"](0, assy.shut)[1]
     sh.line(xr - 8, zs, xr + 4, zs, "DIM", 0.18)
@@ -1013,7 +1071,7 @@ def build(assy: d3.DieAssy, info=None):
     info = dict(info or {})
     info.setdefault("die", assy.kind)
     pre = info.get("prefix") or "HD-" + _dt.date.today().strftime("%y%m%d")
-    parts = [p for p in assy.parts if not p.std and p.prims and p.prims[0].kind in (d3.BOX, d3.PRISM, d3.PROF)]
+    parts = [p for p in assy.parts if not p.std and p.prims and p.prims[0].kind in (d3.BOX, d3.PRISM, d3.PROF, d3.SHAPE)]
     strip = any(p.name == "다이 플레이트" for p in assy.parts) and assy.strip[0] > 0
     product = info.get("product_sheet", True)
     index = [(f"{pre}-00", "표지 · 사양 · 점검"), (f"{pre}-01", "금형 조립도 (제품도 옆)")]
