@@ -96,5 +96,61 @@ const ok=(c,m)=>{console.log((c?'✅ ':'❌ ')+m); if(c) good++; else { bad++; p
  fs.appendFileSync(bin,Buffer.alloc(100));
  await f('POST',`/bigfile/api/reopen/${r.id}?chunks=5`); await put(5,ch(5)); await f('POST','/bigfile/api/done/'+r.id);
  ok(fs.statSync(bin).size===data.length,'디스크 꼬리 잘라 냄');
+ // ── 📁 폴더 ──
+ const PUTG=(body)=>f('PUT','/bigfile/api/group',{body:JSON.stringify(body),h:{'content-type':'text/plain;charset=UTF-8'}});
+ ok((await PUTG({name:'x',entries:[{p:'../../etc/passwd',s:1}]})).status===400,'폴더: 「..」 경로 막음');
+ const A=crypto.randomBytes(2500000), Bf=crypto.randomBytes(10), C=Buffer.alloc(0), D=crypto.randomBytes(1048576*2+3);
+ const tree={'도면/부품 A.stp':A,'도면/하위/b.txt':Bf,'빈파일.txt':C,'c.bin':D};
+ const man={name:'현장 자료',entries:[...Object.entries(tree).map(([p,b])=>({p,s:b.length,lm:1700000000000})),{p:'도면/빈 폴더',d:1}]};
+ let G=await (await PUTG(man)).json();
+ ok(G.gid&&!G.resumed&&G.entries.length===5,'폴더 목록표 받음 (5개)');
+ const upF=async(p,b,skipChunk)=>{ const q=await (await f('POST',`/bigfile/api/init?g=${G.gid}&p=${encodeURIComponent(p)}&size=${b.length}&lm=1700000000000`)).json();
+   for(let i=0;i<q.n;i++){ if(i===skipChunk) continue; const c=b.subarray(i*1048576,(i+1)*1048576); await f('PUT',`/bigfile/api/chunk/${q.id}/${i}`,{body:c,h:{'x-crc32':crc32(c).toString(16)}}); }
+   return [q, await f('POST','/bigfile/api/done/'+q.id)]; };
+ await upF('도면/부품 A.stp',A); await upF('도면/하위/b.txt',Bf); await upF('빈파일.txt',C);
+ let gd=await f('POST','/bigfile/api/gdone/'+G.gid); let gj=await gd.json();
+ ok(gd.status===409&&gj.missing.length===1&&gj.missing[0]==='c.bin','다 올림 전에 빠진 파일(c.bin)을 찾아냄');
+ // 끊긴 척 — 다시 같은 폴더를 고르면 이어 감
+ const G2=await (await PUTG(man)).json();
+ ok(G2.gid===G.gid&&G2.resumed&&G2.entries.filter(e=>e.state==='done').length===3,'같은 폴더 다시 고름 → 이어 감(3개는 이미 있음)');
+ await upF('c.bin',D);
+ gd=await f('POST','/bigfile/api/gdone/'+G.gid); ok(gd.status===200,'폴더 다 올림');
+ let gv=await (await f('POST',`/bigfile/api/gverify/${G.gid}`)).json();
+ for(let k=0;k<200&&gv.state==='work';k++){await new Promise(r2=>setTimeout(r2,50)); gv=await (await f('GET',`/bigfile/api/gverify/${G.gid}`)).json();}
+ ok(gv.state==='done'&&gv.ok===4&&!gv.badCount&&!gv.missingCount,'폴더 검사: 4개 모두 합격, 빠진 것 0');
+ const gi=await (await f('GET',`/bigfile/api/group/${G.gid}?crcs=1`)).json();
+ ok(gi.entries.filter(e=>!e.d).every(e=>e.crc===crc32(tree[e.p]).toString(16).padStart(8,'0')),'파일마다 전체 CRC32 = 원본');
+ // ZIP
+ let zz=await f('GET',`/bigfile/api/group/${G.gid}/zip`); const zb=Buffer.from(await zz.arrayBuffer());
+ ok(zz.status===200&&+zz.headers.get('content-length')===zb.length,'ZIP 받기 '+zb.length+'바이트, 길이 미리 앎');
+ const ZP=path.join(STORE,'check.zip'); fs.writeFileSync(ZP,zb);
+ const py=require('child_process').spawnSync('python3',['-c',`import zipfile,sys,hashlib,json
+zz=zipfile.ZipFile(sys.argv[1]); bad=zz.testzip(); print(json.dumps({'bad':bad,'names':zz.namelist(),'sha':{i.filename:hashlib.sha256(zz.read(i)).hexdigest() for i in zz.infolist() if not i.is_dir()}}))`,ZP],{encoding:'utf8'});
+ const zr=JSON.parse(py.stdout||'{}');
+ ok(zr.bad===null&&zr.names.includes('현장 자료/도면/빈 폴더/')&&Object.entries(tree).every(([p,b])=>zr.sha['현장 자료/'+p]===crypto.createHash('sha256').update(b).digest('hex')),'ZIP 을 파이썬이 열어 4개 파일 내용·빈 폴더 모두 맞음');
+ zz=await f('GET',`/bigfile/api/group/${G.gid}/zip`,{h:{range:'bytes=1000-2000000'}}); const zr2=Buffer.from(await zz.arrayBuffer());
+ ok(zz.status===206&&zr2.equals(zb.subarray(1000,2000001)),'ZIP 이어 받기(Range) = 전체의 그 부분');
+ // 사내 공개·링크
+ ck=other; ok((await f('GET',`/bigfile/api/group/${G.gid}/zip`)).status===404,'남의 폴더 ZIP 못 받음'); ck=mine;
+ await f('POST',`/bigfile/api/pub/g/${G.gid}?on=1`);
+ ck=other; ok((await f('GET',`/bigfile/api/group/${G.gid}/zip`)).status===200,'사내 공개 폴더는 받음');
+ const fid=gi.entries.find(e=>e.p==='c.bin').id; ok((await f('GET',`/bigfile/api/file/${fid}/dl`)).status===200,'공개 폴더 안 파일 하나 받음'); ck=mine;
+ const gs=await (await f('POST',`/bigfile/api/share/g/${G.gid}?days=1&max=1`)).json();
+ ck=''; let sp=await f('GET','/bigfile/s/'+gs.tok); const spt=await sp.text();
+ ok(spt.includes('현장 자료')&&spt.includes('도면/부품 A.stp'),'폴더 링크 화면에 파일 목록');
+ zz=await f('GET',`/bigfile/s/${gs.tok}/dl`); ok(zz.status===200&&Buffer.from(await zz.arrayBuffer()).equals(zb),'링크로 ZIP 받음');
+ ok((await f('GET',`/bigfile/s/${gs.tok}/dl`)).status===410,'횟수 다 쓰면 410'); ck=mine;
+ l=await (await f('GET','/bigfile/api/list')).json();
+ ok(l.files.some(x=>x.kind==='group'&&x.nfiles===4&&x.ndirs===1)&&!l.files.some(x=>x.kind==='file'&&x.id===fid),'목록: 폴더는 한 줄(안 파일은 따로 안 보임)');
+ ok((await f('DELETE',`/bigfile/api/file/${fid}`)).status===409,'폴더 안 파일 하나만 지우기 막음');
+ // 고치기(gid)로 다른 폴더를 골라도 서버 파일은 그대로
+ const G4=await (await PUTG({gid:G.gid,name:'아무거나',entries:[{p:'c.bin',s:D.length,lm:1700000000000}]})).json();
+ ok(G4.gid===G.gid&&G4.entries.filter(e=>!e.d).length===4&&G4.entries.every(e=>e.d||e.state==='done'),'고치기: 고른 폴더에 없는 파일도 서버에 남음(4개 그대로)');
+ ok((await f('POST','/bigfile/api/gdone/'+G.gid)).status===200,'고치기 뒤 다시 다 올림');
+ // 목록표가 바뀌면(파일 하나 빠지고 하나 바뀜) — 새로 올리는 폴더
+ const G3=await (await PUTG({name:'현장 자료',entries:[{p:'a.txt',s:3}]})).json();
+ ok(G3.gid!==G.gid,'다 올린 폴더와 같은 이름 → 새 폴더');
+ ok((await f('DELETE',`/bigfile/api/group/${G3.gid}`)).status===200&&(await f('DELETE',`/bigfile/api/group/${G.gid}`)).status===200,'폴더 지우기');
+ await new Promise(r2=>setTimeout(r2,300)); const left=fs.readdirSync(path.join(STORE,'data')); ok(gi.entries.filter(e=>e.id).every(e=>!left.includes(e.id+'.bin')),'폴더 파일들 디스크에서 지워짐');
  ok((await f('DELETE',`/bigfile/api/file/${r.id}`)).status===200,'지우기');
 })().catch((e)=>{console.error(e);process.exitCode=1;}).finally(()=>{console.log(`\n✅ ${good} · ❌ ${bad}`);srv.close();fs.rmSync(STORE,{recursive:true,force:true});process.exit();});

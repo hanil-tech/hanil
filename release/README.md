@@ -33,9 +33,9 @@ TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** | 회사 포털 서버(`server.js` 옆) | 20KB |
+| **[hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** | 회사 포털 서버(`server.js` 옆) | 45KB |
 
-수 GB 파일을 포털에서 올리고 받는 화면입니다. 직원은 설치할 것 없이 브라우저·폰 앱으로 씁니다.
+큰 파일(하나 50GB 까지)과 **폴더째** 올리고 받는 화면입니다. 목록표로 빠진 파일이 없는지 맞춰 보고, 받기는 크기 제한이 없습니다(폴더는 ZIP 또는 폴더째). 직원은 설치할 것 없이 브라우저·폰 앱으로 씁니다.
 압축 안의 `설치안내.txt` 대로 두 파일을 복사하고 `server.js` 에 한 줄 넣으면 됩니다.
 켜기 전에 **`주의사항.txt`** 를 꼭 읽어 주세요(Ⅰ부는 직원용 — 그대로 전달). 자세한 안내는 [bigfile/README.md](../bigfile/README.md).
 
