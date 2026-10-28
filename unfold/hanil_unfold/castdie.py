@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -23,9 +24,10 @@ from .die3d import BOX, SHAPE, DieAssy, DiePart, Hole, Prim, _offset, _pin, _up5
 
 CAST = 7.2e-6             # 주철 kg/mm³
 GRID = 90                 # 형면 격자 수 (긴 변)
-K_DRAW = 0.7              # 드로잉력 계수 (둘레 × t × UTS × k)
-P_HOLDER = 2.5            # 누르개 면압 MPa (연강)
 PIN_KN = 40.0             # 쿠션 핀 하나가 받는 힘 (Ø40)
+ETA_F = 0.65              # Siebel 변형 효율 η_F (마찰 · 굽힘-펴짐 몫, 0.5 ~ 0.7)
+MU = 0.1                  # 누르개 ↔ 판 마찰 계수 (드로잉유)
+OFFSET_CAP = 3.0          # 법선 오프셋의 수직 성분 t · √(1 + |∇h|²) 상한 (경사 70° 이상은 벽 — 윤곽 틈새로)
 RIB, WALL, POCKET = 35.0, 45.0, 170.0   # 리브 두께 · 바깥 벽 · 빈 곳 피치
 
 
@@ -166,6 +168,100 @@ def _pockets(x0, x1, y0, y1, z0, depth, wall=WALL, rib=RIB, pitch=POCKET):
     return out
 
 
+def _edge_slope(H, gx, gy):
+    """격자점마다 경사 |∇h| — 앞 · 뒤 차분 중 작은 쪽 (평탄부 가장자리는 평탄부 쪽 법선이 수직이라 오프셋이 t 그대로)."""
+    dx = float(gx[1] - gx[0])
+    dy = float(gy[1] - gy[0])
+    fx = np.diff(H, axis=1) / dx
+    fy = np.diff(H, axis=0) / dy
+    inf = np.full((H.shape[0], 1), np.inf)
+    gxm = np.minimum(np.abs(np.hstack([inf, fx])), np.abs(np.hstack([fx, inf])))
+    inf = np.full((1, H.shape[1]), np.inf)
+    gym = np.minimum(np.abs(np.vstack([inf, fy])), np.abs(np.vstack([fy, inf])))
+    return np.hypot(np.where(np.isfinite(gxm), gxm, 0.0), np.where(np.isfinite(gym), gym, 0.0))
+
+
+@dataclass
+class DrawLoads:
+    """드로잉 하중 — 같은 둘레 원통으로 본 Siebel 식 (formsim.load_stroke 와 같은 틀) + 교재 표 식 중 큰 값."""
+    d_eq: float            # 펀치 둘레 / π
+    D0: float              # 블랭크 지름 (넓이 같은 원: 다이 페이스 겉넓이 = 블랭크 넓이)
+    beta: float            # 드로잉비 D0 / d
+    ldr: float             # 한계 드로잉비 (Whiteley · Hosford)
+    f_tab: float           # π d t σb n(m)
+    f_sie: float           # Siebel: π d t · 1.1 k_fm ln β / η_F + 2 μ F_N
+    f_draw: float          # 둘 중 큰 값 (N)
+    p_sie: float           # Siebel 누르개 면압 MPa
+    p_tab: float           # 교재 표 면압 (쿠션 능력 상한)
+    bhf: float             # 누르개 힘 N = p_sie × 누르개 고리 넓이
+    r_die_rec: float       # 다이 어깨 R 권장 (Oehler · Kaiser)
+    h: np.ndarray          # 펀치 깊이 축 (하중-행정 곡선)
+    fd: np.ndarray         # 깊이마다 드로잉력 N
+    fn: np.ndarray         # 깊이마다 누르개 힘 N
+    i_peak: int            # 전체 하중이 가장 큰 곳
+    cap: np.ndarray | None = None   # 고른 프레스의 깊이마다 능력 N
+    press: dict | None = None
+    ok: bool = False
+    need_tf: float = 0.0   # 가장 빠듯한 깊이에서 필요한 정격 톤수 (하중 × 안전율 ÷ 톤수 곡선)
+
+
+def draw_loads(per, A_blank, A_holder, t, mat, depth, r_die, machines=None, n=60):
+    """주물 드로우 다이의 하중. per: 펀치 윤곽 둘레, A_blank: 블랭크 (다이 페이스 겉) 넓이, A_holder: 누르개가 누르는
+    고리 넓이 (처음), depth: 드로잉 깊이, r_die: 다이 R.
+    - 드로잉력: 교재 표 F = π d t σb n(m) (m = d / D0) 와 Siebel F = π d t · 1.1 k_fm ln β / η_F + 2 μ F_N (누르개 마찰 양면)
+      중 큰 값 (diecalc.draw_plan 과 같은 두 식). 4ming 「Umformtechnik — Tiefziehen」 · Lange 「Handbook of Metal Forming」.
+    - 누르개 면압: Siebel p = [(β − 1)^k + d / (200 s)] · Rm / 400, 교재 표 (연강 2.5 MPa …) 는 쿠션 능력 상한으로.
+    - 하중-행정: 깊이 h 에서 플랜지 바깥 D(h) = √(D0² − 4 d h) (넓이 일정), F_N(h) = p × 남은 고리 넓이,
+      F_d(h) = (이상 변형력 ln(D(h)/d) + 마찰) × (R 을 감는 동안 오르는 몫) — 꼭대기가 처음 ~ 중간 깊이에 옴.
+    - 프레스: 모든 깊이에서 능력 (크랭크 곡선 costing.press_factor) ≥ (F_d + F_N) × 안전율, 행정 ≥ 2 × 깊이."""
+    from . import costing as cs
+    d = max(per / math.pi, 1e-6)
+    D0 = max(math.sqrt(4 * A_blank / math.pi), d * 1.001)
+    beta = D0 / d
+    m = 1 / beta
+    f_tab = math.pi * d * t * mat.tensile_mpa * dc.force_k(max(m, 0.55))
+    p_sie = dc.siebel_holder_pressure(beta, d, t, mat)
+    p_tab = dc.HOLDER_P[dc._family(mat.code)]
+    bhf = p_sie * A_holder
+    phi = math.log(beta)
+    kfm = dc.mean_flow_stress(mat, phi)
+    f_sie = math.pi * d * t * 1.1 * kfm * phi / ETA_F + 2 * MU * bhf
+    f_draw = max(f_tab, f_sie)
+    # 하중 - 행정
+    h = np.linspace(0.0, depth, n)
+    h_full = (D0 ** 2 - d ** 2) / (4 * d)
+    D = np.sqrt(np.maximum(D0 ** 2 - 4 * d * np.minimum(h, h_full), d ** 2))
+    ring0 = max(D0 ** 2 - (d + 2 * r_die) ** 2, 1e-9)
+    fn = bhf * np.maximum(D ** 2 - (d + 2 * r_die) ** 2, 0.0) / ring0           # 남은 고리 넓이에 비례
+    ideal = math.pi * d * t * 1.1 * kfm * np.log(np.maximum(D / d, 1.0)) / ETA_F
+    rise = np.minimum(h / max(r_die + 3 * t, 1e-6), 1.0)
+    fd = (ideal + 2 * MU * fn) * rise
+    if fd.max() > 0:
+        fd = fd * (f_draw / fd.max())                                             # 꼭대기를 두 식 중 큰 값에 맞춤
+    total = fd + fn
+    i_peak = int(np.argmax(total))
+    mlist = machines if machines is not None else cs.DEFAULT_MACHINES
+    presses = sorted([m_ for m_ in mlist if m_["kind"] == cs.PRESS], key=lambda m_: m_["capacity"])
+    chosen, cap, ok = None, None, False
+    need_tf = 0.0
+    for m_ in presses:
+        c = np.array([m_["capacity"] * dc.TON * cs.press_factor(m_, depth - hh) for hh in h])
+        stroke = float(m_.get("stroke") or cs.default_stroke(m_["capacity"]))
+        if np.all(c >= total * cs.SAFETY) and stroke >= 2 * depth:
+            chosen, cap, ok = m_, c, True
+            break
+    if chosen is None and presses:
+        chosen = presses[-1]
+        cap = np.array([chosen["capacity"] * dc.TON * cs.press_factor(chosen, depth - hh) for hh in h])
+    if chosen is not None:
+        fac = np.array([max(cs.press_factor(chosen, depth - hh), 1e-3) for hh in h])
+        need_tf = float(np.max(total * cs.SAFETY / fac)) / dc.TON
+    else:
+        need_tf = float(total[i_peak]) * cs.SAFETY / dc.TON
+    return DrawLoads(d, D0, beta, dc.ldr(mat), f_tab, f_sie, f_draw, p_sie, p_tab, bhf, dc.die_radius(D0, d, t),
+                     h, fd, fn, i_peak, cap, chosen, ok, need_tf)
+
+
 def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     """다이 페이스 → 주물 드로잉 금형 (DieAssy)."""
     from . import costing as cs
@@ -235,14 +331,19 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     # 벽이 수직 (컵처럼) 이면 쌍선형 면 조각이 각기둥 옆면과 나란해 불리언이 실패 — 3 × 3 평균으로 두 칸 경사로 (등고선은 원래 격자)
     from scipy.ndimage import uniform_filter
     Hs = np.maximum(uniform_filter(Hz, size=3, mode="nearest"), hb)
+    # 상형 형면 = 펀치 형면의 법선 오프셋 t. 높이장 h(x, y) 의 법선 오프셋을 같은 (x, y) 에서 재면 수직 거리
+    # t · √(1 + |∇h|²) (= t / cos θ, 평면 조각마다 정확). 벽 (70° 넘는 경사) 은 상한 — 거기는 윤곽 틈새가 맡음.
+    gy_, gx_ = np.gradient(Hs, gy, gx)
+    slope = np.hypot(gx_, gy_)
+    Hd = Hs + t * np.minimum(np.sqrt(1.0 + _edge_slope(Hs, gx, gy) ** 2), OFFSET_CAP)
+    Hz_d = Hz + t * np.minimum(np.sqrt(1.0 + _edge_slope(Hz, gx, gy) ** 2), OFFSET_CAP)      # 등고선용 (원래 격자)
     surf_p = _fit_surface(gx, gy, Hs)
-    surf_d = _fit_surface(gx, gy, Hs + t)
+    surf_d = _fit_surface(gx, gy, Hd)
     # 솔리드
     # 몸체 = 각기둥에서 형면 위 (또는 아래) 반공간을 뺌 — 교집합 (Common) 은 둥근 윤곽에서 빈 결과를 내기도 함
     above_p = _half_space(surf_p, gx[0], gx[-1], gy[0], gy[-1], up=True)
     below_d = _half_space(surf_d, gx[0], gx[-1], gy[0], gy[-1], up=False)
-    gy_, gx_ = np.gradient(Hs, gy, gx)
-    steep = float(np.nanmax(np.hypot(gx_, gy_))) > math.tan(math.radians(60))
+    steep = float(np.nanmax(slope)) > math.tan(math.radians(60))
     if steep:
         # 수직 벽 (컵): 각기둥 옆면이 형면 경사로와 겹쳐 불리언이 실패 — 윤곽 각기둥을 제품 바닥 높이까지 세우고,
         # 안쪽 (경사로 안) 만 형면으로 깎음 (펀치 R 은 CAD 에서)
@@ -288,7 +389,7 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
                                  z_base_top - 1, z_pk - z_base_top + 1, wall=0.0)
     p_hold = Prim(SHAPE, _bbox(holder_open), shape=holder_open, density=CAST)
     p_die = Prim(SHAPE, _bbox(die_open), shape=die_open, density=CAST)
-    p_die.grid = {"gx": gx, "gy": gy, "hz": Hz + t, "poly": np.array([[dx0, dy0], [dx1, dy0], [dx1, dy1], [dx0, dy1]]),
+    p_die.grid = {"gx": gx, "gy": gy, "hz": Hz_d, "poly": np.array([[dx0, dy0], [dx1, dy0], [dx1, dy1], [dx0, dy1]]),
                   "dz": travel}
     z_die_top_open = z_top_bdc + travel
     p_die.cuts += _pockets(dx0, dx1, dy0, dy1, hb + depth + t + 60 + travel, z_die_top_open - (hb + depth + t + 60 + travel) + 1)
@@ -299,13 +400,13 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     ph = add("누르개 (블랭크 홀더)", 1, "FCD550 (주물)", f"{hx1 - hx0:.0f} × {hy1 - hy0:.0f} × {Th:.0f}", [p_hold],
              note=f"윗면 = 바인더 평면 (화염 경화), 안쪽 = 펀치 + {t + 1:.1f} · 쿠션 핀 위에 뜸 · 드로우 비드는 시타 뒤")
     pd = add("상형 다이", 1, "FC300 (주물)", f"{L:.0f} × {W:.0f} × {z_top_bdc - hb:.0f}", [p_die], upper=True,
-             note=f"형면 = 제품 면 + t {t:g} 오프셋 (수직 오프셋 어림), 다이 R{r_d:g} 화염 경화 · 위 리브")
+             note=f"형면 = 펀치 형면의 법선 오프셋 t {t:g} (수직 성분 t·√(1+|∇h|²)), 다이 R{r_d:g} 화염 경화 · 위 리브")
     # 형면 넓이 (NC 시간)
     from .unfolder import _tri_areas3
-    A_face = float(_tri_areas3(V, F).sum()) * 1e-6
+    A_face_m2 = float(_tri_areas3(V, F).sum()) * 1e-6
     A_bind = (float(abs(_area2(outer))) - float(abs(_area2(binder_start)))) * 1e-6
-    pp.face_m2 = A_face * 1.1
-    pd.face_m2 = A_face * 1.1 + A_bind
+    pp.face_m2 = A_face_m2 * 1.1
+    pd.face_m2 = A_face_m2 * 1.1 + A_bind
     ph.face_m2 = A_bind
     # 가이드 포스트 · 부시 (네 귀)
     cx, cy = 0.5 * (dx0 + dx1), 0.5 * (dy0 + dy1)
@@ -328,9 +429,12 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     eng_open = (z_base0 + post_L) - (hb + travel)
     # 하중
     per = float(np.linalg.norm(np.roll(punch_poly, -1, 0) - punch_poly, axis=1).sum())
-    F_draw = K_DRAW * per * t * uts
     A_b = float(abs(_area2(outer)) - abs(_area2(holder_in)))
-    BHF = P_HOLDER * A_b
+    from .unfolder import _tri_areas3
+    A_face = float(_tri_areas3(V, F).sum())                           # 다이 페이스 겉넓이 = 블랭크 넓이 (두께 일정)
+    mlist = machines if machines is not None else cs.DEFAULT_MACHINES
+    ld = draw_loads(per, A_face, A_b, t, mat, depth, r_d, mlist)
+    F_draw, BHF = ld.f_draw, ld.bhf
     n_pin = max(4, int(math.ceil(BHF / (PIN_KN * 1000))))
     # 쿠션 핀: 누르개 고리 안에 고르게 (둘레 따라)
     ring_pts = _ring_points(hx0, hx1, hy0, hy1, holder_in, n_pin, inset=35.0)
@@ -396,40 +500,50 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
                                        "M24 탭 깊이 41 (옆면 아이볼트, 드릴 Ø21)", side="앞면" if sg < 0 else "뒷면",
                                        axis="-y" if sg > 0 else "+y"))
     # 프레스 · 점검
-    mlist = machines if machines is not None else cs.DEFAULT_MACHINES
     F_total = F_draw + BHF
-    need_t = F_total * cs.SAFETY / dc.TON
+    need_t = ld.need_tf
     stroke = 2 * depth + g_load
-    mach, ok = cs.pick(mlist, cs.PRESS, need_t, height=depth, depth=depth)
+    mach, ok = ld.press, ld.ok
+    h_pk = float(ld.h[ld.i_peak])
     checks = []
 
     def chk(item, val, crit, good):
         checks.append([item, val, crit, "적합" if good else "검토"])
     chk("프레스 (쿠션 포함)", f"{mach['name'] if mach else '없음'} (필요 {need_t:,.0f} tf, 행정 ≥ {stroke:.0f})",
-        f"(드로잉 {F_draw / 1000:,.0f} + 누르개 {BHF / 1000:,.0f} kN) × {cs.SAFETY:g}, 깊이 {depth:.0f} 위에서", bool(ok))
+        f"모든 깊이에서 (드로잉 + 누르개) × {cs.SAFETY:g} ≤ 톤수 곡선 — 꼭대기 "
+        f"{(ld.fd[ld.i_peak] + ld.fn[ld.i_peak]) / 1000:,.0f} kN 이 깊이 {h_pk:.0f} (하사점 위 {depth - h_pk:.0f})", bool(ok))
+    chk("드로잉비 β", f"{ld.beta:.2f} (d {ld.d_eq:.0f} ← D₀ {ld.D0:.0f})", f"≤ LDR {ld.ldr:.2f} (Whiteley · Hosford, r̄ {mat.r:g})",
+        ld.beta <= ld.ldr)
+    rr = r_d / t
+    chk("다이 R", f"R{r_d:g} = {rr:.1f} t", f"5 ~ 10 t (4ming) · Oehler 권장 R{ld.r_die_rec:.1f}", 5.0 <= rr <= 10.0)
     chk("쿠션 핀 수", f"{len(pins)} 개", f"≥ {BHF / 1000:,.0f} kN ÷ {PIN_KN:g} = {n_pin}", len(pins) >= n_pin)
     chk("가이드 물림 (열림)", f"{eng_open:.0f} mm", "≥ 30 mm (블랭크 넣을 때도 안내)", eng_open >= 30)
-    chk("누르개 면압", f"{P_HOLDER:g} MPa", "1 ~ 3 MPa (연강)", 1.0 <= P_HOLDER <= 3.0)
+    chk("누르개 면압", f"Siebel {ld.p_sie:.2f} MPa", f"≤ 표 값 {ld.p_tab:g} MPa (쿠션 능력 상한)", ld.p_sie <= ld.p_tab)
     chk("에어 벤트", f"{min(len(vents), 6)} 개", "≥ 1 (형면 낮은 곳)", len(vents) >= 1)
     chk("누르개 밑 ↔ 베이스 (하사점)", f"{g_bdc:g} mm", "≥ 10 (밸런스 블록 위)", True)
     kg = sum(p.weight * p.qty for p in parts)
     notes = [f"OP10 드로잉 (주물 금형): 깊이 {depth:.0f} mm · 바인더 {Lb:.0f} × {Wb:.0f} · 다이 R{r_d:g} · 벽 {df.wall_deg:g}°",
-             f"드로잉력 F = 펀치 둘레 {per:,.0f} × t {t:g} × UTS {uts:.0f} × {K_DRAW:g} = {F_draw / 1000:,.0f} kN, "
-             f"누르개 힘 = 바인더 {A_b * 1e-6:.3f} m² × {P_HOLDER:g} MPa = {BHF / 1000:,.0f} kN → 프레스 {need_t:,.0f} tf"
-             + (f" — {mach['name']}" if mach else ""),
+             f"드로잉력: 같은 둘레 원통 d = {per:,.0f} / π = {ld.d_eq:.0f}, 블랭크 D₀ = √(4 × {A_face * 1e-6:.3f} m² / π) = {ld.D0:.0f} "
+             f"(β {ld.beta:.2f}) — 교재 표 π d t σb n(m) {ld.f_tab / 1000:,.0f} kN / Siebel π d t · 1.1 k_fm ln β / η_F {ETA_F:g} "
+             f"+ 2 μ F_N {ld.f_sie / 1000:,.0f} kN 중 큰 값 {F_draw / 1000:,.0f} kN (UTS {uts:.0f} · n {mat.n:g})",
+             f"누르개 힘 = Siebel 면압 [(β − 1)^k + d / 200 s] Rm / 400 = {ld.p_sie:.2f} MPa × 고리 {A_b * 1e-6:.3f} m² = {BHF / 1000:,.0f} kN "
+             f"(표 값 {ld.p_tab:g} MPa 면 {ld.p_tab * A_b / 1000:,.0f} kN — 쿠션 능력 상한) → 프레스 {need_t:,.0f} tf"
+             + (f" — {mach['name']}" if mach else "") + f", 하중 꼭대기는 깊이 {h_pk:.0f} mm (하중 - 행정 곡선은 부품표 엑셀)",
              f"높이: 닫힌 {z_top_bdc - z_base0:.0f} · 열린 {z_die_top_open - z_base0:.0f} mm · 행정 ≥ {stroke:.0f} (깊이 × 2 + 틈 {g_load:.0f})",
              f"주물 무게 어림 {kg:,.0f} kg (리브 · 빈 곳 판 솔리드 × 7.2) — 베이스 {parts[0].weight:,.0f} · 펀치 {pp.weight:,.0f} · "
              f"누르개 {ph.weight:,.0f} · 상형 {pd.weight:,.0f}",
-             f"형면은 격자 {gx[1] - gx[0]:.0f} mm 의 B-스플라인 근사 (다이 R · 벽은 뭉뚱그려짐) — NC 데이터는 CAD 형면으로, "
-             "상형 형면 오프셋은 수직 t (법선 오프셋 아님)" + (" · 벽이 수직이라 펀치 옆면은 윤곽 그대로, 펀치 R 은 CAD 에서" if steep else ""),
+             f"형면은 격자 {gx[1] - gx[0]:.0f} mm 의 쌍선형 면 근사 (다이 R · 벽은 뭉뚱그려짐) — NC 데이터는 CAD 형면으로, "
+             f"상형 형면 = 펀치 형면의 법선 오프셋 t (수직 성분 t·√(1+|∇h|²), 경사 70° 넘는 벽은 × {OFFSET_CAP:g} 상한)" + (" · 벽이 수직이라 펀치 옆면은 윤곽 그대로, 펀치 R 은 CAD 에서" if steep else ""),
              "드로우 비드 · 누르개 면압 · 스프링백 보정은 시타 (트라이아웃) 로 — 비드 자리는 성형 해석 draw-in 이 큰 변",
              "표준품 (가이드 · 쿠션 핀 · 마모판) 치수는 일반값 — MISUMI · 후타바 대형 금형 표로 확인"]
     a = DieAssy("OP10 드로우 (주물)", parts, L, W, z_top_bdc - z_base0, F_draw, notes, None, [], checks, (0.0, 0.0),
                 z_die_top_open - z_base0, stroke, (0.0, 0.0), None, [],
                 {"draw_kn": F_draw / 1000, "bhf_kn": BHF / 1000, "need_tf": need_t, "machine": mach["name"] if mach else "",
-                 "ok": bool(ok)})
+                 "ok": bool(ok), "beta": ld.beta, "ldr": ld.ldr, "p_sie": ld.p_sie, "f_tab_kn": ld.f_tab / 1000,
+                 "f_sie_kn": ld.f_sie / 1000, "r_die_rec": ld.r_die_rec, "h_peak": h_pk})
+    a.loads = ld
     a.cast = True
-    a.spec = [("공정", "OP10 드로우 (주물 금형)"), ("드로잉력 / 누르개", f"{F_draw / 1000:,.0f} / {BHF / 1000:,.0f} kN"),
+    a.spec = [("공정", "OP10 드로우 (주물 금형)"), ("드로잉력 / 누르개", f"{F_draw / 1000:,.0f} / {BHF / 1000:,.0f} kN (β {ld.beta:.2f})"),
               ("필요 프레스", f"{need_t:,.0f} tf → {mach['name'] if mach else '-'}"), ("드로잉 깊이", f"{depth:.0f} mm"),
               ("쿠션 핀", f"Ø{pin_d:g} × {len(pins)}"), ("주물 무게", f"{kg:,.0f} kg")]
     a.y_cut = float(cy)
@@ -546,11 +660,12 @@ def grid_lines(pr, view, up=(0.0, 0.0, 1.0), step=None):
         except Exception:  # noqa: BLE001
             pass
     if abs(v[2]) < 0.5:                                   # 옆에서 봄: 실루엣 (보는 방향으로 가장 높은 곳)
+        Hf = np.where(np.isfinite(H), H, -np.inf)
         if abs(v[1]) > abs(v[0]):                         # 정면 (y 방향으로 봄): x 마다 최대
-            zmax = np.nanmax(H, axis=0)
+            zmax = Hf.max(axis=0)
             pts = [(float(x_), float(gy[0]), float(z_)) for x_, z_ in zip(gx, zmax) if np.isfinite(z_)]
         else:
-            zmax = np.nanmax(H, axis=1)
+            zmax = Hf.max(axis=1)
             pts = [(float(gx[0]), float(y_), float(z_)) for y_, z_ in zip(gy, zmax) if np.isfinite(z_)]
         if len(pts) >= 2:
             out.append(np.array([dieview.project_point(q, view, up) for q in pts]))
@@ -622,5 +737,24 @@ def save_xlsx(assy, path, name="", rates=None):
     wc.cell(rr, 3, round(tot)).font = Font(bold=True)
     for col, wd in zip("ABC", (30, 70, 16)):
         wc.column_dimensions[col].width = wd
+    ld = getattr(assy, "loads", None)
+    if ld is not None:
+        wl = wb.create_sheet("하중-행정")
+        wl["A1"] = (f"드로잉 하중 - 행정 곡선 (같은 둘레 원통 Siebel) — d {ld.d_eq:.0f} · D₀ {ld.D0:.0f} · β {ld.beta:.2f} · "
+                    f"면압 {ld.p_sie:.2f} MPa · 프레스 {ld.press['name'] if ld.press else '-'}")
+        wl["A1"].font = Font(bold=True, size=12)
+        for j, h in enumerate(("펀치 깊이 mm", "드로잉력 kN", "누르개 kN", "합 kN", "× 안전율 kN", "프레스 능력 kN"), 1):
+            c = wl.cell(3, j, h)
+            c.font, c.fill = hf, hfill
+        from . import costing as cs_
+        for i, hh in enumerate(ld.h):
+            tot_ = ld.fd[i] + ld.fn[i]
+            vals = (round(float(hh), 1), round(float(ld.fd[i]) / 1000, 1), round(float(ld.fn[i]) / 1000, 1),
+                    round(float(tot_) / 1000, 1), round(float(tot_) * cs_.SAFETY / 1000, 1),
+                    round(float(ld.cap[i]) / 1000, 1) if ld.cap is not None else "")
+            for j, v in enumerate(vals, 1):
+                wl.cell(4 + i, j, v)
+        for col in "ABCDEF":
+            wl.column_dimensions[col].width = 16
     wb.save(path)
     return path

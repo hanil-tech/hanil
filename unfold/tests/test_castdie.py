@@ -42,6 +42,8 @@ def test_cast_die_parts_and_geometry(pan):
         r.thickness, abs=0.01)                                                # dz (열림) 는 따로
     assert all(c[3] == "적합" for c in a.checks), [c for c in a.checks if c[3] != "적합"]
     assert a.press["draw_kn"] > 100 and a.press["bhf_kn"] > 20
+    assert a.press["beta"] < a.press["ldr"] and 1.0 < a.press["p_sie"] <= 2.5          # Siebel 면압 ≤ 표 값 (연강 2.5)
+    assert a.press["draw_kn"] == pytest.approx(max(a.press["f_tab_kn"], a.press["f_sie_kn"]))
     assert sum(p.weight * p.qty for p in a.parts if "주물" in p.material) > 800
     assert all(len(_grid_or_none(p)) >= 0 for p in a.parts)
 
@@ -90,6 +92,43 @@ def test_cast_die_cost_and_xlsx(pan, tmp_path):
     p = castdie.save_xlsx(a, str(tmp_path / "c.xlsx"), "pan")
     wb = load_workbook(p)
     assert "금형비" in wb.sheetnames and wb["금형비"].cell(4, 1).value == "설계 (주물 · 대형)"
+    wl = wb["하중-행정"]
+    rows = [[wl.cell(i, j).value for j in range(1, 7)] for i in range(4, 4 + len(a.loads.h))]
+    assert rows[0][0] == 0 and rows[-1][0] == pytest.approx(a.loads.h[-1], abs=0.1)
+    assert all(r_[5] >= r_[4] for r_ in rows)                                           # 프레스 능력 ≥ 하중 × 안전율 (모든 깊이)
+
+
+def test_draw_loads_cylinder_matches_diecalc():
+    """같은 둘레 원통: castdie.draw_loads 의 교재 식 · Siebel 면압 · 다이 R 권장이 diecalc (원통 컵 공정 계산) 와 같은 값."""
+    mat = ST.mat
+    t, d, D0 = 1.0, 100.0, 200.0
+    A_blank = np.pi / 4 * D0 ** 2
+    A_ring = np.pi / 4 * (D0 ** 2 - (d + 2 * 5.0) ** 2)
+    ld = castdie.draw_loads(np.pi * d, A_blank, A_ring, t, mat, 60.0, 5.0)
+    assert ld.d_eq == pytest.approx(d) and ld.D0 == pytest.approx(D0) and ld.beta == pytest.approx(2.0)
+    from hanil_unfold import diecalc as dc
+    assert ld.f_tab == pytest.approx(np.pi * d * t * mat.tensile_mpa * dc.force_k(0.5))
+    assert ld.p_sie == pytest.approx(dc.siebel_holder_pressure(2.0, d, t, mat))
+    assert ld.bhf == pytest.approx(ld.p_sie * A_ring)
+    assert ld.f_sie == pytest.approx(dc.siebel_force(d, D0, t, mat) + 2 * castdie.MU * ld.bhf)
+    assert ld.r_die_rec == pytest.approx(dc.die_radius(D0, d, t))
+    # 하중 - 행정: 드로잉력 꼭대기 = 두 식 중 큰 값, 누르개 힘은 깊이에 따라 줄어듦, 프레스는 모든 깊이에서 능력 ≥ 하중 × 안전율
+    assert ld.fd.max() == pytest.approx(ld.f_draw) and ld.fn[0] == pytest.approx(ld.bhf) and ld.fn[-1] < ld.fn[0]
+    assert ld.ok and ld.cap is not None and np.all(ld.cap >= (ld.fd + ld.fn) * 1.3 - 1e-6)
+    assert 0.0 < ld.h[ld.i_peak] < 30.0
+
+
+def test_normal_offset_vertical_component():
+    """높이장 법선 오프셋의 수직 성분 t·√(1 + |∇h|²): 30° 경사면은 t / cos 30°, 평탄부 가장자리는 t 그대로."""
+    gx = np.arange(0.0, 101.0, 5.0)
+    gy = np.arange(0.0, 51.0, 5.0)
+    GX, GY = np.meshgrid(gx, gy)
+    H = np.where(GX <= 50, np.tan(np.radians(30.0)) * GX, np.tan(np.radians(30.0)) * 50)   # 경사 → 평탄부
+    sl = castdie._edge_slope(H, gx, gy)
+    f = np.sqrt(1 + sl ** 2)
+    assert f[5, 4] == pytest.approx(1 / np.cos(np.radians(30.0)), abs=1e-6)              # 경사 한가운데
+    assert f[5, 10] == pytest.approx(1.0) and f[5, 15] == pytest.approx(1.0)              # 평탄부 가장자리 · 안
+    assert f[5, 0] == pytest.approx(1 / np.cos(np.radians(30.0)), abs=1e-6)              # 격자 끝 (한쪽 차분)
 
 
 def test_tandem_die_cost():
