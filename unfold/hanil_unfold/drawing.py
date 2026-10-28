@@ -346,6 +346,54 @@ def paint_model(p: QPainter, lines, rect: QRectF, theme: Theme, yaw=math.radians
         p.drawPath(path)
 
 
+STEEL = (96, 132, 182)          # 음영 그림의 부품 색 (강판 푸른 회색)
+
+
+def paint_shaded(p: QPainter, V, rect: QRectF, color=STEEL, lines=None, yaw=math.radians(-35),
+                 pitch=math.radians(25), zoom=1.0, line_width=0.6):
+    """3D 그물 (삼각형 꼭짓점 (3n, 3)) 을 색 · 음영으로 (화가 알고리즘 + 평면 음영, 먼 삼각형부터). lines 를 주면
+    모서리 선을 위에 얇게 — BOM · 보고서의 작은 그림이 선 그림이 아니라 진짜 모양으로 보이게."""
+    from PySide6.QtGui import QPolygonF
+    V = np.asarray(V, float).reshape(-1, 3)
+    if len(V) < 3:
+        if lines:
+            paint_model(p, lines, rect, LIGHT, yaw, pitch, zoom, line_width)
+        return
+    p.setRenderHint(QPainter.Antialiasing)
+    center = (V.min(0) + V.max(0)) / 2
+    R = view_rotation(yaw, pitch)
+    q = (V - center) @ R.T
+    span = np.maximum(q.max(0) - q.min(0), 1e-9)
+    s = 0.9 * min(rect.width() / span[0], rect.height() / span[1]) * zoom
+    mid = (q.max(0) + q.min(0)) / 2
+    cx, cy = rect.center().x() - s * mid[0], rect.center().y() + s * mid[1]
+    T = q.reshape(-1, 3, 3)
+    nrm = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+    nrm /= np.maximum(np.linalg.norm(nrm, axis=1), 1e-30)[:, None]
+    light = np.array([-0.35, 0.45, 0.82])
+    shade = 0.42 + 0.58 * np.abs(nrm @ light)
+    order = np.argsort(T[:, :, 2].mean(1))                 # z 가 보는 쪽 — 작은 것 (먼 것) 부터
+    X = cx + s * T[:, :, 0]
+    Y = cy - s * T[:, :, 1]
+    base = np.array(color, float)
+    p.save()
+    for i in order:
+        c = np.minimum(base * shade[i] + 18, 255)
+        col = QColor(int(c[0]), int(c[1]), int(c[2]))
+        p.setBrush(col)
+        p.setPen(QPen(col, 0.5))
+        p.drawPolygon(QPolygonF([QPointF(X[i, 0], Y[i, 0]), QPointF(X[i, 1], Y[i, 1]), QPointF(X[i, 2], Y[i, 2])]))
+    if lines:
+        p.setPen(QPen(QColor(40, 50, 70, 170), line_width))
+        for pts in lines:
+            qq = (np.asarray(pts, float) - center) @ R.T
+            path = QPainterPath(QPointF(cx + s * qq[0, 0], cy - s * qq[0, 1]))
+            for x, y, _z in qq[1:]:
+                path.lineTo(cx + s * x, cy - s * y)
+            p.drawPath(path)
+    p.restore()
+
+
 # ---------------------------------------------------------------- 조립품 전체 + 번호 풍선
 
 def assembly_polylines(solids, samples=10):

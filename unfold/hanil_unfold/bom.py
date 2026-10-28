@@ -298,21 +298,30 @@ def build(model, parts, density=7.85, excluded=(), material=""):
 # ---------------------------------------------------------------- 그림
 
 def thumb(item, w=180, h=110):
-    """부품 3D 모양 작은 그림 (흰 바탕)."""
+    """부품 3D 모양 작은 그림 (흰 바탕) — 색 · 음영 (그물) 위에 모서리 선. 그물을 못 만들면 선 그림."""
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
-    from .drawing import LIGHT, paint_model, solid_polylines
+    from .drawing import LIGHT, paint_model, paint_shaded, solid_polylines
     from .report import ensure_gui
     ensure_gui()
     img = QImage(w, h, QImage.Format_RGB32)
     img.fill(QColor(255, 255, 255))
     try:
         lines = solid_polylines(item.solid, samples=16, iso=False)
-    except Exception:
+    except Exception:  # noqa: BLE001
         lines = []
+    V = None
+    try:
+        from .gl_view import mesh_parts
+        V = mesh_parts([item.solid])[0][0]
+    except Exception:  # noqa: BLE001
+        V = None
     p = QPainter(img)
-    paint_model(p, lines, QRectF(2, 2, w - 4, h - 4), LIGHT, line_width=0.9)
+    if V is not None and len(V) >= 3:
+        paint_shaded(p, V, QRectF(2, 2, w - 4, h - 4), lines=lines, line_width=0.5)
+    else:
+        paint_model(p, lines, QRectF(2, 2, w - 4, h - 4), LIGHT, line_width=0.9)
     p.end()
     return img
 
