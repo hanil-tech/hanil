@@ -160,6 +160,8 @@ def section(shape, y0, ext=1e5):
         return []
     out = []
     ex = TopExp_Explorer(com, TopAbs_FACE)
+    if not ex.More():                                     # 교집합이 빈 결과 (큰 주물 상형의 B-스플라인 형면) → 자른 선으로
+        return _section_by_edges(shape, face)
     while ex.More():
         f = TopoDS.Face_s(ex.Current()) if hasattr(TopoDS, "Face_s") else TopoDS.Face(ex.Current())
         ex.Next()
@@ -178,6 +180,50 @@ def section(shape, y0, ext=1e5):
                 loops.append(pts)
         if outer is not None:
             out.append((outer, loops))
+    return out
+
+
+def _section_by_edges(shape, face):
+    """평면과의 교선 (BRepAlgoAPI_Section) 을 닫힌 고리로 이어 단면으로 — 교집합 (Common) 이 빈 결과를 낼 때.
+    고리는 넓이 큰 것이 바깥, 그 안에 든 것은 구멍."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Section
+    from OCP.ShapeAnalysis import ShapeAnalysis_FreeBounds
+    from OCP.TopAbs import TopAbs_EDGE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    from OCP.collections import HSequence_TopoDS_Shape
+
+    from .die3d import _area, _inside
+    try:
+        sec = BRepAlgoAPI_Section(shape, face)
+        sec.Build()
+        edges = HSequence_TopoDS_Shape()
+        ex = TopExp_Explorer(sec.Shape(), TopAbs_EDGE)
+        while ex.More():
+            edges.Append(ex.Current())
+            ex.Next()
+        if edges.Length() == 0:
+            return []
+        wires = ShapeAnalysis_FreeBounds.ConnectEdgesToWires_s(edges, 0.05, False)
+        loops = []
+        for i in range(1, wires.Length() + 1):
+            pts = _wire_points(TopoDS.Wire(wires.Value(i)))
+            if len(pts) >= 3 and abs(_area(pts)) > 1e-6:
+                loops.append(pts)
+    except Exception:  # noqa: BLE001
+        return []
+    loops.sort(key=lambda P: -abs(_area(P)))
+    out = []
+    used = [False] * len(loops)
+    for i, P in enumerate(loops):
+        if used[i]:
+            continue
+        holes = []
+        for j in range(i + 1, len(loops)):
+            if not used[j] and _inside(P, tuple(loops[j].mean(0))):
+                holes.append(loops[j])
+                used[j] = True
+        out.append((P, holes))
     return out
 
 

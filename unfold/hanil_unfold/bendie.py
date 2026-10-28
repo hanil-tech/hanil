@@ -817,12 +817,33 @@ def _pack(rect, D, gap, bolts, r_bolt):
     ys = np.arange(y0 + e, y1 - e + 1e-9, st) if y1 - y0 > 2 * e + 1e-9 else np.array([0.5 * (y0 + y1)])
     cx, cy = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
     cand = sorted(((float(x), float(y)) for x in xs for y in ys), key=lambda q: (abs(q[0] - cx) + abs(q[1] - cy), q))
+
+    def clear(x, y, out):
+        return all(math.hypot(x - a, y - b) >= D / 2 + r_bolt + 2 for a, b in bolts) and \
+            all(math.hypot(x - a, y - b) >= D + gap for a, b in out)
     out = []
     for x, y in cand:
-        if all(math.hypot(x - a, y - b) >= D / 2 + r_bolt + 2 for a, b in bolts) and \
-                all(math.hypot(x - a, y - b) >= D + gap for a, b in out):
+        if clear(x, y, out):
             out.append((x, y))
-    return sorted(out)
+    # 고른 격자 (가운데 맞춤) 도 해 보고 더 많이 들어가는 쪽 — 좁고 긴 패드 (채널 안) 는 욕심껏 고르면 한두 개 놓침
+    pitch = D + gap
+    nx = max(int((x1 - x0 - 2 * e + gap) // pitch) + 0, 1)
+    ny = max(int((y1 - y0 - 2 * e + gap) // pitch) + 0, 1)
+    nx = min(nx, max(int((x1 - x0 - 2 * e) // pitch) + 1, 1))
+    ny = min(ny, max(int((y1 - y0 - 2 * e) // pitch) + 1, 1))
+    best = out
+    for kx in range(nx, 0, -1):
+        for ky in range(ny, 0, -1):
+            gx = [cx + (i - (kx - 1) / 2) * pitch for i in range(kx)]
+            gy = [cy + (j - (ky - 1) / 2) * pitch for j in range(ky)]
+            grid = []
+            for x in gx:
+                for y in gy:
+                    if x0 + e - 1e-6 <= x <= x1 - e + 1e-6 and y0 + e - 1e-6 <= y <= y1 - e + 1e-6 and clear(x, y, grid):
+                        grid.append((float(x), float(y)))
+            if len(grid) > len(best):
+                best = grid
+    return sorted(best)
 
 
 def _pick_gas(force, stroke, rect, bolts, r_bolt):

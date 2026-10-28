@@ -144,3 +144,39 @@ def test_tandem_die_cost():
     sh = tandem.line_sheets(tandem.Folder(r), ops, {"product": "ch"}, "HD")
     texts = [e[3] for e in sh[0].ents if e[0] == "text"]
     assert any("금형비 어림 합" in t for t in texts) and "금형비 만원" in texts
+
+
+def test_offset_poly_and_pocket_bosses():
+    """진짜 오프셋 (OCC): 오목한 ㄱ 자도 스스로 가로지르지 않음 · 넓이가 맞음. 빈 곳은 구멍 둘레를 보스로 남김."""
+    from hanil_unfold import unfoldcheck
+    L = np.array([[0, 0], [100, 0], [100, 60], [60, 60], [60, 100], [0, 100]], float)      # ㄱ 자, 넓이 8400
+    for d in (5.0, -5.0, 20.0, -20.0):
+        o = castdie.offset_poly(L, d)
+        assert len(o) >= 3 and unfoldcheck.crossings([o]) == 0
+    assert abs(castdie._area2(castdie.offset_poly(L, -5.0))) == pytest.approx(8400 - 360 * 5 + 2 * 25 - 25 + 25, rel=0.03)
+    assert abs(castdie._area2(castdie.offset_poly(L, 5.0))) > 8400 + 360 * 5 - 50
+    # 빈 곳 (네모) 과 피할 구멍: 구멍 둘레 ±r 는 어느 빈 곳에도 들어가지 않음
+    cuts = castdie._pockets(0, 600, 0, 600, 0, 100, avoid=[(300, 300, 40)])
+    assert cuts and all(not (c[0][:, 0].min() < 300 < c[0][:, 0].max() and c[0][:, 1].min() < 300 < c[0][:, 1].max())
+                        for c in cuts)
+    assert all(np.ptp(c[0], 0).min() >= 40 for c in cuts)
+    area = lambda cs: sum(abs(castdie._area2(c[0])) for c in cs)                 # noqa: E731
+    assert area(cuts) < area(castdie._pockets(0, 600, 0, 600, 0, 100))            # 보스만큼 빈 곳이 줄어듦
+
+
+def test_section_by_edges_fallback():
+    """교집합이 빈 결과일 때 교선으로 단면 고리를 잇는 길: 상자 (가운데 구멍) 단면 = 바깥 1 + 구멍 1."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Ax3, gp_Dir, gp_Pln, gp_Pnt
+    from hanil_unfold import dieview
+    box = BRepPrimAPI_MakeBox(gp_Pnt(-100, -50, 0), 200.0, 100.0, 60.0).Shape()
+    hole = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, -60, 30), gp_Dir(0, 1, 0)), 15.0, 120.0).Shape()   # y 방향 관통 구멍
+    sol = BRepAlgoAPI_Cut(box, hole).Shape()
+    pln = gp_Pln(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0)))
+    face = BRepBuilderAPI_MakeFace(pln, -500, 500, -500, 500).Face()
+    secs = dieview._section_by_edges(sol, face)
+    assert len(secs) == 1 and len(secs[0][1]) == 1
+    outer, holes = secs[0]
+    assert np.ptp(outer, 0) == pytest.approx([200.0, 60.0], abs=0.5) and np.ptp(holes[0], 0) == pytest.approx([30.0, 30.0], abs=0.5)

@@ -152,6 +152,9 @@ CHECK_HEAD = ["점검 항목", "값", "기준", "판정"]
 EDGE_HEAD = ["날", "호칭 (mm)", "일반 공차", "마모 계수 x", "한쪽 옮김", "다이 날", "펀치", "한쪽 클리어런스"]
 
 
+LONG_STRIPPER_L = (130, 140, 150, 160, 180, 200)      # 스트리퍼 볼트 긴 것 (업체 주문 길이) — 큰 금형
+
+
 class _NoRoom(Exception):
     pass
 
@@ -688,7 +691,15 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
     need_cb = sb_k + s_w + REGRIND + 1                    # 머리 높이 + 움직임 + 재연마 + 여유
     sh_L = ds.down_std(grip - need_cb, ds.STRIPPER_L)
     cb_d = grip - sh_L                                    # 머리 자리 깊이 (머리 밑면 = 열림 때 자리 바닥)
-    if cb_d > tus - 5:
+    sb_custom = ""
+    if cb_d > tus - 5:                                    # 큰 금형 (두꺼운 플레이트): 긴 것 · 주문 길이 (상형 세트가 깊이를 못 받음)
+        sh_L = ds.down_std(grip - need_cb, ds.STRIPPER_L + LONG_STRIPPER_L)
+        cb_d = grip - sh_L
+        if cb_d > tus - 5:
+            sh_L = 5.0 * math.floor((grip - need_cb) / 5.0)
+            cb_d = grip - sh_L
+        sb_custom = " (긴 것 · 주문 길이)"
+    if cb_d > tus - 5 or sh_L < 10:
         raise _NoRoom
     thr_through = sb_thr + 2 > tst
     for x, y in sb_xy:
@@ -699,7 +710,7 @@ def _assemble(result, settings, kind, plan, t, ops, pilots, work, strip, blank, 
             pr_.holes.append(Hole(x, y, sbd + 1, "통과", z0, hh, f"Ø{sbd + 1:g} 통과 (스트리퍼 볼트)"))
         upper_shoe.holes.append(Hole(x, y, sbd + 1, "통과", z_us, tus, f"Ø{sbd + 1:g} 통과, 자리 Ø{sb_dk + 1:g} 깊이 {cb_d:.1f}",
                                      cb=(sb_dk + 1, z_top - cb_d, cb_d)))
-    add("스트리퍼 볼트", len(sb_xy), "SCM435", f"어깨 Ø{sbd:g} × {sh_L:.0f} (M{sb_m})",
+    add("스트리퍼 볼트", len(sb_xy), "SCM435", f"어깨 Ø{sbd:g} × {sh_L:.0f} (M{sb_m}){sb_custom}",
         [axi(x, y, [(z_st + tst - sb_thr, sb_thr, sb_m / 2, sb_m / 2), (z_st + tst, sh_L, sbd / 2, sbd / 2),
                     (z_st + tst + sh_L, sb_k, sb_dk / 2, sb_dk / 2)],
              socket=(z_st + tst + sh_L + sb_k, 0.6 * sb_k, HEX_KEY.get(sb_m, 0.8 * sb_m), -1)) for x, y in sb_xy],

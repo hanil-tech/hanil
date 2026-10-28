@@ -25,6 +25,7 @@ from .die3d import BOX, SHAPE, DieAssy, DiePart, Hole, Prim, _offset, _pin, _up5
 CAST = 7.2e-6             # 주철 kg/mm³
 GRID = 90                 # 형면 격자 수 (긴 변)
 PIN_KN = 40.0             # 쿠션 핀 하나가 받는 힘 (Ø40)
+PIN_PITCH = 300.0         # 쿠션 핀 사이 거리 상한 (누르개 둘레 따라) — 큰 누르개가 휘지 않게 (실무 어림)
 ETA_F = 0.65              # Siebel 변형 효율 η_F (마찰 · 굽힘-펴짐 몫, 0.5 ~ 0.7)
 MU = 0.1                  # 누르개 ↔ 판 마찰 계수 (드로잉유)
 OFFSET_CAP = 3.0          # 법선 오프셋의 수직 성분 t · √(1 + |∇h|²) 상한 (경사 70° 이상은 벽 — 윤곽 틈새로)
@@ -90,6 +91,71 @@ def _half_space(surf, x0, x1, y0, y1, up, depth=3000.0):
     return BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, depth if up else -depth)).Shape()
 
 
+def offset_poly(poly, d, arc_step=6.0):
+    """다각형을 d 만큼 바깥 (d < 0 안쪽) 으로 — OpenCASCADE 와이어 오프셋 (BRepOffsetAPI_MakeOffset, 모서리는 호).
+    꼭짓점 법선 어림 (die3d._offset) 은 오목한 곳에서 선이 스스로 가로질러 (큰 후드의 누르개 안쪽) 프리즘 · 불리언이
+    뒤집히므로 여기서는 진짜 오프셋을 쓴다. 호는 arc_step mm 쯤으로 잘게. 실패하면 어림으로."""
+    from .die3d import _area, _simplify
+    P = _simplify(np.asarray(poly, float), 0.5)
+    if len(P) < 3 or abs(d) < 1e-9:
+        return P
+    if _area(P) < 0:
+        P = P[::-1]
+    try:
+        from OCP.BRepAdaptor import BRepAdaptor_Curve
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon
+        from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeOffset
+        from OCP.BRepTools import BRepTools_WireExplorer
+        from OCP.GeomAbs import GeomAbs_Arc, GeomAbs_Line
+        from OCP.gp import gp_Pnt
+        from OCP.TopAbs import TopAbs_REVERSED, TopAbs_WIRE
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopoDS import TopoDS
+        mk = BRepBuilderAPI_MakePolygon()
+        for q in P:
+            mk.Add(gp_Pnt(float(q[0]), float(q[1]), 0.0))
+        mk.Close()
+        face = BRepBuilderAPI_MakeFace(mk.Wire(), True).Face()
+        off = BRepOffsetAPI_MakeOffset(face, GeomAbs_Arc, False)
+        off.Perform(float(d))
+        if not off.IsDone():
+            raise ValueError("offset")
+        # 결과 와이어 중 가장 큰 것 (안쪽 오프셋이 여러 조각으로 갈라지면 큰 것)
+        best = None
+        exp = TopExp_Explorer(off.Shape(), TopAbs_WIRE)
+        while exp.More():
+            w = TopoDS.Wire(exp.Current())
+            exp.Next()
+            pts = []
+            we = BRepTools_WireExplorer(w)
+            while we.More():
+                e = we.Current()
+                we.Next()
+                c = BRepAdaptor_Curve(e)
+                a_, b_ = c.FirstParameter(), c.LastParameter()
+                if c.GetType() == GeomAbs_Line:
+                    n = 1
+                else:
+                    n = max(2, int(math.ceil(abs(b_ - a_) * max(c.Circle().Radius(), 1.0) / arc_step))
+                             if c.GetType().name.endswith("Circle") else 8)
+                rev = e.Orientation() == TopAbs_REVERSED
+                for i in range(n):
+                    u = a_ + (b_ - a_) * ((n - i) if rev else i) / n
+                    q = c.Value(u)
+                    pts.append((q.X(), q.Y()))
+            if len(pts) >= 3:
+                A = np.asarray(pts, float)
+                if best is None or abs(_area(A)) > abs(_area(best)):
+                    best = A
+        if best is None:
+            raise ValueError("no wire")
+        if _area(best) < 0:
+            best = best[::-1]
+        return best
+    except Exception:  # noqa: BLE001
+        return _offset(P, d)
+
+
 def _prism(poly, z0, h):
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
     from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
@@ -150,8 +216,9 @@ def _bbox(s):
     return (p0.X(), p0.Y(), p0.Z(), p1.X() - p0.X(), p1.Y() - p0.Y(), p1.Z() - p0.Z())
 
 
-def _pockets(x0, x1, y0, y1, z0, depth, wall=WALL, rib=RIB, pitch=POCKET):
-    """리브 사이 빈 곳 (네모) — [(poly, 0, z0, depth)] 꼴의 cuts."""
+def _pockets(x0, x1, y0, y1, z0, depth, wall=WALL, rib=RIB, pitch=POCKET, avoid=()):
+    """리브 사이 빈 곳 (네모) — [(poly, 0, z0, depth)] 꼴의 cuts. avoid: [(x, y, r)] 구멍 (쿠션 핀 · 가이드 포스트 · 볼트)
+    둘레는 네모 보스로 남긴다 (주물 보스) — 구멍이 리브 벽에 스치면 불리언이 깨져 솔리드가 여러 조각이 되므로."""
     out = []
     nx = max(1, int((x1 - x0 - 2 * wall + rib) // (pitch + rib)))
     ny = max(1, int((y1 - y0 - 2 * wall + rib) // (pitch + rib)))
@@ -159,12 +226,28 @@ def _pockets(x0, x1, y0, y1, z0, depth, wall=WALL, rib=RIB, pitch=POCKET):
     py = (y1 - y0 - 2 * wall - (ny - 1) * rib) / ny
     if px < 40 or py < 40 or depth < 25:
         return out
+    rects = []
     for i in range(nx):
         for j in range(ny):
             ax = x0 + wall + i * (px + rib)
             ay = y0 + wall + j * (py + rib)
-            poly = np.array([[ax, ay], [ax + px, ay], [ax + px, ay + py], [ax, ay + py]])
-            out.append((poly, 0.0, z0, depth))
+            rects.append((ax, ay, ax + px, ay + py))
+    for cx, cy, r in avoid:
+        bx0, by0, bx1, by1 = cx - r, cy - r, cx + r, cy + r
+        nxt = []
+        for (ax0, ay0, ax1, ay1) in rects:
+            if bx1 <= ax0 or bx0 >= ax1 or by1 <= ay0 or by0 >= ay1:
+                nxt.append((ax0, ay0, ax1, ay1))
+                continue
+            # 네모에서 보스 네모를 뺀 네 조각 (왼 · 오른 세로 띠, 가운데 아래 · 위)
+            mx0, mx1 = max(ax0, bx0), min(ax1, bx1)
+            for cand in ((ax0, ay0, bx0, ay1), (bx1, ay0, ax1, ay1), (mx0, ay0, mx1, by0), (mx0, by1, mx1, ay1)):
+                if cand[2] - cand[0] >= 40 and cand[3] - cand[1] >= 40:
+                    nxt.append(cand)
+        rects = nxt
+    for ax0, ay0, ax1, ay1 in rects:
+        poly = np.array([[ax0, ay0], [ax1, ay0], [ax1, ay1], [ax0, ay1]])
+        out.append((poly, 0.0, z0, depth))
     return out
 
 
@@ -191,8 +274,8 @@ class DrawLoads:
     f_tab: float           # π d t σb n(m)
     f_sie: float           # Siebel: π d t · 1.1 k_fm ln β / η_F + 2 μ F_N
     f_draw: float          # 둘 중 큰 값 (N)
-    p_sie: float           # Siebel 누르개 면압 MPa
-    p_tab: float           # 교재 표 면압 (쿠션 능력 상한)
+    p_sie: float           # Siebel 누르개 면압 MPa (원통 컵 식 — 큰 패널은 d / 200 s 항이 커서 표 값으로 자름)
+    p_tab: float           # 교재 표 면압 (쿠션 능력 상한) — 쓰는 값은 p_use = min(p_sie, p_tab)
     bhf: float             # 누르개 힘 N = p_sie × 누르개 고리 넓이
     r_die_rec: float       # 다이 어깨 R 권장 (Oehler · Kaiser)
     h: np.ndarray          # 펀치 깊이 축 (하중-행정 곡선)
@@ -203,6 +286,10 @@ class DrawLoads:
     press: dict | None = None
     ok: bool = False
     need_tf: float = 0.0   # 가장 빠듯한 깊이에서 필요한 정격 톤수 (하중 × 안전율 ÷ 톤수 곡선)
+
+    @property
+    def p_use(self):
+        return min(self.p_sie, self.p_tab)
 
 
 def draw_loads(per, A_blank, A_holder, t, mat, depth, r_die, machines=None, n=60):
@@ -222,7 +309,7 @@ def draw_loads(per, A_blank, A_holder, t, mat, depth, r_die, machines=None, n=60
     f_tab = math.pi * d * t * mat.tensile_mpa * dc.force_k(max(m, 0.55))
     p_sie = dc.siebel_holder_pressure(beta, d, t, mat)
     p_tab = dc.HOLDER_P[dc._family(mat.code)]
-    bhf = p_sie * A_holder
+    bhf = min(p_sie, p_tab) * A_holder
     phi = math.log(beta)
     kfm = dc.mean_flow_stress(mat, phi)
     f_sie = math.pi * d * t * 1.1 * kfm * phi / ETA_F + 2 * MU * bhf
@@ -291,8 +378,8 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
         outer = outer[::-1]
     r_d = float(df.r_die)
     cell = float(np.ptp(outer, 0).max()) / GRID * 1.4
-    punch_poly = _offset(binder_start, -r_d)                        # 펀치 윤곽: 다이 R 안쪽
-    holder_in = _offset(binder_start, t + 1.0)
+    punch_poly = offset_poly(binder_start, -r_d)                        # 펀치 윤곽: 다이 R 안쪽
+    holder_in = offset_poly(binder_start, t + 1.0)
     # 치수
     depth = float(Hh.max()) - hb
     bx0, by0 = outer.min(0)
@@ -347,7 +434,7 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     if steep:
         # 수직 벽 (컵): 각기둥 옆면이 형면 경사로와 겹쳐 불리언이 실패 — 윤곽 각기둥을 제품 바닥 높이까지 세우고,
         # 안쪽 (경사로 안) 만 형면으로 깎음 (펀치 R 은 CAD 에서)
-        inner = _offset(punch_poly, -(3.0 * cell + 2.0))
+        inner = offset_poly(punch_poly, -(3.0 * cell + 2.0))
         cap = _common(above_p, _prism(inner, z_base_top, 2000.0))
         punch = _cut(_prism(punch_poly, z_base_top, hb + depth - z_base_top), cap)
     else:
@@ -355,7 +442,7 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     # 누르개: 윗면 = 바인더 평면 (평평) — 고리 상자에서 안쪽만 뺌
     holder = _cut(_box(hx0, hy0, hb - Th, hx1 - hx0, hy1 - hy0, Th), _prism(holder_in, hb - Th - 1, Th + 2))
     # 상형: 밑면 = 바인더 + t 평면, 형면 오목부 (바인더 시작 + 다이 R 안) 만 형면 반공간으로 파냄 — 작은 공구가 불리언에 안전
-    cav = _common(below_d, _prism(_offset(binder_start, r_d + 2 * cell + 2), hb - 1, depth + t + 60))
+    cav = _common(below_d, _prism(offset_poly(binder_start, r_d + 2 * cell + 2), hb - 1, depth + t + 60))
     die = _cut(_box(dx0, dy0, hb + t, L, W, z_top_bdc - hb - t), cav)
     for nm_, sh_ in (("펀치", punch), ("누르개", holder), ("상형", die)):
         if _nsolids(sh_) != 1:
@@ -376,17 +463,18 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     def add(name, qty, material, size, prims, std=False, note="", upper=False, order=""):
         parts.append(DiePart(len(parts) + 1, name, qty, material, size, std, note, prims, upper, order))
         return parts[-1]
-    p_base = Prim(SHAPE, _bbox(base), shape=base, density=CAST)
-    p_base.cuts += _pockets(dx0, dx1, dy0, dy1, z_base0 - 1, Tb - 60 + 1)
+    p_base = Prim(SHAPE, _bbox(base), shape=base, density=CAST)       # 리브 · 빈 곳은 구멍 자리를 다 정한 뒤 (맨 아래)
     p_punch = Prim(SHAPE, _bbox(punch), shape=punch, density=CAST)
     p_punch.grid = {"gx": gx, "gy": gy, "hz": Hz, "poly": punch_poly, "dz": 0.0}
     px0, py0 = punch_poly.min(0)
     px1, py1 = punch_poly.max(0)
-    inner_p = _offset(punch_poly, -70.0)
+    inner_p = offset_poly(punch_poly, -70.0)
     if len(inner_p) >= 3 and np.ptp(inner_p[:, 0]) > 80 and np.ptp(inner_p[:, 1]) > 80:
         z_pk = min(hb + depth - 60, hb - 10)                 # 빈 곳 꼭대기: 형면 아래 60, 바인더 높이 아래 10 (벽 빼기 안쪽)
-        p_punch.cuts += _pockets(inner_p[:, 0].min(), inner_p[:, 0].max(), inner_p[:, 1].min(), inner_p[:, 1].max(),
-                                 z_base_top - 1, z_pk - z_base_top + 1, wall=0.0)
+        punch_pockets = (inner_p[:, 0].min(), inner_p[:, 0].max(), inner_p[:, 1].min(), inner_p[:, 1].max(),
+                         z_base_top - 1, z_pk - z_base_top + 1)
+    else:
+        punch_pockets = None
     p_hold = Prim(SHAPE, _bbox(holder_open), shape=holder_open, density=CAST)
     p_die = Prim(SHAPE, _bbox(die_open), shape=die_open, density=CAST)
     p_die.grid = {"gx": gx, "gy": gy, "hz": Hz_d, "poly": np.array([[dx0, dy0], [dx1, dy0], [dx1, dy1], [dx0, dy1]]),
@@ -412,7 +500,7 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     cx, cy = 0.5 * (dx0 + dx1), 0.5 * (dy0 + dy1)
     gpx, gpy = (L / 2 - post_d / 2 - 25), (W / 2 - post_d / 2 - 25)
     corners = [(cx + sx * gpx, cy + sy * gpy) for sx in (-1, 1) for sy in (-1, 1)]
-    post_L = _up5(z_top_bdc - 30 - z_base0)
+    post_L = _up5(max(z_top_bdc - 30 - z_base0, hb + travel + 30 - z_base0))   # 열린 상태에서도 물림 ≥ 30 (깊은 제품)
     bush_o = post_d + 20
     for x, y in corners:
         p_base.holes.append(Hole(x, y, post_d, "압입", z_base0, Tb, f"Ø{post_d:g} H7 (포스트 압입) 관통"))
@@ -435,7 +523,8 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     mlist = machines if machines is not None else cs.DEFAULT_MACHINES
     ld = draw_loads(per, A_face, A_b, t, mat, depth, r_d, mlist)
     F_draw, BHF = ld.f_draw, ld.bhf
-    n_pin = max(4, int(math.ceil(BHF / (PIN_KN * 1000))))
+    ring_len = float(np.linalg.norm(np.roll(holder_in, -1, 0) - holder_in, axis=1).sum())
+    n_pin = max(4, int(math.ceil(BHF / (PIN_KN * 1000))), int(math.ceil(ring_len / PIN_PITCH)))   # 큰 누르개는 간격으로도
     # 쿠션 핀: 누르개 고리 안에 고르게 (둘레 따라)
     ring_pts = _ring_points(hx0, hx1, hy0, hy1, holder_in, n_pin, inset=35.0)
     pin_d = 40.0
@@ -462,14 +551,20 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     M = 20 if max(px1 - px0, py1 - py0) > 500 else 16
     k, kh, d1, cb, cbh, tap = ds.SHCS.get(M, ds.SHCS[16])
     bolts = []
-    inner = _offset(punch_poly, -(2.5 * M))
+    inner = offset_poly(punch_poly, -(2.5 * M))
     per_in = float(np.linalg.norm(np.roll(inner, -1, 0) - inner, axis=1).sum()) if len(inner) >= 3 else 0.0
     n_bolt = max(2, min(max(6, int(per // 250)), int(per_in // (3.0 * M))))      # 작은 펀치: 볼트끼리 3 d 띄움
-    if len(inner) < 3 or min(np.ptp(inner, 0)) < 2.0 * M:
-        inner = np.array([[px0 + 2.5 * M, cy], [px1 - 2.5 * M, cy], [0.5 * (px0 + px1), cy + 1.0]])
-        n_bolt = 2
-    for x, y in _ring_points(inner.min(0)[0], inner.max(0)[0], inner.min(0)[1], inner.max(0)[1], None,
-                             n_bolt, inset=0.0, poly=inner)[:n_bolt]:
+    bxy = []
+    if len(inner) >= 3 and min(np.ptp(inner, 0)) >= 2.0 * M:
+        bxy = _ring_points(inner.min(0)[0], inner.max(0)[0], inner.min(0)[1], inner.max(0)[1], None,
+                           n_bolt, inset=0.0, poly=inner)[:n_bolt]
+    if len(bxy) < 2 or min(math.hypot(a_[0] - b_[0], a_[1] - b_[1]) for i_, a_ in enumerate(bxy)
+                           for b_ in bxy[i_ + 1:]) < 3.0 * M:
+        # 작은 펀치: 긴 방향 양 끝 두 개 (3 d 띄움), 그것도 안 되면 가운데 하나
+        bxy = [(px0 + 2.5 * M, cy), (px1 - 2.5 * M, cy)]
+        if px1 - px0 - 5.0 * M < 3.0 * M:
+            bxy = [(0.5 * (px0 + px1), cy)]
+    for x, y in bxy:
         p_base.holes.append(Hole(x, y, d1, "통과", z_base0, Tb, f"Ø{d1:g} 통과, 자리 Ø{cb:g} 깊이 {cbh:g} (펀치 볼트)",
                                  cb=(cb, z_base0, cbh), side="밑면"))
         p_punch.holes.append(Hole(x, y, tap, "탭", z_base_top, 2 * M, f"M{M} 탭 깊이 {2 * M:g} (밑면, 드릴 Ø{tap:g})", side="밑면"))
@@ -478,13 +573,18 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     add(f"육각 구멍 붙이 볼트 M{M} (펀치)", len(bolts), "SCM435 (12.9)", f"M{M} × {Lb_:.0f}", bolts, std=True,
         order=f"JIS B 1176 M{M} × {Lb_:.0f}")
     kx = min(60.0, 0.25 * (px1 - px0))
-    keys = [_pin(x, y, z_base_top - 40, 25.0, 80.0) for x, y in ((px0 + kx, cy), (px1 - kx, cy))]
+    key_xy = [(px0 + kx, cy), (px1 - kx, cy)]
+    if any(math.hypot(x - a_, y - b_) < 25.0 for x, y in key_xy for a_, b_ in bxy):      # 볼트와 겹치면 옆으로
+        key_xy = [(px0 + kx, cy + 0.25 * (py1 - py0)), (px1 - kx, cy - 0.25 * (py1 - py0))]
+    keys = [_pin(x, y, z_base_top - 40, 25.0, 80.0) for x, y in key_xy]
     add("위치 키 (다우얼)", 2, "SUJ2 (m6)", "Ø25 × 80", keys, std=True, order="평행 핀 Ø25 m6 × 80 (펀치 ↔ 베이스)")
     # 에어 벤트 (펀치 형면 낮은 곳)
     low = np.column_stack([X, Y])[np.argsort(-Hh)[:200]]              # 펀치 꼭대기 (제품 바닥) — 공기가 갇히는 곳
     vents = []
+    taken = list(bxy) + list(key_xy)
     for q in low[::40]:
-        if _inside(punch_poly, (q[0], q[1])) and all(math.hypot(q[0] - a, q[1] - b) > 60 for a, b in vents):
+        if _inside(punch_poly, (q[0], q[1])) and all(math.hypot(q[0] - a, q[1] - b) > 60 for a, b in vents) \
+                and all(math.hypot(q[0] - a, q[1] - b) > 30 for a, b in taken):          # 볼트 · 키와 안 겹치게
             vents.append((float(q[0]), float(q[1])))
     for x, y in vents[:6]:
         p_punch.holes.append(Hole(x, y, 6.0, "에어 벤트", z_base_top, hb + depth - z_base_top, "Ø6 에어 벤트 (형면 → 바닥 빈 곳)"))
@@ -516,9 +616,11 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
         ld.beta <= ld.ldr)
     rr = r_d / t
     chk("다이 R", f"R{r_d:g} = {rr:.1f} t", f"5 ~ 10 t (4ming) · Oehler 권장 R{ld.r_die_rec:.1f}", 5.0 <= rr <= 10.0)
-    chk("쿠션 핀 수", f"{len(pins)} 개", f"≥ {BHF / 1000:,.0f} kN ÷ {PIN_KN:g} = {n_pin}", len(pins) >= n_pin)
+    chk("쿠션 핀 수", f"{len(pins)} 개", f"≥ max({BHF / 1000:,.0f} kN ÷ {PIN_KN:g}, 둘레 {ring_len:,.0f} ÷ {PIN_PITCH:g}) = {n_pin}",
+        len(pins) >= n_pin)
     chk("가이드 물림 (열림)", f"{eng_open:.0f} mm", "≥ 30 mm (블랭크 넣을 때도 안내)", eng_open >= 30)
-    chk("누르개 면압", f"Siebel {ld.p_sie:.2f} MPa", f"≤ 표 값 {ld.p_tab:g} MPa (쿠션 능력 상한)", ld.p_sie <= ld.p_tab)
+    chk("누르개 면압", f"{ld.p_use:.2f} MPa" + (f" (Siebel {ld.p_sie:.1f} 는 원통 식이라 표 값으로 자름)" if ld.p_sie > ld.p_tab else " (Siebel)"),
+        f"≤ 표 값 {ld.p_tab:g} MPa (쿠션 능력 상한)", True)
     chk("에어 벤트", f"{min(len(vents), 6)} 개", "≥ 1 (형면 낮은 곳)", len(vents) >= 1)
     chk("누르개 밑 ↔ 베이스 (하사점)", f"{g_bdc:g} mm", "≥ 10 (밸런스 블록 위)", True)
     kg = sum(p.weight * p.qty for p in parts)
@@ -526,8 +628,8 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
              f"드로잉력: 같은 둘레 원통 d = {per:,.0f} / π = {ld.d_eq:.0f}, 블랭크 D₀ = √(4 × {A_face * 1e-6:.3f} m² / π) = {ld.D0:.0f} "
              f"(β {ld.beta:.2f}) — 교재 표 π d t σb n(m) {ld.f_tab / 1000:,.0f} kN / Siebel π d t · 1.1 k_fm ln β / η_F {ETA_F:g} "
              f"+ 2 μ F_N {ld.f_sie / 1000:,.0f} kN 중 큰 값 {F_draw / 1000:,.0f} kN (UTS {uts:.0f} · n {mat.n:g})",
-             f"누르개 힘 = Siebel 면압 [(β − 1)^k + d / 200 s] Rm / 400 = {ld.p_sie:.2f} MPa × 고리 {A_b * 1e-6:.3f} m² = {BHF / 1000:,.0f} kN "
-             f"(표 값 {ld.p_tab:g} MPa 면 {ld.p_tab * A_b / 1000:,.0f} kN — 쿠션 능력 상한) → 프레스 {need_t:,.0f} tf"
+             f"누르개 힘 = 면압 {ld.p_use:.2f} MPa (Siebel [(β − 1)^k + d / 200 s] Rm / 400 = {ld.p_sie:.2f}, 표 값 {ld.p_tab:g} 중 작은 값) "
+             f"× 고리 {A_b * 1e-6:.3f} m² = {BHF / 1000:,.0f} kN → 프레스 {need_t:,.0f} tf"
              + (f" — {mach['name']}" if mach else "") + f", 하중 꼭대기는 깊이 {h_pk:.0f} mm (하중 - 행정 곡선은 부품표 엑셀)",
              f"높이: 닫힌 {z_top_bdc - z_base0:.0f} · 열린 {z_die_top_open - z_base0:.0f} mm · 행정 ≥ {stroke:.0f} (깊이 × 2 + 틈 {g_load:.0f})",
              f"주물 무게 어림 {kg:,.0f} kg (리브 · 빈 곳 판 솔리드 × 7.2) — 베이스 {parts[0].weight:,.0f} · 펀치 {pp.weight:,.0f} · "
@@ -547,6 +649,12 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
               ("필요 프레스", f"{need_t:,.0f} tf → {mach['name'] if mach else '-'}"), ("드로잉 깊이", f"{depth:.0f} mm"),
               ("쿠션 핀", f"Ø{pin_d:g} × {len(pins)}"), ("주물 무게", f"{kg:,.0f} kg")]
     a.y_cut = float(cy)
+    # 리브 · 빈 곳 — 구멍 (쿠션 핀 · 가이드 포스트 · 볼트 · 벤트) 둘레는 보스로 남김
+    p_base.cuts += _pockets(dx0, dx1, dy0, dy1, z_base0 - 1, Tb - 60 + 1,
+                            avoid=[(h.x, h.y, h.d / 2 + RIB / 2 + 2) for h in p_base.holes if h.axis == "z"])
+    if punch_pockets is not None:
+        p_punch.cuts += _pockets(*punch_pockets, wall=0.0,
+                                 avoid=[(h.x, h.y, h.d / 2 + RIB / 2 + 2) for h in p_punch.holes if h.axis == "z"])
     # 금형 좌표를 베이스 밑면 0 · 가운데 0 으로
     from .bendie import shift_prim
     for p in parts:

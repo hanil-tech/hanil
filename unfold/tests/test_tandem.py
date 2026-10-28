@@ -231,3 +231,25 @@ def test_two_row_when_it_pays(monkeypatch):
     assert op.layout.rows == 2 and op.die is not None, op.error
     assert op.die.plate("블랭킹 펀치").qty == 1 and sum(1 for p in op.die.parts if p.name == "블랭킹 펀치") == 2
     assert len(op.die.stations) == 6
+
+
+def test_long_channel_dies_scale_with_product():
+    """큰 제품 (1.2 m 채널): 블랭킹 (스트리퍼 볼트 긴 것 · 주문 길이) 과 U 굽힘 (좁은 패드에도 가스 스프링) 금형이 다 나옴."""
+    r = unfold(models.sharp_channel(w=100.0, h=40.0, t=3.2, length=1200.0), settings=ST)
+    ops = tandem.design(r, ST)
+    for op in ops:
+        assert op.die is not None, (op.kind, op.error)
+    blank = next(op for op in ops if op.kind == tandem.BLANK).die
+    assert max(blank.L, blank.W) > 1200 and any("주문 길이" in p.size for p in blank.parts if p.name.startswith("스트리퍼 볼트"))
+    ub = next(op for op in ops if op.kind == tandem.UBEND).die
+    assert ub.W > 1200 and any("가스 스프링" in p.name for p in ub.parts)
+
+
+def test_pad_spring_pack_grid():
+    """좁고 긴 패드 (채널 안 92 × 326): 고른 격자로 Ø63 가스 스프링 3 개가 들어감 (전에는 욕심껏 골라 2 개)."""
+    from hanil_unfold import bendie
+    rect = [-93.1, -0.5, -313.0, 13.0]
+    bolts = [(-46.8, -289.0), (-46.8, -11.0)]
+    assert len(bendie._pack(rect, 63.0, 8.0, bolts, 12.0)) >= 3
+    gas, xy = bendie._pick_gas(25801.0, 46.8, rect, bolts, 12.0)
+    assert gas is not None and len(xy) * gas.f_each >= 25801.0
