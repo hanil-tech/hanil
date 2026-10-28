@@ -695,16 +695,12 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
     p.restore()
 
 
-def render_product(fa: FormAnalysis, view=VIEWS[0], w=1000, h=760, az=-35.0, el=30.0):
+def render_product(fa: FormAnalysis, view=VIEWS[0], w=1000, h=760, az=-35.0, el=30.0, dpr=1.0):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
-    from .report import ensure_gui
-    ensure_gui()
-    img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(255, 255, 255))
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
+    from .report import new_image
+    img, p = new_image(w, h, dpr)
     paint_product(p, QRectF(0, 0, w, h), fa, view, az, el)
     p.end()
     return img
@@ -1319,16 +1315,12 @@ def paint_section(p, rect, sec: Section, title=True):
     p.restore()
 
 
-def render_section(sec: Section, w=1100, h=700):
+def render_section(sec: Section, w=1100, h=700, dpr=1.0):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
-    from .report import ensure_gui
-    ensure_gui()
-    img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(255, 255, 255))
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
+    from .report import new_image
+    img, p = new_image(w, h, dpr)
     paint_section(p, QRectF(0, 0, w, h), sec)
     p.end()
     return img
@@ -1473,16 +1465,12 @@ def paint_load_stroke(p, rect, ls: LoadStroke, title=True):
     p.restore()
 
 
-def render_load_stroke(ls: LoadStroke, w=1000, h=600):
+def render_load_stroke(ls: LoadStroke, w=1000, h=600, dpr=1.0):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
-    from .report import ensure_gui
-    ensure_gui()
-    img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(255, 255, 255))
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
+    from .report import new_image
+    img, p = new_image(w, h, dpr)
     paint_load_stroke(p, QRectF(0, 0, w, h), ls)
     p.end()
     return img

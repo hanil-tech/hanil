@@ -14,6 +14,14 @@ from . import formsim as fs
 from .die_dialog import VERDICT_COLOR, _table
 
 
+def _dpr(widget):
+    """창의 화면 배율 (고해상도 화면 1.25 · 1.5 · 2) — 그림을 그만큼 크게 그려 선명하게."""
+    try:
+        return max(float(widget.devicePixelRatioF()), 1.0)
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
 HINT = "끌어서 돌리기 · 휠로 확대 · 축소 · 오른쪽 단추로 끌어 이동 · 두 번 누르면 처음대로"
 
 
@@ -59,10 +67,14 @@ class ProductView(QWidget):
     def _render(self, fast=False):
         if self.width() < 10:
             return
-        pix = QPixmap(self.size())
+        # 화면 배율 (125 · 150 %) 만큼 실제 픽셀을 크게 그려 흐리지 않게
+        dpr = max(float(self.devicePixelRatioF()), 1.0)
+        pix = QPixmap(int(round(self.width() * dpr)), int(round(self.height() * dpr)))
+        pix.setDevicePixelRatio(dpr)
         pix.fill(QColor(255, 255, 255))
         p = QPainter(pix)
         p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
         fs.paint_product(p, QRectF(0, 0, self.width(), self.height()), self.fa, self.view, self.az, self.el,
                          fast=fast, sphere=self.spinning, zoom=self.zoom, pan=self.pan)
         p.end()
@@ -220,7 +232,7 @@ class ProcessPanel(QWidget):
         w, h = max(self.pic.width(), 640), max(self.pic.height(), 480)
         self.pic.setPixmap(QPixmap.fromImage(self.fp.render_stage(self.pr, s, w, h, self.az, self.el,
                                                                   fast=fast, sphere=self.rotating,
-                                                                  zoom=self.zoom, pan=self.pan)))
+                                                                  zoom=self.zoom, pan=self.pan, dpr=_dpr(self))))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -312,8 +324,10 @@ class ProcessPanel(QWidget):
                 self._draw(fast=True)
             elif ev.type() == QEvent.Wheel:
                 pm = self.pic.pixmap()
-                cx = (self.pic.width() - (pm.width() if pm else 0)) / 2 + (pm.width() if pm else self.pic.width()) / 2
-                cy = (self.pic.height() - (pm.height() if pm else 0)) / 2 + (pm.height() if pm else self.pic.height()) / 2
+                pw = pm.width() / pm.devicePixelRatio() if pm and not pm.isNull() else self.pic.width()
+                ph = pm.height() / pm.devicePixelRatio() if pm and not pm.isNull() else self.pic.height()
+                cx = (self.pic.width() - pw) / 2 + pw / 2            # 그림은 라벨 가운데 (논리 픽셀)
+                cy = (self.pic.height() - ph) / 2 + ph / 2
                 self.zoom, self.pan = zoom_at(self.zoom, self.pan, ev.angleDelta().y(), ev.position().x(),
                                               ev.position().y(), cx, cy)
                 self._draw(fast=self.busy)
@@ -399,7 +413,7 @@ class SectionPanel(QWidget):
             self.note.setText("")
             return
         w, h = max(self.pic.width(), 700), max(self.pic.height(), 460)
-        self.pic.setPixmap(QPixmap.fromImage(fs.render_section(self.sec, w, h)))
+        self.pic.setPixmap(QPixmap.fromImage(fs.render_section(self.sec, w, h, dpr=_dpr(self))))
         self.note.setText(fs.section_note(self.sec))
 
     def resizeEvent(self, e):
@@ -747,7 +761,7 @@ class OpsPanel(QWidget):
         if tl is not None:
             from . import formtrim
             img = QLabel()
-            img.setPixmap(QPixmap.fromImage(formtrim.render(tl, 520, 300)))
+            img.setPixmap(QPixmap.fromImage(formtrim.render(tl, 520, 300, dpr=_dpr(self))))
             self.body.addWidget(img)
             self.trim_btn.setEnabled(True)
         if self.ops.notes:
@@ -809,7 +823,7 @@ class FormSimDialog(QDialog):
         if fa.mode == "forming":
             from .report import render_fld
             lab = QLabel()
-            lab.setPixmap(QPixmap.fromImage(render_fld(fa.fi, 760, 600)))
+            lab.setPixmap(QPixmap.fromImage(render_fld(fa.fi, 760, 600, dpr=_dpr(self))))
             lab.setAlignment(Qt.AlignCenter)
             fw = QWidget()
             fl = QVBoxLayout(fw)
@@ -826,7 +840,7 @@ class FormSimDialog(QDialog):
                 lw2 = QWidget()
                 l2 = QVBoxLayout(lw2)
                 pic = QLabel()
-                pic.setPixmap(QPixmap.fromImage(fs.render_load_stroke(ls, 760, 480)))
+                pic.setPixmap(QPixmap.fromImage(fs.render_load_stroke(ls, 760, 480, dpr=_dpr(self))))
                 pic.setAlignment(Qt.AlignCenter)
                 l2.addWidget(pic, 1)
                 nl = QLabel(ls.note + "<br><span style='color:#666'>같은 둘레의 원통 컵으로 본 어림: 플랜지 지름 "

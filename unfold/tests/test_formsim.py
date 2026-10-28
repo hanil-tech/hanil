@@ -372,3 +372,20 @@ def test_product_view_zoom_pan(cup):
     a = fp.render_stage(pr, 1.0, 400, 300)
     b = fp.render_stage(pr, 1.0, 400, 300, zoom=2.5, pan=(30.0, 10.0))
     assert a != b and b.width() == 400
+
+
+def test_render_device_pixel_ratio(cup):
+    """고해상도 화면: dpr 2 면 실제 픽셀은 두 배, 논리 크기는 그대로 (창에 넣으면 선명)."""
+    from hanil_unfold import formprocess as fp
+    from hanil_unfold.report import render_fld
+    _, _, fa = cup
+    a = fs.render_product(fa, w=300, h=200)
+    b = fs.render_product(fa, w=300, h=200, dpr=2.0)
+    assert (a.width(), a.height(), a.devicePixelRatio()) == (300, 200, 1.0)
+    assert (b.width(), b.height(), b.devicePixelRatio()) == (600, 400, 2.0)
+    assert b.deviceIndependentSize().width() == 300
+    pr = fp.build(fa)
+    assert fp.render_stage(pr, 1.0, 300, 200, dpr=1.5).width() == 450
+    sec = fs.section(fa, "X")
+    assert fs.render_section(sec, 300, 200, dpr=2.0).height() == 400
+    assert render_fld(fa.fi, 300, 200, dpr=1.25).width() == 375

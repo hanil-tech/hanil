@@ -411,16 +411,12 @@ def paint(p, rect, tl: TrimLine, title=True):
                    f"트림선 (평면) — 초록 15° 안 · 노랑 15~30° · 빨강 캠 트림 · 길이 {tl.length:,.0f} mm")
 
 
-def render(tl: TrimLine, w=900, h=600):
+def render(tl: TrimLine, w=900, h=600, dpr=1.0):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
-    from .report import ensure_gui
-    ensure_gui()
-    img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(255, 255, 255))
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
+    from .report import new_image
+    img, p = new_image(w, h, dpr)
     paint(p, QRectF(0, 0, w, h), tl)
     p.end()
     return img

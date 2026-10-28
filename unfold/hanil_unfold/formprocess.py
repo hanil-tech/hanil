@@ -303,16 +303,13 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=Fal
     p.restore()
 
 
-def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0, fast=False, sphere=False, zoom=1.0, pan=(0.0, 0.0)):
+def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0, fast=False, sphere=False, zoom=1.0, pan=(0.0, 0.0),
+                 dpr=1.0):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
-    from .report import ensure_gui
-    ensure_gui()
-    img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(255, 255, 255))
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
+    from .report import new_image
+    img, p = new_image(w, h, dpr)
     paint_stage(p, QRectF(0, 0, w, h), pr, s, az, el, fast=fast, sphere=sphere, zoom=zoom, pan=pan)
     p.end()
     return img

@@ -162,7 +162,23 @@ def notes(d: ReportData):
 
 # ---------------------------------------------------------------- Qt 준비
 
-def render_fld(fi, w=900, h=700):
+def new_image(w, h, dpr=1.0):
+    """흰 바탕 QImage 와 QPainter. dpr (화면 배율 1.25 · 1.5 · 2) 을 주면 실제 픽셀은 그만큼 크게 그리고 논리 크기는
+    w × h 로 — 창에 넣었을 때 흐리지 않게 (고해상도 화면). 보고서 (PDF · 엑셀) 는 1."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+    ensure_gui()
+    dpr = max(float(dpr or 1.0), 1.0)
+    img = QImage(int(round(w * dpr)), int(round(h * dpr)), QImage.Format_ARGB32)
+    img.setDevicePixelRatio(dpr)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setRenderHint(QPainter.TextAntialiasing)
+    p.setRenderHint(QPainter.SmoothPixmapTransform)
+    return img, p
+
+
+def render_fld(fi, w=900, h=700, dpr=1.0):
     """성형 한계도 (FLD): 삼각형마다 (부 변형률, 주 변형률) 점과 성형 한계 곡선."""
     import numpy as np
     from PySide6.QtCore import QPointF, QRectF, Qt
@@ -170,11 +186,7 @@ def render_fld(fi, w=900, h=700):
 
     from .forming import flc_limit
 
-    ensure_gui()
-    img = QImage(w, h, QImage.Format_ARGB32)
-    img.fill(QColor(255, 255, 255))
-    p = QPainter(img)
-    p.setRenderHint(QPainter.Antialiasing)
+    img, p = new_image(w, h, dpr)
     keep = fi.reliable if fi.reliable is not None and fi.reliable.any() else np.ones(len(fi.F), bool)
     e1, e2 = fi.major[keep], fi.minor[keep]
     top = max(0.1, fi.flc0 * 1.6, float(np.percentile(e1, 99.5)) * 1.15 if len(e1) else 0)
