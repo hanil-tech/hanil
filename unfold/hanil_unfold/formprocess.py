@@ -199,7 +199,8 @@ def _fast(pr):
     return pr._fast
 
 
-def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=False, sphere=False):
+def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=False, sphere=False, zoom=1.0,
+                pan=(0.0, 0.0)):
     """fast: 줄인 메시 (재생·회전 중), sphere: 감싸는 공으로 크기 (돌려도 크기 그대로)."""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QPen, QPolygonF
@@ -227,8 +228,8 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=Fal
     top = rect.top() + (30 if title else 6)
     legend_h = 52 if title else 0
     area = QRectF(rect.left() + 10, top, rect.width() - 20, rect.bottom() - top - legend_h - 6)
-    sc = min(area.width() / max(hi[0] - lo[0], 1e-9), area.height() / max(hi[1] - lo[1], 1e-9)) * 0.94
-    cx, cy = area.center().x(), area.center().y()
+    sc = min(area.width() / max(hi[0] - lo[0], 1e-9), area.height() / max(hi[1] - lo[1], 1e-9)) * 0.94 * zoom
+    cx, cy = area.center().x() + pan[0], area.center().y() + pan[1]
     mid = (lo + hi) / 2
     X = cx + (W[:, 0] - mid[0]) * sc
     Y = cy - (W[:, 1] - mid[1]) * sc
@@ -243,6 +244,8 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=Fal
     order = np.argsort(W[F].mean(1)[:, 2])
     p.save()
     p.fillRect(rect, QColor(255, 255, 255))
+    if zoom != 1.0 or pan != (0.0, 0.0):
+        p.setClipRect(area)
     for i in order:
         c = cols[i] * shade[i]
         q = QColor(int(min(c[0], 255)), int(min(c[1], 255)), int(min(c[2], 255)))
@@ -278,6 +281,7 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=Fal
         fm_w = 8 * len(txt) + 10
         p.fillRect(QRectF(px + 16, py - 22, fm_w, 20), col)
         p.drawText(QRectF(px + 16, py - 22, fm_w, 20), Qt.AlignCenter, txt)
+    p.setClipping(False)
     if title:
         p.setPen(QColor(30, 30, 30))
         p.setFont(_font(12, True))
@@ -299,7 +303,7 @@ def paint_stage(p, rect, pr: Process, s, az=-35.0, el=30.0, title=True, fast=Fal
     p.restore()
 
 
-def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0, fast=False, sphere=False):
+def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0, fast=False, sphere=False, zoom=1.0, pan=(0.0, 0.0)):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
 
@@ -309,7 +313,7 @@ def render_stage(pr: Process, s, w=900, h=680, az=-35.0, el=30.0, fast=False, sp
     img.fill(QColor(255, 255, 255))
     p = QPainter(img)
     p.setRenderHint(QPainter.Antialiasing)
-    paint_stage(p, QRectF(0, 0, w, h), pr, s, az, el, fast=fast, sphere=sphere)
+    paint_stage(p, QRectF(0, 0, w, h), pr, s, az, el, fast=fast, sphere=sphere, zoom=zoom, pan=pan)
     p.end()
     return img
 

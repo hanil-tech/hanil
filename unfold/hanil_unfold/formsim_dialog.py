@@ -14,18 +14,30 @@ from . import formsim as fs
 from .die_dialog import VERDICT_COLOR, _table
 
 
+HINT = "끌어서 돌리기 · 휠로 확대 · 축소 · 오른쪽 단추로 끌어 이동 · 두 번 누르면 처음대로"
+
+
+def zoom_at(zoom, pan, delta, x, y, cx, cy, lo=0.3, hi=20.0):
+    """휠 delta (120 = 한 칸) 로 (x, y) 자리가 그대로 있게 확대 · 축소한 (zoom, pan). (cx, cy) 는 그림 가운데."""
+    k = 1.15 ** (delta / 120.0)
+    z2 = max(lo, min(hi, zoom * k))
+    k = z2 / zoom
+    return z2, (x - cx - k * (x - cx - pan[0]), y - cy - k * (y - cy - pan[1]))
+
+
 class ProductView(QWidget):
     """제품 메시 색 지도. 끌면 돌아가고, 다 그리는 데 시간이 걸려 그림을 저장해 두고 쓴다."""
 
     def __init__(self, fa, parent=None):
         super().__init__(parent)
         self.fa, self.view, self.az, self.el = fa, fs.VIEWS[0], -35.0, 30.0
+        self.zoom, self.pan = 1.0, (0.0, 0.0)
         self.setMinimumSize(520, 420)
         self._pix, self._drag = None, None
         self._timer = QTimer(self, singleShot=True, interval=30, timeout=self._render)
         self.spinning = False
         self._spin = QTimer(self, interval=60, timeout=self._spin_step)
-        self.setToolTip("끌어서 돌리기 · 두 번 누르면 처음 방향")
+        self.setToolTip(HINT)
 
     def set_view(self, view):
         self.view = view
@@ -52,7 +64,7 @@ class ProductView(QWidget):
         p = QPainter(pix)
         p.setRenderHint(QPainter.Antialiasing)
         fs.paint_product(p, QRectF(0, 0, self.width(), self.height()), self.fa, self.view, self.az, self.el,
-                         fast=fast, sphere=self.spinning)
+                         fast=fast, sphere=self.spinning, zoom=self.zoom, pan=self.pan)
         p.end()
         self._pix = pix
         self.update()
@@ -66,22 +78,34 @@ class ProductView(QWidget):
             p.drawPixmap(0, 0, self._pix)
 
     def mousePressEvent(self, e):
-        self._drag = (e.position().x(), e.position().y(), self.az, self.el)
+        # 왼쪽: 돌리기, 오른쪽 · 가운데: 이동
+        self._drag = (e.position().x(), e.position().y(), self.az, self.el, self.pan, e.button() != Qt.LeftButton)
 
     def mouseMoveEvent(self, e):
         if self._drag is None:
             return
-        x0, y0, az, el = self._drag
-        self.az = az + (e.position().x() - x0) * 0.5
-        self.el = max(-89.0, min(89.0, el + (e.position().y() - y0) * 0.5))
+        x0, y0, az, el, pan, move = self._drag
+        if move:
+            self.pan = (pan[0] + e.position().x() - x0, pan[1] + e.position().y() - y0)
+        else:
+            self.az = az + (e.position().x() - x0) * 0.5
+            self.el = max(-89.0, min(89.0, el + (e.position().y() - y0) * 0.5))
         self._render(fast=True)                       # 끄는 동안은 줄인 메시로 빠르게
 
     def mouseReleaseEvent(self, e):
         self._drag = None
         self._render(fast=self.spinning)
 
+    def wheelEvent(self, e):
+        """휠: 커서 자리를 중심으로 확대 · 축소 (0.3 ~ 20 배)."""
+        self.zoom, self.pan = zoom_at(self.zoom, self.pan, e.angleDelta().y(), e.position().x(), e.position().y(),
+                                      self.width() / 2, self.height() / 2)
+        self._render(fast=True)
+        self._timer.start()                           # 멈추면 원래 메시로
+
     def mouseDoubleClickEvent(self, e):
         self.az, self.el = -35.0, 30.0
+        self.zoom, self.pan = 1.0, (0.0, 0.0)
         self._render()
 
 
@@ -107,12 +131,13 @@ class ProcessPanel(QWidget):
         self.fp = fp
         self.pr = fp.build(fa)
         self.az, self.el, self._drag = -35.0, 30.0, None
+        self.zoom, self.pan = 1.0, (0.0, 0.0)
         self.playing = self.rotating = False
         self._hold = 0
         self.pic = QLabel()
         self.pic.setAlignment(Qt.AlignCenter)
         self.pic.setMinimumSize(520, 400)
-        self.pic.setToolTip("끌어서 돌리기 · 두 번 눌러 처음 방향")
+        self.pic.setToolTip(HINT)
         self.pic.installEventFilter(self)
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 100)
@@ -194,7 +219,8 @@ class ProcessPanel(QWidget):
         self.lab.setText(f"{s:.0%} · 깊이 {s * self.pr.depth:.0f} mm")
         w, h = max(self.pic.width(), 640), max(self.pic.height(), 480)
         self.pic.setPixmap(QPixmap.fromImage(self.fp.render_stage(self.pr, s, w, h, self.az, self.el,
-                                                                  fast=fast, sphere=self.rotating)))
+                                                                  fast=fast, sphere=self.rotating,
+                                                                  zoom=self.zoom, pan=self.pan)))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -274,18 +300,31 @@ class ProcessPanel(QWidget):
         from PySide6.QtCore import QEvent
         if obj is self.pic and self.pr is not None:
             if ev.type() == QEvent.MouseButtonPress:
-                self._drag = (ev.position().x(), ev.position().y(), self.az, self.el)
+                self._drag = (ev.position().x(), ev.position().y(), self.az, self.el, self.pan,
+                              ev.button() != Qt.LeftButton)
             elif ev.type() == QEvent.MouseMove and self._drag:
-                x0, y0, az, el = self._drag
-                self.az = az + (ev.position().x() - x0) * 0.5
-                self.el = max(-89.0, min(89.0, el + (ev.position().y() - y0) * 0.5))
+                x0, y0, az, el, pan, move = self._drag
+                if move:
+                    self.pan = (pan[0] + ev.position().x() - x0, pan[1] + ev.position().y() - y0)
+                else:
+                    self.az = az + (ev.position().x() - x0) * 0.5
+                    self.el = max(-89.0, min(89.0, el + (ev.position().y() - y0) * 0.5))
                 self._draw(fast=True)
+            elif ev.type() == QEvent.Wheel:
+                pm = self.pic.pixmap()
+                cx = (self.pic.width() - (pm.width() if pm else 0)) / 2 + (pm.width() if pm else self.pic.width()) / 2
+                cy = (self.pic.height() - (pm.height() if pm else 0)) / 2 + (pm.height() if pm else self.pic.height()) / 2
+                self.zoom, self.pan = zoom_at(self.zoom, self.pan, ev.angleDelta().y(), ev.position().x(),
+                                              ev.position().y(), cx, cy)
+                self._draw(fast=self.busy)
+                return True
             elif ev.type() == QEvent.MouseButtonRelease:
                 self._drag = None
                 if not self.busy:
                     self._draw()
             elif ev.type() == QEvent.MouseButtonDblClick:
                 self.az, self.el = -35.0, 30.0
+                self.zoom, self.pan = 1.0, (0.0, 0.0)
                 self._draw(fast=self.busy)
         return super().eventFilter(obj, ev)
 
@@ -825,7 +864,7 @@ class FormSimDialog(QDialog):
             spin.toggled.connect(self.view.set_spin)
             row.addWidget(spin)
             row.addStretch(1)
-            row.addWidget(QLabel("<span style='color:#888'>끌어서 돌리기 · 두 번 눌러 처음 방향</span>"))
+            row.addWidget(QLabel(f"<span style='color:#888'>{HINT}</span>"))
             ll.addLayout(row)
             ll.addWidget(self.view, 1)
             ll.addWidget(self.view_help)

@@ -585,9 +585,10 @@ def _tri_colors(fa: FormAnalysis, view: str):
 
 
 def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, title=True, marks=True, fast=False,
-                  sphere=False):
+                  sphere=False, zoom=1.0, pan=(0.0, 0.0)):
     """제품 3D 메시를 색 지도로 (화가 알고리즘 + 평면 음영). fast: 줄인 메시로 (자동 회전 중),
-    sphere: 감싸는 공으로 크기를 정함 (돌려도 크기가 그대로)."""
+    sphere: 감싸는 공으로 크기를 정함 (돌려도 크기가 그대로). zoom · pan: 확대 배율과 화면 이동 (픽셀) — 제목 · 범례는
+    그대로 두고 그림 자리 안에서만 (넘치는 것은 잘림)."""
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QPen, QPolygonF
 
@@ -627,8 +628,8 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
         lo, hi = np.array([-rad, -rad]), np.array([rad, rad])
     else:
         lo, hi = W[:, :2].min(0), W[:, :2].max(0)
-    s = min(area.width() / max(hi[0] - lo[0], 1e-9), area.height() / max(hi[1] - lo[1], 1e-9)) * 0.94
-    cx, cy = area.center().x(), area.center().y()
+    s = min(area.width() / max(hi[0] - lo[0], 1e-9), area.height() / max(hi[1] - lo[1], 1e-9)) * 0.94 * zoom
+    cx, cy = area.center().x() + pan[0], area.center().y() + pan[1]
     mid = (lo + hi) / 2
     X = cx + (W[:, 0] - mid[0]) * s
     Y = cy - (W[:, 1] - mid[1]) * s
@@ -642,6 +643,8 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
     shade = 0.45 + 0.55 * np.abs(nrm @ light)
     order = np.argsort(W[F].mean(1)[:, 2])          # 먼 것부터
     p.save()
+    if zoom != 1.0 or pan != (0.0, 0.0):
+        p.setClipRect(area)
     p.setPen(Qt.NoPen)
     for i in order:
         c = cols[i] * shade[i]
@@ -672,6 +675,7 @@ def paint_product(p, rect, fa: FormAnalysis, view=VIEWS[0], az=-35.0, el=30.0, t
             p.setPen(QColor(*[int(v * 0.8) for v in rgb]))
             p.drawText(QRectF(px - r_, py - r_, 2 * r_, 2 * r_), Qt.AlignCenter, txt)
     if title:
+        p.setClipping(False)
         p.setPen(QColor(30, 30, 30))
         p.setFont(_font(12, True))
         p.drawText(QRectF(rect.left(), rect.top() + 4, rect.width(), 24), Qt.AlignCenter,

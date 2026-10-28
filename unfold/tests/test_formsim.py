@@ -340,3 +340,35 @@ def test_process_play_rotate_controls(cup):
     from hanil_unfold import formsim as fs_
     inv, Fc, keep = fs_.cluster_mesh(fa.fi.V, fa.fi.F, target=500)
     assert len(Fc) < len(fa.fi.F) and keep.max() < len(fa.fi.F) and len(inv) == len(fa.fi.V)
+
+
+def test_product_view_zoom_pan(cup):
+    """성형 해석 그림: 휠로 커서 자리를 중심으로 확대 · 축소, 오른쪽 단추로 끌어 이동, 두 번 누르면 처음대로."""
+    from hanil_unfold.report import ensure_gui
+    ensure_gui()
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from hanil_unfold import formprocess as fp
+    from hanil_unfold.formsim_dialog import ProductView, zoom_at
+    _, _, fa = cup
+    # zoom_at: 커서 (x, y) 가 가리키던 그림 점이 확대 뒤에도 같은 자리
+    z, pan = zoom_at(1.0, (0.0, 0.0), 120, 300.0, 100.0, 200.0, 150.0)
+    assert z == pytest.approx(1.15)
+    # 그림 점 q 의 화면 자리: c + pan + q·z  — 커서 자리에 있던 점 q = (300-200, 100-150) = (100, -50)
+    assert 200 + pan[0] + 100 * z == pytest.approx(300.0) and 150 + pan[1] - 50 * z == pytest.approx(100.0)
+    z2, _ = zoom_at(19.0, (0.0, 0.0), 1200, 0, 0, 0, 0)
+    assert z2 == 20.0                                       # 상한
+    v = ProductView(fa)
+    v.resize(400, 300)
+    v._render()
+    base = v._pix.toImage()
+    v.zoom, v.pan = 3.0, (40.0, -20.0)
+    v._render()
+    assert v._pix.toImage() != base and v._pix.width() == v.width()
+    v.mouseDoubleClickEvent(None)
+    assert v.zoom == 1.0 and v.pan == (0.0, 0.0) and v._pix.toImage() == base
+    # 성형 과정 그림도 확대 · 이동
+    pr = fp.build(fa)
+    a = fp.render_stage(pr, 1.0, 400, 300)
+    b = fp.render_stage(pr, 1.0, 400, 300, zoom=2.5, pan=(30.0, 10.0))
+    assert a != b and b.width() == 400
