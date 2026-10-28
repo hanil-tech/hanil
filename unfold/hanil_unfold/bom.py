@@ -479,9 +479,14 @@ def save_tree_xlsx(rows, path, source_name="", material="", density=7.85):
     for i, (k, v) in enumerate(info, 2):
         ws.cell(i, 1, k).font = st["key"]
         ws.cell(i, 3, v).font = st["val"]
-    head = ["레벨", "번호", "품번", "품명", "모양", "수량", "단위", "합계", "품목 유형", "조달", "공정",
-            "규격", "재질", "개당 무게 (kg)", "조립도 번호", "비고"]
-    widths = [6, 10, 16, 34, 16, 7, 6, 8, 22, 7, 22, 26, 10, 12, 16, 30]
+    # 계층은 시트 안의 레벨 칸 (0 · 1 · 2 …) 에 번호를 써서 보인다 — 엑셀 바깥 접기 막대 (아웃라인) 는 복사 · 인쇄에 안 남으므로
+    n_lv = min(max((r.level for r in rows), default=0) + 1, 8)
+    lv_head = [f"레벨 {i}" for i in range(n_lv)]
+    head = lv_head + ["품번", "품명", "모양", "수량", "단위", "합계", "품목 유형", "조달", "공정",
+                      "규격", "재질", "개당 무게 (kg)", "조립도 번호", "비고"]
+    widths = [7] * n_lv + [16, 34, 16, 7, 6, 8, 22, 7, 22, 26, 10, 12, 16, 30]
+    c_name, c_img, c_qty, c_tot, c_wt = n_lv + 2, n_lv + 3, n_lv + 4, n_lv + 6, n_lv + 12
+    lv_fill = [PatternFill("solid", fgColor=c_) for c_ in ("BDD7EE", "DDEBF7", "E9F1FA", "F2F7FC", "F7FAFD", "FAFCFE", "FDFEFF", "FFFFFF")]
     r0 = 2 + len(info) + 1
     for j, (h, w) in enumerate(zip(head, widths), 1):
         c = ws.cell(r0, j, h)
@@ -491,34 +496,36 @@ def save_tree_xlsx(rows, path, source_name="", material="", density=7.85):
     for k, r in enumerate(rows):
         rr = r0 + 1 + k
         it = r.item
-        vals = [r.level, r.tree_no, r.code, ("    " * r.level) + r.name, None,
-                r.qty, r.unit, r.total, r.category, r.procure, r.process, r.spec,
-                (material if r.kind == "rm" or (it is not None and it.kind != "기타") else ""),
-                (it.weight if r.kind == "part" else None),
-                (it.numbers if r.kind == "part" else ""), r.note]
+        lv = [None] * n_lv
+        lv[min(r.level, n_lv - 1)] = r.tree_no                      # 그 레벨 칸에 번호 (트리처럼 보임)
+        vals = lv + [r.code, ("    " * r.level) + r.name, None,
+                     r.qty, r.unit, r.total, r.category, r.procure, r.process, r.spec,
+                     (material if r.kind == "rm" or (it is not None and it.kind != "기타") else ""),
+                     (it.weight if r.kind == "part" else None),
+                     (it.numbers if r.kind == "part" else ""), r.note]
         for j, v in enumerate(vals, 1):
             c = ws.cell(rr, j, v)
             c.font, c.border = st["val"], st["border"]
-            c.alignment = Alignment(vertical="center", wrap_text=j in (4, 11, 12, 15, 16))
-            if r.kind in fills:
+            c.alignment = Alignment(vertical="center", wrap_text=j in (c_name, c_name + 7, c_name + 8, c_name + 11, c_name + 12))
+            if j <= n_lv:
+                c.fill = lv_fill[j - 1]
+                c.alignment = Alignment(horizontal="center", vertical="center")
+            elif r.kind in fills:
                 c.fill = fills[r.kind]
-            if j in (6, 8):
+            if j in (c_qty, c_tot):
                 c.number_format = "0.###"
-            if j == 14:
+            if j == c_wt:
                 c.number_format = "0.000"
         if r.kind == "assembly":
-            for j in (1, 2, 3, 4):
+            for j in range(1, c_name + 1):
                 ws.cell(rr, j).font = _xl_font(st["val"], bold=True)
         if r.kind == "part":
             ws.row_dimensions[rr].height = 46
-            tmps.append(_add_image(ws, thumb(it, 160, 96), f"E{rr}", 100))
+            tmps.append(_add_image(ws, thumb(it, 160, 96), f"{ws.cell(rr, c_img).column_letter}{rr}", 100))
             if it.excluded:
                 for j in range(1, len(head) + 1):
                     ws.cell(rr, j).font = _xl_font(st["val"], color="999999")
-        if r.level > 0:          # 엑셀 왼쪽 + / − 로 반제품을 접고 펼친다
-            ws.row_dimensions[rr].outline_level = min(r.level, 7)
-    ws.freeze_panes = ws.cell(r0 + 1, 5)
-    ws.sheet_properties.outlinePr.summaryBelow = False
+    ws.freeze_panes = ws.cell(r0 + 1, c_img)
     # 인쇄: 가로, 폭을 한 쪽에 맞추고 머리줄 반복
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A3

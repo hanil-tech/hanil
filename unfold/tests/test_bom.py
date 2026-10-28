@@ -198,6 +198,16 @@ def test_multilevel_bom_from_step_assembly(tmp_path):
     bom.save_tree_xlsx(rows, str(out), "nested.stp", "SPCC")
     wb = openpyxl.load_workbook(out)
     assert wb.sheetnames == ["BOM (계층)", "부품 합계", "원자재 소요량", "구매·표준품", "분류 기준"]
+    # 계층은 시트 안의 레벨 칸 (레벨 0 · 1 · 2 …) 에 번호로 — 엑셀 바깥 접기 막대 (아웃라인) 는 쓰지 않음
+    wt = wb["BOM (계층)"]
+    hr = next(r for r in range(1, 12) if wt.cell(r, 1).value == "레벨 0")
+    heads = [wt.cell(hr, j).value for j in range(1, 8)]
+    n_lv = max(r.level for r in rows) + 1
+    assert heads[:n_lv] == [f"레벨 {i}" for i in range(n_lv)] and heads[n_lv] == "품번"
+    body = {wt.cell(r, n_lv + 1).value: [wt.cell(r, j).value for j in range(1, n_lv + 1)] for r in range(hr + 1, wt.max_row + 1)}
+    assert body["A00"][0] == "0" and body["A00"][1:] == [None] * (n_lv - 1)
+    assert body["SA01"][1] == "1" and body["SA01"][0] is None
+    assert all(wt.row_dimensions[r].outline_level in (0, None) for r in range(hr + 1, wt.max_row + 1))
     buy = [wb["구매·표준품"].cell(r, 2).value for r in range(2, wb["구매·표준품"].max_row + 1)]
     assert set(buy) == {"NUT M8", "W1"}
     bom.save_tree_pdf(rows, str(tmp_path / "t.pdf"), "nested.stp", "SPCC")
