@@ -96,8 +96,10 @@ def _prism(poly, z0, h):
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakePolygon
     from OCP.gp import gp_Pnt
 
-    from .die3d import _simplify
+    from .die3d import _area, _simplify
     P = _simplify(np.asarray(poly, float), 1.0)          # 곧은 변만 (B-스플라인 변은 형면과의 불리언이 아주 느림)
+    if _area(P) < 0:
+        P = P[::-1]                                      # 반시계 — 시계 방향 와이어는 면이 뒤집혀 교집합이 빔
     mk = BRepBuilderAPI_MakePolygon()
     for q in P:
         mk.Add(gp_Pnt(float(q[0]), float(q[1]), float(z0)))
@@ -124,6 +126,17 @@ def _cut(a, b):
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
     op = BRepAlgoAPI_Cut(a, b)
     return op.Shape() if op.IsDone() else a
+
+
+def _nsolids(s):
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+    ex = TopExp_Explorer(s, TopAbs_SOLID)
+    n = 0
+    while ex.More():
+        n += 1
+        ex.Next()
+    return n
 
 
 def _bbox(s):
@@ -176,8 +189,13 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
         raise ValueError("펀치 개구 (어덴덤 ↔ 바인더 경계) 를 못 찾음")
     lp = max(lps, key=len)
     binder_start = np.column_stack([X[lp], Y[lp]])
+    if _area2(binder_start) < 0:
+        binder_start = binder_start[::-1]                # 반시계로 (offset 의 안 · 밖이 방향에 달림)
+    if _area2(outer) < 0:
+        outer = outer[::-1]
     r_d = float(df.r_die)
-    punch_poly = _offset(binder_start, -r_d)
+    cell = float(np.ptp(outer, 0).max()) / GRID * 1.4
+    punch_poly = _offset(binder_start, -r_d)                        # 펀치 윤곽: 다이 R 안쪽
     holder_in = _offset(binder_start, t + 1.0)
     # 치수
     depth = float(Hh.max()) - hb
@@ -214,15 +232,33 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     inb = np.array([_inside(outer, (x_, y_)) for x_, y_ in zip(xs_, ys_)]).reshape(GX.shape)
     Hz = np.where(inb, Hz, hb)
     Hz = np.maximum(Hz, hb)
-    surf_p = _fit_surface(gx, gy, Hz)
-    surf_d = _fit_surface(gx, gy, Hz + t)
+    # 벽이 수직 (컵처럼) 이면 쌍선형 면 조각이 각기둥 옆면과 나란해 불리언이 실패 — 3 × 3 평균으로 두 칸 경사로 (등고선은 원래 격자)
+    from scipy.ndimage import uniform_filter
+    Hs = np.maximum(uniform_filter(Hz, size=3, mode="nearest"), hb)
+    surf_p = _fit_surface(gx, gy, Hs)
+    surf_d = _fit_surface(gx, gy, Hs + t)
     # 솔리드
-    below = _half_space(surf_p, gx[0], gx[-1], gy[0], gy[-1], up=False)
-    above = _half_space(surf_d, gx[0], gx[-1], gy[0], gy[-1], up=True)
-    punch = _common(below, _prism(punch_poly, z_base_top, 5000.0))
-    holder = _common(below, _box(hx0, hy0, hb - Th, hx1 - hx0, hy1 - hy0, 5000.0))
-    holder = _cut(holder, _prism(holder_in, hb - Th - 1, Th + 5000.0))
-    die = _common(above, _box(dx0, dy0, hb, L, W, z_top_bdc - hb))
+    # 몸체 = 각기둥에서 형면 위 (또는 아래) 반공간을 뺌 — 교집합 (Common) 은 둥근 윤곽에서 빈 결과를 내기도 함
+    above_p = _half_space(surf_p, gx[0], gx[-1], gy[0], gy[-1], up=True)
+    below_d = _half_space(surf_d, gx[0], gx[-1], gy[0], gy[-1], up=False)
+    gy_, gx_ = np.gradient(Hs, gy, gx)
+    steep = float(np.nanmax(np.hypot(gx_, gy_))) > math.tan(math.radians(60))
+    if steep:
+        # 수직 벽 (컵): 각기둥 옆면이 형면 경사로와 겹쳐 불리언이 실패 — 윤곽 각기둥을 제품 바닥 높이까지 세우고,
+        # 안쪽 (경사로 안) 만 형면으로 깎음 (펀치 R 은 CAD 에서)
+        inner = _offset(punch_poly, -(3.0 * cell + 2.0))
+        cap = _common(above_p, _prism(inner, z_base_top, 2000.0))
+        punch = _cut(_prism(punch_poly, z_base_top, hb + depth - z_base_top), cap)
+    else:
+        punch = _cut(_prism(punch_poly, z_base_top, 2000.0), above_p)
+    # 누르개: 윗면 = 바인더 평면 (평평) — 고리 상자에서 안쪽만 뺌
+    holder = _cut(_box(hx0, hy0, hb - Th, hx1 - hx0, hy1 - hy0, Th), _prism(holder_in, hb - Th - 1, Th + 2))
+    # 상형: 밑면 = 바인더 + t 평면, 형면 오목부 (바인더 시작 + 다이 R 안) 만 형면 반공간으로 파냄 — 작은 공구가 불리언에 안전
+    cav = _common(below_d, _prism(_offset(binder_start, r_d + 2 * cell + 2), hb - 1, depth + t + 60))
+    die = _cut(_box(dx0, dy0, hb + t, L, W, z_top_bdc - hb - t), cav)
+    for nm_, sh_ in (("펀치", punch), ("누르개", holder), ("상형", die)):
+        if _nsolids(sh_) != 1:
+            raise ValueError(f"{nm_} 몸체를 못 만듦 (형면과의 불리언 결과 {_nsolids(sh_)} 조각)")
     base = _box(dx0, dy0, z_base0, L, W, Tb)
     # 열린 상태: 상형은 travel 만큼 위로
     from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
@@ -323,8 +359,13 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
     k, kh, d1, cb, cbh, tap = ds.SHCS.get(M, ds.SHCS[16])
     bolts = []
     inner = _offset(punch_poly, -(2.5 * M))
+    per_in = float(np.linalg.norm(np.roll(inner, -1, 0) - inner, axis=1).sum()) if len(inner) >= 3 else 0.0
+    n_bolt = max(2, min(max(6, int(per // 250)), int(per_in // (3.0 * M))))      # 작은 펀치: 볼트끼리 3 d 띄움
+    if len(inner) < 3 or min(np.ptp(inner, 0)) < 2.0 * M:
+        inner = np.array([[px0 + 2.5 * M, cy], [px1 - 2.5 * M, cy], [0.5 * (px0 + px1), cy + 1.0]])
+        n_bolt = 2
     for x, y in _ring_points(inner.min(0)[0], inner.max(0)[0], inner.min(0)[1], inner.max(0)[1], None,
-                             max(6, int(per // 250)), inset=0.0, poly=inner):
+                             n_bolt, inset=0.0, poly=inner)[:n_bolt]:
         p_base.holes.append(Hole(x, y, d1, "통과", z_base0, Tb, f"Ø{d1:g} 통과, 자리 Ø{cb:g} 깊이 {cbh:g} (펀치 볼트)",
                                  cb=(cb, z_base0, cbh), side="밑면"))
         p_punch.holes.append(Hole(x, y, tap, "탭", z_base_top, 2 * M, f"M{M} 탭 깊이 {2 * M:g} (밑면, 드릴 Ø{tap:g})", side="밑면"))
@@ -332,7 +373,8 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
         bolts.append(screw(x, y, z_base0 + cbh - kh, M, kh, k, Lb_, True))
     add(f"육각 구멍 붙이 볼트 M{M} (펀치)", len(bolts), "SCM435 (12.9)", f"M{M} × {Lb_:.0f}", bolts, std=True,
         order=f"JIS B 1176 M{M} × {Lb_:.0f}")
-    keys = [_pin(x, y, z_base_top - 40, 25.0, 80.0) for x, y in ((px0 + 60, cy), (px1 - 60, cy))]
+    kx = min(60.0, 0.25 * (px1 - px0))
+    keys = [_pin(x, y, z_base_top - 40, 25.0, 80.0) for x, y in ((px0 + kx, cy), (px1 - kx, cy))]
     add("위치 키 (다우얼)", 2, "SUJ2 (m6)", "Ø25 × 80", keys, std=True, order="평행 핀 Ø25 m6 × 80 (펀치 ↔ 베이스)")
     # 에어 벤트 (펀치 형면 낮은 곳)
     low = np.column_stack([X, Y])[np.argsort(-Hh)[:200]]              # 펀치 꼭대기 (제품 바닥) — 공기가 갇히는 곳
@@ -379,7 +421,7 @@ def design(df, result, settings: bc.BendSettings, machines=None, rates=None):
              f"주물 무게 어림 {kg:,.0f} kg (리브 · 빈 곳 판 솔리드 × 7.2) — 베이스 {parts[0].weight:,.0f} · 펀치 {pp.weight:,.0f} · "
              f"누르개 {ph.weight:,.0f} · 상형 {pd.weight:,.0f}",
              f"형면은 격자 {gx[1] - gx[0]:.0f} mm 의 B-스플라인 근사 (다이 R · 벽은 뭉뚱그려짐) — NC 데이터는 CAD 형면으로, "
-             "상형 형면 오프셋은 수직 t (법선 오프셋 아님)",
+             "상형 형면 오프셋은 수직 t (법선 오프셋 아님)" + (" · 벽이 수직이라 펀치 옆면은 윤곽 그대로, 펀치 R 은 CAD 에서" if steep else ""),
              "드로우 비드 · 누르개 면압 · 스프링백 보정은 시타 (트라이아웃) 로 — 비드 자리는 성형 해석 draw-in 이 큰 변",
              "표준품 (가이드 · 쿠션 핀 · 마모판) 치수는 일반값 — MISUMI · 후타바 대형 금형 표로 확인"]
     a = DieAssy("OP10 드로우 (주물)", parts, L, W, z_top_bdc - z_base0, F_draw, notes, None, [], checks, (0.0, 0.0),
