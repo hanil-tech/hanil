@@ -838,6 +838,8 @@ class MainWindow(QMainWindow):
         self.act_help = QAction("도움말", self, triggered=self.show_help)
         self.act_about = QAction("프로그램 정보", self, triggered=self.show_about)
         self.act_about.setToolTip("제작사 · 버전 · 저작권")
+        self.act_update = QAction("업데이트 확인", self, triggered=lambda: self.check_update(manual=True))
+        self.act_update.setToolTip("서버의 최신 버전을 확인해 받아 설치 (켤 때마다 자동으로도 확인)")
         self.act_die_cost = QAction("금형비 계산", self, shortcut="Ctrl+Shift+K", triggered=self.show_die_cost)
         self.act_die_cost.setToolTip("지금 부품의 금형비: 자동 공정 설계 → 금형 형식·공정수 → 설계·강재(또는 주물)·인서트·"
                                      "가공·표준 부품·조립·트라이 — 큰 금형은 주물(FC300·FCD)로 자동 계산")
@@ -971,14 +973,14 @@ class MainWindow(QMainWindow):
                    self.act_die_cost, self.act_doc_log],
             "품질": [self.act_sim, self.act_quality, self.act_inspect],
             "기록": [self.act_history, self.act_doc_log, self.act_items, self.act_calib],
-            "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_about],
+            "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_update, self.act_about],
         }
         if edition.unfold_only():                    # 전개 전용판: 전개에 쓰는 것만
             groups = {
                 "파일": [self.act_open, self.act_batch, self.act_zip],
                 "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_assy],
                 "기록": [self.act_history],
-                "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_about],
+                "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_update, self.act_about],
             }
         self.ribbon = QTabWidget()
         self.ribbon.setDocumentMode(True)
@@ -1490,6 +1492,125 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         dlg.exec()
+
+    # ---- 자동 업데이트
+
+    def update_url(self):
+        from . import updater
+        return str(self.settings.value("update_url", "") or "").strip() or updater.DEFAULT_URL
+
+    def check_update(self, manual=False):
+        """서버의 hanil-unfold.json 을 뒤 스레드에서 읽어 새 버전이면 설치를 권한다. manual: 단추로 눌렀을 때 (결과를 늘 보임)."""
+        from . import updater
+        if not manual and str(self.settings.value("auto_update", "1")) not in ("1", "true", "True"):
+            return
+        url = self.update_url()
+        worker = _UpdateCheckThread(url)
+        self._update_worker = worker
+        worker.done.connect(lambda info, err: self._update_checked(info, err, manual))
+        worker.start()
+        if manual:
+            self.statusBar().showMessage("업데이트 확인 중…", 5000)
+        del updater
+
+    def _update_checked(self, info, err, manual):
+        from . import updater
+        if err:
+            if manual:
+                QMessageBox.warning(self, "업데이트 확인", f"서버에 연결하지 못했습니다.\n{err}\n\n주소: {self.update_url()}")
+            return
+        newer = updater.is_newer(info)
+        skipped = str(self.settings.value("update_skip", "")) == updater.label(info)
+        if not newer or (skipped and not manual):
+            if manual:
+                self._update_dialog(info, newer=False)
+            return
+        self._update_dialog(info, newer=True)
+
+    def _update_dialog(self, info, newer):
+        from PySide6.QtWidgets import QCheckBox, QDialogButtonBox, QFormLayout, QLineEdit, QTextEdit
+
+        from . import updater
+        dlg = QDialog(self)
+        dlg.setWindowTitle("업데이트")
+        lay = QVBoxLayout(dlg)
+        if newer:
+            head = (f"<b style='font-size:14px'>새 버전 {updater.label(info)} 이 있습니다</b> "
+                    f"<span style='color:#888'>(지금 {version_text()})</span><br>{info.get('date', '')}")
+        else:
+            head = f"<b style='font-size:14px'>최신 버전을 쓰고 있습니다</b> <span style='color:#888'>({version_text()})</span>"
+        lab = QLabel(head)
+        lab.setTextFormat(Qt.RichText)
+        lay.addWidget(lab)
+        notes = QTextEdit()
+        notes.setReadOnly(True)
+        notes.setPlainText(str(info.get("notes", "")) or "(바뀐 내용 설명 없음)")
+        notes.setMaximumHeight(160)
+        lay.addWidget(notes)
+        form = QFormLayout()
+        auto = QCheckBox("켤 때마다 자동으로 확인")
+        auto.setChecked(str(self.settings.value("auto_update", "1")) in ("1", "true", "True"))
+        url = QLineEdit(self.update_url())
+        url.setToolTip("회사 서버를 쓰려면 같은 꼴의 hanil-unfold.json 주소로 바꿉니다")
+        form.addRow(auto)
+        form.addRow("서버 주소", url)
+        lay.addLayout(form)
+        bb = QDialogButtonBox()
+        b_install = bb.addButton("지금 설치", QDialogButtonBox.AcceptRole) if newer else None
+        b_skip = bb.addButton("이 버전 건너뛰기", QDialogButtonBox.DestructiveRole) if newer else None
+        b_later = bb.addButton("나중에" if newer else "닫기", QDialogButtonBox.RejectRole)
+        lay.addWidget(bb)
+        result = {"what": "later"}
+
+        def save():
+            self.settings.setValue("auto_update", "1" if auto.isChecked() else "0")
+            self.settings.setValue("update_url", url.text().strip() if url.text().strip() != updater.DEFAULT_URL else "")
+        if b_install is not None:
+            b_install.clicked.connect(lambda: (result.update(what="install"), dlg.accept()))
+            b_skip.clicked.connect(lambda: (result.update(what="skip"), dlg.reject()))
+        b_later.clicked.connect(dlg.reject)
+        dlg.exec()
+        save()
+        if result["what"] == "skip":
+            self.settings.setValue("update_skip", updater.label(info))
+        elif result["what"] == "install":
+            self._install_update(info)
+
+    def _install_update(self, info):
+        """설치 파일 받기 (진행 창) → sha256 확인 → 조용히 설치하고 프로그램 끝냄 (설치가 끝나면 다시 켜짐)."""
+        from PySide6.QtWidgets import QProgressDialog
+
+        from . import updater
+        try:
+            a = updater.asset(info)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "업데이트", str(e))
+            return
+        dlg = QProgressDialog(f"설치 파일 받는 중… {a.get('name', '')}", "그만", 0, 100, self)
+        dlg.setWindowTitle("업데이트")
+        dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+        worker = _DownloadThread(a["url"], a.get("sha256", ""))
+        worker.progress.connect(lambda got, total: (dlg.setValue(int(100 * got / total)) if total else None,
+                                                    dlg.setLabelText(f"설치 파일 받는 중… {got / 1e6:.0f} / {total / 1e6:.0f} MB")))
+        dlg.canceled.connect(worker.cancel)
+        worker.start()
+        while not worker.wait(30):
+            QApplication.processEvents()
+        dlg.close()
+        if worker.error:
+            if "그만" not in worker.error:
+                QMessageBox.warning(self, "업데이트", f"설치 파일을 받지 못했습니다.\n{worker.error}")
+            return
+        if QMessageBox.question(self, "업데이트", f"받았습니다. 지금 설치하고 프로그램을 다시 켤까요?\n({worker.path})",
+                                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        try:
+            updater.install(worker.path, updater.app_exe())
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.information(self, "업데이트", str(e))
+            return
+        QApplication.instance().quit()
 
     def show_about(self):
         """프로그램 정보: 로고 · 이름 · 제작사 · 버전 · 홈페이지 · 저작권."""
@@ -2176,6 +2297,41 @@ HELP_TEXT = """\
 """
 
 
+class _UpdateCheckThread(QThread):
+    done = Signal(object, str)
+
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        from . import updater
+        try:
+            self.done.emit(updater.fetch(self.url), "")
+        except Exception as e:  # noqa: BLE001
+            self.done.emit(None, str(e))
+
+
+class _DownloadThread(QThread):
+    progress = Signal(int, int)
+
+    def __init__(self, url, sha256):
+        super().__init__()
+        self.url, self.sha256 = url, sha256
+        self.path, self.error, self._stop = "", "", False
+
+    def cancel(self):
+        self._stop = True
+
+    def run(self):
+        from . import updater
+        try:
+            self.path = updater.download(self.url, None, self.sha256,
+                                         progress=lambda got, total: (self.progress.emit(got, total), not self._stop)[1])
+        except Exception as e:  # noqa: BLE001
+            self.error = str(e) or "그만둠"
+
+
 class _UnfoldThread(QThread):
     """부품 꺼내기 (형상 보정) → 3D 그물 · 선 → 전개. error = ("unfold" | "fail", 글) 또는 None."""
 
@@ -2282,6 +2438,7 @@ def main():
     QTimer.singleShot(1200, lambda: splash.finish(w))
     import threading
     threading.Thread(target=_warm_imports, daemon=True).start()
+    QTimer.singleShot(4000, w.check_update)          # 켜고 4 초 뒤 서버의 새 버전 확인 (자동 업데이트)
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         w.open_file(sys.argv[1])
     sys.exit(app.exec())

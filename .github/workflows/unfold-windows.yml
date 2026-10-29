@@ -9,6 +9,9 @@ on:
       - ".github/workflows/unfold-windows.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write          # 배포 (GitHub Release unfold-latest 에 설치 파일 · hanil-unfold.json)
+
 jobs:
   build:
     runs-on: windows-latest
@@ -118,3 +121,29 @@ jobs:
           name: HanilUnfoldLite-Setup-${{ steps.ver.outputs.version }}-build${{ github.run_number }}
           path: unfold/dist/HanilUnfoldLite-Setup-*.exe
           if-no-files-found: error
+
+      # ---- 배포: 프로그램이 켤 때 읽는 hanil-unfold.json 과 설치 파일을 GitHub Release "unfold-latest" 에 (이름 고정 — 주소가 안 바뀜)
+      - name: 배포 파일 (hanil-unfold.json) 만들기
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item (Get-ChildItem dist\HanilUnfold-Setup-*.exe | Select-Object -First 1).FullName release\HanilUnfold-Setup.exe
+          Copy-Item (Get-ChildItem dist\HanilUnfoldLite-Setup-*.exe | Select-Object -First 1).FullName release\HanilUnfoldLite-Setup.exe
+          python packaging/write_release_manifest.py "${{ steps.ver.outputs.version }}" "${{ github.run_number }}" "${{ github.sha }}" `
+            release/HanilUnfold-Setup.exe release/HanilUnfoldLite-Setup.exe `
+            "https://github.com/${{ github.repository }}/releases/download/unfold-latest" release/hanil-unfold.json
+          Get-Content release/hanil-unfold.json -Encoding utf8
+
+      - name: 배포 (GitHub Release unfold-latest)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: unfold-latest
+          name: "한일 판금 전개 — 최신 (${{ steps.ver.outputs.version }} 빌드 ${{ github.run_number }})"
+          body: "프로그램의 자동 업데이트가 읽는 자리입니다. 설치 파일: HanilUnfold-Setup.exe (전체판) · HanilUnfoldLite-Setup.exe (전개 전용판)."
+          make_latest: false
+          files: |
+            unfold/release/HanilUnfold-Setup.exe
+            unfold/release/HanilUnfoldLite-Setup.exe
+            unfold/release/hanil-unfold.json
