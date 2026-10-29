@@ -20,6 +20,15 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 >
 > 사내에서 만든 프로그램이라 서명이 없어서 그렇습니다.
 
+## 📕 PDF 리더
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-pdf-reader.html](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-reader.html)** | PDF 를 볼 PC 아무 데나 | 4MB |
+
+설치 없이 두 번 눌러 엽니다(크롬·엣지·웨일). PDF 보기 + **폴더째 PDF 에서 도면 번호 같은 글자 찾기**.
+자세한 안내는 [pdfreader/README.md](../pdfreader/README.md).
+
 ## 🏷 현장 라벨 발행기
 
 | 받기 | 어디에 | 크기 |
