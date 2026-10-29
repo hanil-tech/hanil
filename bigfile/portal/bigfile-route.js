@@ -162,7 +162,8 @@ module.exports = function mountBigfile(app, ctx) {
     let got = 0;
     for (const e of fileEntries(g)) { const m = e.id && files.get(e.id); if (m) got += gotBytes(m); }
     return {
-      kind: 'group', id: g.gid, name: g.name, size: g.total, nfiles: g.nfiles, ndirs: g.ndirs, state: g.state, owner: g.ownerName,
+      kind: 'group', id: g.gid, name: g.name, size: g.total, nfiles: g.nfiles, ndirs: g.ndirs, nfolders: g.nfolders !== undefined ? g.nfolders : allDirs(g.entries).length,
+      state: g.state, owner: g.ownerName,
       mine: g.owner === u.id, t0: g.t0, t1: g.t1 || 0, pub: !!g.pub, dl: g.dl || 0, gotBytes: got,
       v: g.v || null, shares: g.owner === u.id || u.admin ? shareView(g) : [],
     };
@@ -179,8 +180,10 @@ module.exports = function mountBigfile(app, ctx) {
     if (free >= 0 && free - pending() - size < KEEP_FREE) return '서버 디스크 자리가 모자랍니다(남은 ' + (free / GB).toFixed(1) + 'GB)';
     return '';
   }
-  //  경로 손질 — 「..」·빈 칸·이상한 글자를 막는다(디스크에는 어차피 안 쓰지만 ZIP·폴더로 받을 때 밖으로 새지 않게)
-  const cleanSeg = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\:*?"<>|]/g, '_').trim().slice(0, 255);
+  //  경로 손질 — 이름은 **올린 그대로** 둔다(원본과 달라지지 않게). 막는 것은 「..」·「.」·제어 글자뿐.
+  //   ⭐ 한글은 NFC 로 맞춘다 — 맥은 「한」을 ㅎ+ㅏ+ㄴ(NFD)로 넘겨 윈도에서 「ㅎㅏㄴ」으로 깨지고 같은 이름끼리도 다른 것으로 친다.
+  //   (윈도에 못 쓰는 : * ? 따위는 받는 쪽 화면이 그 PC 에서만 바꿔 쓰고 검사표에 적는다)
+  const cleanSeg = (s) => String(s).normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 255);
   function cleanPath(p) {
     const segs = String(p || '').replace(/\\/g, '/').split('/').map(cleanSeg).filter((s) => s !== '');
     if (!segs.length || segs.some((s) => s === '.' || s === '..')) return '';
@@ -286,10 +289,20 @@ module.exports = function mountBigfile(app, ctx) {
       g.entries = entries; g.tl = Date.now(); delete g.v;
       g.name = b.gid ? g.name : name;
       g.nfiles = entries.filter((e) => !e.d).length; g.ndirs = entries.length - g.nfiles;
+      g.nfolders = allDirs(entries).length;
       g.total = entries.reduce((a, e) => a + (e.s || 0), 0);
       saveG(g).then(() => res.json({ gid: g.gid, resumed, entries: entries.map((e) => entryView(e, false)) }));
     }).catch(() => res.status(400).json({ error: '목록표를 읽지 못했습니다' }));
   });
+  //  폴더 수 — 빈 폴더만이 아니라 파일이 든 하위 폴더까지 모두(탐색기 「폴더 n개」와 같은 수)
+  function allDirs(entries) {
+    const set = new Set();
+    for (const e of entries) {
+      const segs = e.p.split('/'), upto = e.d ? segs.length : segs.length - 1;
+      for (let i = 1; i <= upto; i++) set.add(segs.slice(0, i).join('/'));
+    }
+    return [...set].sort();
+  }
   function entryView(e, withCrcs) {
     if (e.d) return { p: e.p, d: 1 };
     const m = e.id && files.get(e.id);
@@ -307,6 +320,25 @@ module.exports = function mountBigfile(app, ctx) {
     if (!g || !canSeeG(req.bf, g)) return res.status(404).json({ error: '없는 폴더입니다' });
     if (req.query.dl === '1') { g.dl = (g.dl || 0) + 1; saveG(g); }
     res.json(Object.assign(gview(g, req.bf), { entries: g.entries.map((e) => entryView(e, req.query.crcs === '1')) }));
+  });
+  //  목록 받기(CSV, 엑셀에서 열림) — 원본 폴더와 하나하나 대어 볼 수 있게: 종류·경로·크기·수정한 날짜·CRC32
+  app.get('/bigfile/api/group/:gid/list.csv', apiAuth, (req, res) => {
+    const g = ID.test(req.params.gid) && groups.get(req.params.gid);
+    if (!g || !canSeeG(req.bf, g)) return res.status(404).send('없는 폴더입니다.');
+    const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+    const two = (n) => String(n).padStart(2, '0');
+    const when = (ms) => { if (!ms) return ''; const d = new Date(ms); return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds()); };
+    const empty = new Set(g.entries.filter((e) => e.d).map((e) => e.p));
+    const rows = [['종류', '경로', '크기(바이트)', '수정한 날짜', 'CRC32', '상태'].map(q).join(',')];
+    const items = allDirs(g.entries).map((p) => ({ p, d: 1 })).concat(fileEntries(g)).sort((a, b) => (a.p < b.p ? -1 : a.p > b.p ? 1 : 0));
+    for (const e of items) {
+      if (e.d) { rows.push([q(empty.has(e.p) ? '빈 폴더' : '폴더'), q(g.name + '/' + e.p + '/'), '', '', '', ''].join(',')); continue; }
+      const m = e.id && files.get(e.id);
+      rows.push([q('파일'), q(g.name + '/' + e.p), e.s, q(when(e.lm)), q(m && m.state === 'done' ? wholeCrc(m) : ''), q(m ? (m.state === 'done' ? '다 올림' : '올리는 중') : '아직')].join(','));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', "attachment; filename=\"list.csv\"; filename*=UTF-8''" + encodeURIComponent(g.name + ' 목록.csv'));
+    res.send('\ufeff' + rows.join('\r\n') + '\r\n');          //  BOM — 엑셀이 한글을 안 깨게
   });
   //  폴더 다 올림 — 목록표의 모든 파일이 다 왔는지 본다(빠진 파일이 있으면 409 + 그 경로들)
   app.post('/bigfile/api/gdone/:gid', apiAuth, (req, res) => {
@@ -335,7 +367,7 @@ module.exports = function mountBigfile(app, ctx) {
       if (!g || g.owner !== u.id) return res.status(404).json({ error: '올리던 폴더가 없습니다' });
       p = cleanPath(req.query.p);
     }
-    const name = g ? p.split('/').pop() : String(req.query.name || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\/]/g, '_').trim().slice(0, 255);
+    const name = g ? p.split('/').pop() : cleanSeg(String(req.query.name || '').replace(/[\\/]/g, '_'));
     const size = Number(req.query.size), lm = Number(req.query.lm) || 0;
     const type = String(req.query.type || '').slice(0, 100);
     if (!name) return res.status(400).json({ error: '파일 이름이 없습니다' });

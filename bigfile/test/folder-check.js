@@ -14,7 +14,7 @@ process.on('exit',()=>srv.kill());
 let fails=0; const ok=(c,m)=>{console.log((c?'✅ ':'❌ ')+m); if(!c) fails++;};
 const T0=Date.now(); const t=()=>((Date.now()-T0)/1000).toFixed(0)+'초';
 const sha=f=>{const h=crypto.createHash('sha256'); const fd=fs.openSync(f,'r'); const b=Buffer.alloc(8<<20); let n; while((n=fs.readSync(fd,b,0,b.length,null))>0) h.update(b.subarray(0,n)); fs.closeSync(fd); return h.digest('hex');};
-const clean=p=>p.split('/').map(s=>s.replace(/[\u0000-\u001f\u007f]/g,'').replace(/[\\:*?"<>|]/g,'_').trim()).join('/');   //  서버·화면이 경로를 손질하는 것과 같게
+const clean=p=>p.normalize('NFC');   //  이름은 올린 그대로, 한글만 NFC(맥의 낱자 → 보통 한글)
 const rels=[], empties=[];
 (function w(d,pre){ const ns=fs.readdirSync(d).sort(); if(!ns.length&&pre) empties.push(pre.slice(0,-1));
   for(const n of ns){ const q=path.join(d,n); if(fs.statSync(q).isDirectory()) w(q,pre+n+'/'); else rels.push(pre+n); } })(TREE,'');
@@ -36,6 +36,17 @@ async function dropFolder(p){
     document.dispatchEvent(ev);
   },[TOP,rels,empties]);
 }
+//  원본 폴더를 브라우저 저장소(OPFS)의 '보낼곳/<이름>' 에 그대로 넣는다(빈 폴더·낱자 이름까지) — 「폴더 고르기」 대신
+async function toOpfs(p, dir, name){
+  await p.evaluate(()=>{ if(!document.getElementById('tst')){ const i=document.createElement('input'); i.type='file'; i.multiple=true; i.id='tst'; i.hidden=true; document.body.appendChild(i);} });
+  await p.setInputFiles('#tst', rels.map(r=>path.join(dir,r)));
+  await p.evaluate(async([name,rels,empt])=>{ const fl=[...document.getElementById('tst').files]; const r=await navigator.storage.getDirectory();
+    const top=await (await r.getDirectoryHandle('보낼곳',{create:true})).getDirectoryHandle(name,{create:true});
+    const dirOf=async(p)=>{ let d=top; for(const s of p.split('/').filter(Boolean)) d=await d.getDirectoryHandle(s,{create:true}); return d; };
+    for(let k=0;k<rels.length;k++){ const j=rels[k].lastIndexOf('/'); const d=await dirOf(j<0?'':rels[k].slice(0,j)); const w=await (await d.getFileHandle(rels[k].slice(j+1),{create:true})).createWritable(); await w.write(fl[k]); await w.close(); }
+    for(const e of empt) await dirOf(e);
+    localStorage.__pick=name; },[name,rels,empties]);
+}
 const topJob=p=>p.$eval('.up',e=>({dir:e.querySelector('.dir').textContent, hd:(e.querySelector('.rep summary')||{}).textContent||'', st:e.querySelector('.st').textContent, rows:[...e.querySelectorAll('.rep tr')].map(r=>[...r.children].map(x=>x.textContent).join(' | '))}));
 const pct=async p=>{ if(!(await p.$('.up'))) return -1; const s=(await topJob(p)).st; const m=s.match(/^([\d.]+)%/); return m?+m[1]:-1; };
 async function waitPct(p,v,ms){ const end=Date.now()+(ms||300000); while(Date.now()<end){ if(await pct(p)>=v) return; await p.waitForTimeout(300);} throw new Error('진행이 '+v+'% 에 안 감'); }
@@ -48,7 +59,9 @@ function flaky(){ const b0=cutBase; return ()=>'(서버 기준) '+b0; }
  await new Promise(r=>setTimeout(r,1500));
  fs.rmSync(path.join(S,'prof'),{recursive:true,force:true});
  const ctx=await chromium.launchPersistentContext(path.join(S,'prof'),{acceptDownloads:true,viewport:{width:1100,height:1400}}); const b={close:()=>ctx.close()};   //  보통 프로필(시크릿 창은 브라우저 저장소가 작다)
- await ctx.addInitScript(()=>{ window.showDirectoryPicker=async()=>{ const r=await navigator.storage.getDirectory(); return r.getDirectoryHandle('받은곳',{create:true}); }; });
+ await ctx.addInitScript(()=>{ window.showDirectoryPicker=async(o)=>{ const r=await navigator.storage.getDirectory();
+   if(o&&o.mode==='read') return (await r.getDirectoryHandle('보낼곳')).getDirectoryHandle(localStorage.__pick);      //  「폴더 고르기」 = 저장소에 넣어 둔 원본
+   return r.getDirectoryHandle('받은곳',{create:true}); }; });
  const login=async()=>{ const p=await ctx.newPage(); p.on('pageerror',e=>console.log('   PAGEERR',e.message)); p.on('dialog',d=>d.accept()); await p.goto(B+'/login?id=1&name=한일관리자&admin=1'); await p.waitForSelector('#who:has-text("님")'); return p; };
 
  // ① 끌어다 놓아 올리기 — 망이 10% 끊기고, 40% 에서 창을 닫아 버림
@@ -66,6 +79,7 @@ function flaky(){ const b0=cutBase; return ()=>'(서버 기준) '+b0; }
  ok(r.hd.startsWith('검사 합격'),'끌어다 놓아 올리기(망 끊김 + 창 닫았다 다시): '+r.hd);
  ok(r.rows.some(x=>x.startsWith('파일 수 | '+rels.length+'개 | '+rels.length+'개')),'파일 수 '+rels.length+' / '+rels.length);
  ok(r.rows.some(x=>x.startsWith('빈 폴더 | '+empties.length+'개 | '+empties.length+'개')),'빈 폴더 '+empties.length+' / '+empties.length);
+ ok(r.rows.some(x=>/^폴더 수\(하위 폴더 모두\) \| (\d+)개 \| \1개 \| 맞음/.test(x)),'폴더 수(하위 폴더 모두) 같음: '+(r.rows.find(x=>x.startsWith('폴더 수'))||''));
  await p.screenshot({path:S+'/z1-up.png'});
 
  // ③ 서버에 있는 것 = 원본? — ZIP 으로 받아 풀어 하나하나
@@ -79,7 +93,8 @@ function flaky(){ const b0=cutBase; return ()=>'(서버 기준) '+b0; }
  const bad=Object.keys(want).filter(k=>got[k]!==want[k]);
  ok(Object.keys(got).length===rels.length&&!bad.length,'서버 ZIP 을 풀면 '+Object.keys(got).length+'개 모두 원본과 같음'+(bad.length?' — 다름: '+bad.slice(0,3):''));
  ok(empties.every(e=>fs.existsSync(path.join(ux,TOP,clean(e)))),'빈 폴더 '+empties.length+'개도 ZIP 안에 있음');
- ok(fs.existsSync(path.join(ux,TOP,'특수 이름','시각 10_30.txt')),'윈도에 못 쓰는 「:」은 「_」로 (시각 10:30.txt → 시각 10_30.txt)');
+ ok(fs.existsSync(path.join(ux,TOP,'특수 이름','시각 10:30.txt')),'이름은 올린 그대로 (시각 10:30.txt)');
+ ok(fs.existsSync(path.join(ux,TOP,'특수 이름','맥에서 만든 한글 이름.txt'.normalize('NFC'))),'맥의 낱자 한글 이름 → 보통 한글(NFC)로');
  console.log('   ③ ZIP '+(fs.statSync(zp).size/1048576).toFixed(0)+'MB ('+t()+')');
  fs.rmSync(zp,{force:true}); fs.rmSync(ux,{recursive:true,force:true});   //  자리 비움(받기 시험에 디스크가 필요)
 
@@ -104,10 +119,11 @@ function flaky(){ const b0=cutBase; return ()=>'(서버 기준) '+b0; }
 
  // ⑤ 맞춰 보기 — 원본 폴더를 골라 서버와 하나하나
  n0=await p.$$eval('.up',x=>x.length);
- { const [c]=await Promise.all([p.waitForEvent('filechooser'), p.click('#list tr:has-text("'+TOP+'") button[data-a=cmp]')]); await c.setFiles(TREE); }
+ await toOpfs(p,TREE,TOP); await p.click('#list tr:has-text("'+TOP+'") button[data-a=cmp]');
  await p.waitForFunction(n0=>document.querySelectorAll('.up').length>n0 && document.querySelector('.up').querySelector('.rep'),n0,{timeout:600000});
  r=await topJob(p); r.rows.forEach(x=>console.log('      '+x));
  ok(r.hd.startsWith('검사 합격'),'맞춰 보기(원본 폴더 ↔ 서버): '+r.hd);
+ ok(r.rows.some(x=>/^폴더 수\(하위 폴더 모두\) \| (\d+)개 있음 \| \1개 \| 맞음/.test(x)),'맞춰 보기: 폴더 수(빈 폴더 포함)까지 같음');
  const q=await p.evaluate(async()=>JSON.stringify(await navigator.storage.estimate())); console.log('   저장소',q);
  await b.close(); fs.rmSync(path.join(S,'prof'),{recursive:true,force:true});
  console.log(`\n끝 (${t()}) — ${fails ? '❌ '+fails+'개 틀림' : '✅ 모두 맞음'}`); process.exit(fails?1:0);

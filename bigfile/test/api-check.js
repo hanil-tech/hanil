@@ -143,6 +143,20 @@ zz=zipfile.ZipFile(sys.argv[1]); bad=zz.testzip(); print(json.dumps({'bad':bad,'
  l=await (await f('GET','/bigfile/api/list')).json();
  ok(l.files.some(x=>x.kind==='group'&&x.nfiles===4&&x.ndirs===1)&&!l.files.some(x=>x.kind==='file'&&x.id===fid),'목록: 폴더는 한 줄(안 파일은 따로 안 보임)');
  ok((await f('DELETE',`/bigfile/api/file/${fid}`)).status===409,'폴더 안 파일 하나만 지우기 막음');
+ // 이름은 올린 그대로(: 도 그대로) · 맥의 낱자 한글(NFD)은 NFC 로 · 폴더 수 · 목록(CSV)
+ const nfd='맥에서 온 이름.txt'.normalize('NFD');
+ const GN=await (await PUTG({name:'이름 시험',entries:[{p:'시각 10:30 (최종) #1.txt',s:3},{p:'하위/'+nfd,s:3},{p:'하위/더/빈 폴더',d:1}]})).json();
+ ok(GN.entries.some(e=>e.p==='시각 10:30 (최종) #1.txt'),'이름 그대로: 「시각 10:30 (최종) #1.txt」');
+ ok(GN.entries.some(e=>e.p==='하위/맥에서 온 이름.txt'.normalize('NFC'))&&!GN.entries.some(e=>e.p.includes(nfd)),'맥의 낱자 한글 → 보통 한글(NFC)');
+ for (const e of GN.entries.filter(e=>!e.d)) { const q=await (await f('POST',`/bigfile/api/init?g=${GN.gid}&p=${encodeURIComponent(e.p)}&size=3`)).json(); const c=Buffer.from('abc'); await f('PUT',`/bigfile/api/chunk/${q.id}/0`,{body:c,h:{'x-crc32':crc32(c).toString(16)}}); await f('POST','/bigfile/api/done/'+q.id); }
+ ok((await f('POST','/bigfile/api/gdone/'+GN.gid)).status===200,'이름 시험 폴더 다 올림');
+ l=await (await f('GET','/bigfile/api/list')).json(); const gl=l.files.find(x=>x.id===GN.gid);
+ ok(gl.nfiles===2&&gl.nfolders===3&&gl.ndirs===1,'폴더 수: 하위·더·빈 폴더 = 3 (파일 2 · 빈 폴더 1)');
+ const csvb=Buffer.from(await (await f('GET',`/bigfile/api/group/${GN.gid}/list.csv`)).arrayBuffer()); const csv=csvb.toString('utf8');
+ ok(csvb[0]===0xef&&csvb[1]===0xbb&&csvb[2]===0xbf&&csv.includes('"이름 시험/시각 10:30 (최종) #1.txt",3')&&csv.includes('"빈 폴더","이름 시험/하위/더/빈 폴더/"')&&csv.includes('"폴더","이름 시험/하위/"'),'목록(CSV): 파일·폴더·빈 폴더 줄');
+ const zn=await f('GET',`/bigfile/api/group/${GN.gid}/zip`); const znb=Buffer.from(await zn.arrayBuffer());
+ ok(znb.includes(Buffer.from('이름 시험/시각 10:30 (최종) #1.txt'))&&znb.includes(Buffer.from('이름 시험/하위/더/빈 폴더/')),'ZIP 안 이름도 그대로');
+ await f('DELETE',`/bigfile/api/group/${GN.gid}`);
  // 고치기(gid)로 다른 폴더를 골라도 서버 파일은 그대로
  const G4=await (await PUTG({gid:G.gid,name:'아무거나',entries:[{p:'c.bin',s:D.length,lm:1700000000000}]})).json();
  ok(G4.gid===G.gid&&G4.entries.filter(e=>!e.d).length===4&&G4.entries.every(e=>e.d||e.state==='done'),'고치기: 고른 폴더에 없는 파일도 서버에 남음(4개 그대로)');

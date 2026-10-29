@@ -177,7 +177,7 @@ dialog select{font:inherit}
 
   // ── 도우미 ───────────────────────────────────────────────
   function human(b) {
-    if (b < 1024) return b + ' B';
+    if (b < 1024) return Math.round(b) + ' B';
     var u = ['KB', 'MB', 'GB', 'TB'], i = -1;
     do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
     return b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0) + ' ' + u[i];
@@ -249,8 +249,23 @@ dialog select{font:inherit}
     return out;
   }
   //  경로 손질 — 서버(cleanPath)와 같게
-  function cleanSeg(s) { return String(s).replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\:*?"<>|]/g, '_').trim().slice(0, 255); }
+  //  이름은 올린 그대로 — 한글만 NFC 로 맞춘다(맥의 ㅎ+ㅏ+ㄴ → 한). 서버(cleanPath)와 같게.
+  function cleanSeg(s) { return String(s).normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 255); }
   function cleanPath(p) { return String(p || '').replace(/\\/g, '/').split('/').map(cleanSeg).filter(function (s) { return s !== ''; }).join('/'); }
+  //  윈도에 못 쓰는 이름 — 받을 때 그 PC 에서만 바꿔 쓰고 검사표에 적는다(: * ? " < > | · 끝의 점·빈칸 · CON 같은 이름)
+  function winSafe(s) {
+    var t = s.replace(/[\\:*?"<>|]/g, '_').replace(/[. ]+$/, function (m) { return m.replace(/./g, '_'); });
+    if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(t)) t = '_' + t;
+    return t;
+  }
+  function winSafePath(p) { return p.split('/').map(winSafe).join('/'); }
+  //  폴더 수 — 파일이 든 하위 폴더까지 모두(탐색기 「폴더 n개」와 같은 셈)
+  function allDirs(paths, empties) {
+    var set = {};
+    paths.forEach(function (p) { var sg = p.split('/'); for (var i = 1; i < sg.length; i++) set[sg.slice(0, i).join('/')] = 1; });
+    (empties || []).forEach(function (p) { var sg = p.split('/'); for (var i = 1; i <= sg.length; i++) set[sg.slice(0, i).join('/')] = 1; });
+    return Object.keys(set).sort();
+  }
   //  한꺼번에 n 개까지 — 조각 보내기·받기는 SLOTS(전체에서 3개)를 나눠 쓴다
   function Sem(n) { this.n = n; this.q = []; }
   Sem.prototype.take = function () { var s = this; if (s.n > 0) { s.n--; return Promise.resolve(); } return new Promise(function (ok) { s.q.push(ok); }); };
@@ -459,10 +474,44 @@ dialog select{font:inherit}
   var PICK = null;          //  이어 올리기·고치기·맞춰 보기 — 다음에 고르는 것을 어디에 쓸지
   var DIR_OK = !IN_APP && ('webkitdirectory' in document.createElement('input'));
   $('bFile').onclick = function () { PICK = null; $('pickF').click(); };
-  $('bDir').onclick = function () {
-    if (!DIR_OK) { toast('여기서는 폴더를 고를 수 없습니다 — PC 의 크롬·엣지에서 올려 주세요'); return; }
-    PICK = null; $('pickD').click();
-  };
+  $('bDir').onclick = function () { pickFolder(null); };
+  //  폴더 고르기 — 크롬·엣지(https)는 폴더를 직접 읽어 **빈 폴더까지** 안다. 그 밖에는 옛 고르기 창(빈 폴더를 브라우저가 안 알려 줌).
+  //  ⚠ 단추를 누른 그 순간에 불러야 한다(브라우저 규칙)
+  function pickFolder(p) {
+    if (CAN_DIR) {
+      window.showDirectoryPicker({ id: 'bigfile-up', mode: 'read' }).then(function (h) {
+        toast(h.name + ' 폴더를 읽는 중…');
+        return readHandle(h).then(function (t) { onFolder(p, t); });
+      }, function (e) { if (!(e && e.name === 'AbortError')) toast('폴더를 열지 못했습니다: ' + (e && e.message || e)); });
+      return;
+    }
+    if (!DIR_OK) { toast('여기서는 폴더를 고를 수 없습니다 — PC 의 크롬·엣지에서 해 주세요'); return; }
+    PICK = p; $('pickD').click();
+  }
+  //  고른 폴더를 끝까지 읽는다(파일 핸들) — 빈 폴더 · 읽지 못한 파일까지 모아 둔다
+  function readHandle(root) {
+    var out = { name: root.name, files: [], dirs: [], unread: [], dirsKnown: true };
+    function walk(d, base) {
+      var it = d.entries(), subs = [], n = 0;
+      return (function next() {
+        return it.next().then(function (x) {
+          if (x.done) { if (!n && base) out.dirs.push(base.slice(0, -1)); return Promise.all(subs); }
+          n++;
+          var nm = x.value[0], h = x.value[1];
+          if (h.kind === 'directory') subs.push(walk(h, base + nm + '/'));
+          else subs.push(h.getFile().then(function (f) { out.files.push({ rel: base + nm, file: f }); }, function (e) { out.unread.push(base + nm + ' (' + (e && e.name || e) + ')'); }));
+          return next();
+        });
+      })();
+    }
+    return walk(root, '').then(function () { return out; });
+  }
+  //  고른·끌어다 놓은 폴더를 어디에 쓸지 — 올리기 / 이어 올리기·고치기(gid) / 맞춰 보기
+  function onFolder(p, t) {
+    if (p && p.kind === 'cmp') return runCompare(p.row, t.files, t);
+    if (p && p.gid) return startFolder(p.row.name, t.files, t.dirs, p.gid, t);
+    startFolder(t.name, t.files, t.dirs, null, t);
+  }
   //  폴더 고르기로 받은 파일들 → 맨 위 폴더마다 묶음 하나(빈 폴더는 브라우저가 안 알려 줌 — 끌어다 놓으면 빈 폴더도 올라감)
   function byTop(list) {
     var tops = {}, order = [];
@@ -487,10 +536,8 @@ dialog select{font:inherit}
   $('pickD').onchange = function () {
     var groupsSel = byTop([].slice.call(this.files)); this.value = '';
     var p = PICK; PICK = null;
-    if (!groupsSel.length) { toast('빈 폴더는 [폴더 고르기]로는 올라가지 않습니다 — 끌어다 놓아 주세요'); return; }
-    if (p && p.kind === 'cmp') return runCompare(p.row, groupsSel[0].files);
-    if (p && p.gid) return startFolder(p.row.name, groupsSel[0].files, groupsSel[0].dirs, p.gid);
-    groupsSel.forEach(function (g) { startFolder(g.name, g.files, g.dirs); });
+    if (!groupsSel.length) { toast('빈 폴더는 이 창으로는 올라가지 않습니다 — 끌어다 놓아 주세요'); return; }
+    groupsSel.forEach(function (g, k) { g.dirsKnown = false; g.unread = []; if (!k || !p) onFolder(p, g); });
   };
   ['dragenter', 'dragover'].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('on'); }); });
   ['dragleave', 'drop'].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); if (ev === 'drop' || !e.relatedTarget) drop.classList.remove('on'); }); });
@@ -506,12 +553,12 @@ dialog select{font:inherit}
     if (!dt.items.length) for (i = 0; i < dt.files.length; i++) loose.push(dt.files[i]);
     loose.forEach(function (f) { startFile(f); });
     waits.forEach(function (en) {
-      readTree(en).then(function (t) { startFolder(t.name, t.files, t.dirs); }, function (er) { toast(en.name + ' 폴더를 읽지 못했습니다: ' + (er && er.message || er)); });
+      readTree(en).then(function (t) { onFolder(null, t); }, function (er) { toast(en.name + ' 폴더를 읽지 못했습니다: ' + (er && er.message || er)); });
     });
   });
   //  끌어다 놓은 폴더를 끝까지 읽는다 — readEntries 는 한 번에 100개쯤만 주므로 빈 답이 올 때까지 되풀이
   function readTree(root) {
-    var out = { name: root.name, files: [], dirs: [] };
+    var out = { name: root.name, files: [], dirs: [], unread: [], dirsKnown: true };
     function walk(dir, base) {
       return new Promise(function (ok, no) {
         var rd = dir.createReader(), subs = [], found = 0;
@@ -524,7 +571,7 @@ dialog select{font:inherit}
             found += ents.length;
             ents.forEach(function (en) {
               if (en.isDirectory) subs.push(walk(en, base + en.name + '/'));
-              else subs.push(new Promise(function (o2, n2) { en.file(function (f) { out.files.push({ rel: base + en.name, file: f }); o2(); }, n2); }));
+              else subs.push(new Promise(function (o2) { en.file(function (f) { out.files.push({ rel: base + en.name, file: f }); o2(); }, function (er) { out.unread.push(base + en.name + ' (' + (er && er.name || er) + ')'); o2(); }); }));
             });
             more();
           }, no);
@@ -541,14 +588,21 @@ dialog select{font:inherit}
     job.files = [f]; job.total = file.size;
     draw(job); runQueue();
   }
-  function startFolder(name, list, dirs, gid) {
+  function startFolder(name, list, dirs, gid, t) {
+    t = t || {};
     var big = list.filter(function (x) { return INFO && x.file.size > INFO.max; });
-    if (big.length) { toast('파일 하나는 ' + human(INFO.max) + ' 까지입니다: ' + big[0].rel); return; }
+    if (big.length) { alert('파일 하나는 ' + human(INFO.max) + ' 까지입니다 — 이 파일 때문에 폴더를 올리지 않았습니다:\n' + big.map(function (x) { return x.rel; }).slice(0, 10).join('\n')); return; }
     if (!list.length && !(dirs || []).length) { toast(name + ' — 빈 폴더입니다'); return; }
-    var job = newJob('up', name, true);
+    //  ⚠ 폴더를 다 읽지 못했으면 — 말없이 빼고 올리지 않는다
+    if (t.unread && t.unread.length && !confirm('읽지 못한 파일이 ' + t.unread.length + '개 있습니다(다른 프로그램이 열고 있거나 권한이 없음):\n\n' +
+      t.unread.slice(0, 10).join('\n') + (t.unread.length > 10 ? '\n…' : '') + '\n\n이 파일들을 빼고 올릴까요? (검사표에 「못 올린 파일」로 남습니다)')) return;
+    var seen = {}, dup = [], files = [];
+    list.forEach(function (x) { var rel = cleanPath(x.rel); if (!rel) return; if (seen[rel]) dup.push(x.rel); else { seen[rel] = 1; files.push(mkFile(rel, x.file, x.file.size)); } });
+    if (dup.length) { alert('이름이 겹치는 파일이 있어 올리지 않았습니다(한글 자모가 다르게 저장된 같은 이름 등):\n' + dup.slice(0, 10).join('\n')); return; }
+    var job = newJob('up', cleanSeg(name), true);
     job.gid = gid || null;
-    var seen = {};
-    list.forEach(function (x) { var rel = cleanPath(x.rel); if (rel && !seen[rel]) { seen[rel] = 1; job.files.push(mkFile(rel, x.file, x.file.size)); } });
+    job.files = files;
+    job.dirsKnown = t.dirsKnown !== false; job.unread = t.unread || [];
     job.dirs = (dirs || []).map(cleanPath).filter(function (d) { return d && !seen[d]; });
     job.total = job.files.reduce(function (a, f) { return a + f.size; }, 0);
     draw(job); runQueue();
@@ -791,7 +845,15 @@ dialog select{font:inherit}
       if (job.folder) {
         rows.push(['폴더 이름', job.name, srv.name, null]);
         rows.push(['파일 수', nf + '개', srvFiles.length + '개' + (job.srvOnly && job.srvOnly.length ? ' (서버에만 있는 것 ' + job.srvOnly.length + '개 포함)' : ''), srvFiles.length >= nf]);
-        rows.push(['빈 폴더', job.dirs.length + '개', (srv.ndirs || 0) + '개', (srv.ndirs || 0) >= job.dirs.length]);
+        var myDirs = allDirs(job.files.map(function (f) { return f.rel; }), job.dirsKnown ? job.dirs : []);
+        var srvDirs = allDirs(srvFiles.map(function (e) { return e.p; }), srv.entries.filter(function (e) { return e.d; }).map(function (e) { return e.p; }));
+        var srvSet = {}; srvDirs.forEach(function (d) { srvSet[d] = 1; });
+        var dirMiss = myDirs.filter(function (d) { return !srvSet[d]; });
+        rows.push(['폴더 수(하위 폴더 모두)', myDirs.length + '개' + (job.dirsKnown ? '' : ' 이상'), srvDirs.length + '개', dirMiss.length ? false : (job.dirsKnown ? srvDirs.length >= myDirs.length : null)]);
+        if (dirMiss.length) rows.push(['서버에 없는 폴더', list10(dirMiss), '—', false]);
+        if (job.dirsKnown) rows.push(['빈 폴더', job.dirs.length + '개', (srv.ndirs || 0) + '개', (srv.ndirs || 0) >= job.dirs.length]);
+        else rows.push(['빈 폴더', '알 수 없음 — 이 [폴더 고르기] 창은 빈 폴더를 알려 주지 않습니다. 빈 폴더까지 올리려면 끌어다 놓거나 크롬·엣지(https)에서 고르세요', (srv.ndirs || 0) + '개', null]);
+        if (job.unread && job.unread.length) rows.push(['읽지 못해 못 올린 파일', list10(job.unread), '—', false]);
       } else rows.push(['파일 이름', job.name, srv.name, null]);
       rows.push(['전체 크기(바이트)', comma(job.total), comma(srvFiles.reduce(function (a, e) { return a + (e.s || 0); }, 0)), null]);
       rows.push(['빠진 파일(목록표)', miss.length ? list10(miss) : '없음', '—', !miss.length]);
@@ -952,13 +1014,25 @@ dialog select{font:inherit}
       if (!p) return Promise.resolve(top);
       if (dirs[p]) return dirs[p];
       var i = p.lastIndexOf('/');
-      return (dirs[p] = dirOf(i < 0 ? '' : p.slice(0, i)).then(function (d) { return d.getDirectoryHandle(p.slice(i + 1), { create: true }); }));
+      return (dirs[p] = dirOf(i < 0 ? '' : p.slice(0, i)).then(function (d) { return handle(d, p.slice(i + 1), p, true, true); }));
     }
+    //  이름은 서버 그대로 쓰되, 이 PC(윈도)가 못 쓰는 이름(: ? * … · 끝의 점)이면 그 PC 에서만 바꿔 쓰고 검사표에 적는다
+    var renamed = {};
+    function handle(d, seg, rel, isDir, create) {
+      var get = function (n) { return isDir ? d.getDirectoryHandle(n, { create: create }) : d.getFileHandle(n, { create: create }); };
+      return get(renamed[rel] || seg).catch(function (e) {
+        if (!e || e.name !== 'TypeError' || renamed[rel]) throw e;
+        var s2 = winSafe(seg); if (s2 === seg) throw e;
+        renamed[rel] = s2;
+        return get(s2);
+      });
+    }
+    function lpOf(p) { var sg = p.split('/'); return sg.map(function (x, i) { return renamed[sg.slice(0, i + 1).join('/')] || x; }).join('/'); }
     function parent(p) { var i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); }
     function base(p) { return p.slice(p.lastIndexOf('/') + 1); }
     //  이미 있는 파일 — 크기와 조각 CRC 가 다 같으면 받은 것으로
     function already(d, f) {
-      return d.getFileHandle(base(f.p)).then(function (h) { return h.getFile(); }).then(function (file) {
+      return handle(d, base(f.p), f.p, false, false).then(function (h) { return h.getFile(); }).then(function (file) {
         if (file.size !== f.size) return false;
         var c = new Uint32Array(f.n);
         return readCrcs(file, f.chunk, c, null).then(function () { for (var i = 0; i < f.n; i++) if (c[i] !== f.scrcs[i]) return false; f.gcrcs = c; return true; });
@@ -971,7 +1045,7 @@ dialog select{font:inherit}
         return already(d, f).then(function (yes) {
           if (yes) { f.st = 'done'; f.skipped = true; job.sent += f.size - f.sent; f.sent = f.size; later(job); return; }
           job.sent -= f.sent; f.sent = 0; f.gk = new Uint8Array(f.n);
-          return d.getFileHandle(base(f.p), { create: true }).then(function (h) { return h.createWritable(); }).then(function (w) {
+          return handle(d, base(f.p), f.p, false, true).then(function (h) { return h.createWritable(); }).then(function (w) {
             f.w = w;
             return write(f, w);
           });
@@ -1008,7 +1082,7 @@ dialog select{font:inherit}
         return (function next() {
           return it.next().then(function (x) {
             if (x.done) return Promise.all(subs);
-            var nm = x.value[0], h = x.value[1];
+            var nm = String(x.value[0]).normalize('NFC'), h = x.value[1];     //  맥은 이름을 낱자(NFD)로 돌려준다
             if (/\.crswap$/.test(nm)) return next();
             if (h.kind === 'directory') { haveDirs[pre + nm] = 1; subs.push(walk(h, pre + nm + '/')); }
             else subs.push(h.getFile().then(function (fl) { have[pre + nm] = fl.size; job.vdone++; later(job); }));
@@ -1020,14 +1094,16 @@ dialog select{font:inherit}
         var miss = [], sizeBad = [], crcBad = [], probs = [];
         job.files.forEach(function (f) {
           var bad = false;
-          if (!Object.prototype.hasOwnProperty.call(have, f.p)) { miss.push(f.p); bad = true; }
-          else if (have[f.p] !== f.size) { sizeBad.push(f.p); bad = true; }
+          var lp = lpOf(f.p);
+          if (!Object.prototype.hasOwnProperty.call(have, lp)) { miss.push(f.p); bad = true; }
+          else if (have[lp] !== f.size) { sizeBad.push(f.p); bad = true; }
           else if (hex8(wholeCrc(f.gcrcs, f.size, f.chunk)) !== f.crc) { crcBad.push(f.p); bad = true; }
           f.st = bad ? 'bad' : 'ok';
           if (bad) probs.push(f);
         });
-        var dmiss = job.dirs.filter(function (p) { return !haveDirs[p]; });
-        var known = {}; job.files.forEach(function (f) { known[f.p] = 1; });
+        var srvDirs = allDirs(job.files.map(function (f) { return f.p; }), job.dirs);
+        var dmiss = srvDirs.filter(function (p) { return !haveDirs[lpOf(p)]; });
+        var known = {}; job.files.forEach(function (f) { known[lpOf(f.p)] = 1; });
         var extra = Object.keys(have).filter(function (p) { return !known[p]; });
         if ((probs.length || dmiss.length) && job.round < FIX_MAX) {
           job.round++;
@@ -1044,12 +1120,15 @@ dialog select{font:inherit}
           ['폴더 이름', top.name, srv.name, null],
           ['저장한 곳', root.name + ' 안', '—', null],
           ['파일 수 (받은 폴더를 다시 셈)', (job.files.length - miss.length) + '개', job.files.length + '개', !miss.length],
-          ['빈 폴더', (job.dirs.length - dmiss.length) + '개', job.dirs.length + '개', !dmiss.length],
+          ['폴더 수(하위 폴더 모두 · 빈 폴더 ' + job.dirs.length + '개 포함)', (srvDirs.length - dmiss.length) + '개', srvDirs.length + '개', !dmiss.length],
+          ['빠진 폴더', dmiss.length ? list10(dmiss) : '없음', '—', !dmiss.length],
           ['전체 크기(바이트)', comma(job.total), comma(job.total), null],
           ['빠진 파일', miss.length ? list10(miss) : '없음', '—', !miss.length],
           ['크기가 다른 파일', sizeBad.length ? list10(sizeBad) : '없음', '—', !sizeBad.length],
           ['조각·전체 CRC32 (받은 것 ↔ 서버)', crcBad.length ? list10(crcBad) : job.files.length + '개 파일 모두 같음', '—', !crcBad.length],
           ['이미 있어서 건너뜀(검사 통과)', skipped + '개', '—', null],
+          ['이 PC 에 못 쓰는 이름이라 바꿔 저장', Object.keys(renamed).length ? list10(Object.keys(renamed).map(function (k) { return k + ' → ' + renamed[k]; })) : '없음(이름 모두 그대로)', '—', null],
+          ['수정한 날짜', '받은 날짜로 됨(브라우저는 날짜를 못 바꿈) — 원래 날짜가 필요하면 ZIP 으로 받기', '—', null],
           ['목록표에 없는 파일(받은 폴더에 원래 있던 것)', extra.length ? list10(extra) : '없음', '—', null],
           ['검사 불합격 → 다시 받음', job.fixLog ? job.fixLog.join('\n') : '없음', '—', null],
           ['걸린 시간 · 평균 속도', dur(sec) + ' · ' + human(job.total / Math.max(sec, 0.001)) + '/초', '—', null],
@@ -1072,13 +1151,12 @@ dialog select{font:inherit}
   //   ZIP 으로 받아 푼 폴더·브라우저로 받은 파일이 빠짐없이 똑같은지 확인할 때. 파일은 내 PC 밖으로 안 나간다.
   function compareRow(row) {
     if (row.kind === 'group') {
-      if (!DIR_OK) { toast('여기서는 폴더를 고를 수 없습니다 — PC 에서 해 주세요'); return; }
-      PICK = { kind: 'cmp', row: row };
       toast('받아서 풀어 둔 「' + row.name + '」 폴더를 골라 주세요');
-      $('pickD').click();
+      pickFolder({ kind: 'cmp', row: row });
     } else { PICK = { kind: 'cmp', row: row }; toast('받은 파일(' + row.name + ')을 골라 주세요'); $('pickF').click(); }
   }
-  function runCompare(row, local) {
+  function runCompare(row, local, t) {
+    t = t || {};
     var job = newJob('cmp', row.name, row.kind === 'group');
     job.t0 = Date.now(); job.state = 'verify'; job.vmsg = '서버 목록표를 받는 중'; draw(job);
     var target = row.kind === 'group' ? { gid: row.id } : { id: row.id, name: row.name, size: row.size };
@@ -1086,16 +1164,26 @@ dialog select{font:inherit}
       job.state = 'verify';
       var byRel = {}; local.forEach(function (x) { byRel[cleanPath(x.rel)] = x.file; });
       var srvFiles = s.entries.filter(function (e) { return !e.d; });
+      var used = {};
+      job.renamed = [];
       job.files = srvFiles.map(function (e) {
-        var file = row.kind === 'group' ? byRel[e.p] : local[0] && local[0].file;
+        var file = null;
+        if (row.kind !== 'group') file = local[0] && local[0].file;
+        else if (byRel[e.p]) { file = byRel[e.p]; used[e.p] = 1; }
+        else { var w = winSafePath(e.p); if (w !== e.p && byRel[w]) { file = byRel[w]; used[w] = 1; job.renamed.push(e.p + ' → ' + w); } }   //  윈도에서 받으며 바뀐 이름
         var f = mkFile(e.p, file || null, e.s); f.e = e; return f;
       });
+      if (row.kind === 'group') {
+        var sd = allDirs(srvFiles.map(function (e) { return e.p; }), s.entries.filter(function (e) { return e.d; }).map(function (e) { return e.p; }));
+        var ld = {}; allDirs(Object.keys(byRel), t.dirsKnown ? t.dirs : []).forEach(function (d) { ld[d] = 1; ld[winSafePath(d)] = 1; });
+        job.srvDirs = sd; job.dirMiss = t.dirsKnown ? sd.filter(function (d) { return !ld[d] && !ld[winSafePath(d)]; }) : null;
+      }
       if (job.files.length === 1) job.files[0].cells = new Uint8Array(srvFiles[0].n || 1);
       job.total = job.files.reduce(function (a, f) { return a + f.size; }, 0);
       job.vtotal = job.files.reduce(function (a, f) { return a + (f.file && f.file.size === f.size ? f.size : 0); }, 0); job.vdone = 0;
       job.vmsg = '내 PC 의 파일을 읽어 맞춰 보는 중';
       var known = {}; srvFiles.forEach(function (e) { known[e.p] = 1; });
-      job.extra = row.kind === 'group' ? Object.keys(byRel).filter(function (p) { return !known[p]; }) : [];
+      job.extra = row.kind === 'group' ? Object.keys(byRel).filter(function (p) { return !known[p] && !used[p]; }) : [];
       return pool(job.files, 2, function (f) {
         if (!f.file) { f.st = 'bad'; f.why = 'miss'; later(job); return; }
         if (f.file.size !== f.size) { f.st = 'bad'; f.why = 'size'; later(job); return; }
@@ -1120,7 +1208,13 @@ dialog select{font:inherit}
         ['크기가 다른 파일', size.length ? list10(size) : '없음', '—', !size.length],
         ['내용(조각 CRC32)이 다른 파일', crc.length ? list10(crc) : same + '개 모두 같음', '—', !crc.length],
       ];
-      if (row.kind === 'group') rows.push(['목록표에 없는 파일(내 PC 에만)', job.extra.length ? list10(job.extra) : '없음', '—', null]);
+      if (row.kind === 'group') {
+        if (job.dirMiss) rows.push(['폴더 수(하위 폴더 모두)', (job.srvDirs.length - job.dirMiss.length) + '개 있음', job.srvDirs.length + '개', !job.dirMiss.length],
+          ['내 PC 에 없는 폴더', job.dirMiss.length ? list10(job.dirMiss) : '없음', '—', !job.dirMiss.length]);
+        else rows.push(['폴더 수(하위 폴더 모두)', '빈 폴더는 알 수 없음(이 고르기 창은 빈 폴더를 안 알려 줌)', job.srvDirs.length + '개', null]);
+        rows.push(['목록표에 없는 파일(내 PC 에만)', job.extra.length ? list10(job.extra) : '없음', '—', null]);
+        if (job.renamed.length) rows.push(['윈도에 못 쓰는 이름이라 바뀐 것(같은 파일로 봄)', list10(job.renamed), '—', null]);
+      }
       rows.push(['읽은 양 · 걸린 시간', human(job.vtotal) + ' · ' + dur((job.t1 - job.t0) / 1000), '—', null]);
       finish(job, rows, (row.kind === 'group' ? '내 PC 의 폴더에 파일 ' + job.files.length + '개가 빠짐없이, 서버와 똑같이 있습니다' : '내 PC 의 파일이 서버와 똑같습니다'),
         '내 PC 의 것이 서버와 다릅니다 — 다시 받아 주세요', ['내 PC', '포털 서버(목록표)']);
@@ -1161,8 +1255,8 @@ dialog select{font:inherit}
   //  고치기·이어 올리기 — 내 PC 의 같은 파일·폴더를 고르면 틀리거나 빠진 것만 보내고 다시 검사
   function fixFrom(row) {
     if (row.kind === 'group') {
-      if (!DIR_OK) { toast('여기서는 폴더를 고를 수 없습니다 — PC 에서 해 주세요'); return; }
-      PICK = { gid: row.id, row: row }; toast('내 PC 에서 같은 폴더(' + row.name + ')를 골라 주세요 — 빠지거나 틀린 것만 보냅니다'); $('pickD').click();
+      toast('내 PC 에서 같은 폴더(' + row.name + ')를 골라 주세요 — 빠지거나 틀린 것만 보냅니다');
+      pickFolder({ gid: row.id, row: row });
     } else {
       PICK = { kind: 'fix', row: row, reopen: row.reopen || null }; toast('내 PC 에서 같은 파일(' + row.name + ')을 골라 주세요'); $('pickF').click();
     }
@@ -1202,7 +1296,7 @@ dialog select{font:inherit}
     $('list').innerHTML = rows.map(function (f) {
       var part = f.state !== 'done', g = f.kind === 'group';
       var pct = g ? (f.size ? Math.floor(f.gotBytes / f.size * 100) : 0) : Math.floor(f.got / f.n * 100);
-      var tags = (g ? '<span class="tag">[폴더 · 파일 ' + f.nfiles + '개' + (f.ndirs ? ' · 빈 폴더 ' + f.ndirs + '개' : '') + ']</span>' : '') +
+      var tags = (g ? '<span class="tag">[폴더 · 파일 ' + f.nfiles + '개 · 하위 폴더 ' + f.nfolders + '개' + (f.ndirs ? '(빈 폴더 ' + f.ndirs + ')' : '') + ']</span>' : '') +
         (f.pub ? '<span class="tag">[사내 공개]</span>' : '') + (f.shares.length ? '<span class="tag">[링크 ' + f.shares.length + ']</span>' : '') +
         (f.v ? (f.v.ok ? '<span class="tag vok" title="' + day(f.v.at) + ' 검사">[검사 합격]</span>' : '<span class="tag vbad">[검사 불합격]</span>') : '') +
         (part ? '<span class="tag part">[' + (up[f.id] ? '올리는 중' : '다 못 올림 ' + pct + '%') + ']</span>' : '');
@@ -1223,16 +1317,27 @@ dialog select{font:inherit}
     }).join('');
     rows.forEach(function (f) { if (f.kind === 'group' && OPEN[f.id]) showInside(f); });
   }
+  //  폴더 내용 — 탐색기처럼 폴더·파일을 모두(1000개씩 더 보기) + 원본과 대어 볼 목록(CSV)
+  var SHOWN = {};
   function showInside(f) {
     api('GET', '/bigfile/api/group/' + f.id).then(function (g) {
       var td = $('in_' + f.id); if (!td) return;
-      var es = g.entries.slice(0, 1000);
-      td.innerHTML = '<table class="inside">' + es.map(function (e) {
-        return '<tr><td>' + esc(e.p) + (e.d ? '/' : '') + '</td><td class="r">' + (e.d ? '빈 폴더' : human(e.s) + (e.state === 'done' ? '' : ' · 아직')) + '</td><td class="r">' +
-          (!e.d && e.state === 'done' ? '<a href="/bigfile/api/file/' + e.id + '/dl" download>받기</a>' : '') + '</td></tr>';
-      }).join('') + '</table>' + (g.entries.length > 1000 ? '<div class="muted">… 그 밖에 ' + (g.entries.length - 1000) + '개</div>' : '');
+      var files = g.entries.filter(function (e) { return !e.d; }), empt = {};
+      g.entries.forEach(function (e) { if (e.d) empt[e.p] = 1; });
+      var items = allDirs(files.map(function (e) { return e.p; }), Object.keys(empt)).map(function (p) { return { p: p, d: 1 }; }).concat(files)
+        .sort(function (a, b) { return a.p < b.p ? -1 : a.p > b.p ? 1 : 0; });
+      var n = SHOWN[f.id] || 1000, shown = items.slice(0, n);
+      td.innerHTML = '<div class="muted" style="padding:6px 0">파일 ' + files.length + '개 · 하위 폴더 ' + (items.length - files.length) + '개(빈 폴더 ' + Object.keys(empt).length + '개) · ' +
+        comma(g.size) + ' 바이트 · <a href="/bigfile/api/group/' + f.id + '/list.csv">목록 받기(엑셀)</a> — 원본 폴더와 하나하나 대어 보려면 [맞춰 보기]</div>' +
+        '<table class="inside">' + shown.map(function (e) {
+          var dep = e.p.split('/').length - 1, nm = e.p.slice(e.p.lastIndexOf('/') + 1);
+          return '<tr><td style="padding-left:' + (4 + dep * 16) + 'px">' + (e.d ? '<b>' + esc(nm) + '/</b>' : esc(nm)) + '</td><td class="r">' +
+            (e.d ? (empt[e.p] ? '빈 폴더' : '폴더') : comma(e.s) + ' 바이트' + (e.state === 'done' ? '' : ' · 아직')) + '</td><td class="r">' +
+            (!e.d && e.state === 'done' ? '<a href="/bigfile/api/file/' + e.id + '/dl" download>받기</a>' : '') + '</td></tr>';
+        }).join('') + '</table>' + (items.length > n ? '<div style="padding:6px 0"><button data-a="more" data-id="' + f.id + '">더 보기 (남은 ' + (items.length - n) + '개)</button></div>' : '');
     });
   }
+
   $('list').onclick = function (e) {
     var b = e.target.closest('button[data-a]'); if (!b) return;
     var f = FILES.filter(function (x) { return x.id === b.dataset.id; })[0]; if (!f) return;
@@ -1248,6 +1353,7 @@ dialog select{font:inherit}
     else if (a === 'cmp') { compareRow(f); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     else if (a === 'check') { checkRow(f); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     else if (a === 'open') { OPEN[f.id] = !OPEN[f.id]; drawList(); }
+    else if (a === 'more') { SHOWN[f.id] = (SHOWN[f.id] || 1000) + 1000; showInside(f); }
   };
   $('tabs').onclick = function (e) {
     var b = e.target.closest('button[data-t]'); if (!b) return;
