@@ -1,0 +1,105 @@
+{
+ "source": "SolidCraft 0.23.0 (github.com/tangency-labs/solidcraft, MIT OR Apache-2.0) — solidcraft-cli run <name>.script.json --out <name>.step; sheet.flat_pattern",
+ "cases": {
+  "u_channel_t1.5": {
+   "k_factor": 0.44,
+   "thickness": 1.5,
+   "flat_size_mm": [
+    80.0,
+    84.78584013175396
+   ],
+   "bends": [
+    {
+     "angle_deg": 90.0,
+     "radius": 1.5,
+     "allowance": 3.392920065876977
+    },
+    {
+     "angle_deg": 90.0,
+     "radius": 1.5,
+     "allowance": 3.392920065876977
+    }
+   ]
+  },
+  "l_t2_r2": {
+   "k_factor": 0.44,
+   "thickness": 2.0,
+   "flat_size_mm": [
+    100.0,
+    76.5238934211693
+   ],
+   "bends": [
+    {
+     "angle_deg": 90.0,
+     "radius": 2.0,
+     "allowance": 4.523893421169302
+    }
+   ]
+  },
+  "l45_t2_r2": {
+   "k_factor": 0.44,
+   "thickness": 2.0,
+   "flat_size_mm": [
+    100.0,
+    83.94823821209226
+   ],
+   "bends": [
+    {
+     "angle_deg": 45.0,
+     "radius": 2.0,
+     "allowance": 2.261946710584651
+    }
+   ]
+  },
+  "l135_t1.6": {
+   "k_factor": 0.44,
+   "thickness": 1.6,
+   "flat_size_mm": [
+    100.0,
+    69.97770530580925
+   ],
+   "bends": [
+    {
+     "angle_deg": 135.0,
+     "radius": 1.6,
+     "allowance": 5.428672105403163
+    }
+   ]
+  },
+  "l_t3_r5_k05": {
+   "k_factor": 0.5,
+   "thickness": 3.0,
+   "flat_size_mm": [
+    120.0,
+    104.21017612416682
+   ],
+   "bends": [
+    {
+     "angle_deg": 90.0,
+     "radius": 5.0,
+     "allowance": 10.210176124166829
+    }
+   ]
+  },
+  "tray_t1_k033": {
+   "k_factor": 0.33,
+   "thickness": 1.0,
+   "flat_size_mm": [
+    100.0,
+    126.17831822927442
+   ],
+   "bends": [
+    {
+     "angle_deg": 90.0,
+     "radius": 1.0,
+     "allowance": 2.0891591146372126
+    },
+    {
+     "angle_deg": 90.0,
+     "radius": 1.0,
+     "allowance": 2.0891591146372126
+    }
+   ]
+  }
+ }
+}

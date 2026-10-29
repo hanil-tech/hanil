@@ -1,0 +1,149 @@
+# 판금 전개 프로그램(unfold/)을 Windows 에서 시험하고 설치 파일을 만든다.
+# 결과: Actions 실행 화면 아래 Artifacts 의 "HanilUnfold-Setup" (전체판) · "HanilUnfoldLite-Setup" (전개 전용판)
+name: 판금 전개 Windows 빌드
+
+on:
+  push:
+    paths:
+      - "unfold/**"
+      - ".github/workflows/unfold-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write          # 배포 (GitHub Release unfold-latest 에 설치 파일 · hanil-unfold.json)
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      # 로그에 한글을 찍을 때 cp1252 로 깨져 멈추지 않게
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    defaults:
+      run:
+        working-directory: unfold
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: unfold/requirements.txt
+
+      - name: 라이브러리 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pyinstaller==6.16.0
+
+      - name: 전개 시험
+        run: python -m pytest tests -q
+
+      - name: 빌드 번호 넣기
+        id: ver
+        shell: pwsh
+        run: |
+          python packaging/write_build_info.py ${{ github.run_number }} ${{ github.sha }}
+          $ver = (Select-String -Path hanil_unfold\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: 실행 파일 만들기
+        run: pyinstaller packaging/HanilUnfold.spec --noconfirm --distpath dist --workpath build
+
+      - name: 만든 실행 파일로 견본 전개해 보기
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "smoke"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath "dist\HanilUnfold\HanilUnfold.exe" `
+                 -ArgumentList @("convert", "samples\bracket_t2.step", "samples\tray_t1.6.step",
+                                 "samples\freeform_panel_t1.step", "--report", "pdf,xlsx", "-o", $out) `
+                 -Wait -PassThru
+          Get-ChildItem $out
+          $log = Join-Path $out "convert_errors.log"
+          if (Test-Path $log) { Get-Content $log -Encoding utf8 }
+          if ($p.ExitCode -ne 0) { throw "실행 파일 전개 실패 (종료 코드 $($p.ExitCode))" }
+          if ((Get-ChildItem $out -Filter *.dxf).Count -ne 3) { throw "DXF 가 만들어지지 않았습니다" }
+          if ((Get-ChildItem $out -Filter *.pdf).Count -ne 3) { throw "PDF 보고서가 만들어지지 않았습니다" }
+          if (-not (Test-Path (Join-Path $out "parts_list.xlsx"))) { throw "부품 목록 엑셀이 없습니다" }
+          $p = Start-Process -FilePath "dist\HanilUnfold\HanilUnfold.exe" `
+                 -ArgumentList @("nest", "samples\bracket_t2.step", "samples\tray_t1.6.step",
+                                 "--sheet", "1219x2438", "--qty", "5", "-o", $out) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "철판 배치 실패 (종료 코드 $($p.ExitCode))" }
+          if ((Get-ChildItem $out -Filter *_nesting_*.dxf).Count -ne 1) { throw "철판 배치 DXF 가 없습니다" }
+          if ((Get-ChildItem $out -Filter *_nesting_*.pdf).Count -ne 1) { throw "철판 배치 PDF 가 없습니다" }
+
+      - name: 설치 파일 만들기
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DMyVersion=${{ steps.ver.outputs.version }}" packaging\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HanilUnfold-Setup-${{ steps.ver.outputs.version }}-build${{ github.run_number }}
+          path: unfold/dist/HanilUnfold-Setup-*.exe
+          if-no-files-found: error
+
+      # ---- 전개 전용판 (같은 소스, 판만 못 박아 다시 묶음)
+      - name: 전개 전용판 실행 파일 만들기
+        run: |
+          python packaging/write_build_info.py ${{ github.run_number }} ${{ github.sha }} --edition unfold
+          pyinstaller packaging/HanilUnfold.spec --noconfirm --distpath dist --workpath build_lite
+
+      - name: 전개 전용판으로 견본 전개해 보기
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "smoke_lite"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath "dist\HanilUnfoldLite\HanilUnfoldLite.exe" `
+                 -ArgumentList @("convert", "samples\bracket_t2.step", "samples\tray_t1.6.step",
+                                 "samples\freeform_panel_t1.step", "--report", "pdf,xlsx", "-o", $out) `
+                 -Wait -PassThru
+          Get-ChildItem $out
+          if ($p.ExitCode -ne 0) { throw "전개 전용판 전개 실패 (종료 코드 $($p.ExitCode))" }
+          if ((Get-ChildItem $out -Filter *.dxf).Count -ne 3) { throw "DXF 가 만들어지지 않았습니다" }
+          $p = Start-Process -FilePath "dist\HanilUnfoldLite\HanilUnfoldLite.exe" `
+                 -ArgumentList @("nest", "samples\bracket_t2.step", "-o", $out) -Wait -PassThru
+          if ($p.ExitCode -ne 2) { throw "전개 전용판에서 철판 배치가 막히지 않았습니다 (종료 코드 $($p.ExitCode))" }
+
+      - name: 전개 전용판 설치 파일 만들기
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyVersion=${{ steps.ver.outputs.version }}" "/DLite" packaging\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패 (전개 전용판)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HanilUnfoldLite-Setup-${{ steps.ver.outputs.version }}-build${{ github.run_number }}
+          path: unfold/dist/HanilUnfoldLite-Setup-*.exe
+          if-no-files-found: error
+
+      # ---- 배포: 프로그램이 켤 때 읽는 hanil-unfold.json 과 설치 파일을 GitHub Release "unfold-latest" 에 (이름 고정 — 주소가 안 바뀜)
+      - name: 배포 파일 (hanil-unfold.json) 만들기
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item (Get-ChildItem dist\HanilUnfold-Setup-*.exe | Select-Object -First 1).FullName release\HanilUnfold-Setup.exe
+          Copy-Item (Get-ChildItem dist\HanilUnfoldLite-Setup-*.exe | Select-Object -First 1).FullName release\HanilUnfoldLite-Setup.exe
+          python packaging/write_release_manifest.py "${{ steps.ver.outputs.version }}" "${{ github.run_number }}" "${{ github.sha }}" `
+            release/HanilUnfold-Setup.exe release/HanilUnfoldLite-Setup.exe `
+            "https://github.com/${{ github.repository }}/releases/download/unfold-latest" release/hanil-unfold.json
+          Get-Content release/hanil-unfold.json -Encoding utf8
+
+      - name: 배포 (GitHub Release unfold-latest)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: unfold-latest
+          name: "한일 판금 전개 — 최신 (${{ steps.ver.outputs.version }} 빌드 ${{ github.run_number }})"
+          body: "프로그램의 자동 업데이트가 읽는 자리입니다. 설치 파일: HanilUnfold-Setup.exe (전체판) · HanilUnfoldLite-Setup.exe (전개 전용판)."
+          make_latest: false
+          files: |
+            unfold/release/HanilUnfold-Setup.exe
+            unfold/release/HanilUnfoldLite-Setup.exe
+            unfold/release/hanil-unfold.json
