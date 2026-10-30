@@ -26,6 +26,7 @@ window.HANIL_HOST = (function () {
     },
     pickFolder: function () { return window.hostPickFolder(); },
     listDir: function (p) { return window.hostListDir(p); },
+    drives: function () { return window.hostDrives(); },
     associate: function () { return window.hostAssociate().then(function (m) { R && R.ask && R.ask('기본 PDF 프로그램', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
     preview: function () { return window.hostPreview().then(function (m) { R && R.ask && R.ask('탐색기 미리 보기', m, { cancel: null }); }); },
     exit: function () { window.hostExit(); },

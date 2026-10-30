@@ -1943,11 +1943,15 @@ async function openBackstage(panel = 'open') {
     col.append(sec('최근 파일'));
     if (!recent.length) col.append(h('div', { class: 'bsnone', text: '아직 연 파일이 없습니다' }));
     for (const r of recent.slice(0, 12)) col.append(item('📄', r.name, (r.path || '') + ' · ' + new Date(r.t).toLocaleString('ko-KR'), () => { closeBackstage(); openRecent(r); }));
-    col.append(sec('URL 에서 열기'));
-    const u = h('input', { type: 'url', placeholder: 'https://… .pdf', class: 'bsurl' });
-    const go = () => { if (u.value) { closeBackstage(); openUrl0(u.value.trim(), null); } };
-    u.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-    col.append(h('div', { class: 'bsrow' }, u, h('button', { text: '열기', onclick: go })));
+    //  💻 내 PC — 바탕 화면·문서·다운로드·C:·D:·USB·네트워크(윈도우 프로그램) · 브라우저는 폴더 고르기
+    col.append(sec('내 PC'));
+    if (HOST && HOST.drives) {
+      for (const dv of (await HOST.drives()) || []) col.append(item(dv.icon || '💽', dv.name, dv.path, () => showPlace({ name: dv.name, path: dv.path }, list)));
+    } else if (window.showDirectoryPicker) {
+      col.append(item('📂', '폴더 열기…', '폴더를 골라 그 안의 PDF 를 봅니다', async () => {
+        try { const dh = await window.showDirectoryPicker(); showPlace({ name: dh.name, handle: dh }, list); } catch {}
+      }));
+    }
     col.append(sec('위치'));
     for (const pl of places) {
       const x = h('button', { class: 'bsx', text: '✕', title: '목록에서 빼기', onclick: async (e) => { e.stopPropagation(); await idb.set('places', places.filter((q) => q !== pl)); openBackstage('open'); } });
@@ -1955,7 +1959,11 @@ async function openBackstage(panel = 'open') {
     }
     col.append(item('➕', '위치 추가', '자주 여는 폴더를 고릅니다', addPlace));
     col.append(item('📂', '찾아보기', 'Ctrl+O', () => { closeBackstage(); openDialog(); }));
+    list.append(h('div', { class: 'bsnone', text: '← 왼쪽에서 드라이브나 폴더를 고르면 여기에 폴더와 PDF 가 나옵니다' }));
     P.append(h('div', { class: 'bsgrid' }, col, list));
+    //  처음에는 마지막에 보던 폴더를(없으면 바탕 화면)
+    const last = await idb.get('lastDir');
+    if (HOST && HOST.listDir && last) showPlace(last, list);
   } else if (panel === 'export') {
     P.append(h('h1', { text: '내보내기' }));
     const col = h('div', { class: 'bscol' });
@@ -1982,13 +1990,26 @@ async function addPlace() {
     openBackstage('open');
   } catch (e) { if (e && e.name !== 'AbortError') toast(String(e.message || e)); }
 }
-async function showPlace(pl, box) {
+async function showPlace(pl, box, parent = null) {
   box.innerHTML = '';
-  box.append(h('div', { class: 'bssec', text: '📁 ' + pl.name }));
+  const head = h('div', { class: 'bssec bshead' }, h('span', { text: '📁 ' + (pl.path || pl.name) }));
+  if (pl.path && HOST) head.append(h('button', { class: 'bsadd', text: '★ 위치에 추가', title: '자주 여는 폴더로', onclick: async () => {
+    const places = (await idb.get('places')) || [];
+    if (!places.some((q) => q.path === pl.path)) { places.push({ name: pl.path.split(/[\\/]/).filter(Boolean).pop() || pl.path, path: pl.path }); await idb.set('places', places); }
+    openBackstage('open');
+  } }));
+  box.append(head);
+  //  위 폴더(드라이브 맨 위가 아니면)
+  let up = null;
+  if (pl.path) { const t = pl.path.replace(/[\\/]+$/, ''); const k = Math.max(t.lastIndexOf('\\'), t.lastIndexOf('/')); if (k > 0) up = { name: '..', path: t.slice(0, k) + (k <= 2 ? '\\' : '') }; }
+  else if (parent) up = parent;
+  if (up) { const b = h('div', { class: 'bsitem small' }, h('span', { class: 'bsi', text: '⬆' }), h('div', {}, h('b', { text: '위 폴더' }))); b.onclick = () => showPlace(up, box, parent && parent.parent); box.append(b); }
   try {
     let files = [];
-    if (pl.path && HOST && HOST.listDir) files = (await HOST.listDir(pl.path)).map((f) => ({ name: f.name, open: () => HOST.openPath(f.path), dir: f.dir, path: f.path }));
-    else if (pl.handle) {
+    if (pl.path && HOST && HOST.listDir) {
+      files = ((await HOST.listDir(pl.path)) || []).map((f) => ({ name: f.name, dir: f.dir, path: f.path, open: () => HOST.openPath(f.path) }));
+      idb.set('lastDir', { name: pl.name, path: pl.path });
+    } else if (pl.handle) {
       if ((await pl.handle.requestPermission({ mode: 'read' })) !== 'granted') return;
       for await (const [name, hd] of pl.handle.entries()) {
         if (hd.kind === 'directory') files.push({ name, dir: true, handle: hd });
@@ -1996,10 +2017,10 @@ async function showPlace(pl, box) {
       }
     }
     files.sort((a, b) => (b.dir ? 1 : 0) - (a.dir ? 1 : 0) || collator.compare(a.name, b.name));
-    if (!files.length) box.append(h('div', { class: 'bsnone', text: 'PDF 가 없습니다' }));
+    if (!files.length) box.append(h('div', { class: 'bsnone', text: '이 폴더에는 PDF 가 없습니다' }));
     for (const f of files) {
-      const b = h('div', { class: 'bsitem small' }, h('span', { class: 'bsi', text: f.dir ? '📁' : '📄' }), h('div', {}, h('b', { text: f.name })));
-      b.onclick = () => (f.dir ? showPlace({ name: pl.name + ' › ' + f.name, handle: f.handle, path: f.path }, box) : (closeBackstage(), f.open()));
+      const b = h('div', { class: 'bsitem small', title: f.path || f.name }, h('span', { class: 'bsi', text: f.dir ? '📁' : '📄' }), h('div', {}, h('b', { text: f.name })));
+      b.onclick = () => (f.dir ? showPlace({ name: f.name, handle: f.handle, path: f.path }, box, { ...pl, parent }) : (closeBackstage(), f.open()));
       box.append(b);
     }
   } catch (e) { box.append(h('div', { class: 'bsnone', text: '열 수 없습니다: ' + (e.message || e) })); }

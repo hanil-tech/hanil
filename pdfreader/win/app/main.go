@@ -310,6 +310,7 @@ func bind(w webview.WebView) {
 		w.Eval("(window.__hanilCanClose ? window.__hanilCanClose() : Promise.resolve(true)).then(function(ok){ if (ok) window.hostReallyClose(); })")
 	})
 	_ = w.Bind("hostReveal", func(p string) { _ = exec.Command("explorer.exe", "/select,", p).Start() })
+	_ = w.Bind("hostDrives", func() []map[string]interface{} { return drives() })
 	_ = w.Bind("hostBrowserPdf", func(on bool) string { return browserPdf(on) })
 	_ = w.Bind("hostBrowserPdfState", func() bool { return browserPdfOn() })
 	_ = w.Bind("hostExportHtml", func() string {
@@ -421,6 +422,57 @@ func writeAtomic(p string, body io.Reader) error {
 	}
 	_ = os.Remove(tmp)
 	return err
+}
+
+// 내 PC — 바탕 화면·문서·다운로드 + 드라이브(C: D: USB 네트워크)
+func drives() []map[string]interface{} {
+	out := []map[string]interface{}{}
+	for _, k := range []struct {
+		name, icon string
+		id         *windows.KNOWNFOLDERID
+	}{{"바탕 화면", "🖥", windows.FOLDERID_Desktop}, {"문서", "📁", windows.FOLDERID_Documents}, {"다운로드", "⬇", windows.FOLDERID_Downloads}} {
+		if p, err := windows.KnownFolderPath(k.id, 0); err == nil && p != "" {
+			out = append(out, map[string]interface{}{"name": k.name, "path": p, "icon": k.icon})
+		}
+	}
+	buf := make([]uint16, 512)
+	n, err := windows.GetLogicalDriveStrings(uint32(len(buf)), &buf[0])
+	if err != nil {
+		return out
+	}
+	start := 0
+	for i := 0; i < int(n); i++ {
+		if buf[i] != 0 {
+			continue
+		}
+		root := windows.UTF16ToString(buf[start:i])
+		start = i + 1
+		if root == "" {
+			continue
+		}
+		t := windows.GetDriveType(u16(root))
+		label := make([]uint16, 261)
+		ok := windows.GetVolumeInformation(u16(root), &label[0], uint32(len(label)), nil, nil, nil, nil, 0) == nil
+		if !ok && (t == windows.DRIVE_CDROM || t == windows.DRIVE_REMOVABLE) {
+			continue //  빈 CD·카드 칸
+		}
+		kind, icon := "로컬 디스크", "💽"
+		switch t {
+		case windows.DRIVE_REMOVABLE:
+			kind, icon = "USB", "🔌"
+		case windows.DRIVE_REMOTE:
+			kind, icon = "네트워크 드라이브", "🌐"
+		case windows.DRIVE_CDROM:
+			kind, icon = "CD/DVD", "💿"
+		}
+		name := windows.UTF16ToString(label)
+		if name == "" {
+			name = kind
+		}
+		d := strings.TrimRight(root, `\`)
+		out = append(out, map[string]interface{}{"name": name + " (" + d + ")", "path": root, "icon": icon, "drive": true})
+	}
+	return out
 }
 
 func listDir(dir string) []map[string]interface{} {
