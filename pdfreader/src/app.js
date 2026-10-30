@@ -1082,7 +1082,7 @@ Object.assign(I, {
 const RIB = {
   home: [
     ['도구', [['big', 'hand', '손', 'hand', 'H'], ['big', 'select', '텍스트 선택', 'select', 'V'], ['big', 'tSel', '주석 선택', 'sel', '넣은 도형 고르기·옮기기'],
-      ['sm', 'tSnap', '스냅샷', 'snap', '네모를 끌면 그 부분을 그림으로 복사'], ['menu', 'mClip', '클립보드', 'clip', '', [['잘라내기 (Ctrl+X)', 'oCut'], ['복사 (Ctrl+C)', 'oCopy'], ['붙여넣기 (Ctrl+V)', 'oPaste']]],
+      ['sm', 'tSnap', '스냅샷', 'snap', '네모를 끌면 그 부분 · 한 번 누르면 보이는 화면 전체를 그림으로 복사'], ['menu', 'mClip', '클립보드', 'clip', '', [['잘라내기 (Ctrl+X)', 'oCut'], ['복사 (Ctrl+C)', 'oCopy'], ['붙여넣기 (Ctrl+V)', 'oPaste']]],
       ['menu', 'mFind', '찾기', 'find2', '', [['이 문서에서 찾기 (Ctrl+F)', 'find'], ['여러 문서·폴더 검색 (Ctrl+Shift+F)', 'searchPane']]]]],
     ['보기', 'zoom'],
     ['개체', [['big', 'tImg', '이미지', 'tImg', '파일에서 · Ctrl+V 붙여넣기'], ['big', 'tText', '글상자', 'tText', ''], ['big', 'tSel', '선택', 'sel', '']]],
@@ -1137,13 +1137,24 @@ const RIB = {
   ],
 };
 let ribTab = 'home';
+//  ▾ 펼침 목록 — ⚠ 리본은 옆으로 넘치면 잘라 내므로(overflow) 목록을 화면 기준 자리(fixed)에 띄운다
+function openPop(pop, anchor) {
+  $$('.rmenu.on,.sympop.on').forEach((p) => p !== pop && p.classList.remove('on'));
+  pop.classList.add('on');
+  const r = anchor.getBoundingClientRect();
+  pop.style.position = 'fixed';
+  pop.style.left = '0px'; pop.style.top = '0px';
+  const pr = pop.getBoundingClientRect();
+  pop.style.left = Math.max(4, Math.min(r.left, innerWidth - pr.width - 4)) + 'px';
+  pop.style.top = Math.min(r.bottom + 2, innerHeight - pr.height - 4) + 'px';
+}
 function ribButton(kind, cmd, label, icon, tip, menu) {
   const b = h('button', { class: kind === 'menu' ? 'sm' : kind, 'data-cmd': menu ? null : cmd, title: label + (tip ? ' — ' + tip : '') });
   b.innerHTML = svg(icon) + (kind === 'ico' ? '' : '<span>' + esc(label) + (menu ? ' ▾' : '') + '</span>');
   if (!menu) return b;
   const pop = h('div', { class: 'rmenu' });
   for (const [t, c] of menu) pop.append(h('button', { text: t, 'data-cmd': c }));
-  b.addEventListener('click', (e) => { e.stopPropagation(); const on = pop.classList.contains('on'); $$('.rmenu.on').forEach((p) => p.classList.remove('on')); if (!on) pop.classList.add('on'); });
+  b.addEventListener('click', (e) => { e.stopPropagation(); const on = pop.classList.contains('on'); $$('.rmenu.on').forEach((p) => p.classList.remove('on')); if (!on) openPop(pop, b); });
   b.dataset.menu = cmd;
   return h('div', { class: 'mwrap' }, b, pop);
 }
@@ -1167,7 +1178,7 @@ function stampButton() {
   b.innerHTML = svg('stampI') + '<span>스탬프 ▾</span>';
   const pop = h('div', { class: 'rmenu stamps' });
   for (const s of EDIT.STAMPS) pop.append(h('button', { class: 'stp', text: s === '날짜' ? '날짜 (' + new Date().toLocaleDateString('ko-KR') + ')' : s, onclick: (e) => { e.stopPropagation(); EDIT.style.stamp = s; pop.classList.remove('on'); setTool('stamp'); } }));
-  b.querySelector('span').addEventListener('click', (e) => { e.stopPropagation(); pop.classList.toggle('on'); });
+  b.querySelector('span').addEventListener('click', (e) => { e.stopPropagation(); if (pop.classList.contains('on')) pop.classList.remove('on'); else openPop(pop, b); });
   return h('div', { class: 'mwrap' }, b, pop);
 }
 function renderRibbon() {
@@ -1200,7 +1211,7 @@ function symButton() {
   b.innerHTML = '<b class="symg"></b><span>기호 ▾</span>';
   const pop = h('div', { class: 'sympop' });
   for (const s of EDIT.SYMBOLS) pop.append(h('button', { text: s, onclick: (e) => { e.stopPropagation(); EDIT.style.sym = s; pop.classList.remove('on'); syncSymButton(); setTool('sym'); } }));
-  b.querySelector('span').addEventListener('click', (e) => { e.stopPropagation(); pop.classList.toggle('on'); });
+  b.querySelector('span').addEventListener('click', (e) => { e.stopPropagation(); if (pop.classList.contains('on')) pop.classList.remove('on'); else openPop(pop, b); });
   const wrap = h('div', { class: 'symwrap' }, b, pop);
   setTimeout(syncSymButton, 0);
   return wrap;
@@ -1243,7 +1254,7 @@ async function setTool(t) {
   viewer.classList.toggle('erasing', t === 'erase');
   viewer.classList.toggle('marking', mark);
   if (mark) toast('글자를 끌어 고르면 ' + TOOL_NAMES[t] + '이(가) 됩니다');
-  if (t === 'snap') toast('그림으로 복사할 부분을 네모로 끄세요');
+  if (t === 'snap') toast('📷 네모를 끌면 그 부분 · 한 번 누르면 보이는 화면 전체를 그림으로 복사', 4000);
   if (t === 'crop') toast('남길 부분을 네모로 끄세요');
   if (t !== 'edit' && !EDIT.EDIT_TOOLS.includes(t)) EDIT.select(null);
   for (const d of docs) EDIT.redrawAll(d);
@@ -1793,6 +1804,37 @@ async function snapshot(d, i, [x, y, w, hh]) {
     download(blob, d.name.replace(/\.pdf$/i, '') + ' 스냅샷.png');
   }
 }
+//  📷 보이는 화면 전체 — 화면에 보이는 페이지들을 그 모양 그대로(넣은 주석까지) 또렷하게 다시 그려 한 장으로
+async function snapshotView(d) {
+  if (!d) return;
+  const vr = viewer.getBoundingClientRect(), W = viewer.clientWidth, H = viewer.clientHeight;
+  const s = scaleOf(d);
+  let f = Math.max(1, (SET.snapDpi || 200) / 72 / s);             //  화면보다 또렷하게(설정 해상도)
+  const cv = h('canvas', { width: Math.round(W * f), height: Math.round(H * f) });
+  const c = cv.getContext('2d');
+  c.fillStyle = '#d4d4d4'; c.fillRect(0, 0, cv.width, cv.height);
+  toast('📷 화면을 그리는 중…', 30000);
+  for (let i = 0; i < d.n; i++) {
+    const r = d.pages[i].div.getBoundingClientRect();
+    if (r.bottom < vr.top || r.top > vr.top + H || r.right < vr.left || r.left > vr.left + W) continue;
+    let k = s * f;
+    const p = d.pages[i];
+    if (p.w * p.h * k * k > 60e6) k = Math.sqrt(60e6 / (p.w * p.h));   //  아주 크게 확대했을 때 메모리 막기
+    let img;
+    if (d.rot) img = p.canvas;                                  //  보기 회전 중이면 화면 그림 그대로
+    else img = await renderWithEdits(d, i, k);
+    if (img) c.drawImage(img, (r.left - vr.left) * f, (r.top - vr.top) * f, r.width * f, r.height * f);
+  }
+  const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+  EDIT.setClipImage(blob);
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    toast('📷 보이는 화면 전체를 클립보드에 복사했습니다 — 한글·엑셀·메신저에 Ctrl+V');
+  } catch {
+    toast('📷 클립보드 허용이 안 돼 파일로 받습니다');
+    download(blob, d.name.replace(/\.pdf$/i, '') + ' 화면.png');
+  }
+}
 //  ZIP(압축 없이 묶기) — 이미지 여러 장을 한 번에 받게
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = (u) => { let c = 0xffffffff; for (let i = 0; i < u.length; i++) c = CRC[(c ^ u[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
@@ -1889,6 +1931,8 @@ viewer.addEventListener('contextmenu', (e) => {
   if (o) EDIT.select(cur, o);
   ctxMenu(e.clientX, e.clientY, [['오른쪽으로 회전', 'oRot'], ['왼쪽으로 회전', 'oRotL'], null, ['복사', 'oCopy'], ['잘라내기', 'oCut'], ['붙여넣기', 'oPaste'], ['복제', 'dup'], null, ['삭제', 'del']]);
 });
+//  스냅샷 도구로 페이지 밖(회색 바탕)을 눌러도 → 보이는 화면 전체
+viewer.addEventListener('click', (e) => { if (cur && tool === 'snap' && !e.target.closest('.ov')) snapshotView(cur); });
 //  글자 표시 도구: 글자를 끌어 고르고 손을 떼면 그 줄에 칠한다
 viewer.addEventListener('mouseup', () => {
   if (cur && EDIT.MARK_TOOLS[tool]) setTimeout(() => EDIT.markFromSelection(cur, tool), 0);
@@ -1903,7 +1947,7 @@ const idb = (() => {
   return { get: (k) => tx('readonly', (s) => s.get(k)).catch(() => null), set: (k, v) => tx('readwrite', (s) => s.put(v, k)).catch(() => null) };
 })();
 async function addRecent(d) {
-  if (!d || d.isNew) return;
+  if (!d || d.isNew || String(d.path || '').startsWith('new:')) return;
   const list = (await idb.get('recent')) || [];
   const key = d.path && !String(d.path).startsWith('new:') ? d.path : d.name;
   const rest = list.filter((r) => r.key !== key);
@@ -2032,7 +2076,7 @@ $('#backstage').addEventListener('click', (e) => {
 });
 
 // ───────────────────────── 환경 설정 ─────────────────────────
-const SET = Object.assign({ zoom: 'width', layout: 'one', bg: 'gray', author: MAKER, sc: '#e5262e', lw: 2, fs: 14, ignoreSpace: true, snapDpi: 200, askClose: true }, (() => { try { return JSON.parse(localStorage.getItem('hanil-pdf-set') || '{}'); } catch { return {}; } })());
+const SET = Object.assign({ splash: true, zoom: 'width', layout: 'one', bg: 'gray', author: MAKER, sc: '#e5262e', lw: 2, fs: 14, ignoreSpace: true, snapDpi: 200, askClose: true }, (() => { try { return JSON.parse(localStorage.getItem('hanil-pdf-set') || '{}'); } catch { return {}; } })());
 function applySettings() {
   EDIT.style.sc = SET.sc; EDIT.style.lw = +SET.lw; EDIT.style.fs = +SET.fs; EDIT.style.author = SET.author || MAKER;
   $('#oSpace').checked = !!SET.ignoreSpace;
@@ -2041,7 +2085,7 @@ function applySettings() {
 }
 function settings() {
   const cats = [
-    ['일반', '⚙', () => [row('닫을 때 저장 확인', chk('askClose')), note('탭으로 여러 문서를 엽니다. 창을 닫을 때 저장 안 한 문서가 있으면 묻습니다.')]],
+    ['일반', '⚙', () => [row('켤 때 시작 화면(한일특장(주))', chk('splash')), row('닫을 때 저장 확인', chk('askClose')), note('탭으로 여러 문서를 엽니다. 창을 닫을 때 저장 안 한 문서가 있으면 묻습니다.')]],
     ['페이지 표시', '📄', () => [row('처음 확대', sel('zoom', [['width', '너비에 맞춤'], ['page', '페이지에 맞춤'], ['1', '실제 크기(100%)']])), row('페이지 보기', sel('layout', [['one', '연속'], ['two', '두 페이지']])), row('바탕', sel('bg', [['gray', '회색'], ['dark', '어두운 색']]))]],
     ['주석 달기', '📝', () => [row('작성자 이름', txt('author')), row('기본 선 색', col('sc')), row('기본 굵기', sel('lw', [[1, '1 pt'], [2, '2 pt'], [3, '3 pt'], [5, '5 pt']])), row('기본 글자 크기', sel('fs', [[10, '10'], [12, '12'], [14, '14'], [18, '18'], [24, '24']])), note('작성자 이름은 저장한 주석에 들어가 Acrobat·PDF-XChange 의 주석 목록에 보입니다.')]],
     ['검색', '🔎', () => [row('띄어쓰기·줄바꿈 무시(기본)', chk('ignoreSpace')), note('표 안에서 번호가 끊겨 있어도 찾습니다.')]],
@@ -2091,7 +2135,7 @@ EDIT.initEdit({
   cur: () => cur, tool: () => tool, setTool, scaleOf, toast, ask, focus: () => viewer.focus({ preventScroll: true }),
   vp1: async (d, i) => (await d.pdf.getPage(i + 1)).getViewport({ scale: 1 }),
   rerender: (d) => { for (const p of d.pages) p.key = null; schedule(); },
-  onModified: () => renderTabs(), visibleCenter, syncSymButton, snapshot, cropBox, pagePaste,
+  onModified: () => renderTabs(), visibleCenter, syncSymButton, snapshot, snapshotView, cropBox, pagePaste,
   docOf: (o) => (cur && cur.ed && cur.ed.objs.includes(o) ? cur : docs.find((d) => d.ed && d.ed.objs.includes(o))),
 });
 
@@ -2102,6 +2146,21 @@ window.addEventListener('resize', () => {
 });
 applySettings();
 if (SET.layout === 'two') twoPage = true;
+//  🏭 시작 화면 — 켤 때 잠깐 회사 이름(환경 설정 → 일반에서 끌 수 있음)
+{
+  const sp = $('#splash');
+  const ver = (document.querySelector('meta[name=hanil-pdf]') || {}).content || '';
+  $('#splashVer').textContent = ver;
+  $('#stMaker').textContent = 'ⓒ ' + MAKER + ' · 한일 PDF 리더 ' + ver;
+  $('#splashIcon').src = window.HANIL_ICON || '';
+  if (!window.HANIL_ICON) $('#splashIcon').remove();
+  if (SET.splash === false) sp.remove();
+  else {
+    const close = () => { sp.classList.add('off'); setTimeout(() => sp.remove(), 600); };
+    setTimeout(close, 1700);
+    document.addEventListener('mousedown', close, { once: true });
+  }
+}
 renderRibbon();
 updateUi();
 {

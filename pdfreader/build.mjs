@@ -42,6 +42,7 @@ const safe = (s) => s.replace(/<\/script/gi, '<\\/script');
 const html = fs.readFileSync(path.join(here, 'src', 'index.html'), 'utf8')
   .replace('<title>', () => '<meta name="hanil-pdf" content="v' + ver + '"><title>')
   .replace('<!--ENGINE-->', () => '<script id="pdfworker" type="text/plain">' + safe(workerJs) + '</script>\n'
+    + '<script>window.HANIL_ICON="data:image/png;base64,' + fs.readFileSync(path.join(here, 'assets', 'icon-128.png')).toString('base64') + '";</script>'
     + '<script>window.PDF_CMAPS=' + JSON.stringify(cmaps) + ';window.PDF_FONTS=' + JSON.stringify(fonts) + ';</script>')
   .replace('<!--APP-->', () => '<script>' + safe(app) + '</script>');
 const file = path.join(out, 'hanil-pdf-reader.html');
@@ -51,7 +52,7 @@ const ext = path.join(out, 'chrome');
 fs.mkdirSync(path.join(ext, 'icons'), { recursive: true });
 fs.writeFileSync(path.join(ext, 'app.js'), app);
 fs.writeFileSync(path.join(ext, 'pdf.worker.js'), workerJs);
-fs.writeFileSync(path.join(ext, 'data.js'), 'window.HANIL_EXT=true;window.PDF_WORKER_URL="pdf.worker.js";window.PDF_CMAPS=' + JSON.stringify(cmaps) + ';window.PDF_FONTS=' + JSON.stringify(fonts) + ';');
+fs.writeFileSync(path.join(ext, 'data.js'), 'window.HANIL_ICON="icons/128.png";window.HANIL_EXT=true;window.PDF_WORKER_URL="pdf.worker.js";window.PDF_CMAPS=' + JSON.stringify(cmaps) + ';window.PDF_FONTS=' + JSON.stringify(fonts) + ';');
 fs.writeFileSync(path.join(ext, 'viewer.html'), fs.readFileSync(path.join(here, 'src', 'index.html'), 'utf8')
   .replace('<title>', () => '<meta name="hanil-pdf" content="v' + ver + '"><title>')
   .replace('<!--ENGINE-->', () => '<script src="data.js"></script>')

@@ -38,12 +38,13 @@
   #tabs .side.on{background:var(--hot);border-color:var(--hotline)}
   #ribbon{height:86px;background:var(--bar2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;align-items:stretch;padding:3px 4px;gap:0;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;scrollbar-width:thin}
   #ribbon.mini{height:0;padding:0;border-bottom:0}
-  .grp{display:flex;flex-direction:column;border-right:1px solid var(--line2);padding:0 4px}
-  .grp .row{display:flex;align-items:flex-start;gap:1px;flex:1}
+  .grp{display:flex;flex-direction:column;border-right:1px solid var(--line2);padding:0 4px;flex:0 0 auto}
+  .grp .row{display:flex;align-items:flex-start;gap:1px;flex:1;flex-wrap:nowrap}
+  .grp .row>*{flex:0 0 auto}
   .grp .cap{font-size:11px;color:var(--muted);text-align:center;white-space:nowrap;padding-top:1px}
-  .big{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;min-width:48px;max-width:84px;white-space:nowrap;height:62px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:3px 3px 0;font-size:12px;line-height:1.15;text-align:center}
+  .big{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;min-width:48px;white-space:nowrap;height:62px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:3px 3px 0;font-size:12px;line-height:1.15;text-align:center}
   .big svg{width:28px;height:28px;flex:0 0 28px}
-  .stack{display:flex;flex-direction:column;gap:1px}
+  .stack{display:flex;flex-direction:column;gap:1px;flex:0 0 auto}
   .sm{display:flex;align-items:center;gap:5px;height:20px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:0 6px 0 3px;white-space:nowrap;font-size:12px}
   .sm svg{width:16px;height:16px}
   .big:hover:not(:disabled),.sm:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
@@ -185,6 +186,20 @@
   #zoomSel{height:20px;border:1px solid var(--line);background:#fff;width:92px}
   #zoomRange{width:110px}
   #dims{color:var(--muted);margin-right:8px}
+  #stMaker{color:#8a1a26;font-weight:600;letter-spacing:.2px;white-space:nowrap}
+  /* 시작 화면 — 켤 때 잠깐(누르면 바로 닫힘, 아래 화면은 막지 않음) */
+  #splash{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(40,40,40,.25);pointer-events:none;transition:opacity .5s}
+  #splash.off{opacity:0}
+  #splash .card{width:440px;max-width:92vw;background:#fff;border-radius:6px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;text-align:center}
+  #splash .top{background:linear-gradient(135deg,#c8102e,#8a0c22);color:#fff;padding:28px 20px 22px}
+  #splash .top img{width:84px;height:84px;display:block;margin:0 auto 10px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.3))}
+  #splash .top b{display:block;font-size:26px;letter-spacing:1px}
+  #splash .top small{opacity:.85}
+  #splash .co{padding:18px 20px 6px;font-size:22px;font-weight:700;color:#222;letter-spacing:2px}
+  #splash .co2{color:#777;font-size:12px;padding-bottom:16px}
+  #splash .bar{height:4px;background:#eee}
+  #splash .bar i{display:block;height:100%;width:0;background:#c8102e;animation:spl 1.5s ease-out forwards}
+  @keyframes spl{to{width:100%}}
 
   #toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:rgba(30,30,30,.9);color:#fff;padding:8px 14px;border-radius:4px;z-index:60;display:none;max-width:80%;text-align:center}
   #modal{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:70}
@@ -215,19 +230,19 @@
   .rmenu.on{display:flex}
   .rmenu button,.ctxm button{border:0;background:none;text-align:left;padding:6px 14px;cursor:pointer;font-size:12px;white-space:nowrap}
   .rmenu button:hover,.ctxm button:hover{background:var(--hot)}
-  .rmenu.stamps{display:none;grid-template-columns:repeat(3,auto);gap:4px;padding:6px;min-width:0}
+  .rmenu.stamps{display:none;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px;min-width:0}
   .rmenu.stamps.on{display:grid}
   .rmenu .stp{border:2px solid #e5262e;border-radius:5px;color:#e5262e;font-weight:700;text-align:center;padding:4px 10px}
   .ctxm{position:fixed;z-index:80;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:flex;flex-direction:column;padding:3px 0;min-width:170px}
   .ctxm hr{border:0;border-top:1px solid #e3e3e3;margin:3px 0}
   .stack.icos{flex-direction:row;flex-wrap:wrap;width:78px}
-  .zgrp{display:flex;flex-direction:column;gap:2px;padding-top:2px}
+  .zgrp{display:flex;flex-direction:column;gap:1px;padding-top:1px}
   .zrow{display:flex;align-items:center;gap:1px}
-  .zrow .ico,.stack .ico{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:0}
+  .zrow .ico,.stack .ico{display:inline-flex;align-items:center;justify-content:center;width:24px;height:20px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:0}
   .ico svg{width:17px;height:17px}
   .ico:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
   .ico.on{background:#f8d77e;border-color:#c9a23e}.ico:disabled{opacity:.35}
-  .zsel{height:21px;width:96px;border:1px solid #aaa;background:#fff;font-size:12px}
+  .zsel{height:20px;width:96px;border:1px solid #aaa;background:#fff;font-size:12px}
   .npg{width:70px;height:21px;border:1px solid #aaa;text-align:center;font-size:12px}
   .th.ps .box{outline:3px solid #2b6cb0;outline-offset:1px}
   #thumbs:focus{outline:0}
@@ -397,6 +412,8 @@
     <button class="qb" data-cmd="next" title="다음 페이지 (→)">▶</button>
     <button class="qb" data-cmd="last" title="마지막 페이지 (End)">⏭</button>
     <div class="grow"></div>
+    <span id="stMaker" title="제작사">ⓒ 한일특장(주) · 한일 PDF 리더</span>
+    <div class="grow"></div>
     <span id="dims"></span>
     <button class="qb" data-cmd="zoomOut" title="축소 (Ctrl+-)">－</button>
     <select id="zoomSel">
@@ -430,6 +447,12 @@
   <div class="bsmaker">한일 PDF 리더<br>한일특장(주)</div>
 </div><div id="bsPanel"></div></div>
 
+<div id="splash"><div class="card">
+  <div class="top"><img id="splashIcon" alt=""><b>한일 PDF 리더</b><small id="splashVer"></small></div>
+  <div class="co">한일특장(주)</div>
+  <div class="co2">PDF 보기 · 찾기 · 주석 · 페이지 구성</div>
+  <div class="bar"><i></i></div>
+</div></div>
 <div id="toast"></div>
 <div id="modal"><div class="box"><div class="mh" id="mTitle"></div><div class="mb" id="mBody"></div><div class="mf" id="mFoot"></div></div></div>
 <div id="printArea"></div>

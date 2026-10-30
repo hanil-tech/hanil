@@ -380,6 +380,7 @@ function onUp(d, i, e) {
     d.ed.objs = d.ed.objs.filter((x) => x !== o); sel = null;
     redrawPage(d, i);
     if (o.w > 4 && o.h > 4) (o.snap === 'crop' ? A.cropBox : A.snapshot)(d, i, [o.x, o.y, o.w, o.h]);
+    else if (o.snap === 'snap') A.snapshotView(d);           //  끌지 않고 한 번 누르면 → 보이는 화면 전체
     return;
   }
   if (dr.mode === 'create') {
