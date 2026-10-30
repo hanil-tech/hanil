@@ -100,7 +100,18 @@
   .ltabs{display:flex;border-bottom:1px solid var(--line2);flex:0 0 auto}
   .ltabs button{flex:1;border:0;background:#f7f7f7;cursor:pointer;padding:4px 0;border-bottom:2px solid transparent}
   .ltabs button.on{background:#fff;border-bottom-color:var(--acc);font-weight:600}
-  #thumbs,#outline{flex:1;overflow:auto;min-height:0}
+  #thumbs,#outline,#comments{flex:1;overflow:auto;min-height:0}
+  .bmbar{display:flex;gap:1px;padding:3px;border-bottom:1px solid var(--line2);position:sticky;top:-4px;background:#fff;z-index:1}
+  .bmbar button{flex:1;border:1px solid transparent;background:none;cursor:pointer;padding:2px 0;border-radius:2px}
+  .bmbar button:hover{background:var(--hot);border-color:var(--hotline)}
+  .ol.sel{background:#9dc3f0}
+  .cmh{padding:4px 6px;background:#f1f1f1;font-weight:600;font-size:12px;position:sticky;top:0}
+  .cmr{display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:pointer;font-size:12px;border-bottom:1px solid #f3f3f3}
+  .cmr:hover{background:var(--sel)}
+  .cmr i{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid rgba(0,0,0,.2)}
+  .cmr b{font-weight:600;white-space:nowrap}
+  .cmr span{color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cbrow{display:flex;align-items:center;gap:6px;padding:3px 2px}.cbrow span{flex:1}.cbrow button{border:1px solid #ccc;background:#fafafa;cursor:pointer}
   #thumbs{padding:8px 0;background:#f4f4f4}
   .th{margin:0 auto 10px;width:122px;text-align:center;cursor:pointer;font-size:11px;color:#555}
   .th .box{background:#fff;border:1px solid #bbb;margin:0 auto 3px;display:flex;align-items:center;justify-content:center;overflow:hidden}
@@ -330,8 +341,11 @@
     <button class="rt on" data-rt="home">홈(H)</button>
     <button class="rt" data-rt="view">보기(V)</button>
     <button class="rt" data-rt="edit">주석(C)</button>
+    <button class="rt" data-rt="prot">보호(P)</button>
     <button class="rt" data-rt="org">구성(O)</button>
     <button class="rt" data-rt="conv">변환(V)</button>
+    <button class="rt" data-rt="review">리뷰(R)</button>
+    <button class="rt" data-rt="bm">책갈피</button>
     <button class="rt" data-rt="help">도움말(H)</button>
     <button class="rt fmt" data-rt="fmt" id="fmtTab" style="display:none"><small id="fmtTool">도구</small>형식</button>
     <div class="grow"></div>
@@ -347,9 +361,10 @@
   <div id="main">
     <div id="left" class="pane">
       <div class="phd"><span>탐색</span><button class="x" data-cmd="leftPane" title="닫기">×</button></div>
-      <div class="ltabs"><button data-lt="thumbs" class="on">페이지</button><button data-lt="outline">책갈피</button></div>
+      <div class="ltabs"><button data-lt="thumbs" class="on">페이지</button><button data-lt="outline">책갈피</button><button data-lt="comments">주석</button></div>
       <div id="thumbs"><div class="empty">문서가 없습니다</div></div>
       <div id="outline" style="display:none"><div class="empty">문서가 없습니다</div></div>
+      <div id="comments" style="display:none"></div>
     </div>
 
     <div id="center">
@@ -429,6 +444,7 @@
   <button data-bs="open">열기</button>
   <button data-cmd="save" data-need>저장(S)</button>
   <button data-cmd="saveAs" data-need>다른 이름으로 저장</button>
+  <button data-cmd="saveOpt" data-need>최적화된 상태로 저장</button>
   <hr>
   <button data-cmd="newDoc">새 문서(N)</button>
   <hr>

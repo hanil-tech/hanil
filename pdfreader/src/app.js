@@ -4,7 +4,7 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { pageRaw, prepare, searchRaw, snippet } from './search.js';
 import * as EDIT from './edit.js';
-import { PDFDocument, degrees, StandardFonts, rgb as pdfRgb } from 'pdf-lib';
+import { PDFDocument, degrees, StandardFonts, rgb as pdfRgb, PDFName, PDFDict, PDFArray, PDFRef, PDFNumber, PDFRawStream, PDFString, PDFHexString } from 'pdf-lib';
 
 const { getDocument, TextLayer, PDFWorker, PDFDateString } = pdfjsLib;
 const $ = (s, r = document) => r.querySelector(s);
@@ -405,6 +405,7 @@ async function drawLinks(d, i, pg, vp) {
   try { anns = await pg.getAnnotations({ intent: 'display' }); } catch { return; }
   for (const a of anns) {
     if (a.subtype !== 'Link' || !(a.url || a.unsafeUrl || a.dest)) continue;
+    if (d.ed && d.ed.managed.has(a.id)) continue;            //  고치려고 가져온 링크는 아래(우리 것)로
     const [x1, y1, x2, y2] = vp.convertToViewportRectangle(a.rect);
     const l = Math.min(x1, x2), t = Math.min(y1, y2);
     const el = h('div', { class: 'lnk', title: a.url || a.unsafeUrl || '이 문서 안으로 이동' });
@@ -415,6 +416,14 @@ async function drawLinks(d, i, pg, vp) {
       if (a.dest) goDest(d, a.dest);
       else openUrl(a.url || a.unsafeUrl);
     });
+    p.div.append(el);
+  }
+  //  이 리더에서 넣은 링크
+  for (const o of (d.ed ? d.ed.objs : []).filter((x) => x.p === i && x.t === 'link')) {
+    const el = h('div', { class: 'lnk', title: o.url || (o.page + 1) + '쪽으로' });
+    Object.assign(el.style, { left: o.x / p.w * 100 + '%', top: o.y / p.h * 100 + '%', width: o.w / p.w * 100 + '%', height: o.h / p.h * 100 + '%' });
+    if (d.rot) continue;
+    el.addEventListener('click', (e) => { if (dragMoved) return; e.stopPropagation(); if (o.url) openUrl(o.url); else goPage(o.page + 1); });
     p.div.append(el);
   }
 }
@@ -882,27 +891,34 @@ async function buildOutline() {
   box.innerHTML = '';
   const d = cur;
   if (!d) { box.append(h('div', { class: 'empty', text: '문서가 없습니다' })); return; }
-  let ol = null;
-  try { ol = await d.pdf.getOutline(); } catch {}
+  const bm = await loadBookmarks(d);
   if (cur !== d) return;
-  if (!ol || !ol.length) { box.append(h('div', { class: 'empty', text: '책갈피가 없습니다' })); return; }
+  //  위쪽 단추줄(책갈피 고치기)
+  const bar = h('div', { class: 'bmbar' });
+  for (const [t, op, tip] of [['＋', 'add', '지금 쪽에 책갈피 추가'], ['✎', 'rename', '이름 바꾸기'], ['🗑', 'del', '지우기'], ['▲', 'up', '위로'], ['▼', 'down', '아래로'], ['→', 'in', '안으로(하위)'], ['←', 'out', '밖으로'], ['⇲', 'here', '지금 쪽으로 다시 걸기']])
+    bar.append(h('button', { text: t, title: tip, onclick: () => bmEdit(op) }));
+  box.append(bar);
+  if (!bm.length) { box.append(h('div', { class: 'empty', text: '책갈피가 없습니다 — ＋ 로 지금 쪽에 답니다' })); return; }
   const add = (items, parent, depth) => {
     for (const it of items) {
-      const kids = it.items && it.items.length ? h('div', { class: 'olk' + (depth === 0 && items.length < 12 ? ' open' : '') }) : null;
-      const tw = h('i', { text: kids ? (kids.classList.contains('open') ? '▾' : '▸') : '' });
-      const row = h('div', { class: 'ol', style: 'padding-left:' + (4 + depth * 14) + 'px;' + (it.bold ? 'font-weight:700;' : '') + (it.italic ? 'font-style:italic' : ''), title: it.title }, tw, document.createTextNode(it.title));
-      tw.onclick = (e) => { if (!kids) return; e.stopPropagation(); kids.classList.toggle('open'); tw.textContent = kids.classList.contains('open') ? '▾' : '▸'; };
-      row.onclick = () => { if (it.dest) goDest(d, it.dest); else if (it.url) openUrl(it.url); };
+      const kids = it.kids && it.kids.length ? h('div', { class: 'olk' + (it.open ? ' open' : '') }) : null;
+      const tw = h('i', { text: kids ? (it.open ? '▾' : '▸') : '' });
+      const row = h('div', { class: 'ol' + (bmSel === it ? ' sel' : ''), style: 'padding-left:' + (4 + depth * 14) + 'px', title: it.title + (it.page != null ? ' — ' + (it.page + 1) + '쪽' : '') }, tw, document.createTextNode(it.title));
+      tw.onclick = (e) => { if (!kids) return; e.stopPropagation(); it.open = !it.open; kids.classList.toggle('open', it.open); tw.textContent = it.open ? '▾' : '▸'; };
+      row.onclick = () => { bmSel = it; $$('.ol.sel', box).forEach((x) => x.classList.remove('sel')); row.classList.add('sel'); if (it.page != null) goPage(it.page + 1); else if (it.url) openUrl(it.url); };
+      row.ondblclick = () => { bmSel = it; bmEdit('rename'); };
       parent.append(row);
-      if (kids) { parent.append(kids); add(it.items, kids, depth + 1); }
+      if (kids) { parent.append(kids); add(it.kids, kids, depth + 1); }
     }
   };
-  add(ol, box, 0);
+  add(bm, box, 0);
 }
 $$('.ltabs button').forEach((b) => b.onclick = () => {
   $$('.ltabs button').forEach((x) => x.classList.toggle('on', x === b));
   $('#thumbs').style.display = b.dataset.lt === 'thumbs' ? '' : 'none';
   $('#outline').style.display = b.dataset.lt === 'outline' ? '' : 'none';
+  $('#comments').style.display = b.dataset.lt === 'comments' ? '' : 'none';
+  if (b.dataset.lt === 'comments') buildComments();
   if (b.dataset.lt === 'thumbs') markThumb();
 });
 
@@ -939,14 +955,28 @@ function paperName(w, hh) {
 // ───────────────────────── 인쇄 · 저장 ─────────────────────────
 async function printDoc() {
   const d = cur; if (!d) return;
-  if (d.n > 300 && !(await ask('인쇄', d.n + '쪽입니다. 모두 준비하는 데 시간이 걸립니다. 계속할까요?', { ok: '계속' }))) return;
+  const sel = d.psel && d.psel.size > 1 ? targets(d) : null;
+  const html = '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="all" checked> 모든 쪽 (' + d.n + '쪽)</label>'
+    + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="cur"> 지금 쪽 (' + d.cur + '쪽)</label>'
+    + (sel ? '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="sel"> 고른 쪽 ' + sel.length + '개</label>' : '')
+    + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="rng"> 쪽 범위 <input id="prRng" placeholder="예: 1-3, 5" style="width:140px;height:22px"></label>'
+    + '<label style="display:block;margin:8px 0 0"><input type="checkbox" id="prAnn" checked> 주석(도형·글·스탬프)도 인쇄</label>';
+  const pend = ask('인쇄', html, { ok: '인쇄…' });
+  let opt = null;
+  $('#mFoot button').addEventListener('click', () => { const r = $('input[name=pr]:checked'); opt = { r: r && r.value, rng: $('#prRng').value, ann: $('#prAnn').checked }; }, { capture: true });
+  if (!(await pend) || !opt) return;
+  const pages = opt.r === 'cur' ? [d.cur - 1] : opt.r === 'sel' ? sel : opt.r === 'rng' ? parseRange(opt.rng, d.n) : [...Array(d.n).keys()];
+  if (!pages.length) return toast('쪽 범위를 확인하세요');
+  if (pages.length > 300 && !(await ask('인쇄', pages.length + '쪽입니다. 모두 준비하는 데 시간이 걸립니다. 계속할까요?', { ok: '계속' }))) return;
   const area = $('#printArea');
   area.innerHTML = '';
   let stop = false;
   ask('인쇄 준비', '<span id="prMsg">페이지 그리는 중…</span>', { ok: '그만', cancel: null }).then((v) => { if (v !== '__closed') stop = true; });
   const urls = [];
-  for (let i = 1; i <= d.n && !stop; i++) {
-    $('#prMsg') && ($('#prMsg').textContent = '페이지 그리는 중… ' + i + ' / ' + d.n);
+  for (const i0 of pages) {
+    if (stop) break;
+    const i = i0 + 1;
+    $('#prMsg') && ($('#prMsg').textContent = '페이지 그리는 중… ' + (pages.indexOf(i0) + 1) + ' / ' + pages.length);
     const pg = await d.pdf.getPage(i);
     const vp = pg.getViewport({ scale: 150 / 72, rotation: (pg.rotate + d.rot) % 360 });
     const cv = h('canvas', { width: Math.floor(vp.width), height: Math.floor(vp.height) });
@@ -956,7 +986,7 @@ async function printDoc() {
     await pg.render({ canvasContext: ctx, viewport: vp }).promise;
     const sc = 150 / 72, p = d.pages[i - 1], W = p.w, H = p.h;
     const r = { 0: [1, 0, 0, 1, 0, 0], 90: [0, 1, -1, 0, H, 0], 180: [-1, 0, 0, -1, W, H], 270: [0, -1, 1, 0, 0, W] }[d.rot];
-    EDIT.paintCanvas(ctx, d, i - 1, r.map((v) => v * sc));
+    if (opt.ann) EDIT.paintCanvas(ctx, d, i - 1, r.map((v) => v * sc));
     const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
     const u = URL.createObjectURL(blob);
     urls.push(u);
@@ -970,10 +1000,10 @@ async function printDoc() {
 }
 //  💾 저장 — 고친 것이 있으면 표준 주석을 넣은 PDF 를 새로 만든다
 //   윈도우 프로그램: 그 파일에 바로 · 크롬(파일을 「열기」로 연 것): 그 파일에 바로 · 그 밖: 저장할 곳을 묻거나 내려받기
-async function saveDoc(asNew = false) {
+async function saveDoc(asNew = false, transform = null) {
   const d = cur; if (!d) return false;
   let bytes;
-  try { toast('저장 준비 중…', 60000); bytes = await EDIT.buildPdf(d); }
+  try { toast('저장 준비 중…', 60000); bytes = await EDIT.buildPdf(d); if (transform) bytes = await transform(bytes); }
   catch (e) { console.error(e); ask('저장하지 못함', esc(String(e.message || e)), { cancel: null }); return false; }
   const blob = new Blob([bytes], { type: 'application/pdf' });
   let name = d.name;
@@ -1049,6 +1079,35 @@ const I = {
 };
 const svg = (n) => '<svg viewBox="0 0 24 24">' + I[n] + '</svg>';
 Object.assign(I, {
+  poly: '<path d="M4 18L7 5l10 2 3 11z" fill="none" stroke="#e5262e" stroke-width="2" stroke-linejoin="round"/>',
+  polyl: '<path d="M3 18l5-9 5 6 5-10 3 4" fill="none" stroke="#e5262e" stroke-width="2" stroke-linejoin="round"/>',
+  cloud: '<path d="M7 18a3 3 0 0 1-1-5.8A4 4 0 0 1 13 8a4 4 0 0 1 6 3.5 3 3 0 0 1-1 6.5z" fill="none" stroke="#e5262e" stroke-width="2"/>',
+  callout: '<rect x="9" y="3" width="13" height="10" fill="#fff" stroke="#e5262e" stroke-width="1.6"/><path d="M11 13L3 21" stroke="#e5262e" stroke-width="1.8"/><path d="M12 7h7M12 10h5" stroke="#999"/>',
+  mdist: '<path d="M3 12h18M3 8v8M21 8v8" stroke="#2b6cb0" stroke-width="1.8"/>',
+  mperim: '<path d="M4 18L6 6l12 2 2 10" fill="none" stroke="#2b6cb0" stroke-width="1.8" stroke-dasharray="3 2"/>',
+  marea: '<path d="M4 18L6 6l12 2 2 10z" fill="#cfe0f7" stroke="#2b6cb0" stroke-width="1.6"/>',
+  scale: '<rect x="2" y="9" width="20" height="7" fill="#fde7c4" stroke="#8a5a1c"/><path d="M5 9v3M8 9v4M11 9v3M14 9v4M17 9v3M20 9v4" stroke="#8a5a1c"/>',
+  link: '<path d="M10 14a4 4 0 0 1 0-5.6l3-3a4 4 0 0 1 5.6 5.6l-1.5 1.5M14 10a4 4 0 0 1 0 5.6l-3 3A4 4 0 0 1 5.4 13l1.5-1.5" fill="none" stroke="#1a73e8" stroke-width="2"/>',
+  redact: '<rect x="3" y="6" width="18" height="5" fill="#111"/><path d="M3 15h18M3 19h12" stroke="#999" stroke-width="2"/><rect x="2" y="5" width="20" height="7" fill="none" stroke="#e5262e" stroke-width="1.4"/>',
+  redfind: '<rect x="2" y="5" width="12" height="5" fill="#111"/><circle cx="16" cy="15" r="4.5" fill="#fff" stroke="#e5262e" stroke-width="2"/><path d="M19 18l3 3" stroke="#555" stroke-width="2.6"/>',
+  apply: '<rect x="3" y="4" width="18" height="16" fill="#fff" stroke="#555"/><rect x="6" y="8" width="12" height="4" fill="#111"/><path d="M7 16l3 2 6-6" fill="none" stroke="#3b9a3b" stroke-width="2.2"/>',
+  docp: '<path d="M5 2h10l4 4v16H5z" fill="#fff" stroke="#555"/><circle cx="16" cy="16" r="5" fill="#2b6cb0"/><path d="M16 14v5M16 12v.5" stroke="#fff" stroke-width="2"/>',
+  list: '<rect x="3" y="3" width="18" height="18" fill="#fffbe6" stroke="#b08900"/><path d="M6 8h12M6 12h12M6 16h8" stroke="#b08900" stroke-width="1.6"/>',
+  prevA: '<path d="M3 4h18v12H10l-5 4v-4H3z" fill="#ffd84d" stroke="#8a6d00"/><path d="M14 7l-4 3 4 3" fill="none" stroke="#3b9a3b" stroke-width="2"/>',
+  nextA: '<path d="M3 4h18v12H10l-5 4v-4H3z" fill="#ffd84d" stroke="#8a6d00"/><path d="M10 7l4 3-4 3" fill="none" stroke="#3b9a3b" stroke-width="2"/>',
+  csv: '<path d="M5 2h10l4 4v16H5z" fill="#e6f4ea" stroke="#1a7f37"/><text x="12" y="17" text-anchor="middle" font-size="6" font-weight="700" fill="#1a7f37">CSV</text>',
+  flat: '<rect x="3" y="12" width="18" height="8" fill="#ddd" stroke="#555"/><path d="M7 4h10v6H7z" fill="#ffd84d" stroke="#8a6d00"/><path d="M12 10v3" stroke="#555" stroke-width="2"/>',
+  compare: '<path d="M2 3h8v18H2zM14 3h8v18h-8z" fill="#fff" stroke="#555"/><path d="M4 8h4M4 12h4M16 8h4M16 12h4" stroke="#999"/><path d="M4 16h4" stroke="#c8102e" stroke-width="2"/><path d="M16 16h4" stroke="#1a7f37" stroke-width="2"/>',
+  bmAdd: '<path d="M6 2h12v20l-6-5-6 5z" fill="#2b6cb0"/><path d="M12 7v6M9 10h6" stroke="#fff" stroke-width="2"/>',
+  bmRen: '<path d="M6 2h12v20l-6-5-6 5z" fill="#2b6cb0"/><path d="M9 12l5-5 2 2-5 5H9z" fill="#fff"/>',
+  bmDel: '<path d="M6 2h12v20l-6-5-6 5z" fill="#2b6cb0"/><path d="M9 7l6 6M15 7l-6 6" stroke="#fff" stroke-width="2"/>',
+  bmAuto: '<path d="M3 2h8v15l-4-3-4 3zM13 2h8v15l-4-3-4 3z" fill="#2b6cb0"/><path d="M5 20h14" stroke="#555" stroke-width="2"/>',
+  hf: '<path d="M5 2h14v20H5z" fill="#fff" stroke="#555"/><path d="M7 5h10M7 19h10" stroke="#2b6cb0" stroke-width="2"/><path d="M8 10h8M8 13h8" stroke="#ccc"/>',
+  bates: '<path d="M5 2h14v20H5z" fill="#fff" stroke="#555"/><text x="12" y="19" text-anchor="middle" font-size="5" font-weight="700" fill="#c8102e">000123</text>',
+  combine: '<path d="M2 3h8v10H2zM14 3h8v10h-8z" fill="#fff" stroke="#555"/><path d="M6 13v3h12v-3M12 16v5" fill="none" stroke="#2b6cb0" stroke-width="2"/>',
+  split: '<path d="M7 2h10v10H7z" fill="#fff" stroke="#555"/><path d="M12 12v3M12 15l-6 4M12 15l6 4" fill="none" stroke="#2b6cb0" stroke-width="2"/>',
+  tts: '<path d="M3 9h4l5-4v14l-5-4H3z" fill="#2b6cb0"/><path d="M15 8a5 5 0 0 1 0 8M18 5a9 9 0 0 1 0 14" fill="none" stroke="#2b6cb0" stroke-width="1.8"/>',
+  opt: '<path d="M5 2h10l4 4v16H5z" fill="#fff" stroke="#555"/><path d="M8 17l3-6 3 3 3-7" fill="none" stroke="#1a7f37" stroke-width="2"/>',
   snap: '<rect x="2" y="6" width="20" height="14" rx="2" fill="#6b7d93"/><circle cx="12" cy="13" r="4.2" fill="#dfe8f3" stroke="#fff" stroke-width="1.4"/><rect x="8" y="3.5" width="8" height="3" fill="#6b7d93"/>',
   clip: '<rect x="4" y="4" width="16" height="18" rx="1.5" fill="#d9a35b" stroke="#8a5a1c"/><rect x="7" y="2" width="10" height="5" rx="1" fill="#eee" stroke="#777"/><rect x="7" y="9" width="10" height="10" fill="#fff"/>',
   cut: '<circle cx="7" cy="18" r="3" fill="none" stroke="#555" stroke-width="2"/><circle cx="17" cy="18" r="3" fill="none" stroke="#555" stroke-width="2"/><path d="M9 16L17 3M15 16L7 3" stroke="#555" stroke-width="2"/>',
@@ -1097,16 +1156,19 @@ const RIB = {
     ['확대/축소', [['big', 'actual', '실제 크기', 'actual', 'Ctrl+1'], ['sm', 'page', '페이지에 맞춤', 'page', 'Ctrl+0'], ['sm', 'width', '너비에 맞춤', 'width', 'Ctrl+2'], ['sm', 'zoomIn', '확대', 'zin', 'Ctrl++'], ['sm', 'zoomOut', '축소', 'zout', 'Ctrl+-']]],
     ['', [['menu', 'mVRot', '보기 회전', 'rr', '화면만 돌림(저장 안 됨)', [['오른쪽으로', 'rotR'], ['왼쪽으로', 'rotL']]]]],
     ['페이지 표시', [['big', 'one', '연속', 'one', ''], ['big', 'two', '두 페이지', 'two', '']]],
-    ['창', [['sm', 'leftPane', '탐색 창', 'left', 'F4'], ['sm', 'searchPane', '검색 창', 'search', ''], ['sm', 'propsPane', '속성 창', 'props', ''], ['big', 'full', '전체 화면', 'full', 'F11']]],
+    ['창', [['sm', 'leftPane', '탐색 창', 'left', 'F4'], ['sm', 'searchPane', '검색 창', 'search', ''], ['sm', 'propsPane', '속성 창', 'props', ''], ['big', 'full', '전체 화면', 'full', 'F11'], ['big', 'tts', '읽어 주기', 'tts', '지금 쪽부터 소리로 · 다시 누르면 멈춤']]],
   ],
   edit: [
     ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
     ['', [['big', 'tSel', '주석 선택', 'sel', '옮기기·크기·지우기']]],
-    ['텍스트', [['sm', 'tType', '타자기', 'type', ''], ['sm', 'tText', '텍스트 상자', 'tText', '']]],
+    ['텍스트', [['sm', 'tType', '타자기', 'type', ''], ['sm', 'tText', '텍스트 상자', 'tText', ''], ['sm', 'tCallout', '설명선', 'callout', '고리점을 누르고 글상자 자리로 끌기']]],
     ['참고', [['sm', 'tNote', '스티커 메모', 'note', '']]],
     ['텍스트 마크업', [['sm', 'mhl', '강조 표시', 'hlT', '글자를 끌어 고르기'], ['sm', 'mul', '밑줄', 'ulT', ''], ['sm', 'mso', '취소선', 'soT', '']]],
     ['그리기', [['sm', 'tLine', '선', 'tLine', 'Shift: 45°'], ['sm', 'tArrow', '화살표', 'tArrow', ''], ['sm', 'tRect', '사각형', 'tRect', 'Shift: 정사각형'], ['sm', 'tEll', '원', 'tEll', 'Shift: 정원'],
-      ['sm', 'tPen', '연필', 'tPen', ''], ['sm', 'tHi', '형광펜', 'tHi', ''], ['sm', 'tWhite', '가리기', 'tWhite', '흰 상자로 덮기'], ['sm', 'tErase', '지우개', 'eraser', '누른 도형 지우기']]],
+      ['sm', 'tPen', '연필', 'tPen', ''], ['sm', 'tHi', '형광펜', 'tHi', ''], ['sm', 'tWhite', '가리기', 'tWhite', '흰 상자로 덮기'], ['sm', 'tErase', '지우개', 'eraser', '누른 도형 지우기'],
+      ['sm', 'tPoly', '다각형', 'poly', '누를 때마다 꼭짓점 · 두 번 누르거나 Enter 로 끝'], ['sm', 'tPolyline', '꺾은선', 'polyl', ''], ['sm', 'tCloud', '구름', 'cloud', '고칠 곳을 구름으로 둘러싸기']]],
+    ['측정', [['sm', 'tMDist', '거리', 'mdist', '두 점 사이(mm)'], ['sm', 'tMPerim', '둘레', 'mperim', ''], ['sm', 'tMArea', '면적', 'marea', ''], ['sm', 'mScale', '축척', 'scale', '도면 축척 1:N · 선을 고르고 부르면 실제 길이로 맞춤']]],
+    ['링크', [['big', 'tLink', '링크', 'link', '네모를 끌고 웹 주소나 쪽 번호']]],
     ['', [['stamp'], ['symbol'], ['big', 'tImg', '이미지', 'tImg', '']]],
     ['모양', 'style'],
     ['고치기', [['sm', 'undo', '실행 취소', 'undo', 'Ctrl+Z'], ['sm', 'redo', '다시 실행', 'redo', 'Ctrl+Y'], ['sm', 'del', '삭제', 'del', 'Delete'],
@@ -1118,13 +1180,28 @@ const RIB = {
     ['페이지', [['menu', 'mIns', '삽입', 'ins', '', [['파일에서 페이지…', 'pInsFile'], ['빈 페이지', 'pInsBlank'], ['이미지에서…', 'pInsImg']]], ['big', 'pDel', '삭제', 'pdel', 'Delete(페이지 칸에서)'], ['big', 'pExt', '페이지 추출', 'ext', '고른 페이지를 새 PDF 로'],
       ['sm', 'pDup', '페이지 복제', 'dup', ''], ['sm', 'pCopy', '복사', 'copy', '페이지 칸에서 Ctrl+C'], ['sm', 'pCut', '잘라내기', 'cut', '페이지 칸에서 Ctrl+X'], ['sm', 'pPaste', '붙여넣기', 'paste', '고른 페이지 뒤에 · 다른 문서에도'], ['sm', 'pUp', '앞으로', 'up', ''], ['sm', 'pDown', '뒤로', 'down', '']]],
     ['페이지 변환', [['menu', 'mPRot', '회전', 'rr', '', [['오른쪽 90°', 'pRotR'], ['왼쪽 90°', 'pRotL'], ['180°', 'pRot180']]], ['big', 'tCrop', '자르기', 'crop', '남길 부분을 네모로 끌기']]],
-    ['페이지 표시', [['big', 'pWm', '워터마크', 'wm', ''], ['big', 'pNum', '페이지 번호', 'pnum', '']]],
+    ['페이지 표시', [['big', 'pWm', '워터마크', 'wm', ''], ['big', 'pNum', '페이지 번호', 'pnum', ''], ['big', 'pHF', '머리글·바닥글', 'hf', '날짜·파일 이름·쪽 번호(한글 됨)'], ['big', 'pBates', 'Bates 번호', 'bates', '문서 번호 매기기']]],
     ['', [['big', 'pUndo', '되돌리기', 'pundo', '페이지 바꾼 것 되돌리기']]],
+  ],
+  prot: [
+    ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
+    ['교정', [['big', 'tRedact', '교정 표시', 'redact', '지울 곳을 네모로'], ['big', 'rdFind', '찾아서 교정', 'redfind', '글자를 찾아 모두 표시'], ['big', 'rdApply', '교정 적용', 'apply', '표시한 곳을 검게 영구 삭제']]],
+    ['문서', [['big', 'propsEdit', '문서 속성', 'docp', '제목·작성자·주제·키워드'], ['big', 'flatten', '주석 평탄화', 'flat', '주석을 페이지 내용으로 굳힘']]],
+  ],
+  review: [
+    ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
+    ['주석', [['big', 'rvList', '주석 목록', 'list', '왼쪽 창에 모든 주석'], ['big', 'rvPrev', '이전', 'prevA', ''], ['big', 'rvNext', '다음', 'nextA', ''], ['big', 'rvCsv', '주석 요약', 'csv', '엑셀(CSV)로'], ['big', 'flatten', '평탄화', 'flat', '']]],
+    ['비교', [['big', 'compare', '문서 비교', 'compare', '두 문서의 글자 차이']]],
+  ],
+  bm: [
+    ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
+    ['만들기', [['big', 'bmAdd', '책갈피 추가', 'bmAdd', '지금 쪽에'], ['big', 'bmChild', '하위 추가', 'bmAdd', '고른 책갈피 아래에'], ['big', 'bmAuto', '페이지마다', 'bmAuto', '쪽마다 하나씩(첫 줄 이름)']]],
+    ['고치기', [['sm', 'bmRen', '이름 바꾸기', 'bmRen', ''], ['sm', 'bmDel', '지우기', 'bmDel', ''], ['sm', 'bmHere', '지금 쪽으로', 'next', ''], ['sm', 'bmUp', '위로', 'up', ''], ['sm', 'bmDown', '아래로', 'down', ''], ['sm', 'bmIn', '안으로', 'next', ''], ['sm', 'bmOut', '밖으로', 'prev', '']]],
   ],
   conv: [
     ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
-    ['만들기', [['big', 'newDoc', '공백', 'blank', '빈 A4 문서'], ['big', 'img2pdf', '이미지에서', 'img2pdf', '사진·그림 파일 → PDF']]],
-    ['내보내기', [['big', 'expImg', '이미지로 내보내기', 'expImg', 'PNG·JPEG (여러 쪽은 ZIP)'], ['big', 'pExt', '페이지 추출', 'ext', '']]],
+    ['만들기', [['big', 'newDoc', '공백', 'blank', '빈 A4 문서'], ['big', 'img2pdf', '이미지에서', 'img2pdf', '사진·그림 파일 → PDF'], ['big', 'combine', '파일 결합', 'combine', '여러 PDF 를 하나로']]],
+    ['내보내기', [['big', 'expImg', '이미지로 내보내기', 'expImg', 'PNG·JPEG (여러 쪽은 ZIP)'], ['big', 'pExt', '페이지 추출', 'ext', ''], ['big', 'split', '문서 분할', 'split', 'N쪽마다 나눠 ZIP'], ['big', 'saveOpt', '최적화 저장', 'opt', '파일 크기 줄이기']]],
   ],
   help: [
     ['도움말', [['big', 'keys', '단축키', 'keys', ''], ['big', 'about', '정보', 'help', ''], ['big', 'settings', '환경 설정', 'gear', '']]],
@@ -1238,10 +1315,11 @@ function syncFmtTab() {
   $('#fmtTool').textContent = TOOL_NAMES[tool] || '도구';
   if (!on && ribTab === 'fmt') selectTab('edit');
 }
-const TOOL_NAMES = { edit: '주석 선택', rect: '사각형', ellipse: '원', line: '선', arrow: '화살표', pen: '연필', hilite: '형광펜', white: '가리기', text: '텍스트 상자', type: '타자기', under: '밑줄', sym: '기호', stamp: '스탬프', note: '스티커 메모', snap: '스냅샷', crop: '자르기', erase: '지우개', mhl: '강조 표시', mul: '밑줄', mso: '취소선' };
+const TOOL_NAMES = { polygon: '다각형', polyline: '꺾은선', cloud: '구름', callout: '설명선', mdist: '거리', mperim: '둘레', marea: '면적', link: '링크', redact: '교정 표시', edit: '주석 선택', rect: '사각형', ellipse: '원', line: '선', arrow: '화살표', pen: '연필', hilite: '형광펜', white: '가리기', text: '텍스트 상자', type: '타자기', under: '밑줄', sym: '기호', stamp: '스탬프', note: '스티커 메모', snap: '스냅샷', crop: '자르기', erase: '지우개', mhl: '강조 표시', mul: '밑줄', mso: '취소선' };
 
 
 async function setTool(t) {
+  if (t !== tool) EDIT.finishPoly(false, true);   //  그리던 다각형은 마무리
   if (EDIT.EDIT_TOOLS.includes(t)) {
     if (!cur) { toast('먼저 PDF 를 여세요'); return; }
     if (!(await EDIT.ensureLoaded(cur))) t = 'hand';
@@ -1256,6 +1334,9 @@ async function setTool(t) {
   if (mark) toast('글자를 끌어 고르면 ' + TOOL_NAMES[t] + '이(가) 됩니다');
   if (t === 'snap') toast('📷 네모를 끌면 그 부분 · 한 번 누르면 보이는 화면 전체를 그림으로 복사', 4000);
   if (t === 'crop') toast('남길 부분을 네모로 끄세요');
+  if (['polygon', 'polyline', 'cloud', 'mperim', 'marea'].includes(t)) toast('누를 때마다 꼭짓점 · 두 번 누르거나 Enter 로 끝 · Esc 그만', 4000);
+  if (t === 'callout') toast('가리킬 곳을 누르고 글상자 자리까지 끄세요', 3500);
+  if (t === 'redact') toast('지울 곳을 네모로 끄세요 — 다 표시한 뒤 [교정 적용]', 4000);
   if (t !== 'edit' && !EDIT.EDIT_TOOLS.includes(t)) EDIT.select(null);
   for (const d of docs) EDIT.redrawAll(d);
   syncFmtTab();
@@ -1298,6 +1379,13 @@ const CMD = {
   pCopy: () => copyPages(false), pCut: () => copyPages(true), pPaste: pastePages, pUp: () => movePages(-1), pDown: () => movePages(1),
   pInsFile: insertFromFile, pInsBlank: insertBlank, pInsImg: insertImages, pNum: pageNumbers, pWm: watermark, pUndo: pageUndo,
   newDoc: newBlank, img2pdf, expImg: exportImages, settings: () => settings(),
+  tPoly: () => setTool('polygon'), tPolyline: () => setTool('polyline'), tCloud: () => setTool('cloud'), tCallout: () => setTool('callout'),
+  tMDist: () => setTool('mdist'), tMPerim: () => setTool('mperim'), tMArea: () => setTool('marea'), mScale: () => cur && EDIT.setScale(cur), tLink: () => setTool('link'),
+  tRedact: () => setTool('redact'), rdFind: redactFind, rdApply: redactApply, propsEdit: editProps, flatten: flattenAnnots,
+  rvList: async () => { $('#left').classList.remove('off'); $('.ltabs button[data-lt=comments]').click(); }, rvPrev: () => reviewStep(-1), rvNext: () => reviewStep(1), rvCsv: commentsCsv, compare: compareDocs,
+  bmAdd: () => bmEdit('add'), bmChild: () => bmEdit('addChild'), bmAuto: () => bmEdit('auto'), bmRen: () => bmEdit('rename'), bmDel: () => bmEdit('del'), bmHere: () => bmEdit('here'),
+  bmUp: () => bmEdit('up'), bmDown: () => bmEdit('down'), bmIn: () => bmEdit('in'), bmOut: () => bmEdit('out'),
+  pHF: () => headerFooter(false), pBates: () => headerFooter(true), combine: combineFiles, split: splitDoc, saveOpt: saveOptimized, tts: readAloud,
   exportHtml: () => HOST && HOST.exportHtml && HOST.exportHtml(),
   exit: () => { if (HOST && HOST.exit) HOST.exit(); else window.close(); },
   closeAll: async () => { for (const d of [...docs]) await closeDoc(d); },
@@ -1344,10 +1432,12 @@ function about(keysOnly) {
 }
 
 const TOOL_OF = { tSel: 'edit', tRect: 'rect', tEll: 'ellipse', tLine: 'line', tArrow: 'arrow', tPen: 'pen', tHi: 'hilite', tText: 'text', tSym: 'sym', tWhite: 'white',
-  tType: 'type', tNote: 'note', tStamp: 'stamp', tSnap: 'snap', tCrop: 'crop', tErase: 'erase', mhl: 'mhl', mul: 'mul', mso: 'mso' };
+  tType: 'type', tNote: 'note', tStamp: 'stamp', tSnap: 'snap', tCrop: 'crop', tErase: 'erase', mhl: 'mhl', mul: 'mul', mso: 'mso',
+  tPoly: 'polygon', tPolyline: 'polyline', tCloud: 'cloud', tCallout: 'callout', tMDist: 'mdist', tMPerim: 'mperim', tMArea: 'marea', tLink: 'link', tRedact: 'redact' };
 const NEED_DOC = ['save', 'saveAs', 'print', 'close', 'closeAll', 'props', 'actual', 'width', 'page', 'zoomIn', 'zoomOut', 'first', 'prev', 'next', 'last', 'rotL', 'rotR',
   'undo', 'redo', 'del', 'dup', 'oRot', 'oRotL', 'oCopy', 'oCut', 'oPaste', 'tImg', 'pRotR', 'pRotL', 'pRot180', 'pDel', 'pExt', 'pDup', 'pCopy', 'pCut', 'pPaste', 'pUp', 'pDown',
-  'pInsFile', 'pInsBlank', 'pInsImg', 'pNum', 'pWm', 'pUndo', 'expImg'];
+  'pInsFile', 'pInsBlank', 'pInsImg', 'pNum', 'pWm', 'pUndo', 'expImg', 'mScale', 'rdFind', 'rdApply', 'propsEdit', 'flatten', 'rvList', 'rvPrev', 'rvNext', 'rvCsv', 'compare',
+  'bmAdd', 'bmChild', 'bmAuto', 'bmRen', 'bmDel', 'bmHere', 'bmUp', 'bmDown', 'bmIn', 'bmOut', 'pHF', 'pBates', 'split', 'saveOpt', 'tts'];
 function updateUi() {
   const has = !!cur;
   $$('[data-cmd]').forEach((b) => {
@@ -1357,6 +1447,7 @@ function updateUi() {
     if (c === 'fwd') b.disabled = !has || !cur.fwd.length;
     if (c === 'hand' || c === 'select') b.classList.toggle('on', tool === c);
     if (TOOL_OF[c]) b.classList.toggle('on', tool === TOOL_OF[c]);
+    if (c === 'tts') b.classList.toggle('on', ttsOn);
     if (NEED_DOC.includes(c) || TOOL_OF[c]) b.disabled = !has;
     if (c === 'one' || c === 'two') b.classList.toggle('on', twoPage === (c === 'two'));
     if (c === 'width' || c === 'page') b.classList.toggle('on', has && cur.fit === c);
@@ -2131,11 +2222,495 @@ function settings() {
   show(0);
 }
 
+
+// ═════════════════════════ 상용 편집기 기능(리뷰·책갈피·보호·머리글/바닥글·결합·분할·비교·읽어 주기…) ═════════════════════════
+const NN = (s) => PDFName.of(s);
+const TYPE_NAMES = { rect: '사각형', ellipse: '원', line: '선', arrow: '화살표', pen: '연필', hilite: '형광펜', white: '가리기', text: '글상자', sym: '기호', stamp: '스탬프', note: '스티커 메모', image: '이미지',
+  callout: '설명선', link: '링크', redact: '교정 표시' };
+function objName(o) {
+  if (o.t === 'mark') return { hl: '강조 표시', ul: '밑줄', so: '취소선' }[o.kind];
+  if (o.t === 'poly') return o.meas === 'area' ? '면적' : o.meas === 'perim' ? '둘레' : { polygon: '다각형', polyline: '꺾은선', cloud: '구름' }[o.kind];
+  if (o.meas === 'dist') return '거리';
+  return TYPE_NAMES[o.t] || o.t;
+}
+function objText(o) {
+  if (o.meas) return EDIT.measLabel(o);
+  if (o.t === 'link') return o.url || (o.page != null ? (o.page + 1) + '쪽으로' : '');
+  return o.text || o.sym || '';
+}
+const objsSorted = (d) => [...((d.ed && d.ed.objs) || [])].sort((a, b) => a.p - b.p || EDIT.bbox(a)[1] - EDIT.bbox(b)[1] || EDIT.bbox(a)[0] - EDIT.bbox(b)[0]);
+function gotoObj(d, o) {
+  const p = d.pages[o.p];
+  goPage(o.p + 1, { y: EDIT.bbox(o)[1] * scaleOf(d) });
+  setTool('edit').then(() => { EDIT.select(d, o); });
+  void p;
+}
+
+// ── 주석 목록(왼쪽 창 「주석」) · 이전/다음 · 요약(엑셀) ──
+async function buildComments() {
+  const box = $('#comments');
+  if (!box || box.style.display === 'none') return;
+  box.innerHTML = '';
+  const d = cur;
+  if (!d) { box.append(h('div', { class: 'empty', text: '문서가 없습니다' })); return; }
+  if (!(await EDIT.ensureLoaded(d))) return;
+  const list = objsSorted(d);
+  if (!list.length) { box.append(h('div', { class: 'empty', text: '주석이 없습니다' })); return; }
+  let pg = -1;
+  for (const o of list) {
+    if (o.p !== pg) { pg = o.p; box.append(h('div', { class: 'cmh', text: (pg + 1) + '쪽' })); }
+    const row = h('div', { class: 'cmr', title: objText(o) }, h('i', { style: 'background:' + (o.sc || o.fc || '#999') }), h('b', { text: objName(o) }), h('span', { text: objText(o) }));
+    row.onclick = () => gotoObj(d, o);
+    box.append(row);
+  }
+}
+function reviewStep(dir) {
+  const d = cur; if (!d || !d.ed) return toast('주석이 없습니다');
+  const list = objsSorted(d);
+  if (!list.length) return toast('주석이 없습니다');
+  const s = EDIT.selected();
+  let k = s ? list.indexOf(s) + dir : (dir > 0 ? 0 : list.length - 1);
+  k = (k + list.length) % list.length;
+  gotoObj(d, list[k]);
+}
+async function commentsCsv() {
+  const d = cur; if (!d || !(await EDIT.ensureLoaded(d))) return;
+  const q = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const rows = [['쪽', '종류', '내용', '색', '작성자'].map(q).join(',')];
+  for (const o of objsSorted(d)) rows.push([o.p + 1, objName(o), objText(o), o.sc || o.fc || '', EDIT.style.author || MAKER].map(q).join(','));
+  download(new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv' }), d.name.replace(/\.pdf$/i, '') + ' 주석 요약.csv');
+}
+
+// ── 주석 평탄화 — 주석 모양(AP)을 페이지 내용으로 굳힌다(다른 사람이 못 옮기고 못 지움) ──
+function flattenDoc(doc) {
+  const ctx = doc.context;
+  let n = 0;
+  const num = (v, def) => { v = v instanceof PDFRef ? ctx.lookup(v) : v; return v instanceof PDFNumber ? v.asNumber() : def; };
+  const arr = (v) => { v = v instanceof PDFRef ? ctx.lookup(v) : v; return v instanceof PDFArray ? v.asArray().map((x) => num(x, 0)) : null; };
+  for (const page of doc.getPages()) {
+    const annots = page.node.Annots();
+    if (!annots) continue;
+    let wrapped = false;
+    for (let k = annots.size() - 1; k >= 0; k--) {
+      const ref = annots.get(k);
+      const a = ref instanceof PDFRef ? ctx.lookup(ref) : ref;
+      if (!(a instanceof PDFDict)) continue;
+      const sub = String(a.get(NN('Subtype')) || '').slice(1);
+      if (sub === 'Popup') { annots.remove(k); continue; }
+      if (['Link', 'Widget', 'Redact'].includes(sub)) continue;
+      if (num(a.get(NN('F')), 0) & 2) { annots.remove(k); continue; }
+      const ap = a.get(NN('AP')) instanceof PDFRef ? ctx.lookup(a.get(NN('AP'))) : a.get(NN('AP'));
+      if (!(ap instanceof PDFDict)) continue;
+      let nref = ap.get(NN('N'));
+      let st = nref instanceof PDFRef ? ctx.lookup(nref) : nref;
+      if (st instanceof PDFDict && !(st instanceof PDFRawStream)) { const as = a.get(NN('AS')); nref = as ? st.get(as) : null; st = nref instanceof PDFRef ? ctx.lookup(nref) : nref; }
+      if (!(st instanceof PDFRawStream)) continue;
+      if (!(nref instanceof PDFRef)) nref = ctx.register(st);
+      const bb = arr(st.dict.get(NN('BBox'))), m = arr(st.dict.get(NN('Matrix'))) || [1, 0, 0, 1, 0, 0], r = arr(a.get(NN('Rect')));
+      if (!bb || !r) continue;
+      const pts = [[bb[0], bb[1]], [bb[2], bb[1]], [bb[0], bb[3]], [bb[2], bb[3]]].map(([x, y]) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+      const tx0 = Math.min(...pts.map((p) => p[0])), ty0 = Math.min(...pts.map((p) => p[1])), tx1 = Math.max(...pts.map((p) => p[0])), ty1 = Math.max(...pts.map((p) => p[1]));
+      const rx0 = Math.min(r[0], r[2]), ry0 = Math.min(r[1], r[3]), rx1 = Math.max(r[0], r[2]), ry1 = Math.max(r[1], r[3]);
+      const sx = (rx1 - rx0) / Math.max(1e-6, tx1 - tx0), sy = (ry1 - ry0) / Math.max(1e-6, ty1 - ty0);
+      page.node.normalize();
+      const name = page.node.newXObject('Fl', nref);
+      let gs = '';
+      const ca = num(a.get(NN('CA')), 1);
+      if (ca < 1) gs = page.node.newExtGState('GFl', ctx.register(ctx.obj({ Type: 'ExtGState', CA: ca, ca }))).toString() + ' gs ';
+      if (!wrapped) { page.node.Contents().insert(0, ctx.register(ctx.stream('q\n'))); page.node.addContentStream(ctx.register(ctx.stream('\nQ\n'))); wrapped = true; }
+      const f = (v) => (Math.round(v * 10000) / 10000).toString();
+      page.node.addContentStream(ctx.register(ctx.stream('q ' + gs + [sx, 0, 0, sy, rx0 - tx0 * sx, ry0 - ty0 * sy].map(f).join(' ') + ' cm ' + name.toString() + ' Do Q\n')));
+      annots.remove(k);
+      n++;
+    }
+  }
+  return n;
+}
+async function flattenAnnots() {
+  const d = cur; if (!d) return;
+  if (!(await ask('주석 평탄화', '모든 주석(도형·글·스탬프·이미지·강조…)을 <b>페이지 내용으로 굳힙니다</b>.<br>보이는 모양은 그대로이고, 다른 사람이 옮기거나 지울 수 없게 됩니다.<br><small>링크·양식·교정 표시는 그대로 둡니다. [되돌리기]로 되돌릴 수 있습니다.</small>', { ok: '평탄화' }))) return;
+  let n = 0;
+  await pageOp(d, '주석 평탄화', (doc) => { n = flattenDoc(doc); });
+  toast('주석 ' + n + '개를 페이지에 굳혔습니다 (저장해야 파일에 남습니다)');
+}
+
+// ── 교정(영구 삭제) — 표시한 네모 안을 검게 지우고, 그 쪽은 그림으로 바꿔 글자까지 없앤다 ──
+async function textRects(d, i, rs, re) {
+  const t = await getText(d, i);
+  const vp = (await d.pdf.getPage(i + 1)).getViewport({ scale: 1 });
+  const byItem = new Map();
+  for (let k = rs; k < re; k++) { const it = t.it[k]; if (it < 0) continue; const r = byItem.get(it) || [Infinity, -Infinity]; r[0] = Math.min(r[0], t.off[k]); r[1] = Math.max(r[1], t.off[k] + 1); byItem.set(it, r); }
+  const out = [];
+  for (const [it, [a, b]] of byItem) {
+    const item = t.tc.items[it], len = Math.max(1, item.str.length), [, , , , e, f] = item.transform;
+    const hgt = item.height || Math.hypot(item.transform[2], item.transform[3]) || 10;
+    const x0 = e + item.width * a / len, x1 = e + item.width * b / len, y0 = f - hgt * 0.22, y1 = f + hgt * 0.95;
+    const pts = [[x0, y0], [x1, y1]].map(([x, y]) => vp.convertToViewportPoint(x, y));
+    out.push({ x: Math.min(pts[0][0], pts[1][0]) - 0.5, y: Math.min(pts[0][1], pts[1][1]) - 0.5, w: Math.abs(pts[1][0] - pts[0][0]) + 1, h: Math.abs(pts[1][1] - pts[0][1]) + 1 });
+  }
+  return out;
+}
+async function redactFind() {
+  const d = cur; if (!d || !(await EDIT.ensureLoaded(d))) return;
+  const q = await ask('찾아서 교정', '지울 글자를 넣으세요(예: 주민등록번호 앞자리, 전화번호, 이름).<br><small>찾은 곳마다 교정 표시(빨간 네모)를 넣습니다 — 확인 뒤 [교정 적용].</small>', { input: 'text', ok: '찾기' });
+  if (!q) return;
+  const terms = prepare(q, { ignoreSpace: true });
+  let n = 0;
+  const before = JSON.stringify(d.ed.objs);
+  for (let i = 0; i < d.n; i++) {
+    const t = await getText(d, i);
+    for (const hit of searchRaw(t.raw, terms, { ignoreSpace: true })) {
+      for (const r of await textRects(d, i, hit.rs, hit.re)) { d.ed.objs.push({ id: 'o' + (d.ed.seq++), p: i, t: 'redact', ...r, sc: '#e5262e', fc: '', lw: 1.5, op: 1, fs: 14 }); n++; }
+    }
+  }
+  if (!n) return toast('「' + q + '」을(를) 찾지 못했습니다');
+  d.ed.undo.push(before); d.mod = true; renderTabs(); EDIT.redrawAll(d);
+  toast('교정 표시 ' + n + '곳 — 확인하고 [교정 적용]을 누르세요', 5000);
+}
+async function redactApply() {
+  const d = cur; if (!d || !(await EDIT.ensureLoaded(d))) return;
+  const marks = d.ed.objs.filter((o) => o.t === 'redact');
+  if (!marks.length) return toast('교정 표시가 없습니다 — [교정 표시]로 지울 곳을 네모로 고르세요');
+  const pages = [...new Set(marks.map((o) => o.p))].sort((a, b) => a - b);
+  if (!(await ask('교정 적용', '교정 표시 <b>' + marks.length + '곳</b>(' + pages.map((p) => p + 1).join(', ') + '쪽)을 <b>검게 영구 삭제</b>합니다.<br><br>⚠ 그 쪽은 <b>그림으로 바뀌어</b> 글자 고르기·찾기가 안 되고, 그 쪽의 주석도 그림에 굳습니다.<br>⚠ 저장한 뒤에는 되살릴 수 없습니다(저장 전 [되돌리기]는 됨).', { ok: '영구 삭제' }))) return;
+  const k = 200 / 72, imgs = {};
+  for (const i of pages) {
+    const pg = await d.pdf.getPage(i + 1);
+    const vp = pg.getViewport({ scale: k });
+    const cv = h('canvas', { width: Math.floor(vp.width), height: Math.floor(vp.height) });
+    const c = cv.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height);
+    await pg.render({ canvasContext: c, viewport: vp }).promise;
+    EDIT.paintCanvas(c, { ed: { ...d.ed, objs: d.ed.objs.filter((o) => o.p === i && o.t !== 'redact') } }, i, [k, 0, 0, k, 0, 0]);
+    c.fillStyle = '#000';
+    for (const o of marks.filter((m) => m.p === i)) c.fillRect(o.x * k, o.y * k, o.w * k, o.h * k);
+    imgs[i] = { bytes: new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92))).arrayBuffer()), w: d.pages[i].w, h: d.pages[i].h };
+  }
+  d.ed.objs = d.ed.objs.filter((o) => !pages.includes(o.p));
+  await pageOp(d, '교정 적용', async (doc) => {
+    for (const i of pages) {
+      const im = await doc.embedJpg(imgs[i].bytes);
+      const np = doc.insertPage(i, [imgs[i].w, imgs[i].h]);
+      np.drawImage(im, { x: 0, y: 0, width: imgs[i].w, height: imgs[i].h });
+      doc.removePage(i + 1);
+    }
+    return { page: pages[0] + 1 };
+  });
+}
+
+// ── 책갈피 고치기 ──
+async function loadBookmarks(d) {
+  if (d.bm) return d.bm;
+  let ol = null;
+  try { ol = await d.pdf.getOutline(); } catch {}
+  const conv = async (items) => {
+    const out = [];
+    for (const it of items || []) {
+      let page = null;
+      try {
+        const dest = typeof it.dest === 'string' ? await d.pdf.getDestination(it.dest) : it.dest;
+        if (dest && dest[0] != null) page = typeof dest[0] === 'object' ? await d.pdf.getPageIndex(dest[0]) : dest[0];
+      } catch {}
+      out.push({ title: it.title, page, url: it.url || null, kids: await conv(it.items), open: true });
+    }
+    return out;
+  };
+  d.bm = await conv(ol);
+  return d.bm;
+}
+let bmSel = null;               //  { list, k }
+function bmFind(list, target, parent = null) {
+  for (let k = 0; k < list.length; k++) {
+    if (list[k] === target) return { list, k, parent };
+    const r = bmFind(list[k].kids, target, list[k]);
+    if (r) return r;
+  }
+  return null;
+}
+async function bmEdit(op) {
+  const d = cur; if (!d) return toast('먼저 PDF 를 여세요');
+  const bm = await loadBookmarks(d);
+  const at = bmSel && bmFind(bm, bmSel);
+  const changed = () => { d.bmDirty = true; d.mod = true; renderTabs(); showOutlinePane(); buildOutline(); };
+  if (op === 'add' || op === 'addChild') {
+    const title = await ask('책갈피 추가', '지금 페이지(' + d.cur + '쪽)에 책갈피를 답니다. 이름:', { input: 'text', value: firstLine(d) || (d.cur + '쪽'), ok: '추가' });
+    if (!title) return;
+    const it = { title, page: d.cur - 1, kids: [], open: true };
+    if (op === 'addChild' && at) at.list[at.k].kids.push(it);
+    else if (at) at.list.splice(at.k + 1, 0, it); else bm.push(it);
+    bmSel = it; return changed();
+  }
+  if (op === 'auto') {
+    if (bm.length && !(await ask('페이지마다 책갈피', '있던 책갈피를 지우고 쪽마다 하나씩 만듭니다(이름 = 그 쪽의 첫 줄).', { ok: '만들기' }))) return;
+    bm.length = 0;
+    for (let i = 0; i < d.n; i++) { const t = await getText(d, i); bm.push({ title: (t.raw.split('\n').map((x) => x.trim()).find(Boolean) || (i + 1) + '쪽').slice(0, 60), page: i, kids: [], open: true }); }
+    return changed();
+  }
+  if (!at) return toast('책갈피 칸에서 책갈피를 먼저 고르세요');
+  const it = at.list[at.k];
+  if (op === 'rename') { const t = await ask('이름 바꾸기', '새 이름:', { input: 'text', value: it.title, ok: '바꾸기' }); if (!t) return; it.title = t; }
+  else if (op === 'del') { at.list.splice(at.k, 1); bmSel = null; }
+  else if (op === 'up' && at.k > 0) at.list.splice(at.k - 1, 0, at.list.splice(at.k, 1)[0]);
+  else if (op === 'down' && at.k < at.list.length - 1) at.list.splice(at.k + 1, 0, at.list.splice(at.k, 1)[0]);
+  else if (op === 'in' && at.k > 0) { at.list.splice(at.k, 1); at.list[at.k - 1].kids.push(it); }
+  else if (op === 'out' && at.parent) { const pp = bmFind(bm, at.parent); at.list.splice(at.k, 1); pp.list.splice(pp.k + 1, 0, it); }
+  else if (op === 'here') it.page = d.cur - 1;
+  else return;
+  changed();
+}
+function firstLine(d) { const t = d.texts[d.cur - 1] && d.texts[d.cur - 1].__v; return t ? (t.raw.split('\n').map((x) => x.trim()).find(Boolean) || '').slice(0, 60) : ''; }
+function showOutlinePane() { $('#left').classList.remove('off'); $$('.ltabs button').forEach((x) => x.classList.toggle('on', x.dataset.lt === 'outline')); for (const id of ['thumbs', 'outline', 'comments']) $('#' + id).style.display = id === 'outline' ? '' : 'none'; }
+function writeOutline(doc, d) {
+  const ctx = doc.context, pages = doc.getPages();
+  doc.catalog.delete(NN('Outlines'));
+  if (!d.bm || !d.bm.length) return;
+  const rootRef = ctx.nextRef();
+  const build = (items, parentRef) => {
+    const refs = items.map(() => ctx.nextRef());
+    let count = 0;
+    items.forEach((it, k) => {
+      const dict = ctx.obj({ Title: PDFHexString.fromText(it.title || ''), Parent: parentRef });
+      if (k > 0) dict.set(NN('Prev'), refs[k - 1]);
+      if (k < items.length - 1) dict.set(NN('Next'), refs[k + 1]);
+      if (it.url) dict.set(NN('A'), ctx.obj({ S: 'URI', URI: PDFString.of(it.url) }));
+      else if (it.page != null && pages[it.page]) dict.set(NN('Dest'), ctx.obj([pages[it.page].ref, 'Fit']));
+      if (it.kids && it.kids.length) { const kr = build(it.kids, refs[k]); dict.set(NN('First'), kr[0]); dict.set(NN('Last'), kr[kr.length - 1]); dict.set(NN('Count'), ctx.obj(it.kids.length)); }
+      ctx.assign(refs[k], dict);
+      count++;
+    });
+    return refs;
+  };
+  const top = build(d.bm, rootRef);
+  ctx.assign(rootRef, ctx.obj({ Type: 'Outlines', First: top[0], Last: top[top.length - 1], Count: d.bm.length }));
+  doc.catalog.set(NN('Outlines'), rootRef);
+  doc.catalog.set(NN('PageMode'), NN('UseOutlines'));
+}
+
+// ── 문서 속성 고치기 ──
+async function editProps() {
+  const d = cur; if (!d) return;
+  let info = {};
+  try { info = (await d.pdf.getMetadata()).info || {}; } catch {}
+  const m = d.metaEdit || { title: info.Title || '', author: info.Author || '', subject: info.Subject || '', keywords: info.Keywords || '' };
+  const f = (id, label, v) => '<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><span style="width:60px">' + label + '</span><input id="' + id + '" style="flex:1;height:26px;border:1px solid #999;padding:0 6px" value="' + esc(v) + '"></label>';
+  const pend = ask('문서 속성', f('mpT', '제목', m.title) + f('mpA', '작성자', m.author) + f('mpS', '주제', m.subject) + f('mpK', '키워드', m.keywords), { ok: '바꾸기' });
+  let v = null;
+  $('#mFoot button').addEventListener('click', () => { v = { title: $('#mpT').value, author: $('#mpA').value, subject: $('#mpS').value, keywords: $('#mpK').value }; }, { capture: true });
+  if (!(await pend) || !v) return;
+  d.metaEdit = v; d.mod = true; renderTabs(); showProps();
+  toast('문서 속성을 바꿨습니다 — 저장하면 파일에 남습니다');
+}
+
+// ── 머리글·바닥글 · Bates 번호 ──
+async function headerFooter(bates = false) {
+  const d = cur; if (!d) return;
+  const last = (() => { try { return JSON.parse(localStorage.getItem('hanil-pdf-hf') || 'null'); } catch { return null; } })() || {};
+  const v0 = bates ? { tl: '', tc: '', tr: '', bl: '', bc: '', br: '{bates}', size: 9, margin: 20, color: '#000000', prefix: last.prefix || 'HANIL-', start: 1, digits: 6 }
+    : { tl: '', tc: '', tr: '{날짜}', bl: '{파일}', bc: '{n} / {N}', br: '', size: 9, margin: 20, color: '#333333', prefix: last.prefix || 'HANIL-', start: 1, digits: 6, ...(last.hf || {}) };
+  const inp = (id, v, w = '100%') => '<input id="hf' + id + '" value="' + esc(v) + '" style="width:' + w + ';height:24px;border:1px solid #999;padding:0 4px">';
+  const html = '<div style="font-size:12px;color:#555;margin-bottom:6px">글자 안에 넣을 수 있는 것: <b>{n}</b> 쪽 · <b>{N}</b> 모든 쪽 · <b>{날짜}</b> · <b>{파일}</b> 이름 · <b>{bates}</b> Bates 번호 — 한글 됨</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12px"><tr><td></td><td>왼쪽</td><td>가운데</td><td>오른쪽</td></tr>'
+    + '<tr><td>머리글</td><td>' + inp('tl', v0.tl) + '</td><td>' + inp('tc', v0.tc) + '</td><td>' + inp('tr', v0.tr) + '</td></tr>'
+    + '<tr><td>바닥글</td><td>' + inp('bl', v0.bl) + '</td><td>' + inp('bc', v0.bc) + '</td><td>' + inp('br', v0.br) + '</td></tr></table>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:12px;align-items:center">글자 크기 ' + inp('size', v0.size, '44px') + ' pt · 여백 ' + inp('margin', v0.margin, '44px') + ' pt · 색 <input id="hfcolor" type="color" value="' + v0.color + '"></div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:12px;align-items:center">Bates: 앞글자 ' + inp('prefix', v0.prefix, '90px') + ' 시작 ' + inp('start', v0.start, '60px') + ' 자릿수 ' + inp('digits', v0.digits, '40px') + '</div>';
+  const pend = ask(bates ? 'Bates 번호' : '머리글·바닥글', html, { ok: '넣기' });
+  let v = null;
+  $('#mFoot button').addEventListener('click', () => { v = {}; for (const k of ['tl', 'tc', 'tr', 'bl', 'bc', 'br', 'size', 'margin', 'color', 'prefix', 'start', 'digits']) v[k] = $('#hf' + k).value; }, { capture: true });
+  if (!(await pend) || !v) return;
+  try { localStorage.setItem('hanil-pdf-hf', JSON.stringify({ prefix: v.prefix, hf: bates ? (last.hf || {}) : v })); } catch {}
+  const size = +v.size || 9, margin = +v.margin || 20, start = parseInt(v.start, 10) || 1, digits = parseInt(v.digits, 10) || 6;
+  const today = new Date().toLocaleDateString('ko-KR');
+  await pageOp(d, bates ? 'Bates 번호' : '머리글·바닥글', async (doc) => {
+    const cache = new Map(), n = doc.getPageCount();
+    const rasterText = async (txt) => {
+      if (cache.has(txt)) return cache.get(txt);
+      const K = 4, cv = h('canvas'), c = cv.getContext('2d'), font = size * K + 'px "Malgun Gothic","맑은 고딕",sans-serif';
+      c.font = font; const w = Math.ceil(c.measureText(txt).width) + 4; cv.width = w; cv.height = Math.ceil(size * K * 1.35);
+      c.font = font; c.fillStyle = v.color; c.textBaseline = 'middle'; c.fillText(txt, 2, cv.height / 2);
+      const im = await doc.embedPng(new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/png'))).arrayBuffer()));
+      const r = { im, w: w / K, h: cv.height / K };
+      cache.set(txt, r); return r;
+    };
+    for (let i = 0; i < n; i++) {
+      const p = doc.getPage(i), vp = (await d.pdf.getPage(i + 1)).getViewport({ scale: 1 });
+      const rot = p.getRotation().angle;
+      for (const pos of ['tl', 'tc', 'tr', 'bl', 'bc', 'br']) {
+        const tpl = v[pos]; if (!tpl.trim()) continue;
+        const txt = tpl.replace(/\{n\}/g, i + 1).replace(/\{N\}/g, n).replace(/\{날짜\}|\{date\}/g, today).replace(/\{파일\}|\{file\}/g, d.name.replace(/\.pdf$/i, ''))
+          .replace(/\{bates\}/g, v.prefix + String(start + i).padStart(digits, '0'));
+        const r = await rasterText(txt);
+        const vx = pos[1] === 'l' ? margin : pos[1] === 'c' ? (vp.width - r.w) / 2 : vp.width - margin - r.w;
+        const vy = pos[0] === 't' ? margin : vp.height - margin - r.h;
+        const [x, y] = vp.convertToPdfPoint(vx, vy + r.h);           //  그림의 (보이는) 왼쪽 아래
+        p.drawImage(r.im, { x, y, width: r.w, height: r.h, rotate: degrees(rot) });
+      }
+    }
+  });
+}
+
+// ── 파일 결합 · 문서 분할 · 최적화 저장 ──
+async function combineFiles() {
+  const items = docs.map((d) => ({ name: d.name, d, on: true }));
+  const draw = () => {
+    const box = $('#cbList'); if (!box) return;
+    box.innerHTML = '';
+    items.forEach((it, k) => {
+      const ck = h('input', { type: 'checkbox' }); ck.checked = it.on; ck.onchange = () => (it.on = ck.checked);
+      box.append(h('div', { class: 'cbrow' }, ck, h('span', { text: (k + 1) + '. ' + it.name }),
+        h('button', { text: '▲', onclick: () => { if (k) { items.splice(k - 1, 0, items.splice(k, 1)[0]); draw(); } } }),
+        h('button', { text: '▼', onclick: () => { if (k < items.length - 1) { items.splice(k + 1, 0, items.splice(k, 1)[0]); draw(); } } })));
+    });
+  };
+  const pend = ask('파일 결합', '여러 PDF 를 차례대로 하나로 합칩니다.<div id="cbList" style="margin:8px 0;max-height:300px;overflow:auto;border:1px solid #ddd;padding:4px"></div><button id="cbAdd" class="setbtn">＋ 파일 더하기…</button>', { ok: '합치기' });
+  draw();
+  $('#cbAdd').onclick = async () => { for (const f of (await pickFiles('.pdf,application/pdf')).filter(isPdf)) items.push({ name: f.name, f, on: true }); draw(); };
+  if (!(await pend)) return;
+  const use = items.filter((x) => x.on);
+  if (use.length < 1) return;
+  toast('합치는 중…', 60000);
+  const out = await PDFDocument.create();
+  for (const it of use) {
+    const bytes = it.d ? await EDIT.buildPdf(it.d) : new Uint8Array(await it.f.arrayBuffer());
+    const src = await PDFDocument.load(bytes.slice(0), { updateMetadata: false, ignoreEncryption: false });
+    for (const p of await out.copyPages(src, src.getPageIndices())) out.addPage(p);
+  }
+  out.setProducer('한일 PDF 리더 · ' + MAKER);
+  await openNew(await out.save(), '결합 ' + use.length + '개.pdf');
+}
+async function splitDoc() {
+  const d = cur; if (!d) return;
+  const v = await ask('문서 분할', '몇 쪽마다 나눌까요? (1 = 한 쪽씩)<br><small>나눈 파일들은 ZIP 하나로 받습니다.</small>', { input: 'text', value: '1', ok: '나누기' });
+  const n = parseInt(v, 10); if (!(n > 0)) return;
+  toast('나누는 중…', 60000);
+  const src = await PDFDocument.load((await EDIT.buildPdf(d)).slice(0), { updateMetadata: false });
+  const base = d.name.replace(/\.pdf$/i, ''), files = [], total = src.getPageCount();
+  for (let a = 0; a < total; a += n) {
+    const out = await PDFDocument.create();
+    const idx = []; for (let k = a; k < Math.min(total, a + n); k++) idx.push(k);
+    for (const p of await out.copyPages(src, idx)) out.addPage(p);
+    const w = String(total).length;
+    files.push({ name: base + ' ' + String(a + 1).padStart(w, '0') + (n > 1 ? '-' + String(idx[idx.length - 1] + 1).padStart(w, '0') : '') + '.pdf', data: await out.save() });
+  }
+  download(zip(files), base + ' 분할 ' + files.length + '개.zip');
+  toast('나눴습니다 — ' + files.length + '개 (ZIP)');
+}
+async function saveOptimized() {
+  const d = cur; if (!d) return;
+  const before = (await EDIT.buildPdf(d)).length;
+  await saveDoc(true, async (bytes) => {
+    const doc = await PDFDocument.load(bytes.slice(0), { updateMetadata: false });
+    const out = await doc.save({ useObjectStreams: true });
+    toast('최적화: ' + fmtSize(before) + ' → ' + fmtSize(out.length), 5000);
+    return out.length < bytes.length ? out : bytes;
+  });
+}
+
+// ── 인쇄할 쪽 고르기 ──
+function parseRange(s, n) {
+  const out = new Set();
+  for (const part of String(s).split(/[,\s]+/)) {
+    const m = /^(\d+)(?:-(\d+))?$/.exec(part.trim()); if (!m) continue;
+    const a = +m[1], b = m[2] ? +m[2] : a;
+    for (let k = Math.max(1, Math.min(a, b)); k <= Math.min(n, Math.max(a, b)); k++) out.add(k - 1);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+// ── 문서 비교 — 두 문서의 글자를 쪽마다 맞춰 보고 다른 곳을 칠한다 ──
+function wordsOf(raw) { const out = []; const re = /\S+/g; let m; while ((m = re.exec(raw))) out.push({ w: m[0], s: m.index, e: m.index + m[0].length }); return out; }
+function diffWords(A, B) {
+  const n = A.length, m = B.length;
+  if (n * m > 6e6) return null;
+  const L = new Uint32Array((n + 1) * (m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i * (m + 1) + j] = A[i].w === B[j].w ? L[(i + 1) * (m + 1) + j + 1] + 1 : Math.max(L[(i + 1) * (m + 1) + j], L[i * (m + 1) + j + 1]);
+  const del = [], add = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (A[i].w === B[j].w) { i++; j++; } else if (L[(i + 1) * (m + 1) + j] >= L[i * (m + 1) + j + 1]) del.push(i++); else add.push(j++);
+  }
+  while (i < n) del.push(i++);
+  while (j < m) add.push(j++);
+  return { del, add };
+}
+const groupRuns = (idx, words) => { const out = []; for (const k of idx) { const l = out[out.length - 1]; if (l && l.k1 === k - 1) { l.k1 = k; l.re = words[k].e; } else out.push({ k0: k, k1: k, rs: words[k].s, re: words[k].e }); } return out; };
+async function compareDocs() {
+  const A = cur; if (!A) return toast('먼저 PDF 를 여세요');
+  const others = docs.filter((d) => d !== A);
+  let B = null;
+  if (others.length) {
+    const html = '<b>' + esc(A.name) + '</b> 와(과) 비교할 문서:<br><select id="cmpSel" style="width:100%;height:26px;margin-top:6px">' + others.map((d, k) => '<option value="' + k + '">' + esc(d.name) + '</option>').join('') + '<option value="file">다른 파일 고르기…</option></select>';
+    const pend = ask('문서 비교', html, { ok: '비교' });
+    let pick = null;
+    $('#mFoot button').addEventListener('click', () => { pick = $('#cmpSel').value; }, { capture: true });
+    if (!(await pend)) return;
+    if (pick !== 'file') B = others[+pick];
+  }
+  if (!B) { const f = (await pickFiles('.pdf,application/pdf', false)).filter(isPdf)[0]; if (!f) return; B = await openFile(f); if (!B) return; }
+  activate(A);
+  toast('비교하는 중…', 60000);
+  const n = Math.max(A.n, B.n), res = [];
+  const fa = { sig: 'compare', q: '', terms: ['·'], o: {}, pages: new Array(A.n), cur: null, done: true, total: 0 };
+  const fb = { sig: 'compare', q: '', terms: ['·'], o: {}, pages: new Array(B.n), cur: null, done: true, total: 0 };
+  for (let i = 0; i < n; i++) {
+    const ta = i < A.n ? (await getText(A, i)).raw : null, tb = i < B.n ? (await getText(B, i)).raw : null;
+    if (ta == null) { res.push({ p: i, kind: 'B만', text: (i + 1) + '쪽이 「' + B.name + '」에만 있습니다' }); continue; }
+    if (tb == null) { res.push({ p: i, kind: 'A만', text: (i + 1) + '쪽이 「' + A.name + '」에만 있습니다' }); continue; }
+    const wa = wordsOf(ta), wb = wordsOf(tb), df = diffWords(wa, wb);
+    if (!df) { if (ta !== tb) res.push({ p: i, kind: '다름', text: '글이 너무 많아 쪽 전체만 비교 — 다름' }); continue; }
+    const ra = groupRuns(df.del, wa), rb = groupRuns(df.add, wb);
+    fa.pages[i] = ra.map((r) => ({ rs: r.rs, re: r.re })); fb.pages[i] = rb.map((r) => ({ rs: r.rs, re: r.re }));
+    fa.total += ra.length; fb.total += rb.length;
+    for (const r of ra) res.push({ p: i, kind: '빠짐', text: ta.slice(r.rs, r.re).replace(/\s+/g, ' ') });
+    for (const r of rb) res.push({ p: i, kind: '추가', text: tb.slice(r.rs, r.re).replace(/\s+/g, ' ') });
+  }
+  A.find = fa; B.find = fb;
+  for (const d of [A, B]) for (let i = 0; i < d.n; i++) if (d.pages[i].tdivs) paintHits(d, i);
+  //  결과는 검색 창에
+  if ($('#right').classList.contains('off') || $('#pSearch').classList.contains('off')) togglePane('search');
+  const box = $('#results'); box.innerHTML = '';
+  setStat(0, '문서 비교 — 다른 곳 ' + res.length + '개');
+  $('#sstat').textContent = '비교: ' + A.name + ' ↔ ' + B.name + '\n다른 곳 ' + res.length + '개 (빠짐 = 왼쪽 문서에만, 추가 = 오른쪽 문서에만)';
+  if (!res.length) box.append(h('div', { class: 'empty', text: '두 문서의 글자가 같습니다' }));
+  let pg = -1, grp = null;
+  for (const r of res) {
+    if (r.p !== pg) { pg = r.p; grp = h('div', { class: 'rd' }, h('div', { class: 'rh' }, h('span', { text: (pg + 1) + '쪽' }))); box.append(grp); }
+    const it = h('div', { class: 'ri', title: r.text });
+    it.innerHTML = '<u style="color:' + (r.kind === '추가' ? '#1a7f37' : '#c8102e') + '">' + r.kind + '</u>' + esc(r.text);
+    it.onclick = () => { const d = r.kind === '추가' || r.kind === 'B만' ? B : A; activate(d); goPage(r.p + 1); };
+    grp.append(it);
+  }
+  toast('비교 끝 — 다른 곳 ' + res.length + '개', 4000);
+}
+
+// ── 읽어 주기(말하기) ──
+let ttsOn = false;
+async function readAloud() {
+  const d = cur; if (!d) return;
+  if (!('speechSynthesis' in window)) return toast('이 PC 는 읽어 주기를 지원하지 않습니다');
+  if (ttsOn) { speechSynthesis.cancel(); ttsOn = false; toast('읽기를 멈췄습니다'); updateUi(); return; }
+  ttsOn = true; updateUi();
+  const voice = speechSynthesis.getVoices().find((v) => /ko/i.test(v.lang));
+  for (let i = d.cur - 1; i < d.n && ttsOn; i++) {
+    goPage(i + 1, { hist: false });
+    const text = (await getText(d, i)).raw.replace(/\s+/g, ' ').trim();
+    for (const part of text.match(/[^.!?。]{1,180}[.!?。]?/g) || []) {
+      if (!ttsOn) break;
+      await new Promise((res) => { const u = new SpeechSynthesisUtterance(part); u.lang = 'ko-KR'; if (voice) u.voice = voice; u.onend = u.onerror = res; speechSynthesis.speak(u); });
+    }
+  }
+  ttsOn = false; updateUi();
+}
+
 EDIT.initEdit({
   cur: () => cur, tool: () => tool, setTool, scaleOf, toast, ask, focus: () => viewer.focus({ preventScroll: true }),
   vp1: async (d, i) => (await d.pdf.getPage(i + 1)).getViewport({ scale: 1 }),
   rerender: (d) => { for (const p of d.pages) p.key = null; schedule(); },
-  onModified: () => renderTabs(), visibleCenter, syncSymButton, snapshot, snapshotView, cropBox, pagePaste,
+  docHook: async (doc, d) => {
+    if (d.metaEdit) { const m = d.metaEdit; doc.setTitle(m.title || ''); doc.setAuthor(m.author || ''); doc.setSubject(m.subject || ''); doc.setKeywords((m.keywords || '').split(/[,;]\s*/).filter(Boolean)); }
+    if (d.bmDirty) writeOutline(doc, d);
+  },
+  onModified: () => { renderTabs(); if ($('#comments') && $('#comments').style.display !== 'none') buildComments(); }, visibleCenter, syncSymButton, snapshot, snapshotView, cropBox, pagePaste,
   docOf: (o) => (cur && cur.ed && cur.ed.objs.includes(o) ? cur : docs.find((d) => d.ed && d.ed.objs.includes(o))),
 });
 

@@ -36,7 +36,7 @@ const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; 
   await page.mouse.click(vb.x + 6, vb.y + vb.height - 8);
   await page.waitForFunction(() => window.__clips.length === 3, null, { timeout: 20000 });
   ok(true, '회색 바탕을 눌러도 화면 전체');
-  if (process.argv[3]) fs.writeFileSync(path.join(process.argv[3], 'snap-view.png'), Buffer.from((await page.evaluate(() => window.__clips[0])).split(',')[1], 'base64'));
+  if (process.argv[3]) fs.mkdirSync(process.argv[3], { recursive: true }), fs.writeFileSync(path.join(process.argv[3], 'snap-view.png'), Buffer.from((await page.evaluate(() => window.__clips[0])).split(',')[1], 'base64'));
   await b.close();
   console.log(fails ? '\n❌ ' + fails + '개 실패' : '\n모두 통과');
   process.exit(fails ? 1 : 0);

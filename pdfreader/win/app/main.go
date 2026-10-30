@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	VERSION = "1.2.0"
+	VERSION = "1.3.0"
 	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
 	APPNAME = "한일 PDF 리더"
 	MAKER   = "한일특장(주)"

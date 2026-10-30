@@ -43,7 +43,7 @@ const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; 
   await page.click('.ltabs button[data-lt=outline]');
   await page.waitForSelector('.ol');
   ok(await page.$$eval('.ol', (e) => e.length) === 50, '책갈피 50개');
-  await page.click('.ol:nth-child(10)');
+  await page.locator('.ol').nth(9).click();
   await page.waitForTimeout(400);
   ok(await page.inputValue('#pgIn') === '10', '책갈피 → 10쪽');
   await page.click('[data-cmd=first]');
@@ -164,6 +164,8 @@ const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; 
   await page.evaluate(() => { window.print = () => { window.__printed = document.querySelectorAll('#printArea img').length; }; });
   await page.click('.dt:nth-child(2)');   //  설명서
   await page.keyboard.press('Control+p');
+  await page.waitForSelector('#modal.on input[name=pr]');   //  인쇄할 쪽 고르기 → 모든 쪽
+  await page.click('#mFoot button:first-child');
   await page.waitForFunction(() => window.__printed, null, { timeout: 60000 });
   ok(await page.evaluate(() => window.__printed) === 50, '인쇄: 50쪽 그림 준비');
 

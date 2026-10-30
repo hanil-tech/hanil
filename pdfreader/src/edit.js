@@ -8,13 +8,14 @@ import {
   PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFHexString, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream,
 } from 'pdf-lib';
 
-export const EDIT_TOOLS = ['edit', 'rect', 'ellipse', 'line', 'arrow', 'pen', 'hilite', 'white', 'text', 'type', 'under', 'sym', 'stamp', 'note', 'snap', 'crop', 'erase', 'mhl', 'mul', 'mso'];
+export const EDIT_TOOLS = ['edit', 'rect', 'ellipse', 'line', 'arrow', 'pen', 'hilite', 'white', 'text', 'type', 'under', 'sym', 'stamp', 'note', 'snap', 'crop', 'erase', 'mhl', 'mul', 'mso',
+  'polygon', 'polyline', 'cloud', 'mdist', 'mperim', 'marea', 'callout', 'link', 'redact'];
 //  글자 위에 긋는 표시(강조·밑줄·취소선) — 글자를 끌어 고르면 그 줄들에 생긴다
 export const MARK_TOOLS = { mhl: ['hl', '#ffeb3b'], mul: ['ul', '#1a73e8'], mso: ['so', '#e5262e'] };
 //  스탬프 — 빨간 테두리 도장(날짜 도장은 오늘 날짜)
 export const STAMPS = ['승인', '검토', '확인', '반려', '보류', '수정', '완료', '기밀', '사본', '원본', '긴급', '날짜'];
 export const SYMBOLS = ['✔', '✘', '○', '◎', '△', '□', '☆', '★', '●', '※', '→', '←', '↑', '↓', '①', '②', '③', '④', '⑤', 'OK', 'NG', '확인', '수정', '삭제', '검토', '승인'];
-const BOX = new Set(['rect', 'ellipse', 'hilite', 'white', 'text', 'sym', 'image', 'stamp', 'note']);
+const BOX = new Set(['rect', 'ellipse', 'hilite', 'white', 'text', 'sym', 'image', 'stamp', 'note', 'link', 'redact', 'callout']);
 const PIC = new Set(['text', 'sym', 'image', 'stamp', 'note']);     //  속 그림이 있는 것 — 90° 돌리면 그림도 돈다(o.r)
 const dims0 = (o) => ((o.r || 0) % 180 ? [o.h, o.w] : [o.w, o.h]);
 const today = () => { const t = new Date(); return t.getFullYear() + '.' + String(t.getMonth() + 1).padStart(2, '0') + '.' + String(t.getDate()).padStart(2, '0'); };
@@ -49,6 +50,8 @@ export function attachDoc(d) {
 
 // ───────────────────────── 모양 계산 ─────────────────────────
 export function bbox(o) {
+  if (o.t === 'callout') return [Math.min(o.x, o.ax), Math.min(o.y, o.ay), Math.max(o.x + o.w, o.ax), Math.max(o.y + o.h, o.ay)];
+  if (o.t === 'poly') { const xs = o.vs.map((v) => v[0]), ys = o.vs.map((v) => v[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
   if (BOX.has(o.t)) return [o.x, o.y, o.x + o.w, o.y + o.h];
   if (o.t === 'mark') { let a = Infinity, b = Infinity, c = -Infinity, e = -Infinity; for (const [x, y, w, h] of o.rects) { a = Math.min(a, x); b = Math.min(b, y); c = Math.max(c, x + w); e = Math.max(e, y + h); } return [a, b, c, e]; }
   let pts;
@@ -146,9 +149,146 @@ function rotMatrix(r, W, H) {
   if (r === 270) return [0, -1, 1, 0, 0, W];
   return null;
 }
+// ───────────────────────── 새 도형(구름·다각형·측정·설명선·링크·교정) — 「그리기 조각」 하나로 화면·인쇄·저장을 함께 ─────────────────────────
+//  prims(o) → [{ k:'path', seg:[['M',x,y],['L',x,y],['C',…],['Z']], stroke, fill, lw, dash, op } | { k:'img', canvas, x, y, w, h, r }]
+export const NEW_TYPES = new Set(['poly', 'callout', 'link', 'redact']);
+export const POLY_TOOLS = { polygon: 'polygon', polyline: 'polyline', cloud: 'cloud', mperim: 'polyline', marea: 'polygon' };
+const MM_PER_PT = 25.4 / 72;
+export function measValue(o) {
+  const k = MM_PER_PT * (o.ratio || 1);
+  if (o.meas === 'dist') return Math.hypot(o.x2 - o.x1, o.y2 - o.y1) * k;
+  if (o.meas === 'perim') { let L = 0; for (let i = 1; i < o.vs.length; i++) L += Math.hypot(o.vs[i][0] - o.vs[i - 1][0], o.vs[i][1] - o.vs[i - 1][1]); return L * k; }
+  if (o.meas === 'area') { let s = 0; const v = o.vs; for (let i = 0; i < v.length; i++) { const a = v[i], b = v[(i + 1) % v.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s / 2) * k * k; }
+  return 0;
+}
+const nf = (v, d = 1) => v.toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: 0 });
+export function measLabel(o) {
+  const v = measValue(o), sc = (o.ratio || 1) === 1 ? '' : '  (1:' + nf(o.ratio, 2) + ')';
+  if (o.meas === 'area') return (v >= 1e6 ? nf(v / 1e6, 3) + ' m²' : nf(v, 0) + ' mm²') + sc;
+  return (v >= 10000 ? nf(v / 1000, 3) + ' m' : nf(v, 1) + ' mm') + sc;
+}
+function labelPrim(o, x, y) {
+  const lo = { t: 'text', text: measLabel(o), fs: Math.max(7, Math.min(14, (o.fs || 14) * 0.75)), sc: o.sc || '#000', fc: '#ffffff', auto: true, r: 0 };
+  layoutText(lo);
+  return { k: 'img', canvas: raster(lo).canvas, url: raster(lo).url, x: x - lo.w / 2, y: y - lo.h / 2, w: lo.w, h: lo.h };
+}
+//  구름 테두리 — 변을 따라 바깥으로 볼록한 반원들
+function cloudSeg(vs, lw) {
+  let area = 0;
+  for (let i = 0; i < vs.length; i++) { const a = vs[i], b = vs[(i + 1) % vs.length]; area += a[0] * b[1] - b[0] * a[1]; }
+  const out = area > 0 ? -1 : 1;              //  화면 좌표(아래로 +)에서 바깥쪽
+  const r = Math.max(5, lw * 3.5);
+  const seg = [['M', vs[0][0], vs[0][1]]];
+  for (let i = 0; i < vs.length; i++) {
+    const a = vs[i], b = vs[(i + 1) % vs.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L < 0.1) continue;
+    const n = Math.max(1, Math.round(L / (r * 2))), ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
+    const nx = -uy * out, ny = ux * out;
+    for (let k = 0; k < n; k++) {
+      const p0 = [a[0] + ux * L * k / n, a[1] + uy * L * k / n], p1 = [a[0] + ux * L * (k + 1) / n, a[1] + uy * L * (k + 1) / n];
+      const h = L / n * 0.66;
+      seg.push(['C', p0[0] + nx * h, p0[1] + ny * h, p1[0] + nx * h, p1[1] + ny * h, p1[0], p1[1]]);
+    }
+  }
+  seg.push(['Z']);
+  return seg;
+}
+function calloutAttach(o) {
+  //  상자 테두리에서 고리점에 가장 가까운 변의 가운데
+  const cx = o.x + o.w / 2, cy = o.y + o.h / 2, dx = o.ax - cx, dy = o.ay - cy;
+  if (Math.abs(dx) * o.h > Math.abs(dy) * o.w) return [dx > 0 ? o.x + o.w : o.x, cy];
+  return [cx, dy > 0 ? o.y + o.h : o.y];
+}
+export function prims(o, editing = false) {
+  const P = [];
+  const st = { stroke: o.sc || '', fill: o.fc || '', lw: o.lw || 0, op: o.op < 1 ? o.op : 1 };
+  if (o.t === 'poly') {
+    const closed = o.kind !== 'polyline';
+    const seg = o.kind === 'cloud' ? cloudSeg(o.vs, o.lw || 1) : [['M', ...o.vs[0]], ...o.vs.slice(1).map((v) => ['L', ...v]), ...(closed ? [['Z']] : [])];
+    P.push({ k: 'path', seg, ...st, fill: closed ? st.fill : '', stroke: st.stroke || '#000', lw: st.lw || 1 });
+    if (o.meas && o.vs.length > 1) {
+      let lx, ly;
+      if (o.meas === 'area') { lx = o.vs.reduce((a, v) => a + v[0], 0) / o.vs.length; ly = o.vs.reduce((a, v) => a + v[1], 0) / o.vs.length; }
+      else { const v = o.vs[o.vs.length - 1]; lx = v[0]; ly = v[1] - 10; }
+      P.push(labelPrim(o, lx, ly));
+    }
+  } else if (o.t === 'callout') {
+    const [ex, ey] = calloutAttach(o);
+    P.push({ k: 'path', seg: [['M', ex, ey], ['L', o.ax, o.ay]], stroke: o.sc || '#000', lw: o.lw || 1, op: st.op });
+    const head = arrowHead({ x1: ex, y1: ey, x2: o.ax, y2: o.ay, lw: o.lw || 1 });
+    P.push({ k: 'path', seg: [['M', ...head[0]], ['L', ...head[1]], ['L', ...head[2]]], stroke: o.sc || '#000', lw: o.lw || 1, op: st.op });
+    P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + o.w, o.y], ['L', o.x + o.w, o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], stroke: o.sc || '#000', fill: o.fc || '#ffffff', lw: o.lw || 1, op: st.op });
+    const to = { t: 'text', text: o.text || '', fs: o.fs, sc: o.tc || o.sc || '#000', fc: '', w: o.w, h: o.h, auto: false, r: 0 };
+    const rr = raster(to);
+    P.push({ k: 'img', canvas: rr.canvas, url: rr.url, x: o.x, y: o.y, w: o.w, h: o.h });
+  } else if (o.t === 'link') {
+    if (editing) P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + o.w, o.y], ['L', o.x + o.w, o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], stroke: '#1a73e8', fill: 'rgba(26,115,232,0.08)', lw: 1, dash: [3, 2], screenOnly: true });
+  } else if (o.t === 'redact') {
+    P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + o.w, o.y], ['L', o.x + o.w, o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], stroke: '#e5262e', fill: editing ? 'rgba(229,38,46,0.12)' : '', lw: 1.5 });
+  }
+  if (o.t === 'line' && o.meas === 'dist') P.push(labelPrim(o, (o.x1 + o.x2) / 2, (o.y1 + o.y2) / 2 - 8));
+  return P;
+}
+const segD = (seg) => seg.map(([c, ...v]) => c + v.map((n) => Math.round(n * 100) / 100).join(' ')).join(' ');
+export function primsSvg(P, s) {
+  const out = [];
+  for (const p of P) {
+    if (p.k === 'path') out.push(sv('path', { d: segD(p.seg), stroke: p.stroke || 'none', fill: p.fill || 'none', 'stroke-width': p.stroke ? p.lw : 0, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'stroke-dasharray': p.dash ? p.dash.map((x) => x / s).join(' ') : null, opacity: p.op < 1 ? p.op : null }));
+    else out.push(sv('image', { href: p.url, x: p.x, y: p.y, width: p.w, height: p.h, preserveAspectRatio: 'none' }));
+  }
+  return out;
+}
+export function primsCanvas(ctx, P) {
+  for (const p of P) {
+    if (p.screenOnly) continue;
+    ctx.save();
+    if (p.k === 'path') {
+      ctx.globalAlpha = p.op < 1 ? p.op : 1;
+      ctx.beginPath();
+      for (const [c, ...v] of p.seg) { if (c === 'M') ctx.moveTo(...v); else if (c === 'L') ctx.lineTo(...v); else if (c === 'C') ctx.bezierCurveTo(...v); else ctx.closePath(); }
+      if (p.fill) { ctx.fillStyle = p.fill; ctx.fill(); }
+      if (p.stroke && p.lw > 0) { ctx.strokeStyle = p.stroke; ctx.lineWidth = p.lw; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash(p.dash || []); ctx.stroke(); }
+    } else ctx.drawImage(p.canvas, p.x, p.y, p.w, p.h);
+    ctx.restore();
+  }
+}
+//  PDF 모양(AP) 명령 — 화면 좌표 그대로(Matrix 가 돌린다)
+function primsOps(ctx, P, res, refs) {
+  let ops = '', n = 0;
+  for (const p of P) {
+    if (p.screenOnly) continue;
+    if (p.k === 'path') {
+      ops += 'q\n';
+      if (p.op < 1) { res.ExtGState = res.ExtGState || {}; const g = 'GP' + n++; res.ExtGState[g] = { Type: 'ExtGState', CA: p.op, ca: p.op }; ops += '/' + g + ' gs\n'; }
+      const fill = p.fill && /^#/.test(p.fill) ? p.fill : '';
+      if (p.stroke) ops += rgb(p.stroke).map(f3).join(' ') + ' RG ' + f3(p.lw) + ' w 1 J 1 j\n';
+      if (fill) ops += rgb(fill).map(f3).join(' ') + ' rg\n';
+      if (p.dash) ops += '[' + p.dash.join(' ') + '] 0 d\n';
+      for (const [c, ...v] of p.seg) ops += (c === 'Z' ? 'h' : v.map(f3).join(' ') + ' ' + { M: 'm', L: 'l', C: 'c' }[c]) + '\n';
+      ops += (fill ? (p.stroke && p.lw > 0 ? 'B' : 'f') : (p.stroke && p.lw > 0 ? 'S' : 'n')) + '\nQ\n';
+    } else {
+      const im = rgbaXObject(ctx, canvasPixels(p.canvas, p.canvas.width, p.canvas.height), p.canvas.width, p.canvas.height, refs);
+      res.XObject = res.XObject || {};
+      const nm = 'IP' + n++;
+      res.XObject[nm] = im;
+      ops += 'q ' + [p.w, 0, 0, -p.h, p.x, p.y + p.h].map(f3).join(' ') + ' cm /' + nm + ' Do Q\n';
+    }
+  }
+  return ops;
+}
+function primsBox(P) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of P) {
+    if (p.k === 'path') for (const [c, ...v] of p.seg) for (let k = 0; k + 1 < v.length; k += 2) { x0 = Math.min(x0, v[k]); y0 = Math.min(y0, v[k + 1]); x1 = Math.max(x1, v[k]); y1 = Math.max(y1, v[k + 1]); }
+    else { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + p.w); y1 = Math.max(y1, p.y + p.h); }
+  }
+  return [x0, y0, x1, y1];
+}
+
 function shapeEls(o, s, editing) {
   const out = [];
   if (o.snap) return [sv('rect', { x: o.x, y: o.y, width: o.w, height: o.h, fill: 'rgba(26,115,232,.08)', stroke: '#1a73e8', 'stroke-width': 1 / s, 'stroke-dasharray': 4 / s })];
+  if (NEW_TYPES.has(o.t)) return primsSvg(prims(o, editing), s);
   const st = { stroke: o.sc || 'none', 'stroke-width': o.sc ? o.lw : 0, fill: o.fc || 'none', opacity: o.op < 1 ? o.op : null };
   if (o.t === 'mark') {
     for (const [x, y, w, h] of o.rects) {
@@ -167,6 +307,7 @@ function shapeEls(o, s, editing) {
   } else if (o.t === 'line' || o.t === 'arrow') {
     out.push(sv('line', { x1: o.x1, y1: o.y1, x2: o.x2, y2: o.y2, stroke: o.sc || '#000', 'stroke-width': o.lw, 'stroke-linecap': 'round', opacity: st.opacity }));
     if (o.t === 'arrow') out.push(sv('polyline', { points: arrowHead(o).map((p) => p.join(',')).join(' '), fill: 'none', stroke: o.sc || '#000', 'stroke-width': o.lw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: st.opacity }));
+    if (o.meas) out.push(...primsSvg(prims(o), s));
   } else if (o.t === 'pen') {
     for (const pts of o.pts) out.push(sv('polyline', { points: pts.map((p) => p.join(',')).join(' '), fill: 'none', stroke: o.sc || '#000', 'stroke-width': o.lw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: st.opacity }));
   } else if (PIC.has(o.t)) {
@@ -181,6 +322,8 @@ function shapeEls(o, s, editing) {
   return out;
 }
 function hitEl(o, s) {
+  if (o.t === 'poly') return sv('path', { d: segD([['M', ...o.vs[0]], ...o.vs.slice(1).map((v) => ['L', ...v]), ...(o.kind !== 'polyline' ? [['Z']] : [])]), fill: o.kind !== 'polyline' ? 'transparent' : 'none', stroke: 'transparent', 'stroke-width': Math.max(o.lw, 9 / s), class: 'hit' });
+  if (o.t === 'callout') { const g = sv('g', { class: 'hit' }); g.append(sv('rect', { x: o.x, y: o.y, width: o.w, height: o.h, fill: 'transparent' }), sv('line', { x1: o.ax, y1: o.ay, x2: calloutAttach(o)[0], y2: calloutAttach(o)[1], stroke: 'transparent', 'stroke-width': 9 / s })); return g; }
   if (BOX.has(o.t)) return sv('rect', { x: o.x, y: o.y, width: Math.max(1, o.w), height: Math.max(1, o.h), fill: 'transparent', class: 'hit' });
   if (o.t === 'mark') { const g = sv('g', { class: 'hit' }); for (const [x, y, w, h] of o.rects) g.append(sv('rect', { x, y, width: w, height: h, fill: 'transparent' })); return g; }
   const w = Math.max(o.lw, 9 / s);
@@ -204,7 +347,13 @@ export function drawOverlay(d, i) {
     svg.addEventListener('pointermove', (e) => onMove(d, i, e));
     svg.addEventListener('pointerup', (e) => onUp(d, i, e));
     svg.addEventListener('pointercancel', (e) => onUp(d, i, e));
-    svg.addEventListener('dblclick', (e) => { const g = e.target.closest('[data-id]'); const o = g && byId(d, g.dataset.id); if (o && o.t === 'text') editText(d, o); if (o && o.t === 'note') editNote(d, o); });
+    svg.addEventListener('dblclick', (e) => {
+      if (poly) { finishPoly(); return; }
+      const g = e.target.closest('[data-id]'); const o = g && byId(d, g.dataset.id);
+      if (o && (o.t === 'text' || o.t === 'callout')) editText(d, o);
+      if (o && o.t === 'note') editNote(d, o);
+      if (o && o.t === 'link') editLink(d, o);
+    });
     p.div.append(svg);
     p.ov = svg;
   }
@@ -227,6 +376,8 @@ export function drawOverlay(d, i) {
     g.append(sv('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'none', stroke: '#1a73e8', 'stroke-width': 1 / s, 'stroke-dasharray': 4 / s, 'pointer-events': 'none' }));
     const hand = (hx, hy, name) => g.append(sv('rect', { x: hx - hs / 2, y: hy - hs / 2, width: hs, height: hs, fill: '#fff', stroke: '#1a73e8', 'stroke-width': 1.2 / s, 'data-h': name, class: 'hd hd-' + name }));
     if (so.t === 'line' || so.t === 'arrow') { hand(so.x1, so.y1, 'p1'); hand(so.x2, so.y2, 'p2'); }
+    else if (so.t === 'poly') so.vs.forEach((v, k) => hand(v[0], v[1], 'v' + k));
+    else if (so.t === 'callout') { for (const [n, [fx, fy]] of Object.entries(HANDLES)) hand(so.x + so.w * fx, so.y + so.h * fy, n); hand(so.ax, so.ay, 'a'); }
     else for (const [n, [fx, fy]] of Object.entries(HANDLES)) hand(x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy, n);
     svg.append(g);
   }
@@ -278,7 +429,14 @@ function newObj(d, t, i, [x, y]) {
   if (t === 'stamp') Object.assign(o, { sym: style.stamp === '날짜' ? today() : style.stamp, sc: '#e5262e', fc: '', lw: 0 });
   if (t === 'note') Object.assign(o, { text: '', fc: '#ffd84d', sc: '', lw: 0 });
   if (t === 'snap' || t === 'crop') Object.assign(o, { snap: t });
+  if (POLY_TOOLS[t]) Object.assign(o, { t: 'poly', kind: POLY_TOOLS[t], vs: [[x, y], [x, y]], fc: t === 'marea' ? '' : style.fc,
+    ...(t === 'mperim' ? { meas: 'perim', ratio: E.ratio || 1 } : t === 'marea' ? { meas: 'area', ratio: E.ratio || 1 } : {}) });
+  if (t === 'mdist') Object.assign(o, { t: 'line', meas: 'dist', ratio: E.ratio || 1, lw: Math.min(style.lw, 1.5) });
+  if (t === 'callout') Object.assign(o, { ax: x, ay: y, x: x + 30, y: y - 50, w: 140, h: 30, text: '', fc: '#ffffff', tc: style.sc, lw: Math.min(style.lw, 1.5) });
+  if (t === 'link') Object.assign(o, { sc: '#1a73e8', fc: '', lw: 0 });
+  if (t === 'redact') Object.assign(o, { sc: '#e5262e', fc: '', lw: 1.5 });
   if (o.t === 'line' || o.t === 'arrow') Object.assign(o, { x1: x, y1: y, x2: x, y2: y });
+  else if (o.t === 'poly' || o.t === 'callout') { /* 위에서 */ }
   else if (t === 'pen') o.pts = [[[x, y]]];
   else if (!('x1' in o)) Object.assign(o, { x, y, w: 0, h: 0 });
   if (t === 'snap' || t === 'crop') o.t = 'rect';
@@ -290,6 +448,22 @@ function onDown(d, i, e) {
   A.focus();
   const tool = A.tool(), pt = toView(d, i, e), E = ed(d);
   if (MARK_TOOLS[tool]) return;                         //  글자 고르기는 글자 층이 받는다
+  //  구름·다각형·꺾은선·둘레·면적: 누를 때마다 꼭짓점, 두 번 누르거나 Enter 로 끝
+  if (POLY_TOOLS[tool]) {
+    //  ⚠ 두 번 누름은 직접 잰다 — 누를 때마다 겹을 다시 그려 브라우저의 dblclick 이 안 올 때가 있다
+    const now = performance.now(), tol = 5 / A.scaleOf(d);
+    if (poly && poly.d === d && poly.i === i) {
+      if (poly.last && now - poly.last.t < 450 && Math.hypot(pt[0] - poly.last.x, pt[1] - poly.last.y) < tol) { finishPoly(); return; }
+      poly.last = { t: now, x: pt[0], y: pt[1] };
+      const o = poly.o; o.vs[o.vs.length - 1] = pt; o.vs.push([...pt]); redrawPage(d, i); return;
+    }
+    if (poly) finishPoly();
+    const before = snap(d), o = newObj(d, tool, i, pt);
+    E.objs.push(o); sel = { d, id: o.id };
+    poly = { d, i, o, before, last: { t: now, x: pt[0], y: pt[1] } };
+    redrawPage(d, i);
+    return;
+  }
   if (tool === 'erase') {
     const g = e.target.closest('[data-id]'), o = g && byId(d, g.dataset.id);
     if (o) { const before = snap(d); E.objs = E.objs.filter((x) => x !== o); if (sel && sel.id === o.id) sel = null; pushUndo(d, before); drawOverlay(d, i); }
@@ -315,7 +489,29 @@ function onDown(d, i, e) {
   e.target.setPointerCapture && d.pages[i].ov.setPointerCapture(e.pointerId);
   redrawPage(d, i);
 }
+let poly = null;                      //  그리는 중인 다각형 { d, i, o, before }
+export function finishPoly(cancel = false, keepTool = false) {
+  const P = poly; if (!P) return false;
+  poly = null;
+  const o = P.o, d = P.d;
+  o.vs.pop();
+  o.vs = o.vs.filter((v, k) => !k || Math.hypot(v[0] - o.vs[k - 1][0], v[1] - o.vs[k - 1][1]) > 1.5);
+  const need = o.kind === 'polyline' ? 2 : 3;
+  if (cancel || o.vs.length < need) { d.ed.objs = d.ed.objs.filter((x) => x !== o); sel = null; drawOverlay(d, P.i); if (!cancel) A.toast('꼭짓점을 ' + need + '개 이상 찍으세요'); return true; }
+  pushUndo(d, P.before);
+  if (!keepTool) A.setTool('edit');
+  select(d, o);
+  return true;
+}
 function onMove(d, i, e) {
+  if (poly && poly.d === d && poly.i === i) {
+    let [x, y] = toView(d, i, e);
+    const o = poly.o, prev = o.vs[o.vs.length - 2];
+    if (e.shiftKey && prev) { const a = Math.round(Math.atan2(y - prev[1], x - prev[0]) / (Math.PI / 4)) * Math.PI / 4, L = Math.hypot(x - prev[0], y - prev[1]); x = prev[0] + L * Math.cos(a); y = prev[1] + L * Math.sin(a); }
+    o.vs[o.vs.length - 1] = [x, y];
+    redrawPage(d, i);
+    return;
+  }
   if (!drag || drag.page !== i) return;
   const [x, y] = toView(d, i, e), o = drag.o, [sx, sy] = drag.start, dx = x - sx, dy = y - sy;
   drag.moved = drag.moved || Math.abs(dx) + Math.abs(dy) > 1;
@@ -328,6 +524,7 @@ function onMove(d, i, e) {
       o.x2 = X; o.y2 = Y;
     } else {
       let w = dx, h = dy;
+      if (o.t === 'callout') { o.x = x; o.y = y - 15; redrawPage(d, i); return; }
       if (e.shiftKey || o.t === 'sym' || o.t === 'note') { const m = Math.max(Math.abs(w), Math.abs(h)); w = Math.sign(w || 1) * m; h = Math.sign(h || 1) * m; }
       o.x = Math.min(sx, sx + w); o.y = Math.min(sy, sy + h); o.w = Math.abs(w); o.h = Math.abs(h);
       if (o.t === 'text') o.auto = false;
@@ -340,6 +537,8 @@ function onMove(d, i, e) {
   redrawPage(d, i);
 }
 function moveTo(o, orig, dx, dy) {
+  if (o.t === 'callout') { o.x = orig.x + dx; o.y = orig.y + dy; o.ax = orig.ax + dx; o.ay = orig.ay + dy; return; }
+  if (o.t === 'poly') { o.vs = orig.vs.map(([x, y]) => [x + dx, y + dy]); return; }
   if (BOX.has(o.t)) { o.x = orig.x + dx; o.y = orig.y + dy; }
   else if (o.t === 'mark') o.rects = orig.rects.map(([x, y, w, h]) => [x + dx, y + dy, w, h]);
   else if (o.t === 'pen') o.pts = orig.pts.map((s) => s.map(([x, y]) => [x + dx, y + dy]));
@@ -348,11 +547,13 @@ function moveTo(o, orig, dx, dy) {
 function resize(o, orig, h, x, y, free) {
   if (h === 'p1') { o.x1 = x; o.y1 = y; return; }
   if (h === 'p2') { o.x2 = x; o.y2 = y; return; }
-  let [x0, y0, x1, y1] = bbox(orig);
+  if (h[0] === 'v') { o.vs[+h.slice(1)] = [x, y]; return; }
+  if (h === 'a') { o.ax = x; o.ay = y; return; }
+  let [x0, y0, x1, y1] = orig.t === 'callout' ? [orig.x, orig.y, orig.x + orig.w, orig.y + orig.h] : bbox(orig);
   if (h.includes('w')) x0 = x; if (h.includes('e')) x1 = x;
   if (h.includes('n')) y0 = y; if (h.includes('s')) y1 = y;
   //  그림·기호는 모서리를 끌면 비율 유지(Shift 를 누르면 자유롭게)
-  const [ox0, oy0, ox1, oy1] = bbox(orig);
+  const [ox0, oy0, ox1, oy1] = orig.t === 'callout' ? [orig.x, orig.y, orig.x + orig.w, orig.y + orig.h] : bbox(orig);
   if ((orig.t === 'image' || orig.t === 'sym' || orig.t === 'stamp' || orig.t === 'note') && h.length === 2 && !free) {
     const r = (ox1 - ox0) / Math.max(1e-6, oy1 - oy0);
     const w = Math.abs(x1 - x0), hh = Math.abs(y1 - y0);
@@ -393,6 +594,7 @@ function onUp(d, i, e) {
       else if (o.t === 'sym') Object.assign(o, { x: x - 14, y: y - 14, w: 28, h: 28 });
       else if (o.t === 'stamp') Object.assign(o, { x: x - 45, y: y - 18, w: o.sym.length > 3 ? 110 : 90, h: 36 });
       else if (o.t === 'note') Object.assign(o, { x: x - 10, y: y - 10, w: 20, h: 20 });
+      else if (o.t === 'callout') Object.assign(o, { x: x + 30, y: y - 50 });
       else if (o.t === 'text') Object.assign(o, { x, y, auto: true });
       else Object.assign(o, { x: x - 40, y: y - 25, w: 80, h: 50 });
     }
@@ -402,6 +604,8 @@ function onUp(d, i, e) {
     select(d, o);
     if (o.t === 'text') editText(d, o, dr.before);
     if (o.t === 'note') editNote(d, o, dr.before);
+    if (o.t === 'callout') editText(d, o, dr.before);
+    if (o.t === 'link') editLink(d, o, dr.before);
   } else if (dr.moved) pushUndo(d, dr.before);
   redrawPage(d, i);
 }
@@ -427,7 +631,7 @@ function editText(d, o, beforeCreate = null) {
   const place = () => {
     const pr = p.div.getBoundingClientRect();
     const r = g && g.isConnected ? g.getBoundingClientRect() : null;
-    const left = r ? r.left - pr.left : o.x * s, top = r ? r.top - pr.top : o.y * s;
+    const left = r && o.t !== 'callout' ? r.left - pr.left : o.x * s, top = r && o.t !== 'callout' ? r.top - pr.top : o.y * s;
     Object.assign(ta.style, { left: left + 'px', top: top + 'px', width: Math.max(60, o.w * s + 4) + 'px', height: Math.max(o.fs * s * LH + PAD * 2 * s, o.h * s + 2) + 'px' });
   };
   place();
@@ -441,7 +645,7 @@ function editText(d, o, beforeCreate = null) {
   ta.addEventListener('blur', () => {
     ta.remove();
     o.text = ta.value.replace(/\s+$/, '');
-    if (!o.text) { d.ed.objs = d.ed.objs.filter((x) => x !== o); sel = null; }
+    if (!o.text && o.t !== 'callout') { d.ed.objs = d.ed.objs.filter((x) => x !== o); sel = null; }
     else layoutText(o);
     if (snap(d) !== before) pushUndo(d, before);
     redrawPage(d, o.p); syncControls();
@@ -500,15 +704,52 @@ export async function markFromSelection(d, kind) {
   return made > 0;
 }
 
+//  🔗 링크 — 웹 주소 또는 이 문서의 쪽
+async function editLink(d, o, beforeCreate = null) {
+  const before = beforeCreate || snap(d);
+  const v = await A.ask('링크', '누르면 갈 곳 — <b>웹 주소</b>(https://…) 또는 이 문서의 <b>쪽 번호</b>(예: 12)', { input: 'text', value: o.url || (o.page != null ? String(o.page + 1) : 'https://'), ok: '확인' });
+  if (v == null || !v.trim() || v.trim() === 'https://') { if (beforeCreate) { d.ed.objs = d.ed.objs.filter((x) => x !== o); sel = null; drawOverlay(d, o.p); } return; }
+  const t = v.trim();
+  if (/^\d+$/.test(t)) { o.page = Math.max(0, Math.min(d.n - 1, +t - 1)); delete o.url; }
+  else { o.url = /^[a-z]+:/i.test(t) ? t : 'https://' + t; delete o.page; }
+  pushUndo(d, before); drawOverlay(d, o.p);
+}
+//  📏 축척 — 「1 : N」 · 선(거리 측정)을 하나 고르고 부르면 그 선의 실제 길이로 맞춘다
+export async function setScale(d) {
+  if (!(await ensureLoaded(d))) return;
+  const E = d.ed, o = selected();
+  if (o && o.meas === 'dist') {
+    const cur = measValue(o);
+    const v = await A.ask('축척 맞추기', '고른 선의 <b>실제 길이(mm)</b>를 넣으세요. 지금: ' + measLabel(o), { input: 'text', value: String(Math.round(cur)), ok: '맞추기' });
+    if (!v) return;
+    const real = parseFloat(v.replace(/,/g, ''));
+    if (!(real > 0)) return A.toast('숫자를 넣으세요');
+    E.ratio = real / (cur / (o.ratio || 1));
+  } else {
+    const v = await A.ask('축척', '도면 축척 <b>1 : N</b> 의 N 을 넣으세요(실물 크기면 1).<br><small>거리 측정 선을 하나 고르고 부르면, 그 선의 실제 길이로 맞출 수 있습니다.</small>', { input: 'text', value: String(E.ratio || 1), ok: '확인' });
+    if (!v) return;
+    const n = parseFloat(v.replace(/^1\s*:\s*/, ''));
+    if (!(n > 0)) return A.toast('숫자를 넣으세요');
+    E.ratio = n;
+  }
+  //  이 문서의 모든 측정에 새 축척
+  const before = snap(d);
+  for (const x of E.objs) if (x.meas) x.ratio = E.ratio;
+  pushUndo(d, before); redrawAll(d);
+  A.toast('축척 1 : ' + (Math.round(E.ratio * 100) / 100));
+}
+
 // ───────────────────────── 돌리기 ─────────────────────────
 //  고른 도형을 90° 돌린다(dir 1: 오른쪽 · -1: 왼쪽) — 가운데를 축으로
 export function rotateSel(dir) {
   const d = A.cur(), o = selected(); if (!o) return A.toast('돌릴 도형을 먼저 고르세요(주석 선택)');
   if (o.t === 'mark') return A.toast('글자 표시(강조·밑줄)는 글자를 따라가므로 돌리지 않습니다');
+  if (o.t === 'callout') return A.toast('설명선은 꼬리 끝(◇)을 끌어 방향을 바꾸세요');
   const before = snap(d);
   const [x0, y0, x1, y1] = bbox(o), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   const rp = ([x, y]) => (dir > 0 ? [cx - (y - cy), cy + (x - cx)] : [cx + (y - cy), cy - (x - cx)]);
   if (o.t === 'pen') o.pts = o.pts.map((s) => s.map(rp));
+  else if (o.t === 'poly') o.vs = o.vs.map(rp);
   else if (o.t === 'line' || o.t === 'arrow') { [o.x1, o.y1] = rp([o.x1, o.y1]); [o.x2, o.y2] = rp([o.x2, o.y2]); }
   else {
     const w = o.w, h = o.h;
@@ -568,6 +809,7 @@ export function dupSel() {
 //  키보드 — 다룬 키면 true
 export function onKey(e) {
   const d = A.cur(); if (!d) return false;
+  if (poly && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPoly(e.key === 'Escape' && poly.o.vs.length <= 2); return true; }
   const k = e.key, c = e.ctrlKey || e.metaKey;
   if (c && !e.shiftKey && (k === 'z' || k === 'Z') && d.ed && (d.ed.undo.length || isEditTool())) { e.preventDefault(); undo(false); return true; }
   if (c && ((k === 'y' || k === 'Y') || (e.shiftKey && (k === 'z' || k === 'Z'))) && d.ed) { e.preventDefault(); undo(true); return true; }
@@ -721,6 +963,8 @@ export function paintCanvas(ctx, d, i, m) {
     ctx.lineWidth = o.lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = o.sc || '#000'; ctx.fillStyle = o.fc || 'transparent';
     if (o.t === 'hilite') ctx.globalCompositeOperation = 'multiply';
+    if (NEW_TYPES.has(o.t)) { primsCanvas(ctx, prims(o)); ctx.restore(); continue; }
+    if (o.meas && o.t === 'line') { ctx.beginPath(); ctx.moveTo(o.x1, o.y1); ctx.lineTo(o.x2, o.y2); ctx.stroke(); primsCanvas(ctx, prims(o)); ctx.restore(); continue; }
     if (o.t === 'mark') {
       ctx.globalAlpha = o.kind === 'hl' ? (o.op < 1 ? o.op : 0.45) : (o.op || 1);
       if (o.kind === 'hl') ctx.globalCompositeOperation = 'multiply';
@@ -854,6 +1098,43 @@ async function readAnnot(doc, dict, vp, E) {
   const base = { sc: colorOf(doc, dict.get(N('C'))), fc: '', lw: widthOf(doc, dict), op: numOf(doc, dict.get(N('CA')), 1), fs: 14 };
   //  저장한 뒤 페이지가 돌았으면(구성 → 회전) 속 그림도 그만큼 돌아 보인다
   const r = meta.pr != null ? (((meta.r || 0) + vp.rotation - meta.pr) % 360 + 360) % 360 : 0;
+  const it = nameOf(look(doc, dict.get(N('IT'))));
+  const ratio = meta.ratio || 1;
+  if (sub === 'Polygon' || sub === 'PolyLine') {
+    const v = nums(doc, dict.get(N('Vertices')));
+    if (!v || v.length < 4) return null;
+    const vs = [];
+    for (let k = 0; k + 1 < v.length; k += 2) vs.push(vp.convertToViewportPoint(v[k], v[k + 1]));
+    const be = look(doc, dict.get(N('BE')));
+    const cloud = be instanceof PDFDict && nameOf(look(doc, be.get(N('S')))) === 'C';
+    const kind = meta.kind || (sub === 'PolyLine' ? 'polyline' : cloud ? 'cloud' : 'polygon');
+    const meas = meta.meas || (it === 'PolygonDimension' ? 'area' : it === 'PolyLineDimension' ? 'perim' : undefined);
+    return { ...base, t: 'poly', kind, vs, fc: colorOf(doc, dict.get(N('IC'))), sc: base.sc || '#e5262e', ...(meas ? { meas, ratio } : {}) };
+  }
+  if (sub === 'Link') {
+    const a = look(doc, dict.get(N('A')));
+    let url = null, page = null;
+    if (a instanceof PDFDict) {
+      const S = nameOf(look(doc, a.get(N('S'))));
+      if (S === 'URI') url = textOf(doc, a.get(N('URI')));
+      else if (S === 'GoTo') { const dd = look(doc, a.get(N('D'))); if (dd instanceof PDFArray && dd.get(0) instanceof PDFRef) page = E._pageIdx.get(refId(dd.get(0))); }
+    }
+    const dst = look(doc, dict.get(N('Dest')));
+    if (dst instanceof PDFArray && dst.get(0) instanceof PDFRef) page = E._pageIdx.get(refId(dst.get(0)));
+    if (url == null && page == null) return null;          //  이름 붙은 목적지 등은 그대로 둔다
+    return { ...boxFromPdf(vp, rect), t: 'link', sc: '#1a73e8', fc: '', lw: 0, op: 1, fs: 14, ...(url != null ? { url } : { page }) };
+  }
+  if (sub === 'Redact') return { ...boxFromPdf(vp, rect), t: 'redact', sc: '#e5262e', fc: '', lw: 1.5, op: 1, fs: 14 };
+  if (sub === 'FreeText' && (it === 'FreeTextCallout' || meta.t === 'callout')) {
+    const cl = nums(doc, dict.get(N('CL')));
+    const rd = nums(doc, dict.get(N('RD'))) || [0, 0, 0, 0];
+    const r0 = [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])];
+    const b = boxFromPdf(vp, [r0[0] + rd[0], r0[1] + rd[3], r0[2] - rd[2], r0[3] - rd[1]]);
+    const [ax, ay] = cl && cl.length >= 4 ? vp.convertToViewportPoint(cl[0], cl[1]) : [b.x - 30, b.y + b.h + 30];
+    const da = textOf(doc, dict.get(N('DA')));
+    const mf = /([\d.]+)\s+Tf/.exec(da);
+    return { ...base, ...b, t: 'callout', ax, ay, text: textOf(doc, dict.get(N('Contents'))), fs: meta.fs || (mf ? +mf[1] : 12), sc: meta.sc || base.sc || '#000000', fc: meta.fc != null ? meta.fc : '#ffffff', tc: meta.tc || meta.sc || '#000000', lw: meta.lw || 1 };
+  }
   if (sub === 'Highlight' || sub === 'Underline' || sub === 'StrikeOut') {
     const q = nums(doc, dict.get(N('QuadPoints')));
     if (!q || q.length < 8) return null;
@@ -887,7 +1168,8 @@ async function readAnnot(doc, dict, vp, E) {
     const ends = le instanceof PDFArray ? le.asArray().map((x) => nameOf(look(doc, x))) : [];
     const head = (n) => n && n !== 'None';
     if (head(ends[0]) && !head(ends[1])) [x1, y1, x2, y2] = [x2, y2, x1, y1];
-    return { ...base, t: head(ends[0]) || head(ends[1]) ? 'arrow' : 'line', x1, y1, x2, y2 };
+    const dist = meta.meas === 'dist' || it === 'LineDimension';
+    return { ...base, t: head(ends[0]) || head(ends[1]) ? 'arrow' : 'line', x1, y1, x2, y2, ...(dist ? { meas: 'dist', ratio } : {}) };
   }
   if (sub === 'Ink') {
     const il = look(doc, dict.get(N('InkList')));
@@ -932,6 +1214,7 @@ export async function ensureLoaded(d) {
     try { doc = await PDFDocument.load(d.base.slice(0), { updateMetadata: false }); }
     catch (e) { A.ask('고칠 수 없음', '이 PDF 구조를 고칠 수 있게 읽지 못했습니다.<br><small>' + String(e.message || e).slice(0, 200) + '</small>', { cancel: null }); E.loading = null; return false; }
     const pages = doc.getPages();
+    E._pageIdx = new Map(pages.map((p, k) => [refId(p.ref), k]));
     for (let i = 0; i < pages.length && i < d.n; i++) {
       const annots = pages[i].node.Annots();
       if (!annots) continue;
@@ -947,6 +1230,7 @@ export async function ensureLoaded(d) {
         o.id = 'o' + (E.seq++); o.p = i; o.src = refId(ref);
         E.objs.push(o);
         E.managed.add(o.src);
+        if (o.meas && o.ratio) E.ratio = o.ratio;
       }
     }
     E.loaded = true;
@@ -986,7 +1270,54 @@ function canvasPixels(src, w, h) {
   const c = cv.getContext('2d'); c.drawImage(src, 0, 0, w, h);
   return c.getImageData(0, 0, w, h).data;
 }
-function writeAnnot(doc, pageRef, o, vp, E) {
+//  새 도형 저장 — 그리기 조각(prims)으로 모양(AP)을 만들고 표준 주석 이름을 붙인다
+function writePrimAnnot(doc, o, vp, pageRefs) {
+  const ctx = doc.context, refs = [], res = {};
+  const [a, b, c, dd] = vp.transform, det = a * dd - b * c;
+  const Lm = [dd / det, -b / det, -c / det, a / det, 0, 0];
+  const toPdf = (x, y) => vp.convertToPdfPoint(x, y);
+  const meta = { t: o.t, kind: o.kind, meas: o.meas, ratio: o.ratio, sc: o.sc, fc: o.fc, tc: o.tc, lw: o.lw, op: o.op, fs: o.fs, pr: vp.rotation };
+  const common = { Type: 'Annot', F: 4, NM: PDFString.of('hanil-' + o.id + '-' + Date.now().toString(36)), M: PDFString.of(pdfDate()), T: PDFHexString.fromText(style.author || AUTHOR), HanilObj: PDFHexString.fromText(JSON.stringify(meta)) };
+  if (o.t === 'link') {
+    const dict = { ...common, Subtype: 'Link', Rect: boxPdf(vp, o.x, o.y, o.x + o.w, o.y + o.h), Border: [0, 0, 0] };
+    if (o.url) dict.A = { S: 'URI', URI: PDFString.of(o.url) };
+    else if (o.page != null && pageRefs[o.page]) dict.Dest = [pageRefs[o.page], 'Fit'];
+    else return null;
+    delete dict.HanilObj; dict.HanilObj = PDFHexString.fromText(JSON.stringify(meta));
+    return ctx.register(ctx.obj(dict));
+  }
+  let P = prims(o);
+  if (o.t === 'line') P = [{ k: 'path', seg: [['M', o.x1, o.y1], ['L', o.x2, o.y2]], stroke: o.sc || '#000', lw: o.lw || 1, op: o.op }, ...P];
+  let [x0, y0, x1, y1] = primsBox(P);
+  const pad = (o.lw || 1) / 2 + 1;
+  x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const ops = primsOps(ctx, P, res, refs);
+  const ap = ctx.register(ctx.flateStream(ops, { Type: 'XObject', Subtype: 'Form', BBox: [x0, y0, x1, y1], Matrix: Lm, Resources: res }));
+  refs.push(ap);
+  const rect = boxPdf(vp, x0, y0, x1, y1);
+  const dict = { ...common, Rect: rect, AP: { N: ap }, CA: o.op, BS: { W: o.lw || 1, S: 'S' } };
+  if (o.sc) dict.C = rgb(o.sc);
+  if (o.t === 'poly') {
+    Object.assign(dict, { Subtype: o.kind === 'polyline' ? 'PolyLine' : 'Polygon', Vertices: o.vs.flatMap(([x, y]) => toPdf(x, y)) });
+    if (o.fc && o.kind !== 'polyline') dict.IC = rgb(o.fc);
+    if (o.kind === 'cloud') dict.BE = { S: 'C', I: 1 };
+    if (o.meas) { dict.IT = o.meas === 'area' ? 'PolygonDimension' : 'PolyLineDimension'; dict.Contents = PDFHexString.fromText(measLabel(o)); }
+  } else if (o.t === 'line') {
+    Object.assign(dict, { Subtype: 'Line', L: [...toPdf(o.x1, o.y1), ...toPdf(o.x2, o.y2)], LE: ['None', 'None'], IT: 'LineDimension', Contents: PDFHexString.fromText(measLabel(o)) });
+  } else if (o.t === 'callout') {
+    const [ex, ey] = calloutAttach(o), inner = boxPdf(vp, o.x, o.y, o.x + o.w, o.y + o.h);
+    Object.assign(dict, { Subtype: 'FreeText', IT: 'FreeTextCallout', CL: [...toPdf(o.ax, o.ay), ...toPdf(ex, ey)], LE: 'OpenArrow',
+      Contents: PDFHexString.fromText(o.text || ''), DA: PDFString.of('/Helv ' + f3(o.fs || 12) + ' Tf ' + rgb(o.tc || o.sc || '#000000').map(f3).join(' ') + ' rg'),
+      RD: [inner[0] - rect[0], rect[3] - inner[3], rect[2] - inner[2], inner[1] - rect[1]].map((v) => Math.max(0, v)) });
+    if (o.fc) dict.C = rgb(o.fc);
+  } else if (o.t === 'redact') {
+    Object.assign(dict, { Subtype: 'Redact', QuadPoints: [...toPdf(o.x, o.y), ...toPdf(o.x + o.w, o.y), ...toPdf(o.x, o.y + o.h), ...toPdf(o.x + o.w, o.y + o.h)], IC: [0, 0, 0], OC: [1, 0, 0] });
+  } else return null;
+  dict.HanilRefs = refs;
+  return ctx.register(ctx.obj(dict));
+}
+function writeAnnot(doc, pageRef, o, vp, E, pageRefs = []) {
+  if (NEW_TYPES.has(o.t) || o.meas) return writePrimAnnot(doc, o, vp, pageRefs);
   const ctx = doc.context, refs = [], res = {};
   //  화면 좌표 → PDF 좌표(선형 부분) — 모양(AP)은 화면 좌표로 그리고 Matrix 로 돌린다(돌아간 페이지도 맞음)
   const [a, b, c, dd] = vp.transform, det = a * dd - b * c;
@@ -1086,8 +1417,10 @@ function boxPdf(vp, x0, y0, x1, y1) {
 //  고친 PDF 바이트 — 고친 것이 없으면 원본 그대로
 export async function buildPdf(d) {
   const E = d.ed;
-  if (!E || !E.loaded) return d.base;
+  //  고친 것이 없으면 원본 그대로 — 주석·책갈피·문서 속성 중 하나라도 고쳤으면 새로 만든다
+  if (!(E && E.loaded) && !d.bmDirty && !d.metaEdit) return d.base;
   const doc = await PDFDocument.load(d.base.slice(0), { updateMetadata: false });
+  if (!(E && E.loaded)) { doc.setProducer('한일 PDF 리더 · 한일특장(주)'); if (A.docHook) await A.docHook(doc, d); return await doc.save({ useObjectStreams: false }); }
   doc.setProducer('한일 PDF 리더 · 한일특장(주)');
   doc.setModificationDate(new Date());
   const ctx = doc.context, pages = doc.getPages();
@@ -1120,7 +1453,9 @@ export async function buildPdf(d) {
     if (!objs.length) continue;
     if (!annots) { annots = ctx.obj([]); page.node.set(N('Annots'), annots); }
     const vp = await A.vp1(d, i);
-    for (const o of objs) { const r = writeAnnot(doc, page.ref, o, vp, E); if (r) annots.push(r); }
+    const pageRefs = pages.map((p) => p.ref);
+    for (const o of objs) { const r = writeAnnot(doc, page.ref, o, vp, E, pageRefs); if (r) annots.push(r); }
   }
+  if (A.docHook) await A.docHook(doc, d);
   return await doc.save({ useObjectStreams: false });
 }
