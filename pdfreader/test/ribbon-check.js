@@ -9,7 +9,7 @@ const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; 
   await page.goto('file://' + path.join(__dirname, '..', 'out', 'hanil-pdf-reader.html'));
   await page.setInputFiles('#fOpen', path.join(path.resolve(process.argv[2]), 'A-001 섀시 부품표.pdf'));
   await page.waitForSelector('.pg canvas');
-  for (const tab of ['home', 'view', 'edit', 'org', 'conv']) {
+  for (const tab of ['home', 'view', 'edit', 'prot', 'form', 'org', 'conv', 'review', 'bm', 'help']) {
     await page.click('.rt[data-rt=' + tab + ']');
     //  단추 글자가 단추 밖으로 넘치거나(잘림) 이웃 단추와 겹치면 안 된다
     const bad = await page.$$eval('#ribbon button', (bs) => {

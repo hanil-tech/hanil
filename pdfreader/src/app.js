@@ -4,9 +4,11 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { pageRaw, prepare, searchRaw, snippet } from './search.js';
 import * as EDIT from './edit.js';
+import * as OFFICE from './office.js';
+import * as SIGN from './sign.js';
 import { PDFDocument, degrees, StandardFonts, rgb as pdfRgb, PDFName, PDFDict, PDFArray, PDFRef, PDFNumber, PDFRawStream, PDFString, PDFHexString } from 'pdf-lib';
 
-const { getDocument, TextLayer, PDFWorker, PDFDateString } = pdfjsLib;
+const { getDocument, TextLayer, PDFWorker, PDFDateString, AnnotationLayer, AnnotationMode } = pdfjsLib;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const h = (tag, attrs = {}, ...kids) => {
@@ -134,6 +136,12 @@ async function openFile(file, { handle = null, path = null } = {}) {
     task = loadPdf(bytes, file.name);
     d.pdf = await task.promise;
     EDIT.attachDoc(d);
+    watchForms(d);
+    //  ✍ 전자 서명이 있으면 바로 검사
+    if (bytesHave(d.base, '/ByteRange')) {
+      d.signed = true;
+      SIGN.verifyPdf(d.base).then((r) => { d.sigs = r; if (cur === d) showProps(); if (r.length) toast(r.every((x) => x.ok) ? '✅ 전자 서명 ' + r.length + '개 — 서명 뒤 바뀌지 않음' : '❌ 전자 서명이 깨졌습니다(서명 뒤에 바뀜)', 5000); }, () => {});
+    }
   } catch (e) {
     if (!(task && task.__pw)) ask('열 수 없음', '<b>' + esc(file.name) + '</b><br>' + esc(why(e)), { cancel: null });
     return null;
@@ -164,6 +172,23 @@ async function sizeRest(d) {
       if (d === cur) keepAnchor(() => layoutPage(d, i)); else d.dirty = true;
     }
   }
+}
+function bytesHave(u8, str) {
+  const c0 = str.charCodeAt(0);
+  outer: for (let i = u8.indexOf(c0); i >= 0 && i < u8.length - str.length; i = u8.indexOf(c0, i + 1)) {
+    for (let k = 1; k < str.length; k++) if (u8[i + k] !== str.charCodeAt(k)) continue outer;
+    return true;
+  }
+  return false;
+}
+//  양식이 있나 · 값을 바꾸면 「고침」
+function watchForms(d) {
+  const st = d.pdf.annotationStorage;
+  st.onSetModified = () => { d.formDirty = true; d.mod = true; renderTabs(); };
+  d.pdf.getFieldObjects().then((fo) => {
+    const has = !!fo && Object.keys(fo).length > 0;
+    if (has !== !!d.hasForms) { d.hasForms = has; for (const p of d.pages) p.key = null; if (cur === d) schedule(); }
+  }, () => {});
 }
 function why(e) {
   const m = String((e && e.message) || e);
@@ -369,7 +394,8 @@ async function renderPage(d, i) {
   const ctx = cv.getContext('2d', { alpha: false });
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   if (p.task) { try { p.task.cancel(); } catch {} }
-  const task = pg.render({ canvasContext: ctx, viewport: vp, transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null });
+  //  양식이 있는 문서는 칸을 HTML 로 따로 그린다(채울 수 있게) — 그림에는 칸 모양을 빼고
+  const task = pg.render({ canvasContext: ctx, viewport: vp, transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null, annotationMode: d.hasForms ? AnnotationMode.ENABLE_FORMS : AnnotationMode.ENABLE });
   p.task = task;
   await task.promise;
   p.task = null;
@@ -394,7 +420,24 @@ async function renderPage(d, i) {
   p.tdivs = tl.textDivs;
   EDIT.drawOverlay(d, i);
   await drawLinks(d, i, pg, vp);
+  if (d.hasForms) await drawForms(d, i, pg, vp);
   paintHits(d, i);
+}
+//  📋 양식 채우기 — pdf.js 의 양식 칸(입력칸·체크·라디오·목록)을 페이지 위에
+const linkStub = { externalLinkEnabled: true, externalLinkTarget: 2, externalLinkRel: 'noopener', pagesCount: 0, page: 1, rotation: 0, isInPresentationMode: false,
+  getDestinationHash: () => '#', getAnchorUrl: () => '#', addLinkAttributes: (a, url) => { a.href = url; a.target = '_blank'; a.rel = 'noopener'; }, setHash() {}, executeNamedAction() {}, executeSetOCGState() {}, navigateTo() {}, goToDestination() {}, goToPage() {}, cachePageRef() {} };
+async function drawForms(d, i, pg, vp) {
+  const p = d.pages[i];
+  p.div.querySelectorAll('.annotationLayer').forEach((e) => e.remove());
+  let anns;
+  try { anns = (await pg.getAnnotations({ intent: 'display' })).filter((a) => a.subtype === 'Widget'); } catch { return; }
+  if (!anns.length) return;
+  const div = h('div', { class: 'annotationLayer' });
+  p.div.append(div);
+  const layer = new AnnotationLayer({ div, accessibilityManager: null, annotationCanvasMap: null, annotationEditorUIManager: null, page: pg, viewport: vp.clone({ dontFlip: true }), structTreeLayer: null });
+  try {
+    await layer.render({ viewport: vp.clone({ dontFlip: true }), div, annotations: anns, page: pg, linkService: linkStub, downloadManager: null, annotationStorage: d.pdf.annotationStorage, imageResourcesPath: '', renderForms: true, enableScripting: false, hasJSActions: false, fieldObjects: null });
+  } catch (e) { console.warn('양식 칸', e); div.remove(); }
 }
 
 //  📎 문서 안 고리(목차 → 페이지, 웹 주소)
@@ -942,6 +985,7 @@ async function showProps() {
     ['만든 프로그램', info.Creator], ['PDF 변환기', info.Producer], ['만든 날', date(info.CreationDate)], ['고친 날', date(info.ModDate)],
     ['#', '고급'], ['PDF 판', info.PDFFormatVersion], ['빠른 웹 보기', info.IsLinearized ? '예' : '아니요'],
     ['양식(폼)', info.IsAcroFormPresent ? '있음' : '없음'], ['암호화', info.EncryptFilterName || (info.IsEncrypted ? '예' : '없음')],
+    ['전자 서명', !d.sigs || !d.sigs.length ? '없음' : d.sigs.map((r) => (r.ok ? '✅ ' : '❌ ') + (r.cn || '?') + (r.ok ? '' : ' — ' + r.why)).join(' / ')],
   ];
   box.innerHTML = '<table>' + rows.map(([k, v]) => k === '#' ? '<tr class="sec"><td colspan="2">' + esc(v) + '</td></tr>' : '<tr><td>' + esc(k) + '</td><td>' + esc(v == null || v === '' ? '—' : v) + '</td></tr>').join('') + '</table>';
 }
@@ -953,55 +997,118 @@ function paperName(w, hh) {
 }
 
 // ───────────────────────── 인쇄 · 저장 ─────────────────────────
+//  🖨 인쇄 — 쪽 고르기 · 모아찍기(한 장에 2·4·6·9·16쪽) · 용지·방향 · 순서 · 테두리
+const PAPERS = { A4: [595.28, 841.89], A3: [841.89, 1190.55], B4: [728.5, 1031.8], Letter: [612, 792] };
+const NUP = { 1: [1, 1], 2: [2, 1], 4: [2, 2], 6: [3, 2], 9: [3, 3], 16: [4, 4] };
 async function printDoc() {
   const d = cur; if (!d) return;
   const sel = d.psel && d.psel.size > 1 ? targets(d) : null;
-  const html = '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="all" checked> 모든 쪽 (' + d.n + '쪽)</label>'
+  const last = (() => { try { return JSON.parse(localStorage.getItem('hanil-pdf-print') || '{}'); } catch { return {}; } })();
+  const opt0 = (v, cur) => (String(v) === String(cur) ? ' selected' : '');
+  const html = '<div style="display:flex;gap:18px;flex-wrap:wrap"><div style="min-width:200px"><b>쪽</b>'
+    + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="all" checked> 모든 쪽 (' + d.n + '쪽)</label>'
     + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="cur"> 지금 쪽 (' + d.cur + '쪽)</label>'
     + (sel ? '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="sel"> 고른 쪽 ' + sel.length + '개</label>' : '')
-    + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="rng"> 쪽 범위 <input id="prRng" placeholder="예: 1-3, 5" style="width:140px;height:22px"></label>'
-    + '<label style="display:block;margin:8px 0 0"><input type="checkbox" id="prAnn" checked> 주석(도형·글·스탬프)도 인쇄</label>';
+    + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="rng"> 쪽 범위 <input id="prRng" placeholder="예: 1-3, 5" style="width:110px;height:22px"></label>'
+    + '<label style="display:block;margin:4px 0"><input type="radio" name="pr" value="odd"> 홀수 쪽만</label><label style="display:block;margin:4px 0"><input type="radio" name="pr" value="even"> 짝수 쪽만</label>'
+    + '<label style="display:block;margin:8px 0 0"><input type="checkbox" id="prAnn" checked> 주석(도형·글·스탬프)도 인쇄</label></div>'
+    + '<div style="min-width:220px"><b>모아찍기</b>'
+    + '<div style="margin:5px 0">한 장에 <select id="prNup">' + [1, 2, 4, 6, 9, 16].map((n) => '<option value="' + n + '"' + opt0(n, last.nup || 1) + '>' + n + '쪽</option>').join('') + '</select></div>'
+    + '<div style="margin:5px 0">용지 <select id="prPaper">' + ['A4', 'A3', 'B4', 'Letter', '원래 크기'].map((n) => '<option' + opt0(n, last.paper || 'A4') + '>' + n + '</option>').join('') + '</select>'
+    + ' 방향 <select id="prOri">' + [['auto', '자동'], ['p', '세로'], ['l', '가로']].map(([v, t]) => '<option value="' + v + '"' + opt0(v, last.ori || 'auto') + '>' + t + '</option>').join('') + '</select></div>'
+    + '<div style="margin:5px 0">순서 <select id="prOrder"><option value="z"' + opt0('z', last.order || 'z') + '>가로 먼저 (1 2 / 3 4)</option><option value="n"' + opt0('n', last.order) + '>세로 먼저 (1 3 / 2 4)</option></select></div>'
+    + '<label style="display:block;margin:5px 0"><input type="checkbox" id="prBorder"' + (last.border ? ' checked' : '') + '> 쪽마다 테두리</label>'
+    + '<label style="display:block;margin:5px 0"><input type="checkbox" id="prFit"' + (last.fit === false ? '' : ' checked') + '> 용지에 맞춰 줄이기·늘리기</label></div></div>';
   const pend = ask('인쇄', html, { ok: '인쇄…' });
   let opt = null;
-  $('#mFoot button').addEventListener('click', () => { const r = $('input[name=pr]:checked'); opt = { r: r && r.value, rng: $('#prRng').value, ann: $('#prAnn').checked }; }, { capture: true });
+  $('#mFoot button').addEventListener('click', () => {
+    const r = $('input[name=pr]:checked');
+    opt = { r: r && r.value, rng: $('#prRng').value, ann: $('#prAnn').checked, nup: +$('#prNup').value, paper: $('#prPaper').value, ori: $('#prOri').value, order: $('#prOrder').value, border: $('#prBorder').checked, fit: $('#prFit').checked };
+  }, { capture: true });
   if (!(await pend) || !opt) return;
-  const pages = opt.r === 'cur' ? [d.cur - 1] : opt.r === 'sel' ? sel : opt.r === 'rng' ? parseRange(opt.rng, d.n) : [...Array(d.n).keys()];
+  try { localStorage.setItem('hanil-pdf-print', JSON.stringify(opt)); } catch {}
+  const all = [...Array(d.n).keys()];
+  const pages = opt.r === 'cur' ? [d.cur - 1] : opt.r === 'sel' ? sel : opt.r === 'rng' ? parseRange(opt.rng, d.n) : opt.r === 'odd' ? all.filter((k) => k % 2 === 0) : opt.r === 'even' ? all.filter((k) => k % 2 === 1) : all;
   if (!pages.length) return toast('쪽 범위를 확인하세요');
   if (pages.length > 300 && !(await ask('인쇄', pages.length + '쪽입니다. 모두 준비하는 데 시간이 걸립니다. 계속할까요?', { ok: '계속' }))) return;
   const area = $('#printArea');
   area.innerHTML = '';
   let stop = false;
   ask('인쇄 준비', '<span id="prMsg">페이지 그리는 중…</span>', { ok: '그만', cancel: null }).then((v) => { if (v !== '__closed') stop = true; });
-  const urls = [];
-  for (const i0 of pages) {
-    if (stop) break;
-    const i = i0 + 1;
-    $('#prMsg') && ($('#prMsg').textContent = '페이지 그리는 중… ' + (pages.indexOf(i0) + 1) + ' / ' + pages.length);
-    const pg = await d.pdf.getPage(i);
-    const vp = pg.getViewport({ scale: 150 / 72, rotation: (pg.rotate + d.rot) % 360 });
+  //  쪽 그림(150dpi)
+  const DPI = opt.nup > 4 ? 110 : 150;
+  const renderPg = async (i0) => {
+    const i = i0 + 1, pg = await d.pdf.getPage(i);
+    const vp = pg.getViewport({ scale: DPI / 72, rotation: (pg.rotate + d.rot) % 360 });
     const cv = h('canvas', { width: Math.floor(vp.width), height: Math.floor(vp.height) });
     const ctx = cv.getContext('2d');
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
     //  ⚠ 'display' 로 — 고치려고 가져온 주석은 숨기고, 고친 모양은 아래에서 그린다
-    await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-    const sc = 150 / 72, p = d.pages[i - 1], W = p.w, H = p.h;
+    await pg.render({ canvasContext: ctx, viewport: vp, annotationMode: AnnotationMode.ENABLE_STORAGE }).promise;
+    const sc = DPI / 72, p = d.pages[i - 1], W = p.w, H = p.h;
     const r = { 0: [1, 0, 0, 1, 0, 0], 90: [0, 1, -1, 0, H, 0], 180: [-1, 0, 0, -1, W, H], 270: [0, -1, 1, 0, 0, W] }[d.rot];
     if (opt.ann) EDIT.paintCanvas(ctx, d, i - 1, r.map((v) => v * sc));
-    const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.92));
+    return cv;
+  };
+  //  용지 크기(pt)와 칸 — 자동 방향: 2·6쪽은 쪽 방향과 반대로(세로 쪽 2개 → 가로 용지에 나란히)
+  const first = d.pages[pages[0]], [fw, fh] = dims(d, first);
+  const pagePortrait = fh >= fw;
+  let [cols, rows] = NUP[opt.nup];
+  let paper = opt.paper === '원래 크기' ? [Math.min(fw, fh), Math.max(fw, fh)] : PAPERS[opt.paper];
+  let landscape = opt.ori === 'l' || (opt.ori === 'auto' && ((opt.nup === 2 || opt.nup === 6) ? pagePortrait : !pagePortrait));
+  if (!landscape) [cols, rows] = [rows, cols];
+  const sheet = landscape ? [paper[1], paper[0]] : [paper[0], paper[1]];
+  const sheetCss = (opt.paper === '원래 크기' && opt.nup === 1) ? 'auto' : ((opt.paper === '원래 크기' ? Math.round(sheet[0] / 72 * 25.4) + 'mm ' + Math.round(sheet[1] / 72 * 25.4) + 'mm' : opt.paper + (landscape ? ' landscape' : ' portrait')));
+  const urls = [];
+  const per = opt.nup;
+  for (let s0 = 0; s0 < pages.length && !stop; s0 += per) {
+    const group = pages.slice(s0, s0 + per);
+    let sheetCv;
+    if (per === 1 && (opt.paper === '원래 크기' || !opt.fit)) {
+      $('#prMsg') && ($('#prMsg').textContent = '페이지 그리는 중… ' + (s0 + 1) + ' / ' + pages.length);
+      sheetCv = await renderPg(group[0]);
+    } else {
+      const SW = Math.round(sheet[0] / 72 * DPI), SH = Math.round(sheet[1] / 72 * DPI);
+      sheetCv = h('canvas', { width: SW, height: SH });
+      const c = sheetCv.getContext('2d');
+      c.fillStyle = '#fff'; c.fillRect(0, 0, SW, SH);
+      const M = Math.round(6 / 25.4 * DPI), G = per > 1 ? Math.round(3 / 25.4 * DPI) : 0;      //  여백 6mm · 칸 사이 3mm
+      const cw = (SW - 2 * M - (cols - 1) * G) / cols, ch = (SH - 2 * M - (rows - 1) * G) / rows;
+      for (let k = 0; k < group.length; k++) {
+        if (stop) break;
+        $('#prMsg') && ($('#prMsg').textContent = '페이지 그리는 중… ' + (s0 + k + 1) + ' / ' + pages.length + (per > 1 ? ' (한 장에 ' + per + '쪽)' : ''));
+        const pc = await renderPg(group[k]);
+        const col = opt.order === 'n' ? Math.floor(k / rows) : k % cols, row = opt.order === 'n' ? k % rows : Math.floor(k / cols);
+        let sc = Math.min(cw / pc.width, ch / pc.height);
+        if (!opt.fit && per === 1) sc = Math.min(1, sc);
+        const w = pc.width * sc, hh = pc.height * sc;
+        const x = M + col * (cw + G) + (cw - w) / 2, y = M + row * (ch + G) + (ch - hh) / 2;
+        c.drawImage(pc, x, y, w, hh);
+        if (opt.border) { c.strokeStyle = '#555'; c.lineWidth = Math.max(1, DPI / 150); c.strokeRect(x, y, w, hh); }
+      }
+    }
+    const blob = await new Promise((r) => sheetCv.toBlob(r, 'image/jpeg', 0.92));
     const u = URL.createObjectURL(blob);
     urls.push(u);
     area.append(h('img', { src: u }));
   }
   if (stop) { area.innerHTML = ''; urls.forEach(URL.revokeObjectURL); return; }
   closeModal();
-  await Promise.all($$('img', area).map((im) => im.decode().catch(() => {})));
+  //  용지 크기·방향을 프린터 창에 알려 준다
+  let ps = $('#printPageStyle');
+  if (!ps) { ps = h('style', { id: 'printPageStyle' }); document.head.append(ps); }
+  ps.textContent = '@media print{@page{size:' + sheetCss + ';margin:0}}';
+  const mine = $$('img', area);
+  await Promise.all(mine.map((im) => im.decode().catch(() => {})));
   window.print();
-  setTimeout(() => { area.innerHTML = ''; urls.forEach(URL.revokeObjectURL); }, 1000);
+  //  ⚠ 이번에 만든 그림만 치운다(바로 다시 인쇄하면 새 그림을 지우지 않게)
+  setTimeout(() => { mine.forEach((im) => im.remove()); urls.forEach(URL.revokeObjectURL); }, 1000);
 }
 //  💾 저장 — 고친 것이 있으면 표준 주석을 넣은 PDF 를 새로 만든다
 //   윈도우 프로그램: 그 파일에 바로 · 크롬(파일을 「열기」로 연 것): 그 파일에 바로 · 그 밖: 저장할 곳을 묻거나 내려받기
 async function saveDoc(asNew = false, transform = null) {
   const d = cur; if (!d) return false;
+  if (d.signed && d.mod && !transform && !(await ask('서명된 문서', '이 문서에는 <b>전자 서명</b>이 있습니다. 고친 것을 저장하면 <b>서명이 깨집니다</b>(서명 뒤에 바뀐 것으로 나옴).<br>그래도 저장할까요?', { ok: '저장' }))) return false;
   let bytes;
   try { toast('저장 준비 중…', 60000); bytes = await EDIT.buildPdf(d); if (transform) bytes = await transform(bytes); }
   catch (e) { console.error(e); ask('저장하지 못함', esc(String(e.message || e)), { cancel: null }); return false; }
@@ -1108,6 +1215,18 @@ Object.assign(I, {
   split: '<path d="M7 2h10v10H7z" fill="#fff" stroke="#555"/><path d="M12 12v3M12 15l-6 4M12 15l6 4" fill="none" stroke="#2b6cb0" stroke-width="2"/>',
   tts: '<path d="M3 9h4l5-4v14l-5-4H3z" fill="#2b6cb0"/><path d="M15 8a5 5 0 0 1 0 8M18 5a9 9 0 0 1 0 14" fill="none" stroke="#2b6cb0" stroke-width="1.8"/>',
   opt: '<path d="M5 2h10l4 4v16H5z" fill="#fff" stroke="#555"/><path d="M8 17l3-6 3 3 3-7" fill="none" stroke="#1a7f37" stroke-width="2"/>',
+  tedit: '<path d="M3 20h18" stroke="#555" stroke-width="1.5"/><text x="9" y="16" text-anchor="middle" font-size="13" font-weight="700" fill="#222">가</text><path d="M14 17l6-10 2 1.2-6 10-2.5 1z" fill="#f6c444" stroke="#8a5a1c"/>',
+  fText: '<rect x="2" y="7" width="20" height="10" fill="#fff" stroke="#555"/><path d="M6 9.5v5M5 9.5h2M5 14.5h2" stroke="#222"/>',
+  fCheck: '<rect x="4" y="4" width="16" height="16" rx="2" fill="#fff" stroke="#555"/><path d="M7 12l4 4 6-8" fill="none" stroke="#1a7f37" stroke-width="2.4"/>',
+  fRadio: '<circle cx="12" cy="12" r="8" fill="#fff" stroke="#555"/><circle cx="12" cy="12" r="4" fill="#2b6cb0"/>',
+  fCombo: '<rect x="2" y="7" width="20" height="10" fill="#fff" stroke="#555"/><rect x="15" y="7" width="7" height="10" fill="#e5e5e5" stroke="#555"/><path d="M16.5 11l2 2 2-2" fill="none" stroke="#222"/>',
+  fList: '<rect x="3" y="3" width="18" height="18" fill="#fff" stroke="#555"/><path d="M6 8h12M6 12h12M6 16h12" stroke="#999"/><rect x="5" y="10.5" width="14" height="3" fill="#9dc3f0"/>',
+  fBtn: '<rect x="3" y="7" width="18" height="10" rx="3" fill="#e5e5e5" stroke="#555"/><text x="12" y="14.5" text-anchor="middle" font-size="6" fill="#222">OK</text>',
+  fSig: '<rect x="2" y="6" width="20" height="12" fill="#fff" stroke="#555"/><path d="M5 15c2-4 3-4 4 0s2 1 3-2 2 0 3 1 2-1 4-1" fill="none" stroke="#2b6cb0" stroke-width="1.4"/>',
+  signc: '<path d="M5 2h10l4 4v16H5z" fill="#fff" stroke="#555"/><circle cx="15" cy="15" r="5" fill="#c8102e"/><path d="M13 19l-1 4 3-2 3 2-1-4" fill="#c8102e"/><path d="M8 8h6M8 11h4" stroke="#999"/>',
+  signv: '<path d="M5 2h10l4 4v16H5z" fill="#fff" stroke="#555"/><circle cx="15" cy="16" r="5.5" fill="#1a7f37"/><path d="M12.5 16l2 2 3.5-4" fill="none" stroke="#fff" stroke-width="1.8"/>',
+  word: '<path d="M7 2h10l4 4v16H7z" fill="#fff" stroke="#2b579a"/><rect x="2" y="7" width="11" height="11" rx="1" fill="#2b579a"/><text x="7.5" y="16" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">W</text>',
+  excel: '<path d="M7 2h10l4 4v16H7z" fill="#fff" stroke="#1d6f42"/><rect x="2" y="7" width="11" height="11" rx="1" fill="#1d6f42"/><text x="7.5" y="16" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">X</text>',
   snap: '<rect x="2" y="6" width="20" height="14" rx="2" fill="#6b7d93"/><circle cx="12" cy="13" r="4.2" fill="#dfe8f3" stroke="#fff" stroke-width="1.4"/><rect x="8" y="3.5" width="8" height="3" fill="#6b7d93"/>',
   clip: '<rect x="4" y="4" width="16" height="18" rx="1.5" fill="#d9a35b" stroke="#8a5a1c"/><rect x="7" y="2" width="10" height="5" rx="1" fill="#eee" stroke="#777"/><rect x="7" y="9" width="10" height="10" fill="#fff"/>',
   cut: '<circle cx="7" cy="18" r="3" fill="none" stroke="#555" stroke-width="2"/><circle cx="17" cy="18" r="3" fill="none" stroke="#555" stroke-width="2"/><path d="M9 16L17 3M15 16L7 3" stroke="#555" stroke-width="2"/>',
@@ -1144,7 +1263,7 @@ const RIB = {
       ['sm', 'tSnap', '스냅샷', 'snap', '네모를 끌면 그 부분 · 한 번 누르면 보이는 화면 전체를 그림으로 복사'], ['menu', 'mClip', '클립보드', 'clip', '', [['잘라내기 (Ctrl+X)', 'oCut'], ['복사 (Ctrl+C)', 'oCopy'], ['붙여넣기 (Ctrl+V)', 'oPaste']]],
       ['menu', 'mFind', '찾기', 'find2', '', [['이 문서에서 찾기 (Ctrl+F)', 'find'], ['여러 문서·폴더 검색 (Ctrl+Shift+F)', 'searchPane']]]]],
     ['보기', 'zoom'],
-    ['개체', [['big', 'tImg', '이미지', 'tImg', '파일에서 · Ctrl+V 붙여넣기'], ['big', 'tText', '글상자', 'tText', ''], ['big', 'tSel', '선택', 'sel', '']]],
+    ['개체', [['big', 'tTEdit', '글자 고치기', 'tedit', '원래 글자를 눌러 고치기(저장하면 바뀜)'], ['big', 'tImg', '이미지', 'tImg', '파일에서 · Ctrl+V 붙여넣기'], ['big', 'tText', '글상자', 'tText', ''], ['big', 'tSel', '선택', 'sel', '']]],
     ['주석', [['sm', 'tType', '타자기', 'type', '테두리 없는 글'], ['sm', 'mhl', '강조 표시', 'hlT', '글자를 끌어 고르면 노란 칠'], ['sm', 'mul', '밑줄', 'ulT', '글자를 끌어 고르면 밑줄'],
       ['sm', 'tNote', '스티커 메모', 'note', ''], ['sm', 'tArrow', '화살표', 'tArrow', ''], ['sm', 'tRect', '사각형', 'tRect', '']]],
     ['', [['stamp']]],
@@ -1161,7 +1280,7 @@ const RIB = {
   edit: [
     ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
     ['', [['big', 'tSel', '주석 선택', 'sel', '옮기기·크기·지우기']]],
-    ['텍스트', [['sm', 'tType', '타자기', 'type', ''], ['sm', 'tText', '텍스트 상자', 'tText', ''], ['sm', 'tCallout', '설명선', 'callout', '고리점을 누르고 글상자 자리로 끌기']]],
+    ['텍스트', [['sm', 'tType', '타자기', 'type', ''], ['sm', 'tText', '텍스트 상자', 'tText', ''], ['sm', 'tCallout', '설명선', 'callout', '고리점을 누르고 글상자 자리로 끌기'], ['sm', 'tTEdit', '글자 고치기', 'tedit', '원래 글자']]],
     ['참고', [['sm', 'tNote', '스티커 메모', 'note', '']]],
     ['텍스트 마크업', [['sm', 'mhl', '강조 표시', 'hlT', '글자를 끌어 고르기'], ['sm', 'mul', '밑줄', 'ulT', ''], ['sm', 'mso', '취소선', 'soT', '']]],
     ['그리기', [['sm', 'tLine', '선', 'tLine', 'Shift: 45°'], ['sm', 'tArrow', '화살표', 'tArrow', ''], ['sm', 'tRect', '사각형', 'tRect', 'Shift: 정사각형'], ['sm', 'tEll', '원', 'tEll', 'Shift: 정원'],
@@ -1183,8 +1302,15 @@ const RIB = {
     ['페이지 표시', [['big', 'pWm', '워터마크', 'wm', ''], ['big', 'pNum', '페이지 번호', 'pnum', ''], ['big', 'pHF', '머리글·바닥글', 'hf', '날짜·파일 이름·쪽 번호(한글 됨)'], ['big', 'pBates', 'Bates 번호', 'bates', '문서 번호 매기기']]],
     ['', [['big', 'pUndo', '되돌리기', 'pundo', '페이지 바꾼 것 되돌리기']]],
   ],
+  form: [
+    ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', ''], ['sm', 'tSel', '필드 선택', 'sel', '만든 필드 옮기기·크기·지우기']]],
+    ['양식 필드', [['big', 'fText', '텍스트', 'fText', '입력칸'], ['big', 'fCheck', '확인란', 'fCheck', ''], ['big', 'fRadio', '라디오', 'fRadio', '같은 이름끼리 하나만'], ['big', 'fCombo', '드롭다운', 'fCombo', ''],
+      ['big', 'fList', '목록', 'fList', ''], ['big', 'fBtn', '단추', 'fBtn', ''], ['big', 'fSig', '서명', 'fSig', '전자 서명 칸']]],
+    ['', [['big', 'save', '저장', 'save', '저장하면 필드가 생겨 채울 수 있음']]],
+  ],
   prot: [
     ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
+    ['서명', [['big', 'signDraw', '서명 그리기', 'fSig', '손글씨·도장 사진 → 그림으로 넣기'], ['big', 'signMine', '내 서명', 'fSig', '전에 그린 서명 넣기'], ['big', 'signCert', '인증서로 서명', 'signc', '.pfx·.p12 — PDF 표준 전자 서명'], ['big', 'signVerify', '서명 검사', 'signv', '서명 뒤에 바뀌었나']]],
     ['교정', [['big', 'tRedact', '교정 표시', 'redact', '지울 곳을 네모로'], ['big', 'rdFind', '찾아서 교정', 'redfind', '글자를 찾아 모두 표시'], ['big', 'rdApply', '교정 적용', 'apply', '표시한 곳을 검게 영구 삭제']]],
     ['문서', [['big', 'propsEdit', '문서 속성', 'docp', '제목·작성자·주제·키워드'], ['big', 'flatten', '주석 평탄화', 'flat', '주석을 페이지 내용으로 굳힘']]],
   ],
@@ -1201,6 +1327,7 @@ const RIB = {
   conv: [
     ['도구', [['sm', 'hand', '손', 'hand', ''], ['sm', 'select', '텍스트 선택', 'select', '']]],
     ['만들기', [['big', 'newDoc', '공백', 'blank', '빈 A4 문서'], ['big', 'img2pdf', '이미지에서', 'img2pdf', '사진·그림 파일 → PDF'], ['big', 'combine', '파일 결합', 'combine', '여러 PDF 를 하나로']]],
+    ['Office 로', [['big', 'toWord', 'Word 로', 'word', '글자로(고칠 수 있게) · 모양 그대로'], ['big', 'toExcel', 'Excel 로', 'excel', '표를 칸으로']]],
     ['내보내기', [['big', 'expImg', '이미지로 내보내기', 'expImg', 'PNG·JPEG (여러 쪽은 ZIP)'], ['big', 'pExt', '페이지 추출', 'ext', ''], ['big', 'split', '문서 분할', 'split', 'N쪽마다 나눠 ZIP'], ['big', 'saveOpt', '최적화 저장', 'opt', '파일 크기 줄이기']]],
   ],
   help: [
@@ -1315,7 +1442,7 @@ function syncFmtTab() {
   $('#fmtTool').textContent = TOOL_NAMES[tool] || '도구';
   if (!on && ribTab === 'fmt') selectTab('edit');
 }
-const TOOL_NAMES = { polygon: '다각형', polyline: '꺾은선', cloud: '구름', callout: '설명선', mdist: '거리', mperim: '둘레', marea: '면적', link: '링크', redact: '교정 표시', edit: '주석 선택', rect: '사각형', ellipse: '원', line: '선', arrow: '화살표', pen: '연필', hilite: '형광펜', white: '가리기', text: '텍스트 상자', type: '타자기', under: '밑줄', sym: '기호', stamp: '스탬프', note: '스티커 메모', snap: '스냅샷', crop: '자르기', erase: '지우개', mhl: '강조 표시', mul: '밑줄', mso: '취소선' };
+const TOOL_NAMES = { tedit: '글자 고치기', fText: '텍스트 필드', fCheck: '확인란', fRadio: '라디오', fCombo: '드롭다운', fList: '목록', fBtn: '단추', fSig: '서명 필드', polygon: '다각형', polyline: '꺾은선', cloud: '구름', callout: '설명선', mdist: '거리', mperim: '둘레', marea: '면적', link: '링크', redact: '교정 표시', edit: '주석 선택', rect: '사각형', ellipse: '원', line: '선', arrow: '화살표', pen: '연필', hilite: '형광펜', white: '가리기', text: '텍스트 상자', type: '타자기', under: '밑줄', sym: '기호', stamp: '스탬프', note: '스티커 메모', snap: '스냅샷', crop: '자르기', erase: '지우개', mhl: '강조 표시', mul: '밑줄', mso: '취소선' };
 
 
 async function setTool(t) {
@@ -1326,11 +1453,14 @@ async function setTool(t) {
   }
   tool = t;
   viewer.classList.toggle('hand', t === 'hand');
-  const mark = !!EDIT.MARK_TOOLS[t];
+  const mark = EDIT.TEXT_TOOLS.has(t);
+  if (t === 'tedit') { EDIT.screenFont(); toast('고칠 글자를 누르세요 — 고친 뒤 Enter · 저장하면 원래 글자가 바뀝니다', 4500); }
+  if (EDIT.FIELD_TOOLS[t]) toast('필드 자리를 네모로 끄세요(누르기만 하면 알맞은 크기)', 3500);
   viewer.classList.toggle('editing', EDIT.EDIT_TOOLS.includes(t) && !mark);
   viewer.classList.toggle('creating', EDIT.EDIT_TOOLS.includes(t) && !mark && t !== 'edit' && t !== 'erase');
   viewer.classList.toggle('erasing', t === 'erase');
   viewer.classList.toggle('marking', mark);
+  viewer.classList.toggle('tediting', t === 'tedit');
   if (mark) toast('글자를 끌어 고르면 ' + TOOL_NAMES[t] + '이(가) 됩니다');
   if (t === 'snap') toast('📷 네모를 끌면 그 부분 · 한 번 누르면 보이는 화면 전체를 그림으로 복사', 4000);
   if (t === 'crop') toast('남길 부분을 네모로 끄세요');
@@ -1379,12 +1509,15 @@ const CMD = {
   pCopy: () => copyPages(false), pCut: () => copyPages(true), pPaste: pastePages, pUp: () => movePages(-1), pDown: () => movePages(1),
   pInsFile: insertFromFile, pInsBlank: insertBlank, pInsImg: insertImages, pNum: pageNumbers, pWm: watermark, pUndo: pageUndo,
   newDoc: newBlank, img2pdf, expImg: exportImages, settings: () => settings(),
+  tTEdit: () => setTool('tedit'), fText: () => setTool('fText'), fCheck: () => setTool('fCheck'), fRadio: () => setTool('fRadio'), fCombo: () => setTool('fCombo'), fList: () => setTool('fList'), fBtn: () => setTool('fBtn'), fSig: () => setTool('fSig'),
   tPoly: () => setTool('polygon'), tPolyline: () => setTool('polyline'), tCloud: () => setTool('cloud'), tCallout: () => setTool('callout'),
   tMDist: () => setTool('mdist'), tMPerim: () => setTool('mperim'), tMArea: () => setTool('marea'), mScale: () => cur && EDIT.setScale(cur), tLink: () => setTool('link'),
   tRedact: () => setTool('redact'), rdFind: redactFind, rdApply: redactApply, propsEdit: editProps, flatten: flattenAnnots,
   rvList: async () => { $('#left').classList.remove('off'); $('.ltabs button[data-lt=comments]').click(); }, rvPrev: () => reviewStep(-1), rvNext: () => reviewStep(1), rvCsv: commentsCsv, compare: compareDocs,
   bmAdd: () => bmEdit('add'), bmChild: () => bmEdit('addChild'), bmAuto: () => bmEdit('auto'), bmRen: () => bmEdit('rename'), bmDel: () => bmEdit('del'), bmHere: () => bmEdit('here'),
   bmUp: () => bmEdit('up'), bmDown: () => bmEdit('down'), bmIn: () => bmEdit('in'), bmOut: () => bmEdit('out'),
+  signDraw: () => signDraw(false), signMine: () => signDraw(true), signCert, signVerify: () => verifySigs(false),
+  toWord: () => exportOffice('word'), toExcel: () => exportOffice('excel'),
   pHF: () => headerFooter(false), pBates: () => headerFooter(true), combine: combineFiles, split: splitDoc, saveOpt: saveOptimized, tts: readAloud,
   exportHtml: () => HOST && HOST.exportHtml && HOST.exportHtml(),
   exit: () => { if (HOST && HOST.exit) HOST.exit(); else window.close(); },
@@ -1433,11 +1566,12 @@ function about(keysOnly) {
 
 const TOOL_OF = { tSel: 'edit', tRect: 'rect', tEll: 'ellipse', tLine: 'line', tArrow: 'arrow', tPen: 'pen', tHi: 'hilite', tText: 'text', tSym: 'sym', tWhite: 'white',
   tType: 'type', tNote: 'note', tStamp: 'stamp', tSnap: 'snap', tCrop: 'crop', tErase: 'erase', mhl: 'mhl', mul: 'mul', mso: 'mso',
+  tTEdit: 'tedit', fText: 'fText', fCheck: 'fCheck', fRadio: 'fRadio', fCombo: 'fCombo', fList: 'fList', fBtn: 'fBtn', fSig: 'fSig',
   tPoly: 'polygon', tPolyline: 'polyline', tCloud: 'cloud', tCallout: 'callout', tMDist: 'mdist', tMPerim: 'mperim', tMArea: 'marea', tLink: 'link', tRedact: 'redact' };
 const NEED_DOC = ['save', 'saveAs', 'print', 'close', 'closeAll', 'props', 'actual', 'width', 'page', 'zoomIn', 'zoomOut', 'first', 'prev', 'next', 'last', 'rotL', 'rotR',
   'undo', 'redo', 'del', 'dup', 'oRot', 'oRotL', 'oCopy', 'oCut', 'oPaste', 'tImg', 'pRotR', 'pRotL', 'pRot180', 'pDel', 'pExt', 'pDup', 'pCopy', 'pCut', 'pPaste', 'pUp', 'pDown',
   'pInsFile', 'pInsBlank', 'pInsImg', 'pNum', 'pWm', 'pUndo', 'expImg', 'mScale', 'rdFind', 'rdApply', 'propsEdit', 'flatten', 'rvList', 'rvPrev', 'rvNext', 'rvCsv', 'compare',
-  'bmAdd', 'bmChild', 'bmAuto', 'bmRen', 'bmDel', 'bmHere', 'bmUp', 'bmDown', 'bmIn', 'bmOut', 'pHF', 'pBates', 'split', 'saveOpt', 'tts'];
+  'bmAdd', 'bmChild', 'bmAuto', 'bmRen', 'bmDel', 'bmHere', 'bmUp', 'bmDown', 'bmIn', 'bmOut', 'pHF', 'pBates', 'split', 'saveOpt', 'tts', 'toWord', 'toExcel', 'signDraw', 'signMine', 'signCert', 'signVerify'];
 function updateUi() {
   const has = !!cur;
   $$('[data-cmd]').forEach((b) => {
@@ -1501,6 +1635,7 @@ $('#emptyMsg').addEventListener('dblclick', () => { if (!cur) $('#fOpen').click(
 let drag = null, dragMoved = false;
 viewer.addEventListener('mousedown', (e) => {
   if (tool !== 'hand' || e.button !== 0 || !cur) return;
+  if (e.target.closest && e.target.closest('.annotationLayer section, .tedit-in')) return;   //  양식 칸은 손 도구로도 채운다
   const r = viewer.getBoundingClientRect();
   if (e.clientX - r.left >= viewer.clientWidth || e.clientY - r.top >= viewer.clientHeight) return;   //  스크롤 막대는 그대로
   drag = { x: e.clientX, y: e.clientY, l: viewer.scrollLeft, t: viewer.scrollTop };
@@ -1670,6 +1805,8 @@ async function reloadDoc(d, bytes, page = null) {
   const task = loadPdf(bytes, d.name);
   d.pdf = await task.promise;
   EDIT.attachDoc(d);
+  d.formDirty = false;
+  watchForms(d);
   d.n = d.pdf.numPages;
   await buildPages(d);
   d.laid = false; d.mod = true;
@@ -1876,7 +2013,7 @@ async function renderWithEdits(d, i, k) {
   const cv = h('canvas', { width: Math.floor(vp.width), height: Math.floor(vp.height) });
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  await pg.render({ canvasContext: ctx, viewport: vp, annotationMode: AnnotationMode.ENABLE_STORAGE }).promise;
   EDIT.paintCanvas(ctx, d, i, [k, 0, 0, k, 0, 0]);
   return cv;
 }
@@ -2024,6 +2161,20 @@ viewer.addEventListener('contextmenu', (e) => {
 });
 //  스냅샷 도구로 페이지 밖(회색 바탕)을 눌러도 → 보이는 화면 전체
 viewer.addEventListener('click', (e) => { if (cur && tool === 'snap' && !e.target.closest('.ov')) snapshotView(cur); });
+//  ✏️ 글자 고치기: 글자 층의 글자를 누르면 그 자리에 고칠 칸
+viewer.addEventListener('click', async (e) => {
+  if (!cur || tool !== 'tedit') return;
+  const span = e.target.closest && e.target.closest('.textLayer span');
+  if (!span || span.classList.contains('markedContent')) return;
+  const pg = span.closest('.pg'), i = +pg.dataset.i, p = cur.pages[i];
+  const k = p.tdivs ? p.tdivs.indexOf(span) : -1;
+  if (k < 0) return;
+  getSelection().removeAllRanges();
+  const t = await getText(cur, i);
+  const vp = (await cur.pdf.getPage(i + 1)).getViewport({ scale: 1 });
+  const item = t.tc.items.filter((x) => x.str !== undefined)[k];
+  if (item && item.str.trim()) EDIT.startTextEdit(cur, i, span, k, item, vp);
+});
 //  글자 표시 도구: 글자를 끌어 고르고 손을 떼면 그 줄에 칠한다
 viewer.addEventListener('mouseup', () => {
   if (cur && EDIT.MARK_TOOLS[tool]) setTimeout(() => EDIT.markFromSelection(cur, tool), 0);
@@ -2226,7 +2377,7 @@ function settings() {
 // ═════════════════════════ 상용 편집기 기능(리뷰·책갈피·보호·머리글/바닥글·결합·분할·비교·읽어 주기…) ═════════════════════════
 const NN = (s) => PDFName.of(s);
 const TYPE_NAMES = { rect: '사각형', ellipse: '원', line: '선', arrow: '화살표', pen: '연필', hilite: '형광펜', white: '가리기', text: '글상자', sym: '기호', stamp: '스탬프', note: '스티커 메모', image: '이미지',
-  callout: '설명선', link: '링크', redact: '교정 표시' };
+  callout: '설명선', link: '링크', redact: '교정 표시', tedit: '글자 고침', field: '양식 필드' };
 function objName(o) {
   if (o.t === 'mark') return { hl: '강조 표시', ul: '밑줄', so: '취소선' }[o.kind];
   if (o.t === 'poly') return o.meas === 'area' ? '면적' : o.meas === 'perim' ? '둘레' : { polygon: '다각형', polyline: '꺾은선', cloud: '구름' }[o.kind];
@@ -2683,6 +2834,146 @@ async function compareDocs() {
   toast('비교 끝 — 다른 곳 ' + res.length + '개', 4000);
 }
 
+// ── Word·Excel 로 내보내기 ──
+async function exportOffice(kind) {
+  const d = cur; if (!d) return toast('먼저 PDF 를 여세요');
+  const sel = d.psel && d.psel.size > 1 ? targets(d) : null;
+  const modeRow = kind === 'word' ? '<div style="margin:6px 0 10px"><label style="display:block;margin:3px 0"><input type="radio" name="wm" value="text" checked> <b>글자로</b> — Word 에서 고칠 수 있게(줄·글자 크기를 비슷하게)</label><label style="display:block;margin:3px 0"><input type="radio" name="wm" value="image"> <b>모양 그대로</b> — 쪽마다 그림(보기는 같고 고치지는 못함)</label></div>'
+    : '<div style="margin:6px 0 10px;color:#555;font-size:12px">쪽마다 시트 하나 — 글자 조각을 줄·칸으로 맞춰 표로 옮깁니다(숫자는 숫자 칸).</div>';
+  const html = modeRow + '<label style="display:block;margin:3px 0"><input type="radio" name="wr" value="all" checked> 모든 쪽 (' + d.n + '쪽)</label><label style="display:block;margin:3px 0"><input type="radio" name="wr" value="cur"> 지금 쪽</label>'
+    + (sel ? '<label style="display:block;margin:3px 0"><input type="radio" name="wr" value="sel"> 고른 쪽 ' + sel.length + '개</label>' : '');
+  const pend = ask(kind === 'word' ? 'Word 로 내보내기' : 'Excel 로 내보내기', html, { ok: '내보내기' });
+  let opt = null;
+  $('#mFoot button').addEventListener('click', () => { const m = $('input[name=wm]:checked'), r = $('input[name=wr]:checked'); opt = { mode: m ? m.value : 'text', range: r.value }; }, { capture: true });
+  if (!(await pend) || !opt) return;
+  const idx = opt.range === 'cur' ? [d.cur - 1] : opt.range === 'sel' ? sel : [...Array(d.n).keys()];
+  const base = d.name.replace(/\.pdf$/i, ''), meta = { title: base, maker: MAKER };
+  const pages = [];
+  for (const i of idx) {
+    toast('옮기는 중… ' + (pages.length + 1) + ' / ' + idx.length, 60000);
+    const pg = await d.pdf.getPage(i + 1), vp = pg.getViewport({ scale: 1 });
+    if (kind === 'word' && opt.mode === 'image') {
+      const cv = await renderWithEdits(d, i, 150 / 72);
+      pages.push({ w: vp.width, h: vp.height, jpeg: new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.9))).arrayBuffer()) });
+    } else pages.push({ w: vp.width, h: vp.height, lines: OFFICE.lines((await getText(d, i)).tc, vp), no: i + 1 });
+  }
+  if (kind === 'word') {
+    const empty = opt.mode === 'text' && pages.every((p) => !p.lines.length);
+    if (empty && !(await ask('Word 로 내보내기', '이 PDF 에는 글자가 없습니다(스캔한 그림). 「모양 그대로」로 내보낼까요?', { ok: '모양 그대로' }))) return;
+    if (empty) return exportOfficeImage(d, idx, base, meta);
+    const z = zip(OFFICE.docx(pages, meta));
+    download(new Blob([z], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), base + '.docx');
+  } else {
+    const sheets = pages.map((p) => ({ name: p.no + '쪽', rows: OFFICE.table(p.lines) }));
+    const z = zip(OFFICE.xlsx(sheets, meta));
+    download(new Blob([z], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), base + '.xlsx');
+  }
+  toast(kind === 'word' ? 'Word 파일을 만들었습니다' : 'Excel 파일을 만들었습니다', 4000);
+}
+async function exportOfficeImage(d, idx, base, meta) {
+  const pages = [];
+  for (const i of idx) { const vp = (await d.pdf.getPage(i + 1)).getViewport({ scale: 1 }); const cv = await renderWithEdits(d, i, 150 / 72); pages.push({ w: vp.width, h: vp.height, jpeg: new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.9))).arrayBuffer()) }); }
+  download(new Blob([zip(OFFICE.docx(pages, meta))]), base + '.docx');
+}
+
+
+// ── ✍ 서명: 그리기·내 서명(이미지) · 인증서 서명 · 서명 검사 ──
+async function signDraw(useSaved = false) {
+  const d = cur; if (!d) return toast('먼저 PDF 를 여세요');
+  if (useSaved) { const b = await idb.get('mySign'); if (b) return EDIT.addImage(d, b); toast('저장된 서명이 없습니다 — 먼저 그리세요'); }
+  const pend = ask('서명 그리기', '<div style="font-size:12px;color:#555;margin-bottom:6px">마우스(펜)로 서명하세요. 도장은 [사진에서]로 — 흰 바탕은 투명하게 됩니다.</div><canvas id="sgPad" width="520" height="190" style="border:1px solid #999;background:#fff;touch-action:none;cursor:crosshair;max-width:100%"></canvas>'
+    + '<div style="display:flex;gap:6px;margin-top:6px"><button id="sgClr" class="setbtn">지우기</button><button id="sgImg" class="setbtn">사진에서…</button><label style="margin-left:auto;font-size:12px">색 <input type="color" id="sgCol" value="#1a2fa0"></label></div>', { ok: '넣기' });
+  const cv = $('#sgPad'), c = cv.getContext('2d');
+  let drawing = false, any = false, last = null;
+  const pos = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+  cv.onpointerdown = (e) => { drawing = true; last = pos(e); cv.setPointerCapture(e.pointerId); };
+  cv.onpointermove = (e) => { if (!drawing) return; const p = pos(e); c.strokeStyle = $('#sgCol').value; c.lineWidth = 3.2; c.lineCap = 'round'; c.beginPath(); c.moveTo(...last); c.lineTo(...p); c.stroke(); last = p; any = true; };
+  cv.onpointerup = () => (drawing = false);
+  $('#sgClr').onclick = () => { c.clearRect(0, 0, cv.width, cv.height); any = false; };
+  $('#sgImg').onclick = async () => {
+    const f = (await pickFiles('image/*', false))[0]; if (!f) return;
+    const bmp = await createImageBitmap(f), sc = Math.min(cv.width / bmp.width, cv.height / bmp.height);
+    c.clearRect(0, 0, cv.width, cv.height);
+    c.drawImage(bmp, (cv.width - bmp.width * sc) / 2, (cv.height - bmp.height * sc) / 2, bmp.width * sc, bmp.height * sc);
+    //  흰 바탕 → 투명
+    const id = c.getImageData(0, 0, cv.width, cv.height);
+    for (let k = 0; k < id.data.length; k += 4) { const m = Math.min(id.data[k], id.data[k + 1], id.data[k + 2]); if (m > 225) id.data[k + 3] = 0; else if (m > 180) id.data[k + 3] = Math.round((225 - m) / 45 * 255); }
+    c.putImageData(id, 0, 0); any = true;
+  };
+  if (!(await pend) || !any) return;
+  //  서명이 있는 부분만 잘라 낸다
+  const id = c.getImageData(0, 0, cv.width, cv.height);
+  let x0 = cv.width, y0 = cv.height, x1 = 0, y1 = 0;
+  for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) if (id.data[(y * cv.width + x) * 4 + 3] > 20) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  if (x1 <= x0) return;
+  const out = h('canvas', { width: x1 - x0 + 8, height: y1 - y0 + 8 });
+  out.getContext('2d').drawImage(cv, x0 - 4, y0 - 4, out.width, out.height, 0, 0, out.width, out.height);
+  const blob = await new Promise((r) => out.toBlob(r, 'image/png'));
+  await idb.set('mySign', blob);
+  await EDIT.addImage(d, blob);
+  toast('서명을 넣었습니다 — 끌어서 자리·크기를 맞추세요 (「내 서명」으로 다시 씀)', 4000);
+}
+async function signCert() {
+  const d = cur; if (!d) return toast('먼저 PDF 를 여세요');
+  const last = (() => { try { return JSON.parse(localStorage.getItem('hanil-pdf-sign') || '{}'); } catch { return {}; } })();
+  const html = '<div style="font-size:12px;color:#555;margin-bottom:6px">인증서 파일(<b>.pfx · .p12</b>)로 PDF 표준 전자 서명을 합니다. 서명한 뒤 문서가 바뀌면 서명이 깨진 것으로 나옵니다.<br><small>윈도우 인증서는 「인증서 관리 → 내보내기(개인 키 포함, .pfx)」로 파일을 만드세요. 공동인증서(NPKI)는 아직 안 됩니다.</small></div>'
+    + '<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><button id="scPick" class="setbtn">인증서 파일…</button><span id="scName" style="font-size:12px;color:#555">고르지 않음</span></div>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><span style="width:70px">암호</span><input id="scPw" type="password" style="flex:1;height:26px;border:1px solid #999;padding:0 6px"></label>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><span style="width:70px">사유</span><input id="scReason" value="' + esc(last.reason || '승인') + '" style="flex:1;height:26px;border:1px solid #999;padding:0 6px"></label>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><span style="width:70px">장소</span><input id="scLoc" value="' + esc(last.loc || MAKER) + '" style="flex:1;height:26px;border:1px solid #999;padding:0 6px"></label>'
+    + '<label style="display:block;margin:6px 0"><input type="checkbox" id="scVis" checked> 서명 표시(지금 쪽 오른쪽 아래 · 서명 칸이 있으면 그 칸)</label>';
+  const pend = ask('인증서로 서명', html, { ok: '서명하고 저장…' });
+  let pfx = null, v = null;
+  $('#scPick').onclick = async () => { const f = (await pickFiles('.pfx,.p12,application/x-pkcs12', false))[0]; if (f) { pfx = new Uint8Array(await f.arrayBuffer()); $('#scName').textContent = f.name; $('#scPw').focus(); } };
+  $('#mFoot button').addEventListener('click', () => { v = { pw: $('#scPw').value, reason: $('#scReason').value, loc: $('#scLoc').value, vis: $('#scVis').checked }; }, { capture: true });
+  if (!(await pend) || !v) return;
+  if (!pfx) return toast('인증서 파일을 고르세요');
+  let id;
+  try { id = SIGN.readPfx(pfx, v.pw); } catch (e) { return ask('인증서', '인증서를 열지 못했습니다(암호가 틀렸거나 지원하지 않는 형식).<br><small>' + esc(e.message || e) + '</small>', { cancel: null }); }
+  try { localStorage.setItem('hanil-pdf-sign', JSON.stringify({ reason: v.reason, loc: v.loc })); } catch {}
+  toast('서명하는 중…', 60000);
+  let rect = null, image = null;
+  const pi = d.cur - 1, vp = (await d.pdf.getPage(pi + 1)).getViewport({ scale: 1 });
+  if (v.vis) {
+    const W = 190, H = 58;
+    const a = vp.convertToPdfPoint(vp.width - W - 24, vp.height - H - 24), b = vp.convertToPdfPoint(vp.width - 24, vp.height - 24);
+    rect = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+    //  서명 모양: (내 서명 그림) + 이름·날짜
+    const K = 4, cv = h('canvas', { width: W * K, height: H * K }), c = cv.getContext('2d');
+    c.scale(K, K);
+    c.fillStyle = 'rgba(255,255,255,0.85)'; c.fillRect(0, 0, W, H);
+    c.strokeStyle = '#1a2fa0'; c.lineWidth = 1; c.strokeRect(0.5, 0.5, W - 1, H - 1);
+    const my = await idb.get('mySign');
+    let tx = 6;
+    if (my) { const bm = await createImageBitmap(my); const sc = Math.min((W * 0.42) / bm.width, (H - 8) / bm.height); c.drawImage(bm, 4, (H - bm.height * sc) / 2, bm.width * sc, bm.height * sc); tx = W * 0.45; }
+    c.fillStyle = '#1a2fa0'; c.font = '700 9px "Malgun Gothic",sans-serif'; c.fillText('전자 서명', tx, 14);
+    c.font = '8px "Malgun Gothic",sans-serif'; c.fillStyle = '#222';
+    c.fillText(id.cn.slice(0, 24), tx, 27); c.fillText(new Date().toLocaleString('ko-KR'), tx, 39); if (v.reason) c.fillText('사유: ' + v.reason.slice(0, 18), tx, 51);
+    image = new Uint8Array(await (await new Promise((r) => cv.toBlob(r, 'image/png'))).arrayBuffer());
+  }
+  let signed;
+  try { signed = await SIGN.signPdf(await EDIT.buildPdf(d), id, { page: pi, rect, image, reason: v.reason, location: v.loc }); }
+  catch (e) { console.error(e); return ask('서명하지 못함', esc(e.message || e), { cancel: null }); }
+  const okSave = await saveDoc(true, async () => signed);
+  if (!okSave) return;
+  //  ⚠ 서명한 바이트를 그대로 다시 연다(다시 쓰면 서명이 깨지므로)
+  await reloadDoc(d, signed);
+  d.mod = false; d.signed = true; d.pundo = [];
+  renderTabs();
+  const r = await SIGN.verifyPdf(signed);
+  toast(r.length && r[r.length - 1].ok ? '✅ 서명했습니다 — ' + id.cn : '서명은 넣었지만 검사에 실패했습니다', 5000);
+}
+async function verifySigs(quiet = false) {
+  const d = cur; if (!d) return;
+  const res = await SIGN.verifyPdf(d.base);
+  d.sigs = res;
+  showProps();
+  if (quiet) return res;
+  if (!res.length) return ask('서명 검사', '이 문서에는 전자 서명이 없습니다.', { cancel: null });
+  ask('서명 검사', res.map((r, k) => (r.ok ? '✅' : '❌') + ' <b>서명 ' + (k + 1) + '</b> — ' + esc(r.cn || '?') + (r.time ? ' · ' + r.time.toLocaleString('ko-KR') : '') + '<br><small>' + (r.ok ? '서명한 뒤 문서가 바뀌지 않았습니다' + (r.covers ? '' : ' (서명 뒤에 덧붙인 내용이 있음)') : esc(r.why)) + '</small>').join('<br><br>')
+    + '<br><br><small style="color:#888">인증서를 믿을 수 있는지(발급 기관·폐지 여부)는 검사하지 않습니다 — 필요하면 Acrobat 에서 확인하세요.</small>', { cancel: null });
+}
+
 // ── 읽어 주기(말하기) ──
 let ttsOn = false;
 async function readAloud() {
@@ -2765,4 +3056,4 @@ window.__hanilCanClose = async () => {
 };
 {
 }
-window.__pdfReader = { docs, openFiles, openUrl: openUrl0, get cur() { return cur; }, get tool() { return tool; }, runSearch, S, EDIT, saveDoc, buildPdf: (d) => EDIT.buildPdf(d) };
+window.__pdfReader = { SIGN, docs, openFiles, openUrl: openUrl0, get cur() { return cur; }, get tool() { return tool; }, runSearch, S, EDIT, saveDoc, buildPdf: (d) => EDIT.buildPdf(d) };

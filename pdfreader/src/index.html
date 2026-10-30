@@ -218,7 +218,10 @@
   #modal .box{background:#fff;border:1px solid #888;box-shadow:0 10px 30px rgba(0,0,0,.35);min-width:320px;max-width:min(560px,92vw);max-height:86vh;display:flex;flex-direction:column}
   #modal .mh{background:#f1f1f1;padding:7px 10px;font-weight:600;border-bottom:1px solid var(--line2)}
   #modal .mb{padding:12px 14px;overflow:auto;line-height:1.6}
-  #modal .mb input{width:100%;height:26px;border:1px solid #999;padding:0 6px;margin-top:6px}
+  #modal .mb input:not([type=radio]):not([type=checkbox]):not([type=color]){height:26px;border:1px solid #999;padding:0 6px}
+  #modal .mb #mIn{width:100%;margin-top:6px}
+  #modal .mb input[type=radio],#modal .mb input[type=checkbox]{width:auto;height:auto;margin:0 4px 0 0;vertical-align:middle}
+  #modal .mb select{height:24px}
   #modal .mf{display:flex;justify-content:flex-end;gap:6px;padding:8px 10px;border-top:1px solid var(--line2)}
   #modal .mf button{min-width:76px;height:26px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
   #modal kbd{border:1px solid #bbb;border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:11px;background:#f7f7f7}
@@ -302,6 +305,11 @@
   .sympop button{height:32px;border:1px solid #e3e3e3;background:#fafafa;cursor:pointer;font-size:15px;padding:0}
   .sympop button:hover{background:var(--hot);border-color:var(--hotline)}
 
+  .tedit-in{position:absolute;z-index:9;border:1.5px solid #1a7f37;background:#fff;padding:0 2px;margin:0;outline:0;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  #viewer.marking.tediting .textLayer span{cursor:text}
+  #viewer.marking.tediting .textLayer span:hover{outline:1px dashed #1a7f37;background:rgba(26,127,55,.08)}
+  .pg .annotationLayer{z-index:4}
+  #viewer.editing .pg .annotationLayer{pointer-events:none}
   #printArea{display:none}
   @media print{
     @page{margin:0}
@@ -342,6 +350,7 @@
     <button class="rt" data-rt="view">보기(V)</button>
     <button class="rt" data-rt="edit">주석(C)</button>
     <button class="rt" data-rt="prot">보호(P)</button>
+    <button class="rt" data-rt="form">양식(F)</button>
     <button class="rt" data-rt="org">구성(O)</button>
     <button class="rt" data-rt="conv">변환(V)</button>
     <button class="rt" data-rt="review">리뷰(R)</button>

@@ -7,15 +7,25 @@
 import {
   PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFHexString, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream,
 } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import { rgb as pdfRgb, degrees as pdfDeg, StandardFonts } from 'pdf-lib';
+import { eraseTextIn } from './content.js';
+import { slimTTF, commonHangul } from './ttf.js';
 
 export const EDIT_TOOLS = ['edit', 'rect', 'ellipse', 'line', 'arrow', 'pen', 'hilite', 'white', 'text', 'type', 'under', 'sym', 'stamp', 'note', 'snap', 'crop', 'erase', 'mhl', 'mul', 'mso',
-  'polygon', 'polyline', 'cloud', 'mdist', 'mperim', 'marea', 'callout', 'link', 'redact'];
+  'polygon', 'polyline', 'cloud', 'mdist', 'mperim', 'marea', 'callout', 'link', 'redact', 'tedit',
+  'fText', 'fCheck', 'fRadio', 'fCombo', 'fList', 'fBtn', 'fSig'];
+//  양식 필드 도구 → 종류
+export const FIELD_TOOLS = { fText: 'text', fCheck: 'check', fRadio: 'radio', fCombo: 'combo', fList: 'list', fBtn: 'button', fSig: 'signature' };
+export const FIELD_NAMES = { text: '텍스트', check: '확인란', radio: '라디오', combo: '드롭다운', list: '목록', button: '단추', signature: '서명' };
+//  글자 층을 쓰는 도구(겹은 비켜 준다)
+export const TEXT_TOOLS = new Set(['mhl', 'mul', 'mso', 'tedit']);
 //  글자 위에 긋는 표시(강조·밑줄·취소선) — 글자를 끌어 고르면 그 줄들에 생긴다
 export const MARK_TOOLS = { mhl: ['hl', '#ffeb3b'], mul: ['ul', '#1a73e8'], mso: ['so', '#e5262e'] };
 //  스탬프 — 빨간 테두리 도장(날짜 도장은 오늘 날짜)
 export const STAMPS = ['승인', '검토', '확인', '반려', '보류', '수정', '완료', '기밀', '사본', '원본', '긴급', '날짜'];
 export const SYMBOLS = ['✔', '✘', '○', '◎', '△', '□', '☆', '★', '●', '※', '→', '←', '↑', '↓', '①', '②', '③', '④', '⑤', 'OK', 'NG', '확인', '수정', '삭제', '검토', '승인'];
-const BOX = new Set(['rect', 'ellipse', 'hilite', 'white', 'text', 'sym', 'image', 'stamp', 'note', 'link', 'redact', 'callout']);
+const BOX = new Set(['rect', 'ellipse', 'hilite', 'white', 'text', 'sym', 'image', 'stamp', 'note', 'link', 'redact', 'callout', 'field', 'tedit']);
 const PIC = new Set(['text', 'sym', 'image', 'stamp', 'note']);     //  속 그림이 있는 것 — 90° 돌리면 그림도 돈다(o.r)
 const dims0 = (o) => ((o.r || 0) % 180 ? [o.h, o.w] : [o.w, o.h]);
 const today = () => { const t = new Date(); return t.getFullYear() + '.' + String(t.getMonth() + 1).padStart(2, '0') + '.' + String(t.getDate()).padStart(2, '0'); };
@@ -151,7 +161,7 @@ function rotMatrix(r, W, H) {
 }
 // ───────────────────────── 새 도형(구름·다각형·측정·설명선·링크·교정) — 「그리기 조각」 하나로 화면·인쇄·저장을 함께 ─────────────────────────
 //  prims(o) → [{ k:'path', seg:[['M',x,y],['L',x,y],['C',…],['Z']], stroke, fill, lw, dash, op } | { k:'img', canvas, x, y, w, h, r }]
-export const NEW_TYPES = new Set(['poly', 'callout', 'link', 'redact']);
+export const NEW_TYPES = new Set(['poly', 'callout', 'link', 'redact', 'field', 'tedit']);
 export const POLY_TOOLS = { polygon: 'polygon', polyline: 'polyline', cloud: 'cloud', mperim: 'polyline', marea: 'polygon' };
 const MM_PER_PT = 25.4 / 72;
 export function measValue(o) {
@@ -226,9 +236,121 @@ export function prims(o, editing = false) {
   } else if (o.t === 'redact') {
     P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + o.w, o.y], ['L', o.x + o.w, o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], stroke: '#e5262e', fill: editing ? 'rgba(229,38,46,0.12)' : '', lw: 1.5 });
   }
+  if (o.t === 'field') {
+    P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + o.w, o.y], ['L', o.x + o.w, o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], stroke: '#7b3fbf', fill: 'rgba(123,63,191,0.10)', lw: 1, dash: [3, 2], screenOnly: true });
+    const lo = { t: 'text', text: '[' + FIELD_NAMES[o.ftype] + '] ' + (o.name || ''), fs: Math.max(6, Math.min(11, o.h * 0.55)), sc: '#7b3fbf', fc: '', auto: true, r: 0 };
+    layoutText(lo);
+    const rr = raster(lo);
+    P.push({ k: 'img', canvas: rr.canvas, url: rr.url, x: o.x, y: o.y + (o.h - lo.h) / 2, w: Math.min(lo.w, o.w), h: lo.h, screenOnly: true, crop: true });
+  }
+  if (o.t === 'tedit') {
+    P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + o.w, o.y], ['L', o.x + o.w, o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], fill: '#ffffff', lw: 0 });
+    const tr = teditRaster(o);
+    P.push({ k: 'img', canvas: tr.canvas, url: tr.url, x: o.bx, y: o.by - o.fs * 1.0, w: tr.w, h: o.fs * 1.3 });
+    if (editing) P.push({ k: 'path', seg: [['M', o.x, o.y], ['L', o.x + Math.max(o.w, tr.w + o.bx - o.x), o.y], ['L', o.x + Math.max(o.w, tr.w + o.bx - o.x), o.y + o.h], ['L', o.x, o.y + o.h], ['Z']], stroke: '#1a7f37', lw: 0.8, dash: [2, 2], screenOnly: true });
+  }
   if (o.t === 'line' && o.meas === 'dist') P.push(labelPrim(o, (o.x1 + o.x2) / 2, (o.y1 + o.y2) / 2 - 8));
   return P;
 }
+//  고친 글자 — 나눔고딕(저장하는 글꼴과 같게)으로 그림
+let nanumBytes = null, nanumFace = null;
+export function nanum() {
+  if (!nanumBytes) {
+    const el = document.getElementById('hanilfont');
+    const b64 = (window.HANIL_FONT_B64 || (el && el.textContent) || '').trim();
+    if (b64) { const bin = atob(b64); nanumBytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) nanumBytes[i] = bin.charCodeAt(i); }
+  }
+  return nanumBytes;
+}
+export async function screenFont() {
+  if (nanumFace || !nanum()) return;
+  nanumFace = new FontFace('HanilNanum', nanum());
+  await nanumFace.load();
+  document.fonts.add(nanumFace);
+}
+const teCache = new Map();
+function teditRaster(o) {
+  const key = o.text + '|' + o.fs + '|' + o.sc;
+  if (teCache.has(key)) return teCache.get(key);
+  const cv = document.createElement('canvas'), c = cv.getContext('2d');
+  const font = (o.fs * K) + 'px HanilNanum, ' + FONT;
+  c.font = font;
+  const w = Math.max(1, c.measureText(o.text).width / K);
+  cv.width = Math.ceil(w * K) + 2; cv.height = Math.ceil(o.fs * 1.3 * K);
+  c.font = font; c.fillStyle = o.sc || '#000'; c.textBaseline = 'alphabetic';
+  c.fillText(o.text, 0, o.fs * 1.0 * K);
+  const r = { canvas: cv, url: cv.toDataURL(), w: cv.width / K };
+  if (teCache.size > 200) teCache.clear();
+  teCache.set(key, r);
+  return r;
+}
+//  글자 층의 글자 조각을 눌렀을 때 — 그 자리에 고칠 칸
+export async function startTextEdit(d, i, span, itemIndex, item, vp) {
+  if (!(await ensureLoaded(d))) return;
+  await screenFont();
+  const E = d.ed, p = d.pages[i], s = A.scaleOf(d);
+  const [a, b, , , e, f] = item.transform;
+  if (Math.abs(b) > Math.abs(a) * 0.05) return A.toast('기울어진·세로 글자는 아직 고칠 수 없습니다');
+  const fs = item.height || Math.hypot(item.transform[2], item.transform[3]) || 10;
+  let o = E.objs.find((x) => x.t === 'tedit' && x.p === i && x.idx === itemIndex);
+  const [bx, by] = vp.convertToViewportPoint(e, f), [ex] = vp.convertToViewportPoint(e + item.width, f);
+  const before = snap(d);
+  const isNew = !o;
+  if (!o) o = { id: 'o' + (E.seq++), p: i, t: 'tedit', idx: itemIndex, old: item.str, text: item.str, fs, sc: '#000000', fc: '', lw: 0, op: 1,
+    bx: Math.min(bx, ex), by, x: Math.min(bx, ex) - 0.5, y: by - fs * 0.95, w: Math.abs(ex - bx) + 1, h: fs * 1.25, orig: { e, f, w: item.width, h: fs } };
+  const inp = document.createElement('input');
+  inp.className = 'tedit-in';
+  inp.value = o.text;
+  const pr = p.div.getBoundingClientRect();
+  Object.assign(inp.style, { left: (o.x * s) + 'px', top: (o.y * s) + 'px', height: (o.h * s) + 'px', width: Math.max(80, o.w * s + 60) + 'px', fontSize: (o.fs * s) + 'px', fontFamily: 'HanilNanum, ' + FONT });
+  void pr;
+  p.div.append(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const commit = (ok) => {
+    if (done) return; done = true;
+    inp.remove();
+    if (!ok) return;
+    const t = inp.value;
+    if (t === o.text && !isNew) return;
+    if (t === o.old && isNew) return;
+    o.text = t;
+    if (isNew) E.objs.push(o);
+    pushUndo(d, before); drawOverlay(d, i);
+    A.toast('글자를 고쳤습니다 — 저장하면 원래 글자가 지워지고 새 글자가 들어갑니다', 3500);
+  };
+  inp.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') commit(true); if (ev.key === 'Escape') commit(false); });
+  inp.addEventListener('blur', () => commit(true));
+}
+
+//  양식 필드 설정 창
+async function editField(d, o, beforeCreate = null) {
+  const before = beforeCreate || snap(d);
+  const used = new Set(d.ed.objs.filter((x) => x.t === 'field' && x !== o).map((x) => x.name));
+  let k = 1, def = o.name;
+  if (!def) { do def = FIELD_NAMES[o.ftype] + k++; while (used.has(def)); }
+  const row = (id, label, v, ph = '') => '<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><span style="width:84px">' + label + '</span><input id="' + id + '" value="' + String(v || '').replace(/"/g, '&quot;') + '" placeholder="' + ph + '" style="flex:1;height:26px;border:1px solid #999;padding:0 6px"></label>';
+  let html = row('fdName', '이름', o.ftype === 'radio' ? (o.group || '선택1') : def);
+  if (o.ftype === 'radio') html += row('fdVal', '이 단추의 값', o.value || '예', '예: 합격');
+  if (o.ftype === 'combo' || o.ftype === 'list') html += row('fdOpts', '고를 것들', (o.options || []).join(', ') || '항목1, 항목2, 항목3', '쉼표로 나눔');
+  if (o.ftype === 'text') html += row('fdVal', '처음 값', o.value || '') + '<label style="display:block;margin:6px 0"><input type="checkbox" id="fdMulti"' + (o.multi ? ' checked' : '') + '> 여러 줄</label>';
+  if (o.ftype === 'button') html += row('fdVal', '단추 글', o.value || '확인');
+  if (o.ftype === 'signature') html += '<div style="font-size:12px;color:#555">저장한 뒤 「보호 → 인증서로 서명」에서 이 칸에 서명합니다.</div>';
+  const pend = A.ask(FIELD_NAMES[o.ftype] + ' 필드', html, { ok: '확인' });
+  let v = null;
+  document.querySelector('#mFoot button').addEventListener('click', () => {
+    const g = (id) => { const e = document.getElementById(id); return e ? (e.type === 'checkbox' ? e.checked : e.value) : null; };
+    v = { name: g('fdName'), value: g('fdVal'), opts: g('fdOpts'), multi: g('fdMulti') };
+  }, { capture: true });
+  const ok = await pend;
+  if (!ok || !v || !v.name) { if (beforeCreate) { d.ed.objs = d.ed.objs.filter((x) => x !== o); sel = null; drawOverlay(d, o.p); } return; }
+  if (o.ftype === 'radio') { o.group = v.name.trim(); o.name = o.group + ' = ' + (v.value || '예'); o.value = v.value || '예'; }
+  else { o.name = v.name.trim(); if (v.value != null) o.value = v.value; }
+  if (v.opts != null) o.options = v.opts.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+  if (v.multi != null) o.multi = !!v.multi;
+  pushUndo(d, before); drawOverlay(d, o.p);
+}
+
 const segD = (seg) => seg.map(([c, ...v]) => c + v.map((n) => Math.round(n * 100) / 100).join(' ')).join(' ');
 export function primsSvg(P, s) {
   const out = [];
@@ -353,6 +475,7 @@ export function drawOverlay(d, i) {
       if (o && (o.t === 'text' || o.t === 'callout')) editText(d, o);
       if (o && o.t === 'note') editNote(d, o);
       if (o && o.t === 'link') editLink(d, o);
+      if (o && o.t === 'field') editField(d, o);
     });
     p.div.append(svg);
     p.ov = svg;
@@ -435,6 +558,7 @@ function newObj(d, t, i, [x, y]) {
   if (t === 'callout') Object.assign(o, { ax: x, ay: y, x: x + 30, y: y - 50, w: 140, h: 30, text: '', fc: '#ffffff', tc: style.sc, lw: Math.min(style.lw, 1.5) });
   if (t === 'link') Object.assign(o, { sc: '#1a73e8', fc: '', lw: 0 });
   if (t === 'redact') Object.assign(o, { sc: '#e5262e', fc: '', lw: 1.5 });
+  if (FIELD_TOOLS[t]) Object.assign(o, { t: 'field', ftype: FIELD_TOOLS[t], name: '', sc: '#7b3fbf', fc: '', lw: 1 });
   if (o.t === 'line' || o.t === 'arrow') Object.assign(o, { x1: x, y1: y, x2: x, y2: y });
   else if (o.t === 'poly' || o.t === 'callout') { /* 위에서 */ }
   else if (t === 'pen') o.pts = [[[x, y]]];
@@ -595,6 +719,7 @@ function onUp(d, i, e) {
       else if (o.t === 'stamp') Object.assign(o, { x: x - 45, y: y - 18, w: o.sym.length > 3 ? 110 : 90, h: 36 });
       else if (o.t === 'note') Object.assign(o, { x: x - 10, y: y - 10, w: 20, h: 20 });
       else if (o.t === 'callout') Object.assign(o, { x: x + 30, y: y - 50 });
+      else if (o.t === 'field') Object.assign(o, o.ftype === 'check' || o.ftype === 'radio' ? { x: x - 7, y: y - 7, w: 14, h: 14 } : o.ftype === 'list' ? { x, y, w: 140, h: 60 } : { x, y: y - 10, w: o.ftype === 'signature' ? 180 : 140, h: o.ftype === 'signature' ? 50 : 20 });
       else if (o.t === 'text') Object.assign(o, { x, y, auto: true });
       else Object.assign(o, { x: x - 40, y: y - 25, w: 80, h: 50 });
     }
@@ -606,6 +731,7 @@ function onUp(d, i, e) {
     if (o.t === 'note') editNote(d, o, dr.before);
     if (o.t === 'callout') editText(d, o, dr.before);
     if (o.t === 'link') editLink(d, o, dr.before);
+    if (o.t === 'field') editField(d, o, dr.before);
   } else if (dr.moved) pushUndo(d, dr.before);
   redrawPage(d, i);
 }
@@ -1317,6 +1443,7 @@ function writePrimAnnot(doc, o, vp, pageRefs) {
   return ctx.register(ctx.obj(dict));
 }
 function writeAnnot(doc, pageRef, o, vp, E, pageRefs = []) {
+  if (o.t === 'field' || o.t === 'tedit') return null;     //  필드·글자 고침은 아래(applyPageEdits)에서
   if (NEW_TYPES.has(o.t) || o.meas) return writePrimAnnot(doc, o, vp, pageRefs);
   const ctx = doc.context, refs = [], res = {};
   //  화면 좌표 → PDF 좌표(선형 부분) — 모양(AP)은 화면 좌표로 그리고 Matrix 로 돌린다(돌아간 페이지도 맞음)
@@ -1418,8 +1545,10 @@ function boxPdf(vp, x0, y0, x1, y1) {
 export async function buildPdf(d) {
   const E = d.ed;
   //  고친 것이 없으면 원본 그대로 — 주석·책갈피·문서 속성 중 하나라도 고쳤으면 새로 만든다
-  if (!(E && E.loaded) && !d.bmDirty && !d.metaEdit) return d.base;
-  const doc = await PDFDocument.load(d.base.slice(0), { updateMetadata: false });
+  //  ⭐ 채운 양식 값은 pdf.js 가 먼저 PDF 에 써 넣는다(saveDocument) — 그 위에 주석·고침을 얹는다
+  const base = d.formDirty ? await d.pdf.saveDocument() : d.base;
+  if (!(E && E.loaded) && !d.bmDirty && !d.metaEdit) return base;
+  const doc = await PDFDocument.load(base.slice(0), { updateMetadata: false });
   if (!(E && E.loaded)) { doc.setProducer('한일 PDF 리더 · 한일특장(주)'); if (A.docHook) await A.docHook(doc, d); return await doc.save({ useObjectStreams: false }); }
   doc.setProducer('한일 PDF 리더 · 한일특장(주)');
   doc.setModificationDate(new Date());
@@ -1454,8 +1583,74 @@ export async function buildPdf(d) {
     if (!annots) { annots = ctx.obj([]); page.node.set(N('Annots'), annots); }
     const vp = await A.vp1(d, i);
     const pageRefs = pages.map((p) => p.ref);
+    //  (주석 안 되는 것 — 글자 고침·필드 — 은 이 쪽의 모든 주석을 쓴 뒤 따로)
     for (const o of objs) { const r = writeAnnot(doc, page.ref, o, vp, E, pageRefs); if (r) annots.push(r); }
   }
+  await applyPageEdits(doc, d);
   if (A.docHook) await A.docHook(doc, d);
   return await doc.save({ useObjectStreams: false });
+}
+//  ✏️ 글자 고침(내용 바꾸기) · 📋 양식 필드 만들기
+async function applyPageEdits(doc, d) {
+  const E = d.ed;
+  const edits = E.objs.filter((o) => o.t === 'tedit' && o.text !== o.old), fields = E.objs.filter((o) => o.t === 'field');
+  if (!edits.length && !fields.length) return;
+  doc.registerFontkit(fontkit);
+  const font = await embedNanum(doc, [...edits.map((o) => o.text), ...fields.flatMap((o) => [o.name, o.value || '', ...(o.options || [])])], fields.length > 0);
+  const pages = doc.getPages();
+  const col = (h) => { const [r, g, b] = rgb(h || '#000000'); return pdfRgb(r, g, b); };
+  d.lastEraseMiss = 0;
+  for (const i of [...new Set(edits.map((o) => o.p))]) {
+    const page = pages[i], vp = await A.vp1(d, i), mine = edits.filter((o) => o.p === i);
+    const rects = mine.map((o) => { const g = o.orig; return [g.e - 1, g.f - g.h * 0.35, g.e + g.w + 1, g.f + g.h * 0.9]; });
+    let n = 0;
+    try { n = eraseTextIn(doc, page, rects); } catch (e) { console.warn('글자 지우기', e); }
+    for (const o of mine) {
+      const g = o.orig;
+      if (!n) { d.lastEraseMiss++; page.drawRectangle({ x: g.e - 0.5, y: g.f - g.h * 0.3, width: g.w + 1, height: g.h * 1.25, color: pdfRgb(1, 1, 1) }); }
+      if (o.text) page.drawText(o.text, { x: g.e, y: g.f, size: o.fs, font, color: col(o.sc) });
+    }
+    void vp;
+  }
+  if (!fields.length) return;
+  const form = doc.getForm();
+  const taken = new Set(form.getFields().map((f) => f.getName()));
+  const uniq = (nm) => { let x = nm, k = 2; while (taken.has(x)) x = nm + '_' + k++; taken.add(x); return x; };
+  const groups = new Map();
+  for (const o of fields) {
+    const page = pages[o.p], vp = await A.vp1(d, o.p);
+    const [x0, y0, x1, y1] = boxPdf(vp, o.x, o.y, o.x + o.w, o.y + o.h);
+    const opt = { x: x0, y: y0, width: x1 - x0, height: y1 - y0, font, borderWidth: 1, borderColor: pdfRgb(0.45, 0.45, 0.45), backgroundColor: pdfRgb(1, 1, 1) };
+    if (o.ftype === 'text') { const f = form.createTextField(uniq(o.name)); if (o.multi) f.enableMultiline(); if (o.value) f.setText(o.value); f.addToPage(page, opt); }
+    else if (o.ftype === 'check') form.createCheckBox(uniq(o.name)).addToPage(page, opt);
+    else if (o.ftype === 'radio') { let g = groups.get(o.group); if (!g) { g = form.createRadioGroup(uniq(o.group)); groups.set(o.group, g); } g.addOptionToPage(o.value || '예', page, opt); }
+    else if (o.ftype === 'combo') { const f = form.createDropdown(uniq(o.name)); f.addOptions(o.options || []); f.addToPage(page, opt); }
+    else if (o.ftype === 'list') { const f = form.createOptionList(uniq(o.name)); f.addOptions(o.options || []); f.addToPage(page, opt); }
+    else if (o.ftype === 'button') form.createButton(uniq(o.name)).addToPage(o.value || '확인', page, opt);
+    else if (o.ftype === 'signature') addSigField(doc, page, uniq(o.name), [x0, y0, x1, y1]);
+  }
+  form.updateFieldAppearances(font);
+}
+//  한글 글꼴 넣기 — 쓰는 글자만 모양을 남긴 글꼴(양식이 있으면 자주 쓰는 한글 2,350자까지: 나중에 채울 글자)
+let fkFont = null;
+export async function embedNanum(doc, texts, forForms = false) {
+  if (!nanum()) return doc.embedFont(StandardFonts.Helvetica);
+  doc.registerFontkit(fontkit);
+  fkFont = fkFont || fontkit.create(nanum());
+  const gids = new Set();
+  const add = (str) => { for (const ch of str) gids.add(fkFont.glyphForCodePoint(ch.codePointAt(0)).id); };
+  for (const t of texts) add(String(t || ''));
+  for (let c = 32; c < 127; c++) gids.add(fkFont.glyphForCodePoint(c).id);
+  if (forForms) add(commonHangul() + '·…※○●□■△▲☆★');
+  return doc.embedFont(slimTTF(nanum(), [...gids]), { subset: false });
+}
+export function addSigField(doc, page, name, rect) {
+  const ctx = doc.context, form = doc.getForm();
+  const w = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Widget', FT: 'Sig', T: PDFHexString.fromText(name), Rect: rect, F: 4, P: page.ref, MK: {} }));
+  let annots = page.node.Annots();
+  if (!annots) { annots = ctx.obj([]); page.node.set(N('Annots'), annots); }
+  annots.push(w);
+  form.acroForm.addField(w);
+  form.acroForm.dict.set(N('SigFlags'), ctx.obj(3));
+  return w;
 }
