@@ -46,4 +46,28 @@ const html = fs.readFileSync(path.join(here, 'src', 'index.html'), 'utf8')
   .replace('<!--APP-->', () => '<script>' + safe(app) + '</script>');
 const file = path.join(out, 'hanil-pdf-reader.html');
 fs.writeFileSync(file, html);
+//  ③ 크롬 확장(MV3) — ⚠ 확장 화면은 HTML 안 스크립트를 막는다 → 파일로 나눈다
+const ext = path.join(out, 'chrome');
+fs.mkdirSync(path.join(ext, 'icons'), { recursive: true });
+fs.writeFileSync(path.join(ext, 'app.js'), app);
+fs.writeFileSync(path.join(ext, 'pdf.worker.js'), workerJs);
+fs.writeFileSync(path.join(ext, 'data.js'), 'window.HANIL_EXT=true;window.PDF_WORKER_URL="pdf.worker.js";window.PDF_CMAPS=' + JSON.stringify(cmaps) + ';window.PDF_FONTS=' + JSON.stringify(fonts) + ';');
+fs.writeFileSync(path.join(ext, 'viewer.html'), fs.readFileSync(path.join(here, 'src', 'index.html'), 'utf8')
+  .replace('<title>', () => '<meta name="hanil-pdf" content="v' + ver + '"><title>')
+  .replace('<!--ENGINE-->', () => '<script src="data.js"></script>')
+  .replace('<!--APP-->', () => '<script src="app.js"></script>'));
+fs.copyFileSync(path.join(here, 'src', 'chrome', 'background.js'), path.join(ext, 'background.js'));
+for (const n of [16, 32, 48, 128]) fs.copyFileSync(path.join(here, 'assets', 'icon-' + n + '.png'), path.join(ext, 'icons', n + '.png'));
+const icons = { 16: 'icons/16.png', 32: 'icons/32.png', 48: 'icons/48.png', 128: 'icons/128.png' };
+fs.writeFileSync(path.join(ext, 'manifest.json'), JSON.stringify({
+  manifest_version: 3, name: '한일 PDF 리더', version: ver, author: '한일특장(주)',
+  description: '크롬에서 PDF 를 한일 PDF 리더로 — 보기·폴더 검색·주석 고치기·페이지 구성. 제작: 한일특장(주)',
+  icons, action: { default_title: '한일 PDF 리더 열기', default_icon: icons },
+  background: { service_worker: 'background.js' },
+  permissions: ['declarativeNetRequest', 'contextMenus', 'tabs'],
+  host_permissions: ['<all_urls>'],
+  web_accessible_resources: [{ resources: ['viewer.html'], matches: ['<all_urls>'] }],
+  content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
+}, null, 2));
+
 console.log('PDF 리더 v' + ver + '  ' + file + '  ' + Math.round(fs.statSync(file).size / 1024) + 'KB (화면 ' + Math.round(app.length / 1024) + 'KB)');

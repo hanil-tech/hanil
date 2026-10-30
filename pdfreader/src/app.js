@@ -46,8 +46,8 @@ class FontFactory {
 let pdfWorker = null;
 function worker() {
   if (!pdfWorker) {
-    const src = $('#pdfworker').textContent;
-    const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    //  크롬 확장·포털: 일꾼 파일이 따로 있다 · 단독 한 장: HTML 안에 글로 들어 있다
+    const url = window.PDF_WORKER_URL || URL.createObjectURL(new Blob([$('#pdfworker').textContent], { type: 'text/javascript' }));
     //  ⭐ 일꾼 하나를 모든 문서가 함께 쓴다 — 문서를 닫아도 일꾼은 안 죽는다(getDocument 에 worker 를 직접 넘김)
     pdfWorker = new PDFWorker({ port: new Worker(url) });
   }
@@ -57,6 +57,7 @@ function loadPdf(bytes, name, { askPw = true } = {}) {
   const task = getDocument({
     data: bytes, worker: worker(), CMapReaderFactory: CMapFactory, StandardFontDataFactory: FontFactory,
     useWorkerFetch: false, enableXfa: false,
+    isEvalSupported: !window.HANIL_EXT,            //  ⚠ 크롬 확장은 eval 을 막는다
   });
   task.onPassword = (update, reason) => {
     if (!askPw) { task.__pw = true; task.destroy(); return; }
@@ -2071,8 +2072,30 @@ if (SET.layout === 'two') twoPage = true;
 renderRibbon();
 updateUi();
 {
-  const q = new URLSearchParams(location.search);
-  if (q.get('src')) openUrl0(q.get('src'), q.get('name'));
-  if (HOST && HOST.ready) HOST.ready({ openUrl: openUrl0, openFiles, docs });
+  //  ?src=<주소> — 크롬 확장의 규칙은 주소를 인코딩하지 않고 그대로 붙인다(그 주소 안의 & 까지) → ?src= 뒤를 통째로
+  const m = /[?&]src=(.*)$/.exec(location.search);
+  if (m) {
+    let src = m[1], name = null;
+    const nm = /&name=([^&]*)$/.exec(src);
+    if (nm && /^https?%3A|^file%3A|^%2F/i.test(src)) { name = decodeURIComponent(nm[1]); src = src.slice(0, nm.index); }
+    if (/^(https?|file)%3A|^%2F/i.test(src)) src = decodeURIComponent(src);
+    openUrl0(src, name);
+  }
+  if (HOST && HOST.ready) HOST.ready({ openUrl: openUrl0, openFiles, docs, ask, welcome });
+}
+//  처음 설치한 뒤 한 번 — 기본 PDF 프로그램으로 지정할지
+function welcome() {
+  ask('한일 PDF 리더를 설치했습니다', '바탕 화면과 시작 메뉴에 「한일 PDF 리더」가 생겼고, 탐색기 미리 보기(미리 보기 창·큰 아이콘)도 켰습니다.<br><br>'
+    + 'PDF 를 <b>두 번 누르면 이 프로그램으로</b> 열리게 할까요?<br><small style="color:#777">윈도우 설정 화면이 열리면 .pdf 의 앱을 「한일 PDF 리더」로 고르세요.</small><br><br><small>제작: ' + MAKER + '</small>',
+    { ok: '기본 프로그램으로', cancel: '나중에' }).then((r) => { if (r === true && HOST.associate) HOST.associate(); });
+}
+//  윈도우 프로그램이 창을 닫기 전에 묻는다 — 저장 안 한 문서가 있으면
+window.__hanilCanClose = async () => {
+  const m = docs.filter((d) => d.mod);
+  if (!m.length) return true;
+  const r = await ask('끝내기', '저장하지 않은 문서가 있습니다:<br><b>' + m.map((d) => esc(d.name)).join('<br>') + '</b><br><br>저장하지 않고 끝낼까요?', { ok: '저장 안 하고 끝내기', cancel: '취소' });
+  return r === true;
+};
+{
 }
 window.__pdfReader = { docs, openFiles, openUrl: openUrl0, get cur() { return cur; }, get tool() { return tool; }, runSearch, S, EDIT, saveDoc, buildPdf: (d) => EDIT.buildPdf(d) };
