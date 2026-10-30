@@ -310,6 +310,18 @@ func bind(w webview.WebView) {
 		w.Eval("(window.__hanilCanClose ? window.__hanilCanClose() : Promise.resolve(true)).then(function(ok){ if (ok) window.hostReallyClose(); })")
 	})
 	_ = w.Bind("hostReveal", func(p string) { _ = exec.Command("explorer.exe", "/select,", p).Start() })
+	_ = w.Bind("hostBrowserPdf", func(on bool) string { return browserPdf(on) })
+	_ = w.Bind("hostBrowserPdfState", func() bool { return browserPdfOn() })
+	_ = w.Bind("hostExportHtml", func() string {
+		p := saveAs(uintptr(w.Window()), "한일 PDF 리더 (브라우저용).html", "HTML 파일 (*.html)", "*.html", "html")
+		if p == "" {
+			return ""
+		}
+		if err := os.WriteFile(p, readerHTML, 0o644); err != nil {
+			return "저장하지 못했습니다: " + err.Error()
+		}
+		return "저장했습니다: " + p + "\n설치가 안 되는 PC 에서는 이 파일을 두 번 눌러 크롬·엣지로 여세요(보기·검색·주석·구성 모두 됨)."
+	})
 }
 
 // ───────────────────────── 작은 웹 서버(이 PC 안에서만) ─────────────────────────
@@ -496,11 +508,19 @@ func openDialog(owner uintptr) []string {
 }
 
 func saveDialog(owner uintptr, name, cur string) string {
+	return saveAsIn(owner, name, cur, "PDF 문서 (*.pdf)", "*.pdf", "pdf")
+}
+func saveAs(owner uintptr, name, label, pat, ext string) string { return saveAsIn(owner, name, "", label, pat, ext) }
+func saveAsIn(owner uintptr, name, cur, label, pat, ext string) string {
 	buf := make([]uint16, 4096)
 	copy(buf, windows.StringToUTF16(name))
-	flt := filter()
+	var flt []uint16
+	for _, x := range []string{label, pat} {
+		flt = append(flt, windows.StringToUTF16(x)...)
+	}
+	flt = append(flt, 0)
 	o := openFileName{hwndOwner: owner, lpstrFilter: &flt[0], nFilterIndex: 1, lpstrFile: &buf[0], nMaxFile: uint32(len(buf)),
-		lpstrTitle: u16("다른 이름으로 저장"), lpstrDefExt: u16("pdf"), flags: 0x80000 | 0x2 | 0x800 | 0x8}
+		lpstrTitle: u16("다른 이름으로 저장"), lpstrDefExt: u16(ext), flags: 0x80000 | 0x2 | 0x800 | 0x8}
 	if cur != "" && filepath.IsAbs(cur) {
 		o.lpstrInitialDir = u16(filepath.Dir(cur))
 	}
@@ -611,6 +631,11 @@ func install(src string) error {
 		logf("미리 보기 등록 실패: %v", err)
 	}
 	ensureShortcuts(appExe())
+	//  🌐 크롬·엣지에서 연 PDF 도 이 프로그램으로(처음 설치할 때만 켬 — 끈 사람은 그대로 둔다)
+	if installedVersion() == "" || !markerExists("browser-pdf-asked") {
+		browserPdf(true)
+		touchMarker("browser-pdf-asked")
+	}
 	logf("설치 끝 v%s", VERSION)
 	return nil
 }
@@ -710,6 +735,49 @@ func ensureEngine(reg bool) error {
 }
 
 // 기본 앱으로 — 윈도우 10·11 은 프로그램이 마음대로 기본 앱을 못 바꾼다 → 설정 화면을 열어 준다
+// 🌐 크롬·엣지: PDF 를 브라우저 안에서 보지 않고 내려받아 → 기본 PDF 프로그램(= 이 프로그램)으로
+//
+//	정책 AlwaysOpenPdfExternally(사용자 단위 HKCU — 관리자 권한 없이). 크롬·엣지를 다시 켜면 먹는다.
+//	확인: 크롬 주소창 chrome://policy · 끄기: 환경 설정 → 파일 연결.
+var browserKeys = []string{`Software\Policies\Google\Chrome`, `Software\Policies\Microsoft\Edge`}
+
+func browserPdf(on bool) string {
+	for _, k := range browserKeys {
+		key, _, err := registry.CreateKey(registry.CURRENT_USER, k, registry.SET_VALUE)
+		if err != nil {
+			return "바꾸지 못했습니다: " + err.Error()
+		}
+		if on {
+			err = key.SetDWordValue("AlwaysOpenPdfExternally", 1)
+		} else {
+			_ = key.DeleteValue("AlwaysOpenPdfExternally")
+		}
+		key.Close()
+		if err != nil {
+			return "바꾸지 못했습니다: " + err.Error()
+		}
+	}
+	logf("크롬·엣지 PDF → 이 프로그램: %v", on)
+	if on {
+		return "켰습니다. 크롬·엣지를 모두 닫았다가 다시 켜면, 웹에서 연 PDF 가 내려받아진 뒤 이 프로그램으로 열립니다.\n(내려받은 파일을 누를 때 「이 유형의 파일 항상 열기」를 한 번 고르면 다음부터 바로 열립니다)"
+	}
+	return "껐습니다. 크롬·엣지를 다시 켜면 PDF 를 브라우저 안에서 봅니다."
+}
+func browserPdfOn() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, browserKeys[0], registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue("AlwaysOpenPdfExternally")
+	return err == nil && v == 1
+}
+func markerExists(n string) bool { _, err := os.Stat(filepath.Join(baseDir(), n)); return err == nil }
+func touchMarker(n string) {
+	_ = os.MkdirAll(baseDir(), 0o755)
+	_ = os.WriteFile(filepath.Join(baseDir(), n), []byte(time.Now().Format(time.RFC3339)), 0o644)
+}
+
 func associate() string {
 	_ = register(appExe())
 	uri := "ms-settings:defaultapps?registeredAppUser=HanilPDF"
@@ -768,6 +836,7 @@ func uninstall() {
 		_ = k.DeleteValue("HanilPDF")
 		k.Close()
 	}
+	browserPdf(false)
 	pChangeNfy.Call(0x08000000, 0, 0, 0)
 	runPS(`$ErrorActionPreference='SilentlyContinue'
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) '한일 PDF 리더.lnk')

@@ -22,13 +22,13 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 
 ## 📕 PDF 리더 (제작: 한일특장(주))
 
-| 받기 | 무엇 | 크기 |
+| 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-pdf-v1.1.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-v1.1.0.exe)** | 윈도우 프로그램 — 두 번 누르면 설치 · PDF 두 번 눌러 열기 · 탐색기 미리 보기 | 20MB |
-| **[hanil-pdf-chrome.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-chrome.zip)** | 크롬 확장 — 크롬에서 PDF 를 이 리더로 | 2.4MB |
-| **[hanil-pdf-reader.html](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-reader.html)** | 브라우저 한 장(설치 없음) | 4.8MB |
+| **[hanil-pdf-v1.1.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-v1.1.0.exe)** | PDF 를 볼 PC 아무 데나 | 20MB |
 
-PDF 보기 · 폴더째 검색 · 주석(도형·글·스탬프·이미지·강조 — Acrobat·PDF-XChange 에서도 보이고 고쳐짐) · 페이지 구성(회전·복사·붙여넣기·자르기).
+**프로그램 하나가 세 가지를 합니다** — 두 번 누르면 설치(관리자 권한 없이):
+① PDF 보기·폴더째 검색·주석(Acrobat·PDF-XChange 에서도 보이고 고쳐짐)·페이지 구성 창
+② 크롬·엣지에서 연 PDF 도 이 프로그램으로 ③ 탐색기 미리 보기(미리 보기 창·큰 아이콘).
 자세한 안내는 [pdfreader/README.md](../pdfreader/README.md).
 
 ## 🏷 현장 라벨 발행기

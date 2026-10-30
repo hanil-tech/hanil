@@ -29,5 +29,8 @@ window.HANIL_HOST = (function () {
     associate: function () { return window.hostAssociate().then(function (m) { R && R.ask && R.ask('기본 PDF 프로그램', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
     preview: function () { return window.hostPreview().then(function (m) { R && R.ask && R.ask('탐색기 미리 보기', m, { cancel: null }); }); },
     exit: function () { window.hostExit(); },
+    browserPdf: function (on) { return window.hostBrowserPdf(on).then(function (m) { R && R.ask && R.ask('크롬·엣지의 PDF', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
+    browserPdfState: function () { return window.hostBrowserPdfState(); },
+    exportHtml: function () { return window.hostExportHtml().then(function (m) { if (m && R && R.ask) R.ask('브라우저용 파일', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
   };
 })();

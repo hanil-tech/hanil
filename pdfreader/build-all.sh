@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # 📕 한일 PDF 리더 — 모두 만들기
 #   ./pdfreader/build-all.sh
-# 결과(release/):
-#   hanil-pdf-reader.html      브라우저 한 장(설치 없음)
-#   hanil-pdf-v<판>.exe         윈도우 프로그램(두 번 누르면 스스로 설치 · 연결 프로그램 · 탐색기 미리 보기)
-#   hanil-pdf-chrome.zip       크롬 확장(크롬에서 PDF 를 이 리더로)
+# 결과(release/): hanil-pdf-v<판>.exe — 프로그램 하나가 세 가지를 한다
+#   ① PDF 보기·찾기·고치기 창  ② 크롬·엣지에서 연 PDF 도 이 프로그램으로  ③ 탐색기 미리 보기
+#   (설치가 안 되는 PC 용 브라우저 한 장은 프로그램 안 「내보내기 → 브라우저용 파일」로 만든다)
+#   out/ 에는 브라우저 한 장(hanil-pdf-reader.html)·크롬 확장(chrome/)도 남는다 — 시험·포털용
 # 필요한 것: node 20+, go 1.24+, python3. zig(C 컴파일러)·PDFium 은 처음 한 번 받아 ~/.cache/hanil-pdf 에 둔다.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,8 +48,6 @@ fi
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "$HERE/out/hanil-pdf-v$VER.exe" .
 
 echo "④ release/ 에 넣기"
-rm -f "$REL"/hanil-pdf-v*.exe
-cp "$HERE/out/hanil-pdf-reader.html" "$REL/"
-cp "$HERE/out/hanil-pdf-chrome.zip" "$REL/"
+rm -f "$REL"/hanil-pdf-v*.exe "$REL"/hanil-pdf-reader.html "$REL"/hanil-pdf-chrome.zip
 cp "$HERE/out/hanil-pdf-v$VER.exe" "$REL/"
 ls -la "$REL"/hanil-pdf*
