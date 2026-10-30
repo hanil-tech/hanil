@@ -51,14 +51,28 @@
   .big:disabled,.sm:disabled{opacity:.35;cursor:default}
 
   /* ── 파일 메뉴(뒤 화면) ── */
-  #backstage{position:fixed;left:0;top:58px;bottom:0;width:100%;background:rgba(0,0,0,.18);z-index:40;display:none}
-  #backstage.on{display:block}
-  #backstage .menu{width:250px;height:100%;background:var(--file);color:#fff;padding:8px 0;box-shadow:4px 0 16px rgba(0,0,0,.25)}
-  #backstage .menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;color:#fff;text-align:left;padding:10px 18px;cursor:pointer;font-size:14px}
-  #backstage .menu button:hover:not(:disabled){background:rgba(255,255,255,.18)}
-  #backstage .menu button:disabled{opacity:.45;cursor:default}
-  #backstage .menu svg{width:20px;height:20px}
-  #backstage .menu hr{border:0;border-top:1px solid rgba(255,255,255,.3);margin:6px 14px}
+  #backstage{position:fixed;left:0;top:58px;bottom:0;width:100%;background:#f3f1f0;z-index:40;display:none}
+  #backstage.on{display:flex}
+  #backstage .menu{width:200px;height:100%;background:#a8323c;color:#fff;padding:6px 0;overflow:auto;flex:0 0 auto;position:relative}
+  #backstage .menu button{display:block;width:100%;border:0;background:none;color:#fff;text-align:left;padding:8px 16px;cursor:pointer;font-size:13px}
+  #backstage .menu button:hover:not(:disabled),#backstage .menu button.on{background:rgba(0,0,0,.22)}
+  #backstage .menu button:disabled{opacity:.5;cursor:default}
+  #backstage .menu hr{border:0;border-top:1px solid rgba(255,255,255,.25);margin:4px 0}
+  .bsmaker{position:sticky;top:100%;padding:16px;font-size:11px;opacity:.7;line-height:1.5}
+  #bsPanel{flex:1;overflow:auto;padding:10px 24px}
+  #bsPanel h1{font-weight:400;font-size:28px;margin:6px 0 12px}
+  .bsgrid{display:grid;grid-template-columns:minmax(260px,420px) minmax(220px,1fr);gap:20px;align-items:start}
+  .bscol,.bslist{display:flex;flex-direction:column;gap:2px}
+  .bssec{font-weight:700;color:#555;margin:12px 0 4px;border-bottom:1px solid #ddd;padding-bottom:3px}
+  .bsitem{display:flex;align-items:center;gap:10px;padding:6px 8px;cursor:pointer;border:1px solid transparent;position:relative}
+  .bsitem:hover{background:#cfe0f3;border-color:#9dbbe0}
+  .bsitem .bsi{font-size:24px;width:32px;text-align:center}
+  .bsitem.small .bsi{font-size:16px;width:22px}
+  .bsitem b{font-weight:400;display:block;word-break:break-all}
+  .bsitem small{color:#777;display:block;word-break:break-all}
+  .bsx{position:absolute;right:6px;top:6px;border:0;background:none;cursor:pointer;color:#888}
+  .bsnone{color:#999;padding:6px 8px}
+  .bsrow{display:flex;gap:4px}.bsurl{flex:1;height:26px;border:1px solid #aaa;padding:0 6px}.bsrow button{height:26px}
 
   /* ── 문서 탭 ── */
   #doctabs{display:flex;align-items:flex-end;gap:2px;height:27px;padding:0 4px;background:#e6e6e6;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;flex:0 0 auto;scrollbar-width:none}
@@ -189,6 +203,75 @@
   .textLayer .endOfContent{display:block;position:absolute;inset:100% 0 0;z-index:0;cursor:default;user-select:none}
   .textLayer.selecting .endOfContent{top:0}
 
+  #tabs .rt.fmt{background:#fbe6a6;border:1px solid #e0c060;border-bottom:0;margin-left:6px;display:flex;flex-direction:column;align-items:center;line-height:1.1;padding-top:1px;font-size:12px}
+  #tabs .rt.fmt small{font-size:10px;color:#6a5600}
+  #tabs .rt.fmt.on{background:#fff4cf}
+  .mwrap{position:relative;display:flex}
+  .rmenu{position:absolute;top:100%;left:0;z-index:60;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none;flex-direction:column;min-width:170px;padding:3px 0}
+  .rmenu.on{display:flex}
+  .rmenu button,.ctxm button{border:0;background:none;text-align:left;padding:6px 14px;cursor:pointer;font-size:12px;white-space:nowrap}
+  .rmenu button:hover,.ctxm button:hover{background:var(--hot)}
+  .rmenu.stamps{display:none;grid-template-columns:repeat(3,auto);gap:4px;padding:6px;min-width:0}
+  .rmenu.stamps.on{display:grid}
+  .rmenu .stp{border:2px solid #e5262e;border-radius:5px;color:#e5262e;font-weight:700;text-align:center;padding:4px 10px}
+  .ctxm{position:fixed;z-index:80;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:flex;flex-direction:column;padding:3px 0;min-width:170px}
+  .ctxm hr{border:0;border-top:1px solid #e3e3e3;margin:3px 0}
+  .stack.icos{flex-direction:row;flex-wrap:wrap;width:78px}
+  .zgrp{display:flex;flex-direction:column;gap:2px;padding-top:2px}
+  .zrow{display:flex;align-items:center;gap:1px}
+  .zrow .ico,.stack .ico{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:0}
+  .ico svg{width:17px;height:17px}
+  .ico:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
+  .ico.on{background:#f8d77e;border-color:#c9a23e}.ico:disabled{opacity:.35}
+  .zsel{height:21px;width:96px;border:1px solid #aaa;background:#fff;font-size:12px}
+  .npg{width:70px;height:21px;border:1px solid #aaa;text-align:center;font-size:12px}
+  .th.ps .box{outline:3px solid #2b6cb0;outline-offset:1px}
+  #thumbs:focus{outline:0}
+  #viewer.erasing .pg .ov{pointer-events:all;cursor:not-allowed}
+  #viewer.erasing .pg .ov .hit{cursor:pointer}
+  body.darkbg #viewer{background:#3a3d42}
+  .setback{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:75;display:flex;align-items:center;justify-content:center}
+  .setwin{background:#f0f0f0;border:1px solid #888;box-shadow:0 10px 30px rgba(0,0,0,.35);width:min(780px,96vw);height:min(560px,92vh);display:flex;flex-direction:column}
+  .setttl{display:flex;align-items:center;padding:6px 10px;background:#fff;border-bottom:1px solid #ddd}.setttl span{flex:1}.setttl button{border:0;background:none;font-size:18px;cursor:pointer}
+  .setmain{flex:1;display:flex;gap:6px;padding:8px;min-height:0}
+  .setleft{width:220px;display:flex;flex-direction:column;border:1px solid #ccc;background:#fff}
+  .setcap{text-align:center;background:#e9e9e9;padding:4px;color:#555}
+  .setcats{overflow:auto;display:flex;flex-direction:column}
+  .setcats button{border:0;background:none;text-align:left;padding:7px 10px;cursor:pointer}
+  .setcats button.on{background:#cfd6df}
+  .setbody{flex:1;border:1px solid #ccc;background:#fff;padding:10px 14px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+  .sethd{text-align:center;background:#e9e9e9;padding:5px;margin:-10px -14px 4px}
+  .setrow{display:flex;align-items:center;gap:10px}.setrow span{width:180px}
+  .setrow input[type=text]{flex:1;height:24px;border:1px solid #aaa;padding:0 6px}.setrow select{height:24px}
+  .setnote{color:#555;font-size:12px;line-height:1.6;background:#f7f7f7;border:1px solid #eee;padding:8px}
+  .setbtn{align-self:flex-start;height:28px;padding:0 14px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
+  .setfoot{display:flex;justify-content:flex-end;gap:8px;padding:8px}
+  .setfoot button{min-width:96px;height:28px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
+  #maker{font-size:11px;color:#8a8a8a;margin-right:8px;white-space:nowrap}
+  #emptyMsg .mk{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:11px;color:#c9c9c9}
+  .logo{background:#c8102e;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
+
+  /* 고치기 겹 */
+  .pg .ov{position:absolute;left:0;top:0;transform-origin:0 0;z-index:5;pointer-events:none;overflow:visible}
+  #viewer.editing .pg .ov{pointer-events:all;cursor:default}
+  #viewer.editing .pg .ov .hit{cursor:move}
+  #viewer.creating .pg .ov,#viewer.creating .pg .ov .hit{cursor:crosshair}
+  .ov .hd{cursor:nwse-resize}.ov .hd-ne,.ov .hd-sw{cursor:nesw-resize}.ov .hd-n,.ov .hd-s{cursor:ns-resize}.ov .hd-e,.ov .hd-w{cursor:ew-resize}.ov .hd-p1,.ov .hd-p2{cursor:crosshair}
+  #viewer.editing .textLayer{pointer-events:none}
+  .tedit{position:absolute;z-index:8;border:1px dashed #1a73e8;outline:0;resize:none;overflow:hidden;margin:0;box-sizing:border-box;white-space:pre-wrap;word-break:break-all}
+  .estyle{display:flex;gap:10px;padding:2px 4px;font-size:12px}
+  .ecol{display:flex;flex-direction:column;gap:5px;justify-content:flex-start;padding-top:4px}
+  .erow{display:flex;align-items:center;gap:5px;white-space:nowrap}
+  .erow span{width:34px;color:#555}
+  .erow input[type=color]{width:34px;height:20px;padding:0 1px;border:1px solid #aaa;background:#fff}
+  .erow select{height:20px;border:1px solid #aaa;background:#fff;font-size:12px}
+  .symwrap{position:relative;display:flex}
+  .symb .symg{font-size:22px;line-height:28px;height:28px;color:#e5262e;font-weight:400}
+  .sympop{position:absolute;top:64px;left:0;z-index:50;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none;grid-template-columns:repeat(6,38px);gap:2px;padding:4px}
+  .sympop.on{display:grid}
+  .sympop button{height:32px;border:1px solid #e3e3e3;background:#fafafa;cursor:pointer;font-size:15px;padding:0}
+  .sympop button:hover{background:var(--hot);border-color:var(--hotline)}
+
   #printArea{display:none}
   @media print{
     @page{margin:0}
@@ -212,12 +295,13 @@
   <div id="qbar">
     <div class="logo">PDF</div>
     <button class="qb" data-cmd="open" title="열기 (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M2 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1H7.5a2 2 0 0 0-1.9 1.4L3 18V6z" fill="#e8a21a"/><path d="M5.6 10.4A2 2 0 0 1 7.5 9H22l-3.2 9.4a2 2 0 0 1-1.9 1.6H3z" fill="#f6c444"/></svg></button>
-    <button class="qb" data-cmd="save" title="다른 이름으로 저장 (Ctrl+S)" disabled><svg viewBox="0 0 24 24"><path d="M4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#6d5fc7"/><rect x="7" y="3" width="9" height="6" fill="#e7e3fb"/><rect x="6" y="13" width="12" height="8" fill="#fff"/></svg></button>
+    <button class="qb" data-cmd="save" title="저장 (Ctrl+S)" disabled><svg viewBox="0 0 24 24"><path d="M4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#6d5fc7"/><rect x="7" y="3" width="9" height="6" fill="#e7e3fb"/><rect x="6" y="13" width="12" height="8" fill="#fff"/></svg></button>
     <button class="qb" data-cmd="print" title="인쇄 (Ctrl+P)" disabled><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="7" fill="#fff" stroke="#777"/><rect x="2" y="8" width="20" height="9" rx="2" fill="#8a8a8a"/><rect x="6" y="14" width="12" height="8" fill="#fff" stroke="#777"/></svg></button>
     <div class="sep"></div>
     <button class="qb" data-cmd="back" title="이전 보기 (Alt+←)" disabled><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#3b9a3b" stroke-width="2"/><path d="M13 7l-5 5 5 5M8 12h9" fill="none" stroke="#3b9a3b" stroke-width="2.2"/></svg></button>
     <button class="qb" data-cmd="fwd" title="다음 보기 (Alt+→)" disabled><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#3b9a3b" stroke-width="2"/><path d="M11 7l5 5-5 5M16 12H7" fill="none" stroke="#3b9a3b" stroke-width="2.2"/></svg></button>
     <div id="title">한일 PDF 리더</div>
+    <div id="maker" title="제작사">한일특장(주)</div>
     <div class="grow2"></div>
     <input id="quick" type="search" placeholder="🔍 이 문서에서 찾기 (Ctrl+F)">
   </div>
@@ -226,7 +310,11 @@
     <button class="rt file" data-rt="file">파일(F)</button>
     <button class="rt on" data-rt="home">홈(H)</button>
     <button class="rt" data-rt="view">보기(V)</button>
+    <button class="rt" data-rt="edit">주석(C)</button>
+    <button class="rt" data-rt="org">구성(O)</button>
+    <button class="rt" data-rt="conv">변환(V)</button>
     <button class="rt" data-rt="help">도움말(H)</button>
+    <button class="rt fmt" data-rt="fmt" id="fmtTab" style="display:none"><small id="fmtTool">도구</small>형식</button>
     <div class="grow"></div>
     <button class="side" data-cmd="find" title="이 문서에서 찾기 (Ctrl+F)">🔎 찾기(F)…</button>
     <button class="side" data-cmd="searchPane" title="여러 문서·폴더에서 검색 (Ctrl+Shift+F)">📂 검색(S)…</button>
@@ -247,7 +335,7 @@
 
     <div id="center">
       <div id="viewer" tabindex="0" class="hand"></div>
-      <div id="emptyMsg">문서는 여기를 두 번 클릭하여 열 수 있음<br><small>또는 PDF 파일을 끌어다 놓으세요</small></div>
+      <div id="emptyMsg">문서는 여기를 두 번 클릭하여 열 수 있음<br><small>또는 PDF 파일을 끌어다 놓으세요</small><div class="mk">한일 PDF 리더 · 한일특장(주)</div></div>
       <div id="findbar">
         <input id="findIn" type="text" placeholder="찾을 글자" autocomplete="off">
         <button class="qb" id="findPrev" title="이전 (Shift+Enter)">▲</button>
@@ -317,16 +405,26 @@
 </div>
 
 <div id="backstage"><div class="menu">
-  <button data-cmd="open"><svg viewBox="0 0 24 24"><path d="M2 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1H7.5a2 2 0 0 0-1.9 1.4L3 18V6z" fill="#fff"/><path d="M5.6 10.4A2 2 0 0 1 7.5 9H22l-3.2 9.4a2 2 0 0 1-1.9 1.6H3z" fill="#fde2e6"/></svg>열기…<small style="margin-left:auto;opacity:.7">Ctrl+O</small></button>
-  <button data-cmd="save" data-need><svg viewBox="0 0 24 24"><path d="M4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#fff"/></svg>다른 이름으로 저장<small style="margin-left:auto;opacity:.7">Ctrl+S</small></button>
-  <button data-cmd="print" data-need><svg viewBox="0 0 24 24"><rect x="2" y="8" width="20" height="9" rx="2" fill="#fff"/><rect x="6" y="2" width="12" height="5" fill="#fff"/></svg>인쇄…<small style="margin-left:auto;opacity:.7">Ctrl+P</small></button>
+  <button data-bs="open">열기</button>
+  <button data-cmd="save" data-need>저장(S)</button>
+  <button data-cmd="saveAs" data-need>다른 이름으로 저장</button>
   <hr>
-  <button data-cmd="props" data-need><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#fff"/><rect x="11" y="10" width="2" height="8" fill="#c8102e"/><rect x="11" y="6" width="2" height="2" fill="#c8102e"/></svg>문서 속성</button>
-  <button data-cmd="close" data-need><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="#fff" stroke-width="2.5"/></svg>닫기<small style="margin-left:auto;opacity:.7">Ctrl+W</small></button>
-  <button data-cmd="closeAll" data-need><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="#fff" stroke-width="2.5"/></svg>모두 닫기</button>
+  <button data-cmd="newDoc">새 문서(N)</button>
   <hr>
-  <button data-cmd="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#fff"/><text x="12" y="17" text-anchor="middle" font-size="14" font-weight="700" fill="#c8102e">?</text></svg>정보·단축키</button>
-</div></div>
+  <button data-cmd="print" data-need>인쇄(P)</button>
+  <button data-bs="export">내보내기</button>
+  <hr>
+  <button data-cmd="props" data-need>문서 속성(D)</button>
+  <hr>
+  <button data-cmd="close" data-need>닫기(C)</button>
+  <button data-cmd="closeAll" data-need>모두 닫기</button>
+  <hr>
+  <button data-cmd="settings">환경 설정(N)</button>
+  <button data-cmd="about">정보 · 단축키</button>
+  <hr>
+  <button data-cmd="exit">끝내기(X)</button>
+  <div class="bsmaker">한일 PDF 리더<br>한일특장(주)</div>
+</div><div id="bsPanel"></div></div>
 
 <div id="toast"></div>
 <div id="modal"><div class="box"><div class="mh" id="mTitle"></div><div class="mb" id="mBody"></div><div class="mf" id="mFoot"></div></div></div>
@@ -334,6 +432,7 @@
 <input type="file" id="fOpen" accept=".pdf,application/pdf" multiple>
 <input type="file" id="fFolder" webkitdirectory directory multiple>
 <input type="file" id="fFiles" accept=".pdf,application/pdf" multiple>
+<input type="file" id="fImg" accept="image/*" multiple>
 <!--APP-->
 </body>
 </html>

@@ -73,16 +73,15 @@ const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; 
   ok(await page.evaluate(() => window.__pdfReader.cur.zoom) === 2, '200% (확대 단추 뒤 ' + z1.toFixed(2) + ')');
   ok(await page.inputValue('#pgIn') === '34', '확대해도 같은 쪽(34)');
   await page.click('.rt[data-rt=view]');
-  await page.click('#ribbon [data-cmd=rotR]');
+  await page.click('.mwrap button[data-menu=mVRot]'); await page.click('.rmenu.on [data-cmd=rotR]');
   await page.waitForTimeout(500);
   const pg = await page.$eval('.doc:not([style*="none"]) .pg[data-i="33"]', (e) => [e.offsetWidth, e.offsetHeight]);
   ok(pg[0] > pg[1], '오른쪽으로 돌리기 → 가로가 더 김 ' + pg);
-  await page.click('#ribbon [data-cmd=rotL]');
+  await page.click('.mwrap button[data-menu=mVRot]'); await page.click('.rmenu.on [data-cmd=rotL]');
   await page.click('#ribbon [data-cmd=two]');
   await page.waitForTimeout(400);
   await shot('3-두페이지');
   await page.click('#ribbon [data-cmd=one]');
-  await page.click('.rt[data-rt=home]');
   await page.click('#ribbon [data-cmd=page]');
 
   //  ⑤ 폴더 검색 — 스크린샷의 그 화면
