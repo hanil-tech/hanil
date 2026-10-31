@@ -1,7 +1,7 @@
 {
   "name": "hanil-pdf-reader",
-  "version": "1.6.1",
-  "updateNotes": "백신 오진(바이러스로 잘못 나옴)을 줄였습니다.",
+  "version": "1.6.2",
+  "updateNotes": "인쇄할 때 빈 장이 하나 더 나오던 것을 고쳤습니다.",
   "description": "한일 PDF 리더 — 설치 없이 브라우저에서 PDF 보기 + 여러 문서·폴더 검색",
   "scripts": {
     "build": "node build.mjs"

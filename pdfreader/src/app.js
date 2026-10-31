@@ -1110,7 +1110,10 @@ async function printDoc() {
   //  용지 크기·방향을 프린터 창에 알려 준다
   let ps = $('#printPageStyle');
   if (!ps) { ps = h('style', { id: 'printPageStyle' }); document.head.append(ps); }
-  ps.textContent = '@media print{@page{size:' + sheetCss + ';margin:0}}';
+  //  그림 크기 = 용지 크기에서 조금 뺀 것(반올림으로 넘치면 빈 장이 생김) · 용지를 모르면(원래 크기) 화면 단위로
+  const mm = (v) => (v / 72 * 25.4).toFixed(2);
+  const imgCss = sheetCss === 'auto' ? '' : '#printArea img{width:' + (mm(sheet[0]) - 0.6).toFixed(2) + 'mm;height:' + (mm(sheet[1]) - 0.6).toFixed(2) + 'mm}';
+  ps.textContent = '@media print{@page{size:' + sheetCss + ';margin:0}' + imgCss + '}';
   const mine = $$('img', area);
   await Promise.all(mine.map((im) => im.decode().catch(() => {})));
   window.print();

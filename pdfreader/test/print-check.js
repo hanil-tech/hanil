@@ -2,6 +2,7 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
+const { execFileSync } = require('child_process');
 const dir = path.resolve(process.argv[2]), out = path.resolve(process.argv[3]);
 fs.mkdirSync(out, { recursive: true });
 let fails = 0;
@@ -36,6 +37,33 @@ const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; 
   ok(r.n === 1, '16쪽 모아찍기: 16쪽 → 1장');
   r = await run(1, { rng: '3', paper: 'A3' });
   ok(r.n === 1 && /A3 portrait/.test(r.css), '한 쪽 · A3 용지에 맞춤');
+  //  실제로 찍히는 장 수 — 크로미움 「PDF 로 인쇄」(인쇄용 CSS 그대로)로 세어 본다. 빈 장이 끼면 안 된다
+  const sheets = async (nup, extra = {}) => {
+    await page.evaluate(() => { window.print = () => { window.__printed = true; window.__hold = true; }; window.__printed = null; });
+    await page.keyboard.press('Control+p');
+    await page.waitForSelector('#prNup');
+    await page.selectOption('#prNup', String(nup));
+    if (extra.rng) { await page.check('input[name=pr][value=rng]'); await page.fill('#prRng', extra.rng); } else await page.check('input[name=pr][value=all]');
+    if (extra.paper) await page.selectOption('#prPaper', extra.paper);
+    await page.click('#mFoot button:first-child');
+    await page.waitForFunction(() => window.__printed, null, { timeout: 120000 });
+    //  알림 띠가 떠 있어도 빈 장이 생기면 안 된다
+    await page.evaluate(() => { const b = document.createElement('div'); b.id = 'updBar'; b.textContent = '새 판'; document.body.append(b); });
+    await page.emulateMedia({ media: 'print' });
+    const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
+    await page.emulateMedia({ media: 'screen' });
+    await page.evaluate(() => { document.querySelector('#updBar').remove(); });
+    fs.writeFileSync(path.join(out, 'print-' + nup + '.pdf'), pdf);
+    return +execFileSync('python3', ['-c', 'import sys;from pypdf import PdfReader;print(len(PdfReader(sys.argv[1]).pages))', path.join(out, 'print-' + nup + '.pdf')]).toString().trim();
+  };
+  let k = await sheets(1, { rng: '1' });
+  ok(k === 1, '한 쪽만 인쇄 → 용지 1장 (빈 장 없음): ' + k + '장');
+  k = await sheets(1, { rng: '1-3' });
+  ok(k === 3, '세 쪽 → 3장: ' + k + '장');
+  k = await sheets(2, { rng: '1-3' });
+  ok(k === 2, '2쪽 모아 세 쪽 → 2장: ' + k + '장');
+  k = await sheets(1, { rng: '2', paper: '원래 크기' });
+  ok(k === 1, '원래 크기 한 쪽 → 1장: ' + k + '장');
   await page.keyboard.press('Control+p'); await page.waitForSelector('#prNup');
   await page.screenshot({ path: path.join(out, 'print-dialog.png') });
   await page.keyboard.press('Escape');
