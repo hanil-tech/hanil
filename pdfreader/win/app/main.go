@@ -1,0 +1,1031 @@
+//go:build windows
+
+// 📕 한일 PDF 리더 — 윈도우 프로그램(hanil-pdf.exe)
+//
+//	브라우저용 리더(pdfreader/src)를 독자 창(WebView2)에 띄우고, 윈도우에서만 되는 것을 붙인다.
+//	  · PDF 를 두 번 누르면 이 프로그램으로(「연결 프로그램」 등록 — 기본 앱 지정은 윈도우 설정에서 사용자가)
+//	  · 저장하면 그 파일에 바로(대화상자 없이) · 다른 이름으로는 윈도우 저장 창
+//	  · 탐색기 미리 보기 창·큰 아이콘 그림(hanil-pdf-preview.dll + pdfium.dll)
+//	  · 이미 떠 있으면 새 PDF 는 그 창의 새 탭으로
+//	설치: 어디서 누르든 %LOCALAPPDATA%\Programs\HanilPDF 에 스스로 깔린다(관리자 권한 없이 · 사용자 단위).
+//	지우기: 설정 → 앱 → 「한일 PDF 리더」 제거(= hanil-pdf.exe --uninstall)
+package main
+
+import (
+	"bytes"
+	"crypto/rand"
+	_ "embed"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unsafe"
+
+	webview "github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
+)
+
+const (
+	VERSION = "1.6.5"
+	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
+	APPNAME = "한일 PDF 리더"
+	MAKER   = "한일특장(주)"
+	PROGID  = "HanilPDF.Document"
+)
+
+//go:embed assets/reader.html
+var readerHTML []byte
+
+//go:embed assets/hanil-pdf-preview.dll
+var previewDLL []byte
+
+//go:embed assets/pdfium.dll
+var pdfiumDLL []byte
+
+//go:embed host.js
+var hostJS string
+
+var (
+	user32     = windows.NewLazySystemDLL("user32.dll")
+	comdlg32   = windows.NewLazySystemDLL("comdlg32.dll")
+	shell32    = windows.NewLazySystemDLL("shell32.dll")
+	ole32      = windows.NewLazySystemDLL("ole32.dll")
+	pMsgBox    = user32.NewProc("MessageBoxW")
+	pShowWin   = user32.NewProc("ShowWindow")
+	pSetFg     = user32.NewProc("SetForegroundWindow")
+	pIsIconic  = user32.NewProc("IsIconic")
+	pSetWLP    = user32.NewProc("SetWindowLongPtrW")
+	pCallWP    = user32.NewProc("CallWindowProcW")
+	pPostMsg   = user32.NewProc("PostMessageW")
+	pAllowFg   = user32.NewProc("AllowSetForegroundWindow")
+	pBringTop  = user32.NewProc("BringWindowToTop")
+	pFlashWin  = user32.NewProc("FlashWindow")
+	pGetOFN    = comdlg32.NewProc("GetOpenFileNameW")
+	pGetSFN    = comdlg32.NewProc("GetSaveFileNameW")
+	pBrowse    = shell32.NewProc("SHBrowseForFolderW")
+	pPathIDL   = shell32.NewProc("SHGetPathFromIDListW")
+	pChangeNfy = shell32.NewProc("SHChangeNotify")
+	pTaskFree  = ole32.NewProc("CoTaskMemFree")
+)
+
+func baseDir() string    { return filepath.Join(os.Getenv("LOCALAPPDATA"), "HanilPDF") }
+func installDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "HanilPDF") }
+func appExe() string     { return filepath.Join(installDir(), "hanil-pdf.exe") }
+func engineDir() string  { return filepath.Join(installDir(), "engine-"+VERSION) }
+
+var logMu sync.Mutex
+
+func logf(f string, a ...interface{}) {
+	logMu.Lock()
+	defer logMu.Unlock()
+	_ = os.MkdirAll(baseDir(), 0o755)
+	p := filepath.Join(baseDir(), "log.txt")
+	if st, err := os.Stat(p); err == nil && st.Size() > 1<<20 {
+		_ = os.Rename(p, p+".old")
+	}
+	fh, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer fh.Close()
+	fmt.Fprintf(fh, "%s %s\r\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(f, a...))
+}
+
+func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
+func msgBox(title, text string, flags uintptr) int {
+	r, _, _ := pMsgBox.Call(0, uintptr(unsafe.Pointer(u16(text))), uintptr(unsafe.Pointer(u16(title))), flags)
+	return int(r)
+}
+
+// ───────────────────────── 시작 ─────────────────────────
+func main() {
+	exe, _ := os.Executable()
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
+	var files []string
+	flags := map[string]bool{}
+	for _, a := range os.Args[1:] {
+		if strings.HasPrefix(a, "--") {
+			flags[a] = true
+			continue
+		}
+		if p, err := filepath.Abs(a); err == nil {
+			files = append(files, p)
+		}
+	}
+	logf("시작 v%s %s 파일 %d개 %v", VERSION, exe, len(files), flags)
+	if flags["--uninstall"] {
+		uninstall()
+		return
+	}
+	//  🔄 자동 업데이트가 받은 새 판: 조용히 깔고 끝(떠 있는 창은 그대로 — 「다시 시작」하면 새 판)
+	if flags["--update"] {
+		if err := install(exe); err != nil {
+			logf("업데이트 설치 실패: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+	//  진단: 창 없이 업데이트만 확인·받기(결과는 로그 %LOCALAPPDATA%\HanilPDF\…log)
+	if flags["--check-update"] {
+		m, err := checkUpdate(true)
+		logf("업데이트 확인(수동): %s %v", m, err)
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	//  「다시 시작」: 옛 창이 내려갈 때까지 잠깐 기다렸다가 뜬다
+	if flags["--restart"] {
+		for i := 0; i < 50 && portBusy(); i++ {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	cleanOld()
+	//  📦 설치 자리가 아니면 스스로 깔고 그것을 띄운다(이미 깔린 판이 더 새것이면 그것을)
+	if !strings.EqualFold(filepath.Clean(exe), filepath.Clean(appExe())) && !flags["--portable"] {
+		if installed := installedVersion(); installed == "" || newer(VERSION, installed) || flags["--register"] {
+			if err := install(exe); err != nil {
+				logf("설치 실패: %v", err)
+				msgBox(APPNAME, "설치하지 못했습니다:\n"+err.Error()+"\n\n설치 없이 이 자리에서 띄웁니다.", 0x30)
+			} else {
+				args := append([]string{"--installed"}, files...)
+				if startDetached(appExe(), args...) {
+					return
+				}
+			}
+		} else if startDetached(appExe(), files...) {
+			return
+		}
+	} else if flags["--register"] {
+		_ = register(exe)
+	}
+	token := loadToken()
+	//  🪟 이미 떠 있으면 그 창에 파일을 넘기고 끝
+	if forward(token, files) {
+		logf("떠 있는 창에 넘김")
+		return
+	}
+	ensureEngine(false)
+	go autoUpdateLoop()
+	run(token, files, flags["--installed"])
+}
+
+func startDetached(exe string, args ...string) bool {
+	c := exec.Command(exe, args...)
+	c.Dir = filepath.Dir(exe)
+	if err := c.Start(); err != nil {
+		logf("띄우기 실패 %s: %v", exe, err)
+		return false
+	}
+	return true
+}
+
+func loadToken() string {
+	p := filepath.Join(baseDir(), "token.txt")
+	if b, err := os.ReadFile(p); err == nil && len(bytes.TrimSpace(b)) >= 32 {
+		return strings.TrimSpace(string(b))
+	}
+	r := make([]byte, 24)
+	_, _ = rand.Read(r)
+	t := hex.EncodeToString(r)
+	_ = os.MkdirAll(baseDir(), 0o755)
+	_ = os.WriteFile(p, []byte(t), 0o600)
+	return t
+}
+
+func forward(token string, files []string) bool {
+	b, _ := json.Marshal(files)
+	//  ⚠ 윈도우는 뒤에 있는 프로그램이 스스로 앞으로 나오는 것을 막는다 → 지금 누른 이 프로세스(앞에 나올 권한이 있음)가
+	//    떠 있는 창에 그 권한을 넘겨준다. 안 그러면 파일이 다른 창 뒤에 깔린 창에서 열려 「아무 일도 안 일어난」 것처럼 보인다
+	pAllowFg.Call(uintptr(0xFFFFFFFF)) //  ASFW_ANY
+	cl := http.Client{Timeout: 3 * time.Second}
+	r, err := cl.Post("http://127.0.0.1:"+strconv.Itoa(PORT)+"/open?t="+token, "application/json", bytes.NewReader(b))
+	if err != nil {
+		return false
+	}
+	defer r.Body.Close()
+	return r.StatusCode == 200
+}
+
+// ───────────────────────── 창 ─────────────────────────
+var (
+	wv         webview.WebView
+	wvMu       sync.Mutex
+	pending    []string
+	allowClose bool
+	oldProc    uintptr
+	firstRun   bool
+)
+
+var startedAt = time.Now()
+
+// 떠 있는 창에 파일 넘기기 — 창이 없으면(아직 뜨는 중) 기다렸다가 연다. 오래(30초) 창이 없으면 false(새 프로세스가 맡게)
+func dispatchOpen(files []string) bool {
+	wvMu.Lock()
+	w := wv
+	if w == nil {
+		if time.Since(startedAt) > 30*time.Second {
+			wvMu.Unlock()
+			logf("창이 없는 채로 남아 있음 — 새로 뜨는 쪽에 넘김")
+			return false
+		}
+		pending = append(pending, files...)
+		wvMu.Unlock()
+		return true
+	}
+	wvMu.Unlock()
+	w.Dispatch(func() {
+		h := uintptr(w.Window())
+		if r, _, _ := pIsIconic.Call(h); r != 0 {
+			pShowWin.Call(h, 9) //  SW_RESTORE
+		} else {
+			pShowWin.Call(h, 5) //  SW_SHOW
+		}
+		pBringTop.Call(h)
+		if r, _, _ := pSetFg.Call(h); r == 0 {
+			pFlashWin.Call(h, 1) //  앞으로 못 나오면 작업 표시줄에서 깜빡이기라도
+		}
+		for _, f := range files {
+			b, _ := json.Marshal(f)
+			w.Eval("window.HANIL_HOST && window.HANIL_HOST.openPath(" + string(b) + ")")
+		}
+	})
+	return true
+}
+
+func run(token string, files []string, installed bool) {
+	pending = files
+	firstRun = installed
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(PORT))
+	port := PORT
+	if err != nil {
+		//  자리를 다른 프로그램이 쓰면 아무 자리나(이때는 설정·최근 파일이 이번 실행에만 남는다)
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			msgBox(APPNAME, "시작하지 못했습니다: "+err.Error(), 0x10)
+			return
+		}
+		port = ln.Addr().(*net.TCPAddr).Port
+	}
+	go func() { _ = http.Serve(ln, server(token, port)) }()
+
+	runtime.LockOSThread()
+	w := webview.NewWithOptions(webview.WebViewOptions{
+		DataPath:  filepath.Join(baseDir(), "WebView2"),
+		AutoFocus: true,
+		WindowOptions: webview.WindowOptions{
+			Title: APPNAME, Width: 1400, Height: 900, IconId: 1, Center: true,
+		},
+	})
+	if w == nil {
+		//  WebView2 런타임이 없으면(오래된 윈도우 10) 기본 브라우저로
+		p := filepath.Join(baseDir(), "hanil-pdf-reader.html")
+		_ = os.WriteFile(p, readerHTML, 0o644)
+		msgBox(APPNAME, "이 PC 에 Microsoft Edge WebView2 런타임이 없어 브라우저로 엽니다.\n(https://go.microsoft.com/fwlink/p/?LinkId=2124703 에서 받아 깔면 독자 창으로 열립니다)", 0x40)
+		_ = shellOpen(p)
+		return
+	}
+	defer w.Destroy()
+	bind(w)
+	wvMu.Lock()
+	wv = w
+	wvMu.Unlock()
+	h := uintptr(w.Window())
+	pShowWin.Call(h, 3) //  크게
+	//  ⚠ X 를 누르면 바로 닫지 않고 리더에게 묻는다(저장 안 한 문서가 있으면 확인)
+	oldProc, _, _ = pSetWLP.Call(h, ^uintptr(3), windows.NewCallback(func(hwnd, msg, wp, lp uintptr) uintptr {
+		const wmClose = 0x0010
+		if msg == wmClose && !allowClose {
+			w.Eval("(window.__hanilCanClose ? window.__hanilCanClose() : Promise.resolve(true)).then(function(ok){ if (ok) window.hostReallyClose(); })")
+			return 0
+		}
+		r, _, _ := pCallWP.Call(oldProc, hwnd, msg, wp, lp)
+		return r
+	}))
+	w.Navigate("http://127.0.0.1:" + strconv.Itoa(port) + "/?t=" + token)
+	logf("창을 띄움 (자리 %d)", port)
+	w.Run()
+	logf("끝")
+}
+
+func bind(w webview.WebView) {
+	_ = w.Bind("hostPending", func() []string {
+		wvMu.Lock()
+		defer wvMu.Unlock()
+		p := pending
+		pending = nil
+		return p
+	})
+	_ = w.Bind("hostFirstRun", func() bool { r := firstRun; firstRun = false; return r })
+	_ = w.Bind("hostOpenDialog", func() []string { return openDialog(uintptr(w.Window())) })
+	_ = w.Bind("hostSaveDialog", func(name, cur string) string { return saveDialog(uintptr(w.Window()), name, cur) })
+	_ = w.Bind("hostPickFolder", func() string { return pickFolder(uintptr(w.Window())) })
+	_ = w.Bind("hostListDir", func(dir string) []map[string]interface{} { return listDir(dir) })
+	_ = w.Bind("hostAssociate", func() string { return associate() })
+	_ = w.Bind("hostPreview", func() string {
+		if err := ensureEngine(true); err != nil {
+			return "탐색기 미리 보기를 켜지 못했습니다: " + err.Error()
+		}
+		return "탐색기 미리 보기를 켰습니다.\n· 큰 아이콘(보기 → 큰 아이콘·아주 큰 아이콘)에 PDF 첫 쪽 그림이 보입니다.\n· 미리 보기 창(Alt+P)에서 쪽을 넘겨 볼 수 있습니다.\n탐색기 창을 닫았다 다시 열어 주세요."
+	})
+	_ = w.Bind("hostTitle", func(t string) { w.SetTitle(t) })
+	//  🔄 자동 업데이트
+	//  ⚠ 묶은 함수는 창 쓰레드에서 돈다 → 받기는 뒤에서 하고, 끝나면 리더에 알린다(창이 멈추지 않게)
+	_ = w.Bind("hostUpdateCheck", func() {
+		go func() {
+			m, err := checkUpdate(true)
+			if err != nil {
+				m = err.Error()
+			}
+			b, _ := json.Marshal(m)
+			w.Dispatch(func() {
+				w.Eval("window.HANIL_HOST && window.HANIL_HOST.updateMsg && window.HANIL_HOST.updateMsg(" + string(b) + ")")
+			})
+		}()
+	})
+	_ = w.Bind("hostUpdateState", func() map[string]interface{} {
+		updMu.Lock()
+		defer updMu.Unlock()
+		return map[string]interface{}{"auto": autoUpdateOn(), "version": VERSION, "ready": updReady, "notes": updNotes}
+	})
+	_ = w.Bind("hostSetAutoUpdate", func(on bool) { setAutoUpdate(on) })
+	_ = w.Bind("hostRestart", func() { restartApp() })
+	_ = w.Bind("hostReallyClose", func() {
+		allowClose = true
+		pPostMsg.Call(uintptr(w.Window()), 0x0010, 0, 0)
+	})
+	_ = w.Bind("hostExit", func() {
+		w.Eval("(window.__hanilCanClose ? window.__hanilCanClose() : Promise.resolve(true)).then(function(ok){ if (ok) window.hostReallyClose(); })")
+	})
+	_ = w.Bind("hostReveal", func(p string) { _ = exec.Command("explorer.exe", "/select,", p).Start() })
+	_ = w.Bind("hostDrives", func() []map[string]interface{} { return drives() })
+	_ = w.Bind("hostBrowserPdf", func(on bool) string { return browserPdf(on) })
+	_ = w.Bind("hostBrowserPdfState", func() bool { return browserPdfOn() })
+	_ = w.Bind("hostExportHtml", func() string {
+		p := saveAs(uintptr(w.Window()), "한일 PDF 리더 (브라우저용).html", "HTML 파일 (*.html)", "*.html", "html")
+		if p == "" {
+			return ""
+		}
+		if err := os.WriteFile(p, readerHTML, 0o644); err != nil {
+			return "저장하지 못했습니다: " + err.Error()
+		}
+		return "저장했습니다: " + p + "\n설치가 안 되는 PC 에서는 이 파일을 두 번 눌러 크롬·엣지로 여세요(보기·검색·주석·구성 모두 됨)."
+	})
+}
+
+// ───────────────────────── 작은 웹 서버(이 PC 안에서만) ─────────────────────────
+//
+//	리더 화면 · 파일 읽기(/file) · 저장(/save) · 두 번째 실행이 넘긴 파일(/open).
+//	⚠ 127.0.0.1 에만 열고, 실행마다 같은 비밀 표(token)를 요구한다 — 다른 웹사이트가 내 PC 파일을 못 읽게.
+func server(token string, port int) http.Handler {
+	host := "127.0.0.1:" + strconv.Itoa(port)
+	mux := http.NewServeMux()
+	ok := func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Host != host || r.URL.Query().Get("t") != token {
+			http.Error(w, "forbidden", 403)
+			return false
+		}
+		return true
+	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" || !ok(w, r) {
+			if r.URL.Path != "/" {
+				http.NotFound(w, r)
+			}
+			return
+		}
+		js := strings.ReplaceAll(hostJS, "__TOKEN__", token)
+		page := bytes.Replace(readerHTML, []byte("<head>"), []byte("<head><script>"+js+"</script>"), 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(page)
+	})
+	mux.HandleFunc("/file", func(w http.ResponseWriter, r *http.Request) {
+		if !ok(w, r) {
+			return
+		}
+		p := r.URL.Query().Get("path")
+		f, err := os.Open(p)
+		if err != nil {
+			http.Error(w, "열 수 없음: "+err.Error(), 404)
+			return
+		}
+		defer f.Close()
+		st, _ := f.Stat()
+		w.Header().Set("Content-Type", "application/pdf")
+		http.ServeContent(w, r, filepath.Base(p), st.ModTime(), f)
+	})
+	mux.HandleFunc("/save", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || !ok(w, r) {
+			return
+		}
+		p := r.URL.Query().Get("path")
+		if p == "" || !strings.EqualFold(filepath.Ext(p), ".pdf") {
+			http.Error(w, "PDF 로만 저장합니다", 400)
+			return
+		}
+		if err := writeAtomic(p, r.Body); err != nil {
+			logf("저장 실패 %s: %v", p, err)
+			http.Error(w, "저장하지 못했습니다: "+err.Error()+"\n(다른 프로그램이 그 파일을 열고 있으면 닫고 다시 하세요)", 500)
+			return
+		}
+		logf("저장 %s", p)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/open", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Query().Get("t") != token {
+			http.Error(w, "forbidden", 403)
+			return
+		}
+		var files []string
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&files)
+		if !dispatchOpen(files) {
+			http.Error(w, "no window", 503)
+			return
+		}
+		logf("다른 실행에서 파일 %d개 받음", len(files))
+		_, _ = w.Write([]byte("ok"))
+	})
+	return mux
+}
+
+// ⚠ 쓰다가 끊겨도 원본이 반쪽으로 남지 않게 — 옆에 쓰고 바꿔치기
+func writeAtomic(p string, body io.Reader) error {
+	tmp := p + ".hanil-saving"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(f, io.LimitReader(body, 4<<30)); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	for i := 0; i < 10; i++ {
+		if err = os.Rename(tmp, p); err == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	_ = os.Remove(tmp)
+	return err
+}
+
+// 내 PC — 바탕 화면·문서·다운로드 + 드라이브(C: D: USB 네트워크)
+func drives() []map[string]interface{} {
+	out := []map[string]interface{}{}
+	for _, k := range []struct {
+		name, icon string
+		id         *windows.KNOWNFOLDERID
+	}{{"바탕 화면", "🖥", windows.FOLDERID_Desktop}, {"문서", "📁", windows.FOLDERID_Documents}, {"다운로드", "⬇", windows.FOLDERID_Downloads}} {
+		if p, err := windows.KnownFolderPath(k.id, 0); err == nil && p != "" {
+			out = append(out, map[string]interface{}{"name": k.name, "path": p, "icon": k.icon})
+		}
+	}
+	buf := make([]uint16, 512)
+	n, err := windows.GetLogicalDriveStrings(uint32(len(buf)), &buf[0])
+	if err != nil {
+		return out
+	}
+	start := 0
+	for i := 0; i < int(n); i++ {
+		if buf[i] != 0 {
+			continue
+		}
+		root := windows.UTF16ToString(buf[start:i])
+		start = i + 1
+		if root == "" {
+			continue
+		}
+		t := windows.GetDriveType(u16(root))
+		label := make([]uint16, 261)
+		ok := windows.GetVolumeInformation(u16(root), &label[0], uint32(len(label)), nil, nil, nil, nil, 0) == nil
+		if !ok && (t == windows.DRIVE_CDROM || t == windows.DRIVE_REMOVABLE) {
+			continue //  빈 CD·카드 칸
+		}
+		kind, icon := "로컬 디스크", "💽"
+		switch t {
+		case windows.DRIVE_REMOVABLE:
+			kind, icon = "USB", "🔌"
+		case windows.DRIVE_REMOTE:
+			kind, icon = "네트워크 드라이브", "🌐"
+		case windows.DRIVE_CDROM:
+			kind, icon = "CD/DVD", "💿"
+		}
+		name := windows.UTF16ToString(label)
+		if name == "" {
+			name = kind
+		}
+		d := strings.TrimRight(root, `\`)
+		out = append(out, map[string]interface{}{"name": name + " (" + d + ")", "path": root, "icon": icon, "drive": true})
+	}
+	return out
+}
+
+func listDir(dir string) []map[string]interface{} {
+	out := []map[string]interface{}{}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range ents {
+		n := e.Name()
+		if strings.HasPrefix(n, ".") || strings.HasPrefix(n, "$") {
+			continue
+		}
+		if e.IsDir() || strings.EqualFold(filepath.Ext(n), ".pdf") {
+			out = append(out, map[string]interface{}{"name": n, "path": filepath.Join(dir, n), "dir": e.IsDir()})
+		}
+	}
+	return out
+}
+
+// ───────────────────────── 윈도우 대화상자 ─────────────────────────
+type openFileName struct {
+	lStructSize       uint32
+	hwndOwner         uintptr
+	hInstance         uintptr
+	lpstrFilter       *uint16
+	lpstrCustomFilter *uint16
+	nMaxCustFilter    uint32
+	nFilterIndex      uint32
+	lpstrFile         *uint16
+	nMaxFile          uint32
+	lpstrFileTitle    *uint16
+	nMaxFileTitle     uint32
+	lpstrInitialDir   *uint16
+	lpstrTitle        *uint16
+	flags             uint32
+	nFileOffset       uint16
+	nFileExtension    uint16
+	lpstrDefExt       *uint16
+	lCustData         uintptr
+	lpfnHook          uintptr
+	lpTemplateName    *uint16
+	pvReserved        uintptr
+	dwReserved        uint32
+	flagsEx           uint32
+}
+
+func filter() []uint16 {
+	var f []uint16
+	for _, s := range []string{"PDF 문서 (*.pdf)", "*.pdf", "모든 파일 (*.*)", "*.*"} {
+		f = append(f, windows.StringToUTF16(s)...)
+	}
+	return append(f, 0)
+}
+
+func openDialog(owner uintptr) []string {
+	buf := make([]uint16, 65536)
+	flt := filter()
+	o := openFileName{hwndOwner: owner, lpstrFilter: &flt[0], nFilterIndex: 1, lpstrFile: &buf[0], nMaxFile: uint32(len(buf)),
+		lpstrTitle: u16("PDF 열기"), flags: 0x80000 | 0x1000 | 0x800 | 0x200 | 0x8}
+	o.lStructSize = uint32(unsafe.Sizeof(o))
+	if r, _, _ := pGetOFN.Call(uintptr(unsafe.Pointer(&o))); r == 0 {
+		return nil
+	}
+	//  여러 개면 「폴더\0파일1\0파일2\0\0」, 하나면 「전체 경로\0\0」
+	var parts []string
+	start := 0
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == 0 {
+			if i == start {
+				break
+			}
+			parts = append(parts, windows.UTF16ToString(buf[start:i]))
+			start = i + 1
+		}
+	}
+	if len(parts) <= 1 {
+		return parts
+	}
+	var out []string
+	for _, n := range parts[1:] {
+		out = append(out, filepath.Join(parts[0], n))
+	}
+	return out
+}
+
+func saveDialog(owner uintptr, name, cur string) string {
+	return saveAsIn(owner, name, cur, "PDF 문서 (*.pdf)", "*.pdf", "pdf")
+}
+func saveAs(owner uintptr, name, label, pat, ext string) string {
+	return saveAsIn(owner, name, "", label, pat, ext)
+}
+func saveAsIn(owner uintptr, name, cur, label, pat, ext string) string {
+	buf := make([]uint16, 4096)
+	copy(buf, windows.StringToUTF16(name))
+	var flt []uint16
+	for _, x := range []string{label, pat} {
+		flt = append(flt, windows.StringToUTF16(x)...)
+	}
+	flt = append(flt, 0)
+	o := openFileName{hwndOwner: owner, lpstrFilter: &flt[0], nFilterIndex: 1, lpstrFile: &buf[0], nMaxFile: uint32(len(buf)),
+		lpstrTitle: u16("다른 이름으로 저장"), lpstrDefExt: u16(ext), flags: 0x80000 | 0x2 | 0x800 | 0x8}
+	if cur != "" && filepath.IsAbs(cur) {
+		o.lpstrInitialDir = u16(filepath.Dir(cur))
+	}
+	o.lStructSize = uint32(unsafe.Sizeof(o))
+	if r, _, _ := pGetSFN.Call(uintptr(unsafe.Pointer(&o))); r == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(buf)
+}
+
+type browseInfo struct {
+	hwndOwner      uintptr
+	pidlRoot       uintptr
+	pszDisplayName *uint16
+	lpszTitle      *uint16
+	ulFlags        uint32
+	lpfn           uintptr
+	lParam         uintptr
+	iImage         int32
+}
+
+func pickFolder(owner uintptr) string {
+	name := make([]uint16, 260)
+	bi := browseInfo{hwndOwner: owner, pszDisplayName: &name[0], lpszTitle: u16("자주 여는 폴더를 고르세요"), ulFlags: 0x1 | 0x40}
+	pidl, _, _ := pBrowse.Call(uintptr(unsafe.Pointer(&bi)))
+	if pidl == 0 {
+		return ""
+	}
+	defer pTaskFree.Call(pidl)
+	path := make([]uint16, 1024)
+	if r, _, _ := pPathIDL.Call(pidl, uintptr(unsafe.Pointer(&path[0]))); r == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(path)
+}
+
+// ───────────────────────── 설치 · 등록 ─────────────────────────
+func installedVersion() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\HanilPDF`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	v, _, _ := k.GetStringValue("Version")
+	if _, err := os.Stat(appExe()); err != nil {
+		return ""
+	}
+	return v
+}
+
+func newer(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return false
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dst + ".new"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err = out.Close(); err != nil {
+		return err
+	}
+	for i := 0; i < 25; i++ {
+		if os.Remove(dst) != nil {
+			//  ⚠ 떠 있는 exe 는 지울 수 없지만 이름은 바꿀 수 있다 → 옆으로 비켜 두고(다음 시작 때 지움) 새것을 넣는다
+			_ = os.Rename(dst, dst+".old-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+		}
+		if err = os.Rename(tmp, dst); err == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return err
+}
+
+func install(src string) error {
+	if err := os.MkdirAll(installDir(), 0o755); err != nil {
+		return err
+	}
+	//  ⚠ 떠 있는 옛 판이 exe 를 잡고 있으면 덮지 못한다 → 내려 달라고 부탁(창이 떠 있으면 그대로 두고 다시 시도)
+	if err := copyFile(src, appExe()); err != nil {
+		return fmt.Errorf("%v (한일 PDF 리더 창을 모두 닫고 다시 하세요)", err)
+	}
+	if err := register(appExe()); err != nil {
+		return err
+	}
+	if err := ensureEngine(true); err != nil {
+		logf("미리 보기 등록 실패: %v", err)
+	}
+	ensureShortcuts(appExe())
+	logf("설치 끝 v%s", VERSION)
+	return nil
+}
+
+func setStr(root registry.Key, path, name, val string) error {
+	k, _, err := registry.CreateKey(root, path, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+	return k.SetStringValue(name, val)
+}
+
+func register(exe string) error {
+	cu := registry.CURRENT_USER
+	q := `"` + exe + `"`
+	steps := [][3]string{
+		{`Software\Classes\` + PROGID, "", "PDF 문서"},
+		{`Software\Classes\` + PROGID, "FriendlyTypeName", "PDF 문서 (한일 PDF 리더)"},
+		{`Software\Classes\` + PROGID + `\DefaultIcon`, "", q + ",0"},
+		{`Software\Classes\` + PROGID + `\shell\open`, "FriendlyAppName", APPNAME},
+		{`Software\Classes\` + PROGID + `\shell\open\command`, "", q + ` "%1"`},
+		{`Software\Classes\.pdf\OpenWithProgids`, PROGID, ""},
+		{`Software\Classes\Applications\hanil-pdf.exe`, "FriendlyAppName", APPNAME},
+		{`Software\Classes\Applications\hanil-pdf.exe\SupportedTypes`, ".pdf", ""},
+		{`Software\Classes\Applications\hanil-pdf.exe\shell\open\command`, "", q + ` "%1"`},
+		{`Software\HanilPDF`, "Version", VERSION},
+		{`Software\HanilPDF`, "Path", exe},
+		{`Software\HanilPDF\Capabilities`, "ApplicationName", APPNAME},
+		{`Software\HanilPDF\Capabilities`, "ApplicationDescription", "PDF 보기·찾기·주석·페이지 구성 — " + MAKER},
+		{`Software\HanilPDF\Capabilities`, "ApplicationIcon", q + ",0"},
+		{`Software\HanilPDF\Capabilities\FileAssociations`, ".pdf", PROGID},
+		{`Software\RegisteredApplications`, "HanilPDF", `Software\HanilPDF\Capabilities`},
+		{`Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, "DisplayName", APPNAME},
+		{`Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, "DisplayVersion", VERSION},
+		{`Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, "Publisher", MAKER},
+		{`Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, "DisplayIcon", exe},
+		{`Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, "InstallLocation", filepath.Dir(exe)},
+		{`Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, "UninstallString", q + " --uninstall"},
+	}
+	for _, s := range steps {
+		if err := setStr(cu, s[0], s[1], s[2]); err != nil {
+			return fmt.Errorf("등록 %s: %v", s[0], err)
+		}
+	}
+	if k, _, err := registry.CreateKey(cu, `Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`, registry.SET_VALUE); err == nil {
+		_ = k.SetDWordValue("NoModify", 1)
+		_ = k.SetDWordValue("NoRepair", 1)
+		_ = k.SetDWordValue("EstimatedSize", uint32((len(readerHTML)+len(pdfiumDLL)+len(previewDLL))/1024+12000))
+		k.Close()
+	}
+	pChangeNfy.Call(0x08000000, 0, 0, 0) //  SHCNE_ASSOCCHANGED
+	return nil
+}
+
+// 미리 보기 확장 — 판마다 따로 폴더(탐색기가 옛 DLL 을 잡고 있어도 새 판을 깔 수 있게)
+func ensureEngine(reg bool) error {
+	dir := engineDir()
+	dll := filepath.Join(dir, "hanil-pdf-preview.dll")
+	need := false
+	if st, err := os.Stat(dll); err != nil || st.Size() != int64(len(previewDLL)) {
+		need = true
+	}
+	if st, err := os.Stat(filepath.Join(dir, "pdfium.dll")); err != nil || st.Size() != int64(len(pdfiumDLL)) {
+		need = true
+	}
+	if need {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pdfium.dll"), pdfiumDLL, 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dll, previewDLL, 0o644); err != nil {
+			return err
+		}
+		reg = true
+	}
+	if !reg {
+		//  기본 앱을 바꿨으면(엣지 → 아크로뱃 등) 그 앱 아래에도 그림 처리기를 단다
+		if _, err := os.Stat(dll); err == nil {
+			for _, pid := range pdfUserProgIDs() {
+				if k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Classes\`+pid+`\shellex\`+iidThumb, registry.QUERY_VALUE); err == nil {
+					k.Close()
+				} else {
+					explorerThumbs()
+					break
+				}
+			}
+		}
+		return nil
+	}
+	if err := dllRegister(dll, true); err != nil {
+		return fmt.Errorf("미리 보기 등록: %v", err)
+	}
+	//  옛 판 폴더는 지워 본다(탐색기가 잡고 있으면 다음에)
+	if ents, err := os.ReadDir(installDir()); err == nil {
+		for _, e := range ents {
+			if e.IsDir() && strings.HasPrefix(e.Name(), "engine-") && e.Name() != "engine-"+VERSION {
+				_ = os.RemoveAll(filepath.Join(installDir(), e.Name()))
+			}
+		}
+	}
+	logf("미리 보기 등록 %s", dll)
+	explorerThumbs()
+	return nil
+}
+
+// 🖼 탐색기 큰 아이콘(보통·큰·아주 큰 아이콘, 바둑판)에 PDF 첫 쪽 그림이 보이게
+//
+//	⚠ 탐색기는 「기본 앱의 ProgID」에 달린 그림 처리기를 .pdf 의 것보다 먼저 쓴다 →
+//	  기본 앱이 엣지·아크로뱃이면 그쪽(그림 없음·앱 아이콘)이 이긴다. 그 ProgID 아래(HKCU)에도 우리 것을 단다.
+//	  지운 프로그램에서 되돌릴 수 있게 단 곳을 적어 둔다.
+const (
+	clsPreview = "{3E479EBB-0FE9-495F-B480-F8470DA5113B}"
+	clsThumb   = "{083F7F9F-854E-4108-97E5-4D7A461DED48}"
+	iidPreview = "{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+	iidThumb   = "{e357fccd-a995-4576-b01f-234630154e96}"
+)
+
+func pdfUserProgIDs() []string {
+	var out []string
+	base := `Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\`
+	for _, sub := range []string{"UserChoice", "UserChoiceLatest", `UserChoiceLatest\ProgId`} {
+		if k, err := registry.OpenKey(registry.CURRENT_USER, base+sub, registry.QUERY_VALUE); err == nil {
+			for _, name := range []string{"ProgId", "ProgID"} {
+				if v, _, err := k.GetStringValue(name); err == nil && v != "" && v != PROGID {
+					out = append(out, v)
+				}
+			}
+			k.Close()
+		}
+	}
+	return out
+}
+
+func explorerThumbs() {
+	cu := registry.CURRENT_USER
+	set := func(path, val string) {
+		if k, _, err := registry.CreateKey(cu, path, registry.SET_VALUE); err == nil {
+			_ = k.SetStringValue("", val)
+			k.Close()
+		}
+	}
+	written := []string{}
+	if k, err := registry.OpenKey(cu, `Software\HanilPDF`, registry.QUERY_VALUE); err == nil {
+		if old, _, err := k.GetStringsValue("ThumbProgIds"); err == nil {
+			written = append(written, old...)
+		}
+		k.Close()
+	}
+	for _, pid := range pdfUserProgIDs() {
+		set(`Software\Classes\`+pid+`\shellex\`+iidThumb, clsThumb)
+		set(`Software\Classes\`+pid+`\shellex\`+iidPreview, clsPreview)
+		have := false
+		for _, w := range written {
+			have = have || w == pid
+		}
+		if !have {
+			written = append(written, pid)
+		}
+	}
+	set(`Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidThumb, clsThumb)
+	set(`Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidPreview, clsPreview)
+	if k, _, err := registry.CreateKey(cu, `Software\HanilPDF`, registry.SET_VALUE); err == nil {
+		_ = k.SetStringsValue("ThumbProgIds", written)
+		k.Close()
+	}
+	pChangeNfy.Call(0x08000000, 0, 0, 0) //  SHCNE_ASSOCCHANGED — 탐색기가 다시 읽게
+}
+
+func undoExplorerThumbs() {
+	cu := registry.CURRENT_USER
+	if k, err := registry.OpenKey(cu, `Software\HanilPDF`, registry.QUERY_VALUE); err == nil {
+		if ids, _, err := k.GetStringsValue("ThumbProgIds"); err == nil {
+			for _, pid := range ids {
+				deleteTree(cu, `Software\Classes\`+pid+`\shellex\`+iidThumb)
+				deleteTree(cu, `Software\Classes\`+pid+`\shellex\`+iidPreview)
+			}
+		}
+		k.Close()
+	}
+	deleteTree(cu, `Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidThumb)
+	deleteTree(cu, `Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidPreview)
+}
+
+// 기본 앱으로 — 윈도우 10·11 은 프로그램이 마음대로 기본 앱을 못 바꾼다 → 설정 화면을 열어 준다
+// 🌐 크롬·엣지: PDF 를 브라우저 안에서 보지 않고 내려받아 → 기본 PDF 프로그램(= 이 프로그램)으로
+//
+//	켜기는 사람이 브라우저 설정에서(안내만 함). 끄기는 1.6.0 까지 켜 둔 정책 AlwaysOpenPdfExternally 를 지운다.
+var browserKeys = []string{`Software\Policies\Google\Chrome`, `Software\Policies\Microsoft\Edge`}
+
+func browserPdf(on bool) string {
+	if on {
+		//  ⚠ 1.6.0 까지는 브라우저 정책(레지스트리)을 직접 켰지만, 프로그램이 브라우저 설정을 바꾸는 것은
+		//    백신이 「브라우저 변조」로 보는 동작이라 그만두었다 → 사람이 브라우저 설정에서 한 번 켠다
+		return "크롬: 설정 → 개인 정보 보호 및 보안 → 사이트 설정 → 추가 콘텐츠 설정 → PDF 문서 → 「PDF 다운로드」\n" +
+			"엣지: 설정 → 쿠키 및 사이트 권한 → PDF 문서 → 「항상 PDF 파일 다운로드」 켜기\n\n" +
+			"그 뒤 웹에서 연 PDF 는 내려받아지고, 누르면 기본 PDF 프로그램(한일 PDF 리더)으로 열립니다."
+	}
+	for _, k := range browserKeys {
+		if key, err := registry.OpenKey(registry.CURRENT_USER, k, registry.SET_VALUE); err == nil {
+			_ = key.DeleteValue("AlwaysOpenPdfExternally")
+			key.Close()
+		}
+	}
+	logf("크롬·엣지 정책 끔")
+	return "껐습니다. 크롬·엣지를 다시 켜면 PDF 를 브라우저 안에서 봅니다."
+}
+func browserPdfOn() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, browserKeys[0], registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue("AlwaysOpenPdfExternally")
+	return err == nil && v == 1
+}
+func markerExists(n string) bool { _, err := os.Stat(filepath.Join(baseDir(), n)); return err == nil }
+func touchMarker(n string) {
+	_ = os.MkdirAll(baseDir(), 0o755)
+	_ = os.WriteFile(filepath.Join(baseDir(), n), []byte(time.Now().Format(time.RFC3339)), 0o644)
+}
+
+func associate() string {
+	_ = register(appExe())
+	uri := "ms-settings:defaultapps?registeredAppUser=HanilPDF"
+	if err := shellOpen(uri); err != nil {
+		return "설정 화면을 열지 못했습니다: " + err.Error()
+	}
+	return "윈도우 설정이 열립니다. 「.pdf」 옆의 앱을 눌러 「한일 PDF 리더」를 고르세요.\n(윈도우 10 은 「앱별 기본값 선택」 → .pdf)"
+}
+
+func uninstall() {
+	if msgBox(APPNAME, "한일 PDF 리더를 지울까요?\n(PDF 파일은 그대로 남습니다)", 0x24) != 6 {
+		return
+	}
+	_ = dllRegister(filepath.Join(engineDir(), "hanil-pdf-preview.dll"), false)
+	undoExplorerThumbs()
+	cu := registry.CURRENT_USER
+	for _, k := range []string{`Software\Classes\` + PROGID, `Software\Classes\Applications\hanil-pdf.exe`, `Software\HanilPDF`, `Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`} {
+		deleteTree(cu, k)
+	}
+	if k, err := registry.OpenKey(cu, `Software\Classes\.pdf\OpenWithProgids`, registry.SET_VALUE); err == nil {
+		_ = k.DeleteValue(PROGID)
+		k.Close()
+	}
+	if k, err := registry.OpenKey(cu, `Software\RegisteredApplications`, registry.SET_VALUE); err == nil {
+		_ = k.DeleteValue("HanilPDF")
+		k.Close()
+	}
+	browserPdf(false)
+	pChangeNfy.Call(0x08000000, 0, 0, 0)
+	removeShortcuts()
+	//  지울 수 있는 것은 지운다 — 지금 도는 exe(와 탐색기가 잡고 있는 미리 보기 DLL)만 남는다(지워도 되는 빈 껍데기)
+	if ents, err := os.ReadDir(installDir()); err == nil {
+		for _, e := range ents {
+			if !strings.EqualFold(e.Name(), "hanil-pdf.exe") {
+				_ = os.RemoveAll(filepath.Join(installDir(), e.Name()))
+			}
+		}
+	}
+	msgBox(APPNAME, "지웠습니다. (설정·최근 파일은 "+baseDir()+" 에 남아 있습니다 — 필요 없으면 지우세요)", 0x40)
+}
+
+func deleteTree(root registry.Key, path string) {
+	k, err := registry.OpenKey(root, path, registry.ENUMERATE_SUB_KEYS)
+	if err == nil {
+		names, _ := k.ReadSubKeyNames(-1)
+		k.Close()
+		for _, n := range names {
+			deleteTree(root, path+`\`+n)
+		}
+	}
+	_ = registry.DeleteKey(root, path)
+}

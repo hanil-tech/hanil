@@ -1,0 +1,53 @@
+// 윈도우 프로그램이 리더에게 넣어 주는 것 — window.HANIL_HOST (리더의 app.js 가 쓴다)
+//  파일 읽기·저장은 이 PC 안 작은 서버(/file · /save), 대화상자·기본 앱·끝내기는 프로그램 함수(host…)
+window.HANIL_HOST = (function () {
+  var T = '__TOKEN__', R = null;
+  var q = function (p) { return p + (p.indexOf('?') >= 0 ? '&' : '?') + 't=' + T; };
+  var nameOf = function (p) { return p.split(/[\\/]/).pop(); };
+  var isLocal = function (p) { return /^[A-Za-z]:[\\/]|^\\\\/.test(p || ''); };
+  function openPath(p) { return R && R.openUrl(q('/file?path=' + encodeURIComponent(p)), nameOf(p), p); }
+  //  창 제목 = 문서 이름
+  //  ⚠ 이 글은 <head> 맨 앞에 들어가 <title> 이 아직 없다 — 바로 붙이면 오류로 HANIL_HOST 가 통째로 안 생겨
+  //    (두 번 눌러 넘어온 파일이 안 열리고 「브라우저판」처럼 움직였다) → 페이지를 다 읽은 뒤에 붙인다
+  function watchTitle() {
+    var t = document.querySelector('title');
+    if (!t) return;
+    new MutationObserver(function () { window.hostTitle && window.hostTitle(document.title); }).observe(t, { childList: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchTitle); else watchTitle();
+  return {
+    name: 'windows',
+    ready: function (r) {
+      R = r;
+      window.hostPending().then(function (list) { (list || []).forEach(openPath); });
+      window.hostFirstRun().then(function (first) { if (first && R.welcome) R.welcome(); });
+      //  창을 새로 그렸을 때도 받아 둔 새 판을 알린다
+      window.hostUpdateState().then(function (st) { if (st && st.ready && R.updated) R.updated({ version: st.ready, notes: st.notes }); });
+    },
+    //  🔄 자동 업데이트
+    updated: function (info) { R && R.updated && R.updated(info); },
+    updateMsg: function (m) { R && R.updateMsg && R.updateMsg(m); },
+    updateCheck: function () { return window.hostUpdateCheck(); },
+    updateState: function () { return window.hostUpdateState(); },
+    setAutoUpdate: function (on) { return window.hostSetAutoUpdate(on); },
+    restart: function () { return window.hostRestart(); },
+    open: function () { return window.hostOpenDialog().then(function (ps) { return (ps || []).reduce(function (p, f) { return p.then(function () { return openPath(f); }); }, Promise.resolve()); }); },
+    openPath: openPath,
+    save: async function (d, bytes, asNew) {
+      var path = !asNew && isLocal(d.path) ? d.path : null;
+      if (!path) { path = await window.hostSaveDialog(d.name, isLocal(d.path) ? d.path : ''); if (!path) return null; }
+      var r = await fetch(q('/save?path=' + encodeURIComponent(path)), { method: 'POST', body: bytes });
+      if (!r.ok) throw new Error(await r.text());
+      return { name: nameOf(path), path: path };
+    },
+    pickFolder: function () { return window.hostPickFolder(); },
+    listDir: function (p) { return window.hostListDir(p); },
+    drives: function () { return window.hostDrives(); },
+    associate: function () { return window.hostAssociate().then(function (m) { R && R.ask && R.ask('기본 PDF 프로그램', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
+    preview: function () { return window.hostPreview().then(function (m) { R && R.ask && R.ask('탐색기 미리 보기', m, { cancel: null }); }); },
+    exit: function () { window.hostExit(); },
+    browserPdf: function (on) { return window.hostBrowserPdf(on).then(function (m) { R && R.ask && R.ask('크롬·엣지의 PDF', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
+    browserPdfState: function () { return window.hostBrowserPdfState(); },
+    exportHtml: function () { return window.hostExportHtml().then(function (m) { if (m && R && R.ask) R.ask('브라우저용 파일', m.replace(/\n/g, '<br>'), { cancel: null }); }); },
+  };
+})();

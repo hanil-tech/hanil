@@ -20,6 +20,37 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 >
 > 사내에서 만든 프로그램이라 서명이 없어서 그렇습니다.
 
+## 📕 PDF 리더 (제작: 한일특장(주))
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-pdf-v1.6.5.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-v1.6.5.exe)** | PDF 를 볼 PC 아무 데나 | 29MB |
+| **[hanil-pdf-reader.html](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-reader.html)** | exe 를 받을 수 없는 PC — 설치 없이 크롬·엣지로 열기(보기·찾기·주석·구성·변환 같음, 탐색기 미리 보기·자동 업데이트 없음) | 12MB |
+
+**프로그램 하나가 세 가지를 합니다** — 두 번 누르면 설치(관리자 권한 없이):
+① PDF 보기·폴더째 검색·주석(Acrobat·PDF-XChange 에서도 보이고 고쳐짐)·페이지 구성 창
+② 크롬·엣지에서 연 PDF 도 이 프로그램으로 ③ 탐색기 미리 보기(미리 보기 창·큰 아이콘).
+자세한 안내는 [pdfreader/README.md](../pdfreader/README.md).
+
+## 🏷 현장 라벨 발행기
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-label-v2.2.1.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.2.1.exe)** | 라벨을 뽑을 현장 키오스크 | 6MB |
+
+TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면만 열어 바코드·레이저 프린터로 라벨을 뽑습니다.
+설치 없이 두 번 눌러 실행합니다. 자세한 안내는 [label/README.md](../label/README.md).
+
+## 📦 포털 대용량 파일 (올리기·받기)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** | 회사 포털 서버(`server.js` 옆) | 52KB |
+
+큰 파일(하나 50GB 까지)과 **폴더째** 올리고 받는 화면입니다. 목록표로 빠진 파일이 없는지 맞춰 보고, 받기는 크기 제한이 없습니다(폴더는 ZIP 또는 폴더째). 직원은 설치할 것 없이 브라우저·폰 앱으로 씁니다.
+압축 안의 `설치안내.txt` 대로 두 파일을 복사하고 `server.js` 에 한 줄 넣으면 됩니다.
+켜기 전에 **`주의사항.txt`** 를 꼭 읽어 주세요(Ⅰ부는 직원용 — 그대로 전달). 자세한 안내는 [bigfile/README.md](../bigfile/README.md).
+
 ## 설치 순서
 
 ### 1단계 — 관리 서버 (먼저)
