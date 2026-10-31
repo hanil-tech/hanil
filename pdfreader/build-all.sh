@@ -50,6 +50,8 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsg
 echo "④ release/ 에 넣기"
 rm -f "$REL"/hanil-pdf-v*.exe "$REL"/hanil-pdf-reader.html "$REL"/hanil-pdf-chrome.zip
 cp "$HERE/out/hanil-pdf-v$VER.exe" "$REL/"
+#  설치 없이 크롬·엣지로 여는 한 장(exe 를 받을 수 없는 PC 용)
+cp "$HERE/out/hanil-pdf-reader.html" "$REL/"
 #  🔄 자동 업데이트용 판 정보 — 깔린 프로그램이 이것을 읽고 새 판이면 받아 깐다(크기·SHA-256 확인)
 #     ⚠ exe 와 같은 커밋에 올려야 한다(json 만 먼저 올라가면 받다가 크기가 안 맞아 다음 확인 때 다시 받음)
 node -e '
