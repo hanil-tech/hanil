@@ -6,6 +6,7 @@ import { pageRaw, prepare, searchRaw, snippet } from './search.js';
 import * as EDIT from './edit.js';
 import * as OFFICE from './office.js';
 import * as SIGN from './sign.js';
+import { collectGarbage } from './gc.js';
 import { PDFDocument, degrees, StandardFonts, rgb as pdfRgb, PDFName, PDFDict, PDFArray, PDFRef, PDFNumber, PDFRawStream, PDFString, PDFHexString } from 'pdf-lib';
 
 const { getDocument, TextLayer, PDFWorker, PDFDateString, AnnotationLayer, AnnotationMode } = pdfjsLib;
@@ -78,14 +79,15 @@ function toast(msg, ms = 2600) {
 //  창 하나 — 단추를 누르면 그 값(입력칸이 있으면 입력한 글)으로 풀린다, 취소는 null
 let modalDone = null;
 const closeModal = () => modalDone && modalDone('__closed');
-function ask(title, html, { input = null, ok = '확인', cancel = '취소', value = '', extra = null } = {}) {
+//  ⚠ 다른 창이 이 창을 밀어내면 null(= 취소)로 — 「지울까요?」가 저절로 「예」가 되지 않게. 진행 창만 '__closed'(progress:true)
+function ask(title, html, { input = null, ok = '확인', cancel = '취소', value = '', extra = null, progress = false } = {}) {
   closeModal();
   return new Promise((res) => {
     const m = $('#modal');
     $('#mTitle').textContent = title;
     $('#mBody').innerHTML = html + (input ? '<input id="mIn" type="' + input + '">' : '');
     const foot = $('#mFoot'); foot.innerHTML = '';
-    const done = (v) => { if (modalDone !== done) return; modalDone = null; m.classList.remove('on'); document.removeEventListener('keydown', key, true); res(v === '__closed' ? (input ? null : '__closed') : v); };
+    const done = (v) => { if (modalDone !== done) return; modalDone = null; m.classList.remove('on'); document.removeEventListener('keydown', key, true); res(v === '__closed' ? (progress ? '__closed' : null) : v); };
     modalDone = done;
     const okB = h('button', { text: ok, onclick: () => done(input ? $('#mIn').value : true) });
     foot.append(okB);
@@ -220,6 +222,7 @@ function activate(d) {
   if (cur && cur !== d && cur.el) { cur.sx = viewer.scrollLeft; cur.sy = viewer.scrollTop; cur.el.style.display = 'none'; }
   cur = d;
   $('#emptyMsg').style.display = d ? 'none' : '';
+  if (!d) renderStart();
   if (d) {
     d.el.style.display = '';
     d.el.classList.toggle('two', twoPage);
@@ -343,6 +346,8 @@ function tick() {
     const v = Math.min(bot, p.offsetTop + p.offsetHeight) - Math.max(top, p.offsetTop);
     if (v > bestV + 1) { bestV = v; best = i; }
   }
+  //  찾은 자리로 옮겨 왔으면, 그 자리가 쪽 끝에 있어도 그 쪽을 「지금 쪽」으로(굴리면 풀림)
+  if (d.pin && Math.abs(top - d.pin.top) < 2 && d.pin.i >= a && d.pin.i <= b) best = d.pin.i; else d.pin = null;
   if (d.cur !== best + 1) { d.cur = best + 1; markThumb(); }
   updatePageUi();
   const want = [];
@@ -526,6 +531,11 @@ function getText(d, i) {
     const v = { tc, raw: m.raw, it: m.it, off: m.off };
     d.texts[i].__v = v;                 //  칠하기(paintHits)가 기다리지 않고 바로 쓰게
     return v;
+  }, (e) => {
+    //  ⚠ 글자를 못 읽는 쪽이 하나 있어도 찾기가 멈추지 않게 — 빈 쪽으로 치고, 다음에 다시 읽어 보게 비워 둔다
+    if (!/destroyed/i.test(String(e && e.message))) console.warn('글자 읽기', i + 1, e);
+    d.texts[i] = null;
+    return { tc: { items: [], styles: {} }, raw: '', it: [], off: [] };
   }));
 }
 
@@ -572,6 +582,8 @@ function scrollToHit(d, i, k) {
   const vr = viewer.getBoundingClientRect(), er = e.getBoundingClientRect();
   if (er.top < vr.top + 30 || er.bottom > vr.bottom - 30) viewer.scrollTop += er.top - vr.top - vr.height / 3;
   if (er.left < vr.left + 10 || er.right > vr.right - 10) viewer.scrollLeft += er.left - vr.left - vr.width / 2;
+  d.pin = { i, top: viewer.scrollTop };
+  schedule();
   return true;
 }
 
@@ -1034,9 +1046,10 @@ async function printDoc() {
   const area = $('#printArea');
   area.innerHTML = '';
   let stop = false;
-  ask('인쇄 준비', '<span id="prMsg">페이지 그리는 중…</span>', { ok: '그만', cancel: null }).then((v) => { if (v !== '__closed') stop = true; });
+  ask('인쇄 준비', '<span id="prMsg">페이지 그리는 중…</span>', { ok: '그만', cancel: null, progress: true }).then((v) => { if (v !== '__closed') stop = true; });
   //  쪽 그림(150dpi)
-  const DPI = opt.nup > 4 ? 110 : 150;
+  //  ⚠ 장 수가 많으면 조금 낮춰 메모리를 아낀다(300쪽 이상 → 120dpi)
+  const DPI = opt.nup > 4 ? 110 : Math.ceil(pages.length / opt.nup) > 150 ? 120 : 150;
   const renderPg = async (i0) => {
     const i = i0 + 1, pg = await d.pdf.getPage(i);
     const vp = pg.getViewport({ scale: DPI / 72, rotation: (pg.rotate + d.rot) % 360 });
@@ -1493,7 +1506,7 @@ function togglePane(which) {
 }
 
 const CMD = {
-  open: openDialog,
+  open: openDialog, searchOpen: () => { if ($('#right').classList.contains('off') || $('#pSearch').classList.contains('off')) togglePane('search'); else $('#sq').focus(); }, openPanel: () => openBackstage('open'),
   save: () => saveDoc(false), saveAs: () => saveDoc(true), print: printDoc,
   tSel: () => setTool('edit'), tRect: () => setTool('rect'), tEll: () => setTool('ellipse'), tLine: () => setTool('line'), tArrow: () => setTool('arrow'),
   tPen: () => setTool('pen'), tHi: () => setTool('hilite'), tText: () => setTool('text'), tSym: () => setTool('sym'), tWhite: () => setTool('white'),
@@ -1631,7 +1644,21 @@ viewer.addEventListener('wheel', (e) => {
   const z = cur.zoom * Math.pow(1.0018, -e.deltaY);
   setZoom(Math.min(10, Math.max(0.05, z)), e.clientX, e.clientY);
 }, { passive: false });
-$('#emptyMsg').addEventListener('dblclick', () => { if (!cur) $('#fOpen').click(); });
+$('#emptyMsg').addEventListener('dblclick', (e) => { if (!cur && !e.target.closest('button,.rf')) openDialog(); });
+//  🏠 시작 화면 — 큰 단추 그림 · 최근 파일
+$$('#emptyMsg [data-ic]').forEach((e) => { e.innerHTML = svg(e.dataset.ic); });
+async function renderStart() {
+  const box = $('#stRecent'); if (!box) return;
+  const recent = ((await idb.get('recent')) || []).slice(0, 6);
+  if (cur) return;
+  box.innerHTML = '';
+  if (!recent.length) { box.append(h('div', { class: 'stnone', text: '아직 연 파일이 없습니다 — 「PDF 열기」를 누르세요' })); return; }
+  for (const r of recent) {
+    const row = h('div', { class: 'rf', title: r.path || r.name }, h('b', { text: '📄' }), h('span', { text: r.name }), h('small', { text: new Date(r.t).toLocaleDateString('ko-KR') }));
+    row.onclick = () => openRecent(r);
+    box.append(row);
+  }
+}
 let drag = null, dragMoved = false;
 viewer.addEventListener('mousedown', (e) => {
   if (tool !== 'hand' || e.button !== 0 || !cur) return;
@@ -1766,6 +1793,9 @@ async function pageOp(d, label, fn) {
   if (!d) return toast('먼저 PDF 를 여세요');
   const info = await d.pdf.getMetadata().then((m) => m.info || {}, () => ({}));
   if (info.EncryptFilterName) return ask('바꿀 수 없음', '암호(보안)가 걸린 PDF 는 페이지를 바꿀 수 없습니다.', { cancel: null });
+  //  ⚠ 한 번에 하나씩 — 두 번 눌러 둘이 같은 원본에서 시작하면 하나가 사라진다
+  if (d.busy) return toast('앞의 작업이 끝나면 다시 눌러 주세요');
+  d.busy = true;
   toast(label + ' 중…', 60000);
   let before, doc, r;
   try {
@@ -1774,12 +1804,14 @@ async function pageOp(d, label, fn) {
     r = await fn(doc);
     if (r === false) { toast('그만두었습니다'); return; }
     doc.setProducer('한일 PDF 리더 · ' + MAKER);
+    collectGarbage(doc);                                       //  지운 페이지가 파일에 남지 않게
     const out = await doc.save({ useObjectStreams: false });
     (d.pundo || (d.pundo = [])).push(before);
     if (d.pundo.length > 10) d.pundo.shift();
     await reloadDoc(d, out, r && r.page);
     toast(label + ' — 끝 (저장해야 파일에 남습니다)');
   } catch (e) { console.error(e); ask(label, '하지 못했습니다.<br><small>' + esc(String(e.message || e)) + '</small>', { cancel: null }); }
+  finally { d.busy = false; }
 }
 async function buildPages(d) {
   const p1 = await d.pdf.getPage(1);
@@ -1802,6 +1834,8 @@ async function reloadDoc(d, bytes, page = null) {
   try { d.pdf.destroy(); } catch {}
   d.base = bytes.slice();
   d.ed = null; d.texts = []; d.find = null; d.psel = new Set();
+  //  책갈피는 새 문서에서 다시 읽는다(고친 책갈피는 buildPdf 가 이미 넣었다 — 페이지를 지우거나 옮겨도 맞게 따라감)
+  d.bm = null; d.bmDirty = false; bmSel = null;
   const task = loadPdf(bytes, d.name);
   d.pdf = await task.promise;
   EDIT.attachDoc(d);
@@ -3056,4 +3090,5 @@ window.__hanilCanClose = async () => {
 };
 {
 }
+renderStart();
 window.__pdfReader = { SIGN, docs, openFiles, openUrl: openUrl0, get cur() { return cur; }, get tool() { return tool; }, runSearch, S, EDIT, saveDoc, buildPdf: (d) => EDIT.buildPdf(d) };

@@ -117,14 +117,19 @@ export async function verifyPdf(bytes) {
     const [o1, l1, o2, l2] = m.slice(1).map(Number);
     const r = { ok: false, cn: '', time: null, covers: o2 + l2 === bytes.length, why: '' };
     try {
-      const hex = s.slice(o1 + l1 + 1, o2 - 1).replace(/0+$/, '');
+      //  ⚠ 뒤의 0 을 지우면 서명 끝의 진짜 00 바이트도 지워진다 → 그대로 읽고 뒤 남는 0 은 무시
+      const hex = s.slice(o1 + l1 + 1, o2 - 1).replace(/[^0-9a-fA-F]/g, '');
       const der = forge.util.hexToBytes(hex.length % 2 ? hex + '0' : hex);
-      const msg = forge.pkcs7.messageFromAsn1(forge.asn1.fromDer(der, { strict: false }));
+      const msg = forge.pkcs7.messageFromAsn1(forge.asn1.fromDer(der, { strict: false, parseAllBytes: false }));
       const cert = msg.certificates[0];
       r.cn = cert ? nameOf(cert) : '';
       const si = msg.rawCapture;
       const data = s.slice(o1, o1 + l1) + s.slice(o2, o2 + l2);
-      const md = forge.md.sha256.create(); md.update(data);
+      //  해시 방식 — 다른 프로그램은 SHA-1·384·512 로도 서명한다
+      let alg = 'sha256';
+      try { alg = { [forge.pki.oids.sha1]: 'sha1', [forge.pki.oids.sha256]: 'sha256', [forge.pki.oids.sha384]: 'sha384', [forge.pki.oids.sha512]: 'sha512' }[forge.asn1.derToOid(si.digestAlgorithm)] || 'sha256'; } catch {}
+      const mk = () => forge.md[alg].create();
+      const md = mk(); md.update(data);
       //  서명된 속성(messageDigest)과 문서 해시 맞춰 보기
       const attrs = si.authenticatedAttributes || [];
       let digestOk = false;
@@ -135,7 +140,7 @@ export async function verifyPdf(bytes) {
       }
       //  서명 값 검사 — 속성 묶음(SET)의 해시를 인증서 공개키로
       const set = forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SET, true, attrs);
-      const amd = forge.md.sha256.create(); amd.update(forge.asn1.toDer(set).getBytes());
+      const amd = mk(); amd.update(forge.asn1.toDer(set).getBytes());
       let sigOk = false;
       try { sigOk = cert.publicKey.verify(amd.digest().getBytes(), si.signature); } catch {}
       r.ok = digestOk && sigOk;

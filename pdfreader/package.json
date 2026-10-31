@@ -1,6 +1,6 @@
 {
   "name": "hanil-pdf-reader",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "한일 PDF 리더 — 설치 없이 브라우저에서 PDF 보기 + 여러 문서·폴더 검색",
   "scripts": {
     "build": "node build.mjs"

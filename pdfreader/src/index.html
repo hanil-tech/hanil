@@ -131,8 +131,30 @@
   #viewer.hand.grabbing{cursor:grabbing}
   #viewer.hand .textLayer span{cursor:grab}
   #viewer.hand .textLayer{-webkit-user-select:none;user-select:none}
-  #emptyMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#d6d6d6;font-size:13px;user-select:none;text-align:center;line-height:1.8}
-  #emptyMsg.drag{pointer-events:none;color:#fff;font-size:15px;background:rgba(43,108,176,.25);outline:3px dashed #fff;outline-offset:-14px}
+  #emptyMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;user-select:none;overflow:auto;padding:20px 16px 40px}
+  #emptyMsg .drop{display:none}
+  #emptyMsg.drag{pointer-events:none;background:rgba(43,108,176,.25);outline:3px dashed #fff;outline-offset:-14px}
+  #emptyMsg.drag .start{opacity:.35}
+  #emptyMsg.drag .drop{display:block;position:absolute;left:0;right:0;top:46%;text-align:center;color:#fff;font-size:20px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .start{width:min(640px,100%);background:#fff;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:22px 24px 16px;color:#333}
+  .sthead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .stlogo{width:44px;height:44px;border-radius:8px;font-size:15px}
+  .sthead b{display:block;font-size:19px}.sthead small{color:#777;font-size:13px}
+  .stbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .stbtns button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 6px 11px;border:1px solid #dde3ea;border-radius:8px;background:#f8fafc;cursor:pointer;font:inherit;color:#333;transition:background .12s,border-color .12s,transform .12s}
+  .stbtns button:hover{background:#eef5ff;border-color:#7aa7e0;transform:translateY(-1px)}
+  .stbtns button.main{background:#fff4f5;border-color:#e8a3ad}.stbtns button.main:hover{background:#ffe9ec;border-color:#c8102e}
+  .stbtns i{width:34px;height:34px;display:block}.stbtns i svg{width:100%;height:100%}
+  .stbtns b{font-size:13.5px}.stbtns small{font-size:11px;color:#888}
+  .strec{margin-top:16px;border-top:1px solid #eee;padding-top:10px}
+  .stcap{font-size:12px;color:#888;margin-bottom:4px}
+  #stRecent .rf{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:13px}
+  #stRecent .rf:hover{background:#eef5ff}
+  #stRecent .rf span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #stRecent .rf small{color:#999;font-size:11px;flex:0 0 auto}
+  .stnone{color:#aaa;font-size:12px;padding:4px 8px}
+  .sthint{margin-top:12px;font-size:12px;color:#777;text-align:center}
+  @media (max-width:560px){.stbtns{grid-template-columns:repeat(2,1fr)}}
   .doc{padding:10px 0 14px;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:min-content}
   .doc.two{display:grid;grid-template-columns:auto auto;justify-content:center;align-items:start}
   .pg{position:relative;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35);flex:0 0 auto;--scale-factor:1}
@@ -281,7 +303,7 @@
   .setfoot{display:flex;justify-content:flex-end;gap:8px;padding:8px}
   .setfoot button{min-width:96px;height:28px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
   #maker{font-size:11px;color:#8a8a8a;margin-right:8px;white-space:nowrap}
-  #emptyMsg .mk{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:11px;color:#c9c9c9}
+  #emptyMsg .mk{position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:11px;color:#e4e4e4}
   .logo{background:#c8102e;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
 
   /* 고치기 겹 */
@@ -378,7 +400,19 @@
 
     <div id="center">
       <div id="viewer" tabindex="0" class="hand"></div>
-      <div id="emptyMsg">문서는 여기를 두 번 클릭하여 열 수 있음<br><small>또는 PDF 파일을 끌어다 놓으세요</small><div class="mk">한일 PDF 리더 · 한일특장(주)</div></div>
+      <div id="emptyMsg"><div class="start">
+        <div class="sthead"><span class="logo stlogo">PDF</span><div><b>한일 PDF 리더</b><small>무엇을 할까요?</small></div></div>
+        <div class="stbtns">
+          <button data-cmd="open" class="main"><i data-ic="open"></i><b>PDF 열기</b><small>Ctrl+O</small></button>
+          <button data-cmd="openPanel"><i data-ic="search"></i><b>내 PC 에서 찾기</b><small>C: · D: · 바탕 화면</small></button>
+          <button data-cmd="searchOpen"><i data-ic="compare"></i><b>여러 문서 검색</b><small>폴더 안 PDF 모두</small></button>
+          <button data-cmd="img2pdf"><i data-ic="img2pdf"></i><b>사진 → PDF</b><small>그림 파일 묶기</small></button>
+          <button data-cmd="combine"><i data-ic="combine"></i><b>파일 합치기</b><small>여러 PDF → 하나</small></button>
+          <button data-cmd="newDoc"><i data-ic="blank"></i><b>빈 문서</b><small>A4 새로 만들기</small></button>
+        </div>
+        <div class="strec"><div class="stcap">최근 파일</div><div id="stRecent"><div class="stnone">아직 연 파일이 없습니다</div></div></div>
+        <div class="sthint">💡 PDF 파일을 이 창에 <b>끌어다 놓아도</b> 열립니다 · 빈 곳을 두 번 눌러도 됩니다</div>
+      </div><div class="drop">여기에 놓으면 열립니다</div><div class="mk">한일 PDF 리더 · 제작 한일특장(주)</div></div>
       <div id="findbar">
         <input id="findIn" type="text" placeholder="찾을 글자" autocomplete="off">
         <button class="qb" id="findPrev" title="이전 (Shift+Enter)">▲</button>

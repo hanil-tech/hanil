@@ -5,7 +5,7 @@ PDF-XChange Editor 와 비슷한 모양의 PDF 리더·편집기입니다. 제�
 
 ## 프로그램 하나 — 세 가지 일
 
-**받기: [hanil-pdf-v1.4.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-v1.4.0.exe)** (20MB · 두 번 누르면 설치, 관리자 권한 없이)
+**받기: [hanil-pdf-v1.5.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-v1.5.0.exe)** (26MB · 두 번 누르면 설치, 관리자 권한 없이)
 
 | | 하는 일 |
 |---|---|
@@ -18,10 +18,12 @@ PDF-XChange Editor 와 비슷한 모양의 PDF 리더·편집기입니다. 제�
 
 ### 윈도우 프로그램 설치·지우기
 
-1. `hanil-pdf-v1.4.0.exe` 를 두 번 누릅니다(「Windows의 PC 보호」가 뜨면 **[추가 정보] → [실행]** — 서명 없는 사내 프로그램이라 그렇습니다).
+1. `hanil-pdf-v1.5.0.exe` 를 두 번 누릅니다(「Windows의 PC 보호」가 뜨면 **[추가 정보] → [실행]** — 서명 없는 사내 프로그램이라 그렇습니다).
 2. `%LOCALAPPDATA%\Programs\HanilPDF` 에 깔리고 창이 뜹니다. 처음 한 번 「기본 프로그램으로」를 누르면 윈도우 설정이 열립니다 →
    **.pdf 의 앱을 「한일 PDF 리더」로** 고르세요(윈도우 10·11 은 프로그램이 기본 앱을 마음대로 못 바꿉니다).
-3. 탐색기에서 PDF 를 고르고 **Alt+P**(미리 보기 창) — 쪽을 바퀴로 넘겨 봅니다. **큰 아이콘** 보기에서는 첫 장이 그림으로 나옵니다.
+3. 탐색기에서 PDF 를 고르고 **Alt+P**(미리 보기 창) — 쪽을 바퀴로 넘겨 봅니다. **보기 → 큰 아이콘·아주 큰 아이콘** 에서는 PDF 마다 첫 장이 그림으로 나옵니다.
+   - 기본 앱이 엣지·아크로뱃이어도 그림이 나오게, 그 앱 쪽에도 그림 처리기를 답니다(사용자 단위 · 지우면 되돌림).
+   - 「항상 아이콘만 표시(미리 보기 안 함)」이 켜져 있으면 끕니다. 그래도 옛 아이콘이 보이면 탐색기 창을 닫았다 다시 여세요.
 4. 새 판 exe 를 받아 두 번 누르면 그대로 덮어 설치됩니다. 지우기: **설정 → 앱 → 한일 PDF 리더 → 제거**.
 
 - 창은 윈도우에 들어 있는 **WebView2(엣지 엔진)** 로 그립니다. 없으면(아주 오래된 윈도우 10) 기본 브라우저로 엽니다.
@@ -96,6 +98,10 @@ PDF-XChange Editor 와 비슷한 모양의 PDF 리더·편집기입니다. 제�
 `Ctrl+O` 열기 · `Ctrl+S` 저장 · `Ctrl+P` 인쇄 · `Ctrl+W` 닫기 · `Ctrl+F` 찾기 · `F3` 다음 찾기 · `Ctrl+Shift+F` 검색 창 ·
 `Ctrl++/-` 확대/축소 · `Ctrl+0/1/2` 페이지 맞춤/실제 크기/너비 맞춤 · `←/→` 페이지 · `H/V` 손 도구/텍스트 선택 · `F4` 탐색 창
 
+## 큰 문서
+- 300쪽(글자) 열기 1초 · 1000쪽 0.3초 · 스캔 그림 300쪽(110MB) 1.5초 — 보이는 쪽과 그 앞뒤만 그리고 멀리 간 쪽은 비웁니다.
+- 300쪽 전체 찾기 1.4초 · 1000쪽 4초 · 4쪽 모아 찍기 300쪽 준비 12초(스캔 26초). 시험: `test/make-big.py` → `test/big-check.js`
+
 ## ⚠ 알아 둘 것
 
 - 폴더 검색은 브라우저의 [폴더 고르기]를 씁니다. 크롬이 「이 사이트에 파일 N개를 업로드할까요?」라고 묻는데,
@@ -114,6 +120,8 @@ LANG=C.UTF-8 node test/ui-check.js /tmp/pdfs /tmp/o      # 열기·찾기·폴�
 LANG=C.UTF-8 node test/edit-check.js /tmp/pdfs /tmp/o    # 주석 → 저장 → pypdf·poppler(다른 프로그램)로 확인 → 다시 열어 고치기
 LANG=C.UTF-8 node test/pages-check.js /tmp/pdfs /tmp/o   # 구성(회전·삭제·붙여넣기·자르기·번호·워터마크)·강조·내보내기·파일 메뉴·환경 설정
 LANG=C.UTF-8 node test/chrome-check.js /tmp/pdfs         # 크롬 확장: 웹 PDF 가 이 리더로
+python3 test/make-big.py /tmp/big && LANG=C.UTF-8 node test/big-check.js /tmp/big /tmp/o   # 300·1000쪽·스캔 300쪽
+python3 test/make-fix.py /tmp/fix && LANG=C.UTF-8 node test/fix-check.js /tmp/fix /tmp/o   # 고친 버그(지운 쪽 남음·남의 주석·한 줄 두 칸 글자 고치기·밀린 확인 창)
 # 탐색기 미리 보기 DLL: win/preview/wintest.c 를 zig cc 로 만들어 wine 에서(썸네일·미리 보기 창·등록)
 ```
 

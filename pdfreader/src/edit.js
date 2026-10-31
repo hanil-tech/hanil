@@ -11,6 +11,7 @@ import fontkit from '@pdf-lib/fontkit';
 import { rgb as pdfRgb, degrees as pdfDeg, StandardFonts } from 'pdf-lib';
 import { eraseTextIn } from './content.js';
 import { slimTTF, commonHangul } from './ttf.js';
+import { collectGarbage } from './gc.js';
 
 export const EDIT_TOOLS = ['edit', 'rect', 'ellipse', 'line', 'arrow', 'pen', 'hilite', 'white', 'text', 'type', 'under', 'sym', 'stamp', 'note', 'snap', 'crop', 'erase', 'mhl', 'mul', 'mso',
   'polygon', 'polyline', 'cloud', 'mdist', 'mperim', 'marea', 'callout', 'link', 'redact', 'tedit',
@@ -301,9 +302,12 @@ export async function startTextEdit(d, i, span, itemIndex, item, vp) {
   const inp = document.createElement('input');
   inp.className = 'tedit-in';
   inp.value = o.text;
-  const pr = p.div.getBoundingClientRect();
   Object.assign(inp.style, { left: (o.x * s) + 'px', top: (o.y * s) + 'px', height: (o.h * s) + 'px', width: Math.max(80, o.w * s + 60) + 'px', fontSize: (o.fs * s) + 'px', fontFamily: 'HanilNanum, ' + FONT });
-  void pr;
+  //  ⚠ 화면을 돌려 보고 있으면 페이지 좌표가 화면과 다르다 → 누른 글자(글자 층) 자리에 띄운다
+  if (d.rot && span && span.getBoundingClientRect) {
+    const pr = p.div.getBoundingClientRect(), r = span.getBoundingClientRect();
+    Object.assign(inp.style, { left: (r.left - pr.left) + 'px', top: (r.top - pr.top) + 'px', height: Math.max(18, o.fs * s * 1.25) + 'px' });
+  }
   p.div.append(inp);
   inp.focus(); inp.select();
   let done = false;
@@ -724,7 +728,9 @@ function onUp(d, i, e) {
       else Object.assign(o, { x: x - 40, y: y - 25, w: 80, h: 50 });
     }
     if (o.t === 'text') layoutText(o);
-    pushUndo(d, dr.before);
+    //  글·메모·링크·양식 칸은 창(입력)을 닫을 때 한 번만 되돌리기에 넣는다(취소하면 아무것도 안 남게)
+    const editor = ['text', 'note', 'callout', 'link', 'field'].includes(o.t);
+    if (!editor) pushUndo(d, dr.before);
     if (o.t !== 'pen') A.setTool('edit');
     select(d, o);
     if (o.t === 'text') editText(d, o, dr.before);
@@ -889,7 +895,8 @@ export function rotateSel(dir) {
 export function copySel(cut = false) {
   const d = A.cur(), o = selected();
   if (!o) return false;
-  clip = { objs: [JSON.parse(JSON.stringify(o))], d };
+  //  그림은 그림 자료도 같이 들고 있는다(페이지를 바꿔 문서를 다시 읽어도 붙일 수 있게)
+  clip = { objs: [JSON.parse(JSON.stringify(o))], d, imgs: new Map(o.t === 'image' && d.ed.imgs.has(o.img) ? [[o.img, d.ed.imgs.get(o.img)]] : []) };
   if (cut) delSel(); else A.toast('복사했습니다 — Ctrl+V 로 붙여 넣기');
   return true;
 }
@@ -897,9 +904,11 @@ export function hasClip() { return !!clip; }
 export async function pasteClip() {
   const d = A.cur(); if (!d || !clip) return false;
   if (!(await ensureLoaded(d))) return true;
-  const page = clip.d === d ? clip.objs[0].p : d.cur - 1;
-  const objs = clip.objs.map((o) => { const c = JSON.parse(JSON.stringify(o)); if (clip.d === d) moveTo(c, JSON.parse(JSON.stringify(o)), 12, 12); return c; });
-  if (clip.d !== d) for (const o of objs) if (o.t === 'image') { const im = clip.d.ed && clip.d.ed.imgs.get(o.img); if (im) d.ed.imgs.set(o.img, im); }
+  //  같은 문서·같은 쪽이 아직 있으면 그 자리 옆에, 아니면 지금 보는 쪽에(페이지를 지웠을 수 있다)
+  const same = clip.d === d && clip.objs[0].p < d.n;
+  const page = same ? clip.objs[0].p : d.cur - 1;
+  const objs = clip.objs.map((o) => { const c = JSON.parse(JSON.stringify(o)); if (same) moveTo(c, JSON.parse(JSON.stringify(o)), 12, 12); return c; });
+  for (const o of objs) if (o.t === 'image' && !d.ed.imgs.has(o.img)) { const im = clip.imgs && clip.imgs.get(o.img); if (im) d.ed.imgs.set(o.img, im); else return A.toast('그림을 다시 복사해 주세요'), true; }
   clip.objs = objs;
   addObjs(d, objs, page, snap(d));
   A.setTool('edit');
@@ -1048,17 +1057,24 @@ export function styleGroup(h) {
     h('div', { class: 'ecol' }, row('굵기', lw), row('투명', op)),
     h('div', { class: 'ecol' }, row('글자', fs)));
   ctl = { sc, fc, noFill, lw, op, fs };
-  const apply = (k, v) => {
+  //  ⚠ 색 고르개는 끄는 동안 계속 input 을 보낸다 → 처음 모습만 기억했다가 다 고른 뒤(change) 한 번만 되돌리기에
+  let live = null;
+  const apply = (k, v, dragging = false) => {
     style[k] = v;
     const d = A.cur(), o = selected();
     if (!o) return;
-    const before = snap(d);
+    const before = live && live.o === o ? live.before : snap(d);
     o[k] = v;
     if (o.t === 'text' && k === 'fs') layoutText(o);
-    pushUndo(d, before); drawOverlay(d, o.p);
+    if (dragging) { live = { o, before }; drawOverlay(d, o.p); return; }
+    live = null;
+    if (snap(d) !== before) pushUndo(d, before);
+    drawOverlay(d, o.p);
   };
-  sc.oninput = () => apply('sc', sc.value);
-  fc.oninput = () => { noFill.checked = false; apply('fc', fc.value); };
+  sc.oninput = () => apply('sc', sc.value, true);
+  sc.onchange = () => apply('sc', sc.value);
+  fc.oninput = () => { noFill.checked = false; apply('fc', fc.value, true); };
+  fc.onchange = () => { noFill.checked = false; apply('fc', fc.value); };
   noFill.onchange = () => apply('fc', noFill.checked ? '' : fc.value);
   lw.onchange = () => apply('lw', +lw.value);
   op.onchange = () => apply('op', +op.value);
@@ -1356,6 +1372,7 @@ export async function ensureLoaded(d) {
         o.id = 'o' + (E.seq++); o.p = i; o.src = refId(ref);
         E.objs.push(o);
         E.managed.add(o.src);
+        (E.origOf || (E.origOf = new Map())).set(o.src, JSON.stringify(o));     //  손대지 않은 주석은 원본 그대로 저장(답글·작성자·메모 보존)
         if (o.meas && o.ratio) E.ratio = o.ratio;
       }
     }
@@ -1541,6 +1558,8 @@ function boxPdf(vp, x0, y0, x1, y1) {
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
+//  고쳐 다시 쓰는 주석에 원본에서 옮겨 올 것(작성자·답글·날짜·메모·이름)
+const KEEP_KEYS = ['T', 'Contents', 'IRT', 'RT', 'CreationDate', 'NM', 'Subj', 'StateModel', 'State'];
 //  고친 PDF 바이트 — 고친 것이 없으면 원본 그대로
 export async function buildPdf(d) {
   const E = d.ed;
@@ -1549,10 +1568,13 @@ export async function buildPdf(d) {
   const base = d.formDirty ? await d.pdf.saveDocument() : d.base;
   if (!(E && E.loaded) && !d.bmDirty && !d.metaEdit) return base;
   const doc = await PDFDocument.load(base.slice(0), { updateMetadata: false });
-  if (!(E && E.loaded)) { doc.setProducer('한일 PDF 리더 · 한일특장(주)'); if (A.docHook) await A.docHook(doc, d); return await doc.save({ useObjectStreams: false }); }
+  if (!(E && E.loaded)) { doc.setProducer('한일 PDF 리더 · 한일특장(주)'); if (A.docHook) await A.docHook(doc, d); collectGarbage(doc); return await doc.save({ useObjectStreams: false }); }
   doc.setProducer('한일 PDF 리더 · 한일특장(주)');
   doc.setModificationDate(new Date());
   const ctx = doc.context, pages = doc.getPages();
+  //  ⭐ 가져온 주석 중 고치지 않은 것은 원본 그대로 둔다 — 다시 쓰면 답글(IRT)·작성자·날짜·메모가 빠질 수 있다
+  const rewrite = new Map();
+  const untouched = new Set(E.objs.filter((o) => o.src && E.origOf && E.origOf.get(o.src) === JSON.stringify(o)).map((o) => o.src));
   for (let i = 0; i < pages.length && i < d.n; i++) {
     const page = pages[i];
     let annots = page.node.Annots();
@@ -1561,7 +1583,7 @@ export async function buildPdf(d) {
       const gone = new Set();
       for (let k = annots.size() - 1; k >= 0; k--) {
         const r = annots.get(k);
-        if (!(r instanceof PDFRef) || !E.managed.has(refId(r))) continue;
+        if (!(r instanceof PDFRef) || !E.managed.has(refId(r)) || untouched.has(refId(r))) continue;
         const dict = ctx.lookup(r);
         if (dict instanceof PDFDict) {
           const own = look(doc, dict.get(N('HanilRefs')));
@@ -1569,6 +1591,8 @@ export async function buildPdf(d) {
           const pop = dict.get(N('Popup'));
           if (pop instanceof PDFRef) gone.add(refId(pop));
         }
+        //  고친 주석은 같은 객체 번호로 다시 쓴다 — 답글(IRT)이 계속 이어지게 · 작성자·날짜·메모도 옮긴다
+        if (dict instanceof PDFDict) { const keep = {}; for (const kk of KEEP_KEYS) { const v = dict.get(N(kk)); if (v) keep[kk] = v; } rewrite.set(refId(r), { ref: r, keep }); }
         gone.add(refId(r));
         annots.remove(k);
         ctx.delete(r);
@@ -1578,16 +1602,28 @@ export async function buildPdf(d) {
         if (r instanceof PDFRef && gone.has(refId(r))) { annots.remove(k); ctx.delete(r); }
       }
     }
-    const objs = E.objs.filter((o) => o.p === i);
+    const objs = E.objs.filter((o) => o.p === i && !(o.src && untouched.has(o.src)));
     if (!objs.length) continue;
     if (!annots) { annots = ctx.obj([]); page.node.set(N('Annots'), annots); }
     const vp = await A.vp1(d, i);
     const pageRefs = pages.map((p) => p.ref);
     //  (주석 안 되는 것 — 글자 고침·필드 — 은 이 쪽의 모든 주석을 쓴 뒤 따로)
-    for (const o of objs) { const r = writeAnnot(doc, page.ref, o, vp, E, pageRefs); if (r) annots.push(r); }
+    for (const o of objs) {
+      let r = writeAnnot(doc, page.ref, o, vp, E, pageRefs);
+      const rw = o.src && rewrite.get(o.src);
+      if (r && rw) {
+        const nd = ctx.lookup(r);
+        if (nd instanceof PDFDict) {
+          for (const [kk, v] of Object.entries(rw.keep)) if (!nd.get(N(kk)) || kk === 'T' || kk === 'CreationDate' || kk === 'NM') nd.set(N(kk), v);
+          ctx.delete(r); ctx.assign(rw.ref, nd); r = rw.ref;
+        }
+      }
+      if (r) annots.push(r);
+    }
   }
   await applyPageEdits(doc, d);
   if (A.docHook) await A.docHook(doc, d);
+  collectGarbage(doc);
   return await doc.save({ useObjectStreams: false });
 }
 //  ✏️ 글자 고침(내용 바꾸기) · 📋 양식 필드 만들기
@@ -1603,11 +1639,12 @@ async function applyPageEdits(doc, d) {
   for (const i of [...new Set(edits.map((o) => o.p))]) {
     const page = pages[i], vp = await A.vp1(d, i), mine = edits.filter((o) => o.p === i);
     const rects = mine.map((o) => { const g = o.orig; return [g.e - 1, g.f - g.h * 0.35, g.e + g.w + 1, g.f + g.h * 0.9]; });
-    let n = 0;
-    try { n = eraseTextIn(doc, page, rects); } catch (e) { console.warn('글자 지우기', e); }
-    for (const o of mine) {
+    let r = { n: 0, hit: [] };
+    try { r = eraseTextIn(doc, page, rects); } catch (e) { console.warn('글자 지우기', e); }
+    for (const [j, o] of mine.entries()) {
       const g = o.orig;
-      if (!n) { d.lastEraseMiss++; page.drawRectangle({ x: g.e - 0.5, y: g.f - g.h * 0.3, width: g.w + 1, height: g.h * 1.25, color: pdfRgb(1, 1, 1) }); }
+      //  ⚠ 고침마다 따로 — 이 고침의 글자를 못 지웠으면 흰 네모로 덮는다(같은 쪽 다른 고침이 지워졌어도)
+      if (!r.hit[j]) { d.lastEraseMiss++; page.drawRectangle({ x: g.e - 0.5, y: g.f - g.h * 0.3, width: g.w + 1, height: g.h * 1.25, color: pdfRgb(1, 1, 1) }); }
       if (o.text) page.drawText(o.text, { x: g.e, y: g.f, size: o.fs, font, color: col(o.sc) });
     }
     void vp;

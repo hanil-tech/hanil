@@ -12,9 +12,9 @@
 package main
 
 import (
-	_ "embed"
 	"bytes"
 	"crypto/rand"
+	_ "embed"
 	b64 "encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	VERSION = "1.4.0"
+	VERSION = "1.5.0"
 	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
 	APPNAME = "한일 PDF 리더"
 	MAKER   = "한일특장(주)"
@@ -299,7 +299,7 @@ func bind(w webview.WebView) {
 		if err := ensureEngine(true); err != nil {
 			return "탐색기 미리 보기를 켜지 못했습니다: " + err.Error()
 		}
-		return "탐색기 미리 보기를 켰습니다. 탐색기를 다시 열면 PDF 미리 보기 창(Alt+P)·큰 아이콘에 보입니다."
+		return "탐색기 미리 보기를 켰습니다.\n· 큰 아이콘(보기 → 큰 아이콘·아주 큰 아이콘)에 PDF 첫 쪽 그림이 보입니다.\n· 미리 보기 창(Alt+P)에서 쪽을 넘겨 볼 수 있습니다.\n탐색기 창을 닫았다 다시 열어 주세요."
 	})
 	_ = w.Bind("hostTitle", func(t string) { w.SetTitle(t) })
 	_ = w.Bind("hostReallyClose", func() {
@@ -562,7 +562,9 @@ func openDialog(owner uintptr) []string {
 func saveDialog(owner uintptr, name, cur string) string {
 	return saveAsIn(owner, name, cur, "PDF 문서 (*.pdf)", "*.pdf", "pdf")
 }
-func saveAs(owner uintptr, name, label, pat, ext string) string { return saveAsIn(owner, name, "", label, pat, ext) }
+func saveAs(owner uintptr, name, label, pat, ext string) string {
+	return saveAsIn(owner, name, "", label, pat, ext)
+}
 func saveAsIn(owner uintptr, name, cur, label, pat, ext string) string {
 	buf := make([]uint16, 4096)
 	copy(buf, windows.StringToUTF16(name))
@@ -767,6 +769,17 @@ func ensureEngine(reg bool) error {
 		reg = true
 	}
 	if !reg {
+		//  기본 앱을 바꿨으면(엣지 → 아크로뱃 등) 그 앱 아래에도 그림 처리기를 단다
+		if _, err := os.Stat(dll); err == nil {
+			for _, pid := range pdfUserProgIDs() {
+				if k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Classes\`+pid+`\shellex\`+iidThumb, registry.QUERY_VALUE); err == nil {
+					k.Close()
+				} else {
+					explorerThumbs(false)
+					break
+				}
+			}
+		}
 		return nil
 	}
 	c := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "regsvr32.exe"), "/s", dll)
@@ -783,7 +796,101 @@ func ensureEngine(reg bool) error {
 		}
 	}
 	logf("미리 보기 등록 %s", dll)
+	explorerThumbs(true)
 	return nil
+}
+
+// 🖼 탐색기 큰 아이콘(보통·큰·아주 큰 아이콘, 바둑판)에 PDF 첫 쪽 그림이 보이게
+//
+//	⚠ 탐색기는 「기본 앱의 ProgID」에 달린 그림 처리기를 .pdf 의 것보다 먼저 쓴다 →
+//	  기본 앱이 엣지·아크로뱃이면 그쪽(그림 없음·앱 아이콘)이 이긴다. 그 ProgID 아래(HKCU)에도 우리 것을 단다.
+//	  「항상 아이콘만 표시(미리 보기 안 함)」이 켜져 있으면 끈다. 지운 프로그램에서 되돌릴 수 있게 단 곳을 적어 둔다.
+const (
+	clsPreview = "{3E479EBB-0FE9-495F-B480-F8470DA5113B}"
+	clsThumb   = "{083F7F9F-854E-4108-97E5-4D7A461DED48}"
+	iidPreview = "{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+	iidThumb   = "{e357fccd-a995-4576-b01f-234630154e96}"
+)
+
+func pdfUserProgIDs() []string {
+	var out []string
+	base := `Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\`
+	for _, sub := range []string{"UserChoice", "UserChoiceLatest", `UserChoiceLatest\ProgId`} {
+		if k, err := registry.OpenKey(registry.CURRENT_USER, base+sub, registry.QUERY_VALUE); err == nil {
+			for _, name := range []string{"ProgId", "ProgID"} {
+				if v, _, err := k.GetStringValue(name); err == nil && v != "" && v != PROGID {
+					out = append(out, v)
+				}
+			}
+			k.Close()
+		}
+	}
+	return out
+}
+
+func explorerThumbs(clearCache bool) {
+	cu := registry.CURRENT_USER
+	set := func(path, val string) {
+		if k, _, err := registry.CreateKey(cu, path, registry.SET_VALUE); err == nil {
+			_ = k.SetStringValue("", val)
+			k.Close()
+		}
+	}
+	written := []string{}
+	if k, err := registry.OpenKey(cu, `Software\HanilPDF`, registry.QUERY_VALUE); err == nil {
+		if old, _, err := k.GetStringsValue("ThumbProgIds"); err == nil {
+			written = append(written, old...)
+		}
+		k.Close()
+	}
+	for _, pid := range pdfUserProgIDs() {
+		set(`Software\Classes\`+pid+`\shellex\`+iidThumb, clsThumb)
+		set(`Software\Classes\`+pid+`\shellex\`+iidPreview, clsPreview)
+		have := false
+		for _, w := range written {
+			have = have || w == pid
+		}
+		if !have {
+			written = append(written, pid)
+		}
+	}
+	set(`Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidThumb, clsThumb)
+	set(`Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidPreview, clsPreview)
+	if k, _, err := registry.CreateKey(cu, `Software\HanilPDF`, registry.SET_VALUE); err == nil {
+		_ = k.SetStringsValue("ThumbProgIds", written)
+		k.Close()
+	}
+	//  「항상 아이콘만 표시」 끄기
+	if k, err := registry.OpenKey(cu, `Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, registry.QUERY_VALUE|registry.SET_VALUE); err == nil {
+		if v, _, err := k.GetIntegerValue("IconsOnly"); err == nil && v != 0 {
+			_ = k.SetDWordValue("IconsOnly", 0)
+		}
+		k.Close()
+	}
+	//  옛 아이콘 그림 기억(thumbcache) — 탐색기가 잡고 있지 않은 것만 지워진다
+	if m, _ := filepath.Glob(filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Windows", "Explorer", "thumbcache_*.db")); m != nil {
+		for _, f := range m {
+			if clearCache {
+				_ = os.Remove(f)
+			}
+		}
+	}
+	pChangeNfy.Call(0x08000000, 0, 0, 0) //  SHCNE_ASSOCCHANGED — 탐색기가 다시 읽게
+}
+
+func undoExplorerThumbs() {
+	cu := registry.CURRENT_USER
+	if k, err := registry.OpenKey(cu, `Software\HanilPDF`, registry.QUERY_VALUE); err == nil {
+		if ids, _, err := k.GetStringsValue("ThumbProgIds"); err == nil {
+			for _, pid := range ids {
+				deleteTree(cu, `Software\Classes\`+pid+`\shellex\`+iidThumb)
+				deleteTree(cu, `Software\Classes\`+pid+`\shellex\`+iidPreview)
+			}
+		}
+		k.Close()
+	}
+	deleteTree(cu, `Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidThumb)
+	deleteTree(cu, `Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidPreview)
 }
 
 // 기본 앱으로 — 윈도우 10·11 은 프로그램이 마음대로 기본 앱을 못 바꾼다 → 설정 화면을 열어 준다
@@ -876,6 +983,7 @@ func uninstall() {
 	c := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "regsvr32.exe"), "/u", "/s", dll)
 	hideWindow(c)
 	_ = c.Run()
+	undoExplorerThumbs()
 	cu := registry.CURRENT_USER
 	for _, k := range []string{`Software\Classes\` + PROGID, `Software\Classes\Applications\hanil-pdf.exe`, `Software\HanilPDF`, `Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`} {
 		deleteTree(cu, k)
@@ -911,4 +1019,3 @@ func deleteTree(root registry.Key, path string) {
 	}
 	_ = registry.DeleteKey(root, path)
 }
-

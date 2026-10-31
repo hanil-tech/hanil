@@ -115,19 +115,19 @@ function fontInfo(doc, res, name, cache) {
   return info;
 }
 
-//  page: pdf-lib PDFPage · rects: [[x0,y0,x1,y1]] (페이지 좌표) → 지운 글자 그리기 수
+//  page: pdf-lib PDFPage · rects: [[x0,y0,x1,y1]] (페이지 좌표) → { n: 바꾼 그리기 수, hit: 네모마다 지운 글자가 있었나 }
 export function eraseTextIn(doc, page, rects) {
   const ctx = doc.context;
   const lk = (v) => (v instanceof PDFRef ? ctx.lookup(v) : v);
   page.node.normalize();
   const contents = page.node.Contents();
-  if (!contents) return 0;
+  if (!contents) return { n: 0, hit: rects.map(() => false) };
   const parts = [];
   for (const r of contents.asArray()) {
     const st = lk(r);
     if (!(st instanceof PDFRawStream)) continue;
     let bytes;
-    try { bytes = st.dict.get(N('Filter')) ? decodePDFRawStream(st).decode() : st.getContents(); } catch { return 0; }
+    try { bytes = st.dict.get(N('Filter')) ? decodePDFRawStream(st).decode() : st.getContents(); } catch { return { n: 0, hit: rects.map(() => false) }; }
     parts.push(bytes);
   }
   const len = parts.reduce((a, p) => a + p.length + 1, 0);
@@ -143,29 +143,37 @@ export function eraseTextIn(doc, page, rects) {
   let font = null, fs = 1, Tc = 0, Tw = 0, Th = 1, TL = 0, Ts = 0;
   const repl = [];                                         //  [s, e, 바꿀 글]
   let args = [], argStart = -1;
-  const inRect = (x, y) => rects.some(([x0, y0, x1, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
-  const advance = (codes) => {
-    //  글자들의 폭(글자 공간) — Tc·Tw 포함
-    const fi = font ? fontInfo(doc, res, font, cache) : { two: false, w: () => 500 };
-    let tx = 0;
-    const b = codes;
-    for (let k = 0; k < b.length; k += fi.two ? 2 : 1) {
-      const code = fi.two ? (b[k] << 8) | (b[k + 1] || 0) : b[k];
-      tx += (fi.w(code) / 1000) * fs + Tc + (!fi.two && code === 32 ? Tw : 0);
-    }
-    return tx * Th;
-  };
+  const hit = rects.map(() => false);
+  const inRect = (x, y) => { let any = false; rects.forEach(([x0, y0, x1, y1], j) => { if (x >= x0 && x <= x1 && y >= y0 && y <= y1) { hit[j] = true; any = true; } }); return any; };
+  const hex = (b) => '<' + b.map((v) => (v < 16 ? '0' : '') + v.toString(16)).join('') + '>';
   const show = (arr, opS, opE, prefix) => {
-    //  arr: [바이트[] | 숫자] · 시작 자리를 보고, 지울지 정한 뒤 글자 행렬을 민다
-    const M = mul([1, 0, 0, 1, 0, Ts], mul(Tm, ctm));
-    const x = M[4], y = M[5];
-    let total = 0;
-    for (const a of arr) total += Array.isArray(a) ? advance(a) : (-a / 1000) * fs * Th;
-    if (inRect(x, y)) {
-      const units = fs * Th ? (-total / (fs * Th)) * 1000 : 0;
-      repl.push([opS, opE, prefix + '[' + (Math.round(units * 1000) / 1000) + '] TJ']);
+    //  arr: [바이트[] | 숫자] — 글자 하나씩 가운데 자리를 보고, 네모 안 글자만 빈칸(같은 폭)으로 바꾼다
+    //   ⚠ 한 TJ 에 여러 칸(표의 칸·양쪽 맞춤)이 들어 있으므로 통째로 지우면 옆 글자까지 사라진다
+    const fi = font ? fontInfo(doc, res, font, cache) : { two: false, w: () => 500 };
+    const step = fi.two ? 2 : 1;
+    const base = mul([1, 0, 0, 1, 0, Ts], mul(Tm, ctm));
+    const at = (tx) => [tx * base[0] + base[4], tx * base[1] + base[5]];
+    const out = [];                                         //  [바이트[] | 숫자(1/1000 글자 공간)]
+    let tx = 0, gone = 0, keep = null, cut = false;
+    const flushGone = () => { if (gone) { out.push(-gone / (fs * Th || 1) * 1000); gone = 0; } };
+    for (const a of arr) {
+      if (!Array.isArray(a)) { const d = (-a / 1000) * fs * Th; tx += d; flushGone(); keep = null; out.push(a); continue; }
+      for (let k = 0; k < a.length; k += step) {
+        const code = fi.two ? (a[k] << 8) | (a[k + 1] || 0) : a[k];
+        const w = ((fi.w(code) / 1000) * fs + Tc + (!fi.two && code === 32 ? Tw : 0)) * Th;
+        const [cx, cy] = at(tx + w / 2);
+        if (inRect(cx, cy)) { keep = null; gone += w; cut = true; }
+        else { flushGone(); if (!keep) { keep = []; out.push(keep); } keep.push(...a.slice(k, k + step)); }
+        tx += w;
+      }
+      keep = null;
     }
-    Tm = mul([1, 0, 0, 1, total, 0], Tm);
+    flushGone();
+    if (cut) {
+      const body = out.map((x) => (typeof x === 'number' ? String(Math.round(x * 1000) / 1000) : hex(x))).join(' ');
+      repl.push([opS, opE, prefix + '[' + body + '] TJ']);
+    }
+    Tm = mul([1, 0, 0, 1, tx, 0], Tm);
   };
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
@@ -186,8 +194,9 @@ export function eraseTextIn(doc, page, rects) {
     const op = t.v, A = args, opS = argStart < 0 ? t.s : argStart, opE = t.e;
     args = []; argStart = -1;
     switch (op) {
-      case 'q': stack.push(ctm); break;
-      case 'Q': ctm = stack.pop() || [1, 0, 0, 1, 0, 0]; break;
+      //  q/Q 는 좌표(ctm)와 글자 상태(글꼴·간격…)를 함께 저장·복원
+      case 'q': stack.push([ctm, font, fs, Tc, Tw, Th, TL, Ts]); break;
+      case 'Q': { const g = stack.pop(); if (g) [ctm, font, fs, Tc, Tw, Th, TL, Ts] = g; else ctm = [1, 0, 0, 1, 0, 0]; break; }
       case 'cm': if (A.length >= 6) ctm = mul(A.slice(-6), ctm); break;
       case 'BT': Tm = [1, 0, 0, 1, 0, 0]; Tlm = Tm; break;
       case 'Tf': font = A[0]; fs = A[1] || 1; break;
@@ -207,7 +216,7 @@ export function eraseTextIn(doc, page, rects) {
       default: break;
     }
   }
-  if (!repl.length) return 0;
+  if (!repl.length) return { n: 0, hit };
   //  바꾼 내용으로 새 내용 하나(압축)
   const pieces = [];
   let last = 0;
@@ -219,5 +228,5 @@ export function eraseTextIn(doc, page, rects) {
   for (let k = 0; k < text.length; k++) bytes[k] = text.charCodeAt(k) & 255;
   const ref = ctx.register(ctx.flateStream(bytes));
   page.node.set(N('Contents'), ctx.obj([ref]));
-  return repl.length;
+  return { n: repl.length, hit };
 }

@@ -24,7 +24,7 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-pdf-v1.4.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-v1.4.0.exe)** | PDF 를 볼 PC 아무 데나 | 20MB |
+| **[hanil-pdf-v1.5.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-pdf-v1.5.0.exe)** | PDF 를 볼 PC 아무 데나 | 26MB |
 
 **프로그램 하나가 세 가지를 합니다** — 두 번 누르면 설치(관리자 권한 없이):
 ① PDF 보기·폴더째 검색·주석(Acrobat·PDF-XChange 에서도 보이고 고쳐짐)·페이지 구성 창
