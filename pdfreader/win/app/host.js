@@ -14,7 +14,16 @@ window.HANIL_HOST = (function () {
       R = r;
       window.hostPending().then(function (list) { (list || []).forEach(openPath); });
       window.hostFirstRun().then(function (first) { if (first && R.welcome) R.welcome(); });
+      //  창을 새로 그렸을 때도 받아 둔 새 판을 알린다
+      window.hostUpdateState().then(function (st) { if (st && st.ready && R.updated) R.updated({ version: st.ready, notes: st.notes }); });
     },
+    //  🔄 자동 업데이트
+    updated: function (info) { R && R.updated && R.updated(info); },
+    updateMsg: function (m) { R && R.updateMsg && R.updateMsg(m); },
+    updateCheck: function () { return window.hostUpdateCheck(); },
+    updateState: function () { return window.hostUpdateState(); },
+    setAutoUpdate: function (on) { return window.hostSetAutoUpdate(on); },
+    restart: function () { return window.hostRestart(); },
     open: function () { return window.hostOpenDialog().then(function (ps) { return (ps || []).reduce(function (p, f) { return p.then(function () { return openPath(f); }); }, Promise.resolve()); }); },
     openPath: openPath,
     save: async function (d, bytes, asNew) {

@@ -1263,6 +1263,7 @@ Object.assign(I, {
   blank: '<path d="M5 2h10l4 4v16H5z" fill="#fff" stroke="#555"/><path d="M15 2v4h4" fill="none" stroke="#555"/>',
   img2pdf: '<rect x="2" y="3" width="12" height="10" fill="#eaf3ff" stroke="#2b6cb0"/><path d="M3 12l4-4 3 3 2-2 2 3" fill="#3b9a3b"/><path d="M11 10h9l2 2v10H11z" fill="#fff" stroke="#c8102e"/><text x="16.5" y="19" text-anchor="middle" font-size="5" font-weight="700" fill="#c8102e">PDF</text>',
   expImg: '<path d="M3 2h10l3 3v11H3z" fill="#fff" stroke="#c8102e"/><text x="9" y="11" text-anchor="middle" font-size="5" font-weight="700" fill="#c8102e">PDF</text><rect x="10" y="11" width="12" height="11" fill="#eaf3ff" stroke="#2b6cb0"/><path d="M11 21l4-4 3 3 2-2 2 3" fill="#3b9a3b"/>',
+  upd: '<path d="M20 12a8 8 0 1 1-2.3-5.6" fill="none" stroke="#2b6cb0" stroke-width="2.2" stroke-linecap="round"/><path d="M20 3v5h-5" fill="none" stroke="#2b6cb0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v5l3 2" fill="none" stroke="#3b9a3b" stroke-width="2" stroke-linecap="round"/>',
   gear: '<circle cx="12" cy="12" r="3.5" fill="none" stroke="#555" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="#555" stroke-width="2.2"/>',
   pundo: '<path d="M5 2h12v20H5z" fill="#fff" stroke="#555"/><path d="M10 9l-3 3 3 3" fill="none" stroke="#2b6cb0" stroke-width="2"/><path d="M7 12h7a3 3 0 0 1 0 6h-2" fill="none" stroke="#2b6cb0" stroke-width="2"/>',
   find2: '<circle cx="10" cy="10" r="6.5" fill="#fff6c8" stroke="#2b6cb0" stroke-width="2"/><path d="M15 15l6 6" stroke="#555" stroke-width="3"/>',
@@ -1344,7 +1345,7 @@ const RIB = {
     ['내보내기', [['big', 'expImg', '이미지로 내보내기', 'expImg', 'PNG·JPEG (여러 쪽은 ZIP)'], ['big', 'pExt', '페이지 추출', 'ext', ''], ['big', 'split', '문서 분할', 'split', 'N쪽마다 나눠 ZIP'], ['big', 'saveOpt', '최적화 저장', 'opt', '파일 크기 줄이기']]],
   ],
   help: [
-    ['도움말', [['big', 'keys', '단축키', 'keys', ''], ['big', 'about', '정보', 'help', ''], ['big', 'settings', '환경 설정', 'gear', '']]],
+    ['도움말', [['big', 'keys', '단축키', 'keys', ''], ['big', 'about', '정보', 'help', ''], ['big', 'updCheck', '업데이트 확인', 'upd', '새 판이 있으면 받아 깔기'], ['big', 'settings', '환경 설정', 'gear', '']]],
   ],
   fmt: [
     ['모양', 'style'],
@@ -1551,6 +1552,7 @@ const CMD = {
   full: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
   ribbonMini: () => $('#ribbon').classList.toggle('mini'),
   keys: () => about(true), about: () => about(false),
+  updCheck: () => { if (!(HOST && HOST.updateCheck)) return ask('업데이트', '브라우저에서 열린 리더입니다. 윈도우 프로그램(hanil-pdf.exe)은 새 판을 스스로 받아 깝니다.', { cancel: null }); toast('새 판을 확인하는 중…', 60000); HOST.updateCheck(); },
 };
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-cmd]');
@@ -2036,7 +2038,10 @@ async function watermark() {
 }
 async function pageUndo() {
   const d = cur; if (!d || !d.pundo || !d.pundo.length) return toast('되돌릴 페이지 작업이 없습니다');
-  await reloadDoc(d, d.pundo.pop());
+  if (d.busy) return toast('앞의 작업이 끝나면 다시 눌러 주세요');
+  d.busy = true;
+  toast('되돌리는 중…', 60000);
+  try { await reloadDoc(d, d.pundo.pop()); } finally { d.busy = false; }
   toast('되돌렸습니다');
 }
 
@@ -2372,7 +2377,9 @@ function settings() {
         note('<b>③ 탐색기 미리 보기</b>(미리 보기 창 Alt+P · 큰 아이콘) — 설치할 때 함께 켜집니다.'), h('button', { class: 'setbtn', text: '탐색기 미리 보기 다시 켜기', onclick: () => HOST.preview && HOST.preview() }),
         note('설치가 안 되는 PC 에서 쓰려면 브라우저용 파일 한 장을 만들어 가져가세요.'), h('button', { class: 'setbtn', text: '브라우저용 파일 만들기…', onclick: () => HOST.exportHtml() })]
       : [note('지금은 브라우저에서 열려 있습니다. PDF 를 두 번 눌러 열기 · 크롬·엣지의 PDF 를 이 리더로 · 탐색기 미리 보기는 <b>윈도우 프로그램 hanil-pdf.exe</b> 하나를 설치하면 모두 됩니다.')])],
-    ['정보', 'ℹ', () => [note('<b>한일 PDF 리더</b> ' + esc((document.querySelector('meta[name=hanil-pdf]') || {}).content || '') + '<br>제작사: <b>' + MAKER + '</b><br>엔진: pdf.js (Apache-2.0) · pdf-lib (MIT)')]],
+    ['정보·업데이트', 'ℹ', () => [note('<b>한일 PDF 리더</b> ' + esc((document.querySelector('meta[name=hanil-pdf]') || {}).content || '') + '<br>제작사: <b>' + MAKER + '</b><br>엔진: pdf.js (Apache-2.0) · pdf-lib (MIT)'),
+      ...(HOST && HOST.updateCheck ? [updateRow(), note('켜 두면 새 판이 나왔을 때 뒤에서 받아 깔아 두고 「다시 시작」을 묻습니다(켤 때와 6시간마다 확인).'),
+        h('button', { class: 'setbtn', text: '지금 업데이트 확인', onclick: () => { $('#updMsg').textContent = '확인하는 중… (새 판이 있으면 받는 데 1~2분)'; HOST.updateCheck(); } }), h('div', { id: 'updMsg', class: 'setnote' })] : [])]],
   ];
   const draft = { ...SET };
   function browserRow() {
@@ -2381,6 +2388,12 @@ function settings() {
     HOST.browserPdfState().then((on) => (i.checked = !!on));
     i.onchange = () => HOST.browserPdf(i.checked);
     return row;
+  }
+  function updateRow() {
+    const i = h('input', { type: 'checkbox' });
+    HOST.updateState().then((st) => { i.checked = !!(st && st.auto); });
+    i.onchange = () => HOST.setAutoUpdate(i.checked);
+    return h('label', { class: 'setrow' }, h('span', { text: '자동 업데이트' }), i);
   }
   function row(label, el) { return h('label', { class: 'setrow' }, h('span', { text: label }), el); }
   function note(t) { const n = h('div', { class: 'setnote' }); n.innerHTML = t; return n; }
@@ -3073,13 +3086,22 @@ updateUi();
     if (/^(https?|file)%3A|^%2F/i.test(src)) src = decodeURIComponent(src);
     openUrl0(src, name);
   }
-  if (HOST && HOST.ready) HOST.ready({ openUrl: openUrl0, openFiles, docs, ask, welcome });
+  if (HOST && HOST.ready) HOST.ready({ openUrl: openUrl0, openFiles, docs, ask, welcome, updated: updateReady, updateMsg: (m) => { $('#updMsg') ? ($('#updMsg').textContent = m) : toast(m, 5000); } });
 }
 //  처음 설치한 뒤 한 번 — 기본 PDF 프로그램으로 지정할지
 function welcome() {
   ask('한일 PDF 리더를 설치했습니다', '이 프로그램 하나가 세 가지를 합니다:<br>① PDF 보기·찾기·고치기 창 (바탕 화면·시작 메뉴 아이콘)<br>② 크롬·엣지에서 연 PDF 도 이 프로그램으로 (브라우저를 다시 켜면)<br>③ 탐색기 미리 보기 (미리 보기 창 Alt+P · 큰 아이콘)<br><br>'
     + 'PDF 를 <b>두 번 누르면 이 프로그램으로</b> 열리게 할까요?<br><small style="color:#777">윈도우 설정 화면이 열리면 .pdf 의 앱을 「한일 PDF 리더」로 고르세요.</small><br><br><small>제작: ' + MAKER + '</small>',
     { ok: '기본 프로그램으로', cancel: '나중에' }).then((r) => { if (r === true && HOST.associate) HOST.associate(); });
+}
+//  🔄 새 판을 받아 깔았다(윈도우 프로그램이 알려 줌) — 아래 띠에 「다시 시작」
+function updateReady(info) {
+  if (!info || !info.version || $('#updBar')) return;
+  const go = async () => { if (await window.__hanilCanClose()) HOST.restart(); };
+  const bar = h('div', { id: 'updBar' },
+    h('span', { text: '🔄 새 판 v' + info.version + ' 을 받아 두었습니다.' + (info.notes ? ' ' + info.notes : '') + ' 다시 시작하면 새 판으로 뜹니다(그냥 두어도 다음에 켤 때 새 판).' }),
+    h('button', { text: '지금 다시 시작', onclick: go }), h('button', { class: 'x', text: '나중에', onclick: () => bar.remove() }));
+  document.body.append(bar);
 }
 //  윈도우 프로그램이 창을 닫기 전에 묻는다 — 저장 안 한 문서가 있으면
 window.__hanilCanClose = async () => {

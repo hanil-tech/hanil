@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	VERSION = "1.5.0"
+	VERSION = "1.6.0"
 	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
 	APPNAME = "한일 PDF 리더"
 	MAKER   = "한일특장(주)"
@@ -132,6 +132,30 @@ func main() {
 		uninstall()
 		return
 	}
+	//  🔄 자동 업데이트가 받은 새 판: 조용히 깔고 끝(떠 있는 창은 그대로 — 「다시 시작」하면 새 판)
+	if flags["--update"] {
+		if err := install(exe); err != nil {
+			logf("업데이트 설치 실패: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+	//  진단: 창 없이 업데이트만 확인·받기(결과는 로그 %LOCALAPPDATA%\HanilPDF\…log)
+	if flags["--check-update"] {
+		m, err := checkUpdate(true)
+		logf("업데이트 확인(수동): %s %v", m, err)
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	//  「다시 시작」: 옛 창이 내려갈 때까지 잠깐 기다렸다가 뜬다
+	if flags["--restart"] {
+		for i := 0; i < 50 && portBusy(); i++ {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	cleanOld()
 	//  📦 설치 자리가 아니면 스스로 깔고 그것을 띄운다(이미 깔린 판이 더 새것이면 그것을)
 	if !strings.EqualFold(filepath.Clean(exe), filepath.Clean(appExe())) && !flags["--portable"] {
 		if installed := installedVersion(); installed == "" || newer(VERSION, installed) || flags["--register"] {
@@ -157,6 +181,7 @@ func main() {
 		return
 	}
 	ensureEngine(false)
+	go autoUpdateLoop()
 	run(token, files, flags["--installed"])
 }
 
@@ -302,6 +327,27 @@ func bind(w webview.WebView) {
 		return "탐색기 미리 보기를 켰습니다.\n· 큰 아이콘(보기 → 큰 아이콘·아주 큰 아이콘)에 PDF 첫 쪽 그림이 보입니다.\n· 미리 보기 창(Alt+P)에서 쪽을 넘겨 볼 수 있습니다.\n탐색기 창을 닫았다 다시 열어 주세요."
 	})
 	_ = w.Bind("hostTitle", func(t string) { w.SetTitle(t) })
+	//  🔄 자동 업데이트
+	//  ⚠ 묶은 함수는 창 쓰레드에서 돈다 → 받기는 뒤에서 하고, 끝나면 리더에 알린다(창이 멈추지 않게)
+	_ = w.Bind("hostUpdateCheck", func() {
+		go func() {
+			m, err := checkUpdate(true)
+			if err != nil {
+				m = err.Error()
+			}
+			b, _ := json.Marshal(m)
+			w.Dispatch(func() {
+				w.Eval("window.HANIL_HOST && window.HANIL_HOST.updateMsg && window.HANIL_HOST.updateMsg(" + string(b) + ")")
+			})
+		}()
+	})
+	_ = w.Bind("hostUpdateState", func() map[string]interface{} {
+		updMu.Lock()
+		defer updMu.Unlock()
+		return map[string]interface{}{"auto": autoUpdateOn(), "version": VERSION, "ready": updReady, "notes": updNotes}
+	})
+	_ = w.Bind("hostSetAutoUpdate", func(on bool) { setAutoUpdate(on) })
+	_ = w.Bind("hostRestart", func() { restartApp() })
 	_ = w.Bind("hostReallyClose", func() {
 		allowClose = true
 		pPostMsg.Call(uintptr(w.Window()), 0x0010, 0, 0)
@@ -661,7 +707,10 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	for i := 0; i < 25; i++ {
-		_ = os.Remove(dst)
+		if os.Remove(dst) != nil {
+			//  ⚠ 떠 있는 exe 는 지울 수 없지만 이름은 바꿀 수 있다 → 옆으로 비켜 두고(다음 시작 때 지움) 새것을 넣는다
+			_ = os.Rename(dst, dst+".old-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+		}
 		if err = os.Rename(tmp, dst); err == nil {
 			return nil
 		}

@@ -50,4 +50,12 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H wi
 echo "④ release/ 에 넣기"
 rm -f "$REL"/hanil-pdf-v*.exe "$REL"/hanil-pdf-reader.html "$REL"/hanil-pdf-chrome.zip
 cp "$HERE/out/hanil-pdf-v$VER.exe" "$REL/"
+#  🔄 자동 업데이트용 판 정보 — 깔린 프로그램이 이것을 읽고 새 판이면 받아 깐다(크기·SHA-256 확인)
+#     ⚠ exe 와 같은 커밋에 올려야 한다(json 만 먼저 올라가면 받다가 크기가 안 맞아 다음 확인 때 다시 받음)
+node -e '
+const fs = require("fs"), c = require("crypto"), [f, out, ver, notes] = process.argv.slice(1);
+const b = fs.readFileSync(f);
+fs.writeFileSync(out, JSON.stringify({ version: ver, file: require("path").basename(f), size: b.length, sha256: c.createHash("sha256").update(b).digest("hex"), notes }, null, 1) + "\n");
+' "$REL/hanil-pdf-v$VER.exe" "$REL/hanil-pdf.json" "$VER" "$(node -p "require('$HERE/package.json').updateNotes || ''")"
+cat "$REL/hanil-pdf.json"
 ls -la "$REL"/hanil-pdf*
