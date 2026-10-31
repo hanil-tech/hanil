@@ -1,7 +1,7 @@
 {
- "version": "1.6.3",
- "file": "hanil-pdf-v1.6.3.exe",
- "size": 30326784,
- "sha256": "0ed06fa0a4f6014d0d5d5ac9c7b27f8dde6cf89f5b5b56dd2b7a598fe9f39c17",
- "notes": "탐색기에서 PDF 를 두 번 눌러도 창이 앞에 안 나오던 것을 고쳤습니다."
+ "version": "1.6.5",
+ "file": "hanil-pdf-v1.6.5.exe",
+ "size": 30328320,
+ "sha256": "4a7f7d924cef6ffb731da599465bdc5b82ba049de1570c2f79b6e3f4efd07119",
+ "notes": "PDF 를 두 번 눌렀을 때 내용이 안 열리던 것을 고쳤습니다."
 }

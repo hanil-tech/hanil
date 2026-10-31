@@ -28,6 +28,8 @@ const viewer = $('#viewer');
 const MAKER = '한일특장(주)';
 //  윈도우 프로그램(hanil-pdf.exe)·크롬 확장 안에서 돌면 그쪽이 넣어 주는 것(저장·열기)
 const HOST = window.HANIL_HOST || null;
+//  새 판 받는 곳(저장소 release 폴더)
+const REL_URL = 'https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/';
 
 // ───────────────────────── 엔진 준비 ─────────────────────────
 //  ⚠ 단독 한 장(file://)에서도 돌게 일꾼(worker)·글꼴 표(CMap)·기본 글꼴을 모두 HTML 안에 품는다
@@ -1555,7 +1557,13 @@ const CMD = {
   full: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
   ribbonMini: () => $('#ribbon').classList.toggle('mini'),
   keys: () => about(true), about: () => about(false),
-  updCheck: () => { if (!(HOST && HOST.updateCheck)) return ask('업데이트', '브라우저에서 열린 리더입니다. 윈도우 프로그램(hanil-pdf.exe)은 새 판을 스스로 받아 깝니다.', { cancel: null }); toast('새 판을 확인하는 중…', 60000); HOST.updateCheck(); },
+  updCheck: () => {
+    //  설치 없이 연 브라우저판(html 한 장)은 스스로 바꿀 수 없다 → 새 판 html 이나 설치판을 받는 곳을 알려 준다
+    if (!(HOST && HOST.updateCheck)) return ask('업데이트', '지금 창은 <b>설치 없이 연 브라우저판</b>(hanil-pdf-reader.html, ' + esc((document.querySelector('meta[name=hanil-pdf]') || {}).content || '') + ')입니다. 브라우저판은 스스로 새 판을 받지 못합니다.<br><br>'
+      + '· 새 브라우저판: <a href="' + REL_URL + 'hanil-pdf-reader.html" target="_blank" rel="noopener">hanil-pdf-reader.html 받기</a> — 받은 파일로 바꿔 여세요<br>'
+      + '· 설치판(자동 업데이트·탐색기에서 두 번 눌러 열기·미리 보기): <a href="https://github.com/hanil-tech/hanil/tree/claude/magical-pascal-b2ksp0/release" target="_blank" rel="noopener">받는 곳 열기</a>', { cancel: null });
+    toast('새 판을 확인하는 중…', 60000); HOST.updateCheck();
+  },
 };
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-cmd]');
@@ -3066,7 +3074,7 @@ if (SET.layout === 'two') twoPage = true;
   const sp = $('#splash');
   const ver = (document.querySelector('meta[name=hanil-pdf]') || {}).content || '';
   $('#splashVer').textContent = ver;
-  $('#stMaker').textContent = 'ⓒ ' + MAKER + ' · 한일 PDF 리더 ' + ver;
+  $('#stMaker').textContent = 'ⓒ ' + MAKER + ' · 한일 PDF 리더 ' + ver + (HOST ? '' : ' (브라우저판)');
   $('#splashIcon').src = window.HANIL_ICON || '';
   if (!window.HANIL_ICON) $('#splashIcon').remove();
   if (SET.splash === false) sp.remove();

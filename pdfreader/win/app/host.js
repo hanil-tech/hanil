@@ -7,7 +7,14 @@ window.HANIL_HOST = (function () {
   var isLocal = function (p) { return /^[A-Za-z]:[\\/]|^\\\\/.test(p || ''); };
   function openPath(p) { return R && R.openUrl(q('/file?path=' + encodeURIComponent(p)), nameOf(p), p); }
   //  창 제목 = 문서 이름
-  new MutationObserver(function () { window.hostTitle && window.hostTitle(document.title); }).observe(document.querySelector('title'), { childList: true });
+  //  ⚠ 이 글은 <head> 맨 앞에 들어가 <title> 이 아직 없다 — 바로 붙이면 오류로 HANIL_HOST 가 통째로 안 생겨
+  //    (두 번 눌러 넘어온 파일이 안 열리고 「브라우저판」처럼 움직였다) → 페이지를 다 읽은 뒤에 붙인다
+  function watchTitle() {
+    var t = document.querySelector('title');
+    if (!t) return;
+    new MutationObserver(function () { window.hostTitle && window.hostTitle(document.title); }).observe(t, { childList: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchTitle); else watchTitle();
   return {
     name: 'windows',
     ready: function (r) {

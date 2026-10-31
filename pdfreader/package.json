@@ -1,7 +1,7 @@
 {
   "name": "hanil-pdf-reader",
-  "version": "1.6.3",
-  "updateNotes": "탐색기에서 PDF 를 두 번 눌러도 창이 앞에 안 나오던 것을 고쳤습니다.",
+  "version": "1.6.5",
+  "updateNotes": "PDF 를 두 번 눌렀을 때 내용이 안 열리던 것을 고쳤습니다.",
   "description": "한일 PDF 리더 — 설치 없이 브라우저에서 PDF 보기 + 여러 문서·폴더 검색",
   "scripts": {
     "build": "node build.mjs"
