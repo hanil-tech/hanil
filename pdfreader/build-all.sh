@@ -45,7 +45,7 @@ sed -i "s/\"[0-9.]*\.0\"/\"$VER.0\"/g; s/\"FileVersion\": \"[^\"]*\"/\"FileVersi
 if command -v go-winres >/dev/null 2>&1 || [ -x "$(go env GOPATH)/bin/go-winres" ]; then
   PATH="$PATH:$(go env GOPATH)/bin" go-winres make --arch amd64
 fi
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o "$HERE/out/hanil-pdf-v$VER.exe" .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-H windowsgui" -o "$HERE/out/hanil-pdf-v$VER.exe" .
 
 echo "④ release/ 에 넣기"
 rm -f "$REL"/hanil-pdf-v*.exe "$REL"/hanil-pdf-reader.html "$REL"/hanil-pdf-chrome.zip

@@ -1,7 +1,7 @@
 {
- "version": "1.6.0",
- "file": "hanil-pdf-v1.6.0.exe",
- "size": 27044352,
- "sha256": "33eff3fce7ee6663f59367a08b1ae1bd4edbf1b715bcfe754f934c2d556b3db1",
- "notes": "자동 업데이트가 들어갔습니다."
+ "version": "1.6.1",
+ "file": "hanil-pdf-v1.6.1.exe",
+ "size": 30325248,
+ "sha256": "cb8e13be6f618a522e838f26d14e75164313a84e19c318f7f00771f974d10090",
+ "notes": "백신 오진(바이러스로 잘못 나옴)을 줄였습니다."
 }

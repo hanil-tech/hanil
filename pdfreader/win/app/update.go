@@ -209,7 +209,6 @@ func checkUpdate(manual bool) (string, error) {
 	}
 	c := exec.Command(dst, "--update")
 	c.Dir = updDir()
-	hideWindow(c)
 	if err := c.Run(); err != nil {
 		return "", fmt.Errorf("새 판을 깔지 못했습니다: %v", err)
 	}

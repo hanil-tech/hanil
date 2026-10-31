@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	_ "embed"
-	b64 "encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,7 +28,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -39,7 +37,7 @@ import (
 )
 
 const (
-	VERSION = "1.6.0"
+	VERSION = "1.6.1"
 	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
 	APPNAME = "한일 PDF 리더"
 	MAKER   = "한일특장(주)"
@@ -105,9 +103,6 @@ func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
 func msgBox(title, text string, flags uintptr) int {
 	r, _, _ := pMsgBox.Call(0, uintptr(unsafe.Pointer(u16(text))), uintptr(unsafe.Pointer(u16(title))), flags)
 	return int(r)
-}
-func hideWindow(c *exec.Cmd) {
-	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 }
 
 // ───────────────────────── 시작 ─────────────────────────
@@ -280,7 +275,7 @@ func run(token string, files []string, installed bool) {
 		p := filepath.Join(baseDir(), "hanil-pdf-reader.html")
 		_ = os.WriteFile(p, readerHTML, 0o644)
 		msgBox(APPNAME, "이 PC 에 Microsoft Edge WebView2 런타임이 없어 브라우저로 엽니다.\n(https://go.microsoft.com/fwlink/p/?LinkId=2124703 에서 받아 깔면 독자 창으로 열립니다)", 0x40)
-		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", p).Start()
+		_ = shellOpen(p)
 		return
 	}
 	defer w.Destroy()
@@ -734,11 +729,6 @@ func install(src string) error {
 		logf("미리 보기 등록 실패: %v", err)
 	}
 	ensureShortcuts(appExe())
-	//  🌐 크롬·엣지에서 연 PDF 도 이 프로그램으로(처음 설치할 때만 켬 — 끈 사람은 그대로 둔다)
-	if installedVersion() == "" || !markerExists("browser-pdf-asked") {
-		browserPdf(true)
-		touchMarker("browser-pdf-asked")
-	}
 	logf("설치 끝 v%s", VERSION)
 	return nil
 }
@@ -824,17 +814,15 @@ func ensureEngine(reg bool) error {
 				if k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Classes\`+pid+`\shellex\`+iidThumb, registry.QUERY_VALUE); err == nil {
 					k.Close()
 				} else {
-					explorerThumbs(false)
+					explorerThumbs()
 					break
 				}
 			}
 		}
 		return nil
 	}
-	c := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "regsvr32.exe"), "/s", dll)
-	hideWindow(c)
-	if err := c.Run(); err != nil {
-		return fmt.Errorf("regsvr32: %v", err)
+	if err := dllRegister(dll, true); err != nil {
+		return fmt.Errorf("미리 보기 등록: %v", err)
 	}
 	//  옛 판 폴더는 지워 본다(탐색기가 잡고 있으면 다음에)
 	if ents, err := os.ReadDir(installDir()); err == nil {
@@ -845,7 +833,7 @@ func ensureEngine(reg bool) error {
 		}
 	}
 	logf("미리 보기 등록 %s", dll)
-	explorerThumbs(true)
+	explorerThumbs()
 	return nil
 }
 
@@ -853,7 +841,7 @@ func ensureEngine(reg bool) error {
 //
 //	⚠ 탐색기는 「기본 앱의 ProgID」에 달린 그림 처리기를 .pdf 의 것보다 먼저 쓴다 →
 //	  기본 앱이 엣지·아크로뱃이면 그쪽(그림 없음·앱 아이콘)이 이긴다. 그 ProgID 아래(HKCU)에도 우리 것을 단다.
-//	  「항상 아이콘만 표시(미리 보기 안 함)」이 켜져 있으면 끈다. 지운 프로그램에서 되돌릴 수 있게 단 곳을 적어 둔다.
+//	  지운 프로그램에서 되돌릴 수 있게 단 곳을 적어 둔다.
 const (
 	clsPreview = "{3E479EBB-0FE9-495F-B480-F8470DA5113B}"
 	clsThumb   = "{083F7F9F-854E-4108-97E5-4D7A461DED48}"
@@ -877,7 +865,7 @@ func pdfUserProgIDs() []string {
 	return out
 }
 
-func explorerThumbs(clearCache bool) {
+func explorerThumbs() {
 	cu := registry.CURRENT_USER
 	set := func(path, val string) {
 		if k, _, err := registry.CreateKey(cu, path, registry.SET_VALUE); err == nil {
@@ -909,21 +897,6 @@ func explorerThumbs(clearCache bool) {
 		_ = k.SetStringsValue("ThumbProgIds", written)
 		k.Close()
 	}
-	//  「항상 아이콘만 표시」 끄기
-	if k, err := registry.OpenKey(cu, `Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, registry.QUERY_VALUE|registry.SET_VALUE); err == nil {
-		if v, _, err := k.GetIntegerValue("IconsOnly"); err == nil && v != 0 {
-			_ = k.SetDWordValue("IconsOnly", 0)
-		}
-		k.Close()
-	}
-	//  옛 아이콘 그림 기억(thumbcache) — 탐색기가 잡고 있지 않은 것만 지워진다
-	if m, _ := filepath.Glob(filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Windows", "Explorer", "thumbcache_*.db")); m != nil {
-		for _, f := range m {
-			if clearCache {
-				_ = os.Remove(f)
-			}
-		}
-	}
 	pChangeNfy.Call(0x08000000, 0, 0, 0) //  SHCNE_ASSOCCHANGED — 탐색기가 다시 읽게
 }
 
@@ -945,30 +918,24 @@ func undoExplorerThumbs() {
 // 기본 앱으로 — 윈도우 10·11 은 프로그램이 마음대로 기본 앱을 못 바꾼다 → 설정 화면을 열어 준다
 // 🌐 크롬·엣지: PDF 를 브라우저 안에서 보지 않고 내려받아 → 기본 PDF 프로그램(= 이 프로그램)으로
 //
-//	정책 AlwaysOpenPdfExternally(사용자 단위 HKCU — 관리자 권한 없이). 크롬·엣지를 다시 켜면 먹는다.
-//	확인: 크롬 주소창 chrome://policy · 끄기: 환경 설정 → 파일 연결.
+//	켜기는 사람이 브라우저 설정에서(안내만 함). 끄기는 1.6.0 까지 켜 둔 정책 AlwaysOpenPdfExternally 를 지운다.
 var browserKeys = []string{`Software\Policies\Google\Chrome`, `Software\Policies\Microsoft\Edge`}
 
 func browserPdf(on bool) string {
-	for _, k := range browserKeys {
-		key, _, err := registry.CreateKey(registry.CURRENT_USER, k, registry.SET_VALUE)
-		if err != nil {
-			return "바꾸지 못했습니다: " + err.Error()
-		}
-		if on {
-			err = key.SetDWordValue("AlwaysOpenPdfExternally", 1)
-		} else {
-			_ = key.DeleteValue("AlwaysOpenPdfExternally")
-		}
-		key.Close()
-		if err != nil {
-			return "바꾸지 못했습니다: " + err.Error()
-		}
-	}
-	logf("크롬·엣지 PDF → 이 프로그램: %v", on)
 	if on {
-		return "켰습니다. 크롬·엣지를 모두 닫았다가 다시 켜면, 웹에서 연 PDF 가 내려받아진 뒤 이 프로그램으로 열립니다.\n(내려받은 파일을 누를 때 「이 유형의 파일 항상 열기」를 한 번 고르면 다음부터 바로 열립니다)"
+		//  ⚠ 1.6.0 까지는 브라우저 정책(레지스트리)을 직접 켰지만, 프로그램이 브라우저 설정을 바꾸는 것은
+		//    백신이 「브라우저 변조」로 보는 동작이라 그만두었다 → 사람이 브라우저 설정에서 한 번 켠다
+		return "크롬: 설정 → 개인 정보 보호 및 보안 → 사이트 설정 → 추가 콘텐츠 설정 → PDF 문서 → 「PDF 다운로드」\n" +
+			"엣지: 설정 → 쿠키 및 사이트 권한 → PDF 문서 → 「항상 PDF 파일 다운로드」 켜기\n\n" +
+			"그 뒤 웹에서 연 PDF 는 내려받아지고, 누르면 기본 PDF 프로그램(한일 PDF 리더)으로 열립니다."
 	}
+	for _, k := range browserKeys {
+		if key, err := registry.OpenKey(registry.CURRENT_USER, k, registry.SET_VALUE); err == nil {
+			_ = key.DeleteValue("AlwaysOpenPdfExternally")
+			key.Close()
+		}
+	}
+	logf("크롬·엣지 정책 끔")
 	return "껐습니다. 크롬·엣지를 다시 켜면 PDF 를 브라우저 안에서 봅니다."
 }
 func browserPdfOn() bool {
@@ -989,49 +956,17 @@ func touchMarker(n string) {
 func associate() string {
 	_ = register(appExe())
 	uri := "ms-settings:defaultapps?registeredAppUser=HanilPDF"
-	if err := exec.Command("explorer.exe", uri).Start(); err != nil {
+	if err := shellOpen(uri); err != nil {
 		return "설정 화면을 열지 못했습니다: " + err.Error()
 	}
 	return "윈도우 설정이 열립니다. 「.pdf」 옆의 앱을 눌러 「한일 PDF 리더」를 고르세요.\n(윈도우 10 은 「앱별 기본값 선택」 → .pdf)"
-}
-
-func q(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-
-func ensureShortcuts(exe string) {
-	ps := `$ErrorActionPreference='SilentlyContinue'
-$W=New-Object -ComObject WScript.Shell
-$exe=` + q(exe) + `
-function Put($folder){
-  if(-not $folder){ return }
-  $p=Join-Path $folder '한일 PDF 리더.lnk'
-  $s=$W.CreateShortcut($p); $s.TargetPath=$exe; $s.WorkingDirectory=(Split-Path $exe)
-  $s.IconLocation="$exe,0"; $s.Description='PDF 보기·찾기·고치기 — 한일특장(주)'; $s.Save()
-}
-Put ([Environment]::GetFolderPath('Desktop'))
-Put ([Environment]::GetFolderPath('Programs'))
-`
-	runPS(ps)
-}
-
-func runPS(ps string) {
-	u := windows.StringToUTF16(ps)
-	b := make([]byte, (len(u)-1)*2)
-	for i, r := range u[:len(u)-1] {
-		b[i*2], b[i*2+1] = byte(r), byte(r>>8)
-	}
-	c := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", b64.StdEncoding.EncodeToString(b))
-	hideWindow(c)
-	_ = c.Run()
 }
 
 func uninstall() {
 	if msgBox(APPNAME, "한일 PDF 리더를 지울까요?\n(PDF 파일은 그대로 남습니다)", 0x24) != 6 {
 		return
 	}
-	dll := filepath.Join(engineDir(), "hanil-pdf-preview.dll")
-	c := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "regsvr32.exe"), "/u", "/s", dll)
-	hideWindow(c)
-	_ = c.Run()
+	_ = dllRegister(filepath.Join(engineDir(), "hanil-pdf-preview.dll"), false)
 	undoExplorerThumbs()
 	cu := registry.CURRENT_USER
 	for _, k := range []string{`Software\Classes\` + PROGID, `Software\Classes\Applications\hanil-pdf.exe`, `Software\HanilPDF`, `Software\Microsoft\Windows\CurrentVersion\Uninstall\HanilPDF`} {
@@ -1047,13 +982,15 @@ func uninstall() {
 	}
 	browserPdf(false)
 	pChangeNfy.Call(0x08000000, 0, 0, 0)
-	runPS(`$ErrorActionPreference='SilentlyContinue'
-Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) '한일 PDF 리더.lnk')
-Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) '한일 PDF 리더.lnk')`)
-	//  ⚠ 지금 도는 exe 는 스스로 못 지운다 → 잠시 뒤 지우는 명령을 남긴다
-	c = exec.Command("cmd.exe", "/c", "ping -n 3 127.0.0.1 >nul & rmdir /s /q \""+installDir()+"\"")
-	hideWindow(c)
-	_ = c.Start()
+	removeShortcuts()
+	//  지울 수 있는 것은 지운다 — 지금 도는 exe(와 탐색기가 잡고 있는 미리 보기 DLL)만 남는다(지워도 되는 빈 껍데기)
+	if ents, err := os.ReadDir(installDir()); err == nil {
+		for _, e := range ents {
+			if !strings.EqualFold(e.Name(), "hanil-pdf.exe") {
+				_ = os.RemoveAll(filepath.Join(installDir(), e.Name()))
+			}
+		}
+	}
 	msgBox(APPNAME, "지웠습니다. (설정·최근 파일은 "+baseDir()+" 에 남아 있습니다 — 필요 없으면 지우세요)", 0x40)
 }
 
