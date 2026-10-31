@@ -24,7 +24,7 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-pdf-v1.6.2.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-v1.6.2.exe)** | PDF 를 볼 PC 아무 데나 | 29MB |
+| **[hanil-pdf-v1.6.3.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-v1.6.3.exe)** | PDF 를 볼 PC 아무 데나 | 29MB |
 | **[hanil-pdf-reader.html](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-reader.html)** | exe 를 받을 수 없는 PC — 설치 없이 크롬·엣지로 열기(보기·찾기·주석·구성·변환 같음, 탐색기 미리 보기·자동 업데이트 없음) | 12MB |
 
 **프로그램 하나가 세 가지를 합니다** — 두 번 누르면 설치(관리자 권한 없이):

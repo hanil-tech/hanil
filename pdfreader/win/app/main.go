@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	VERSION = "1.6.2"
+	VERSION = "1.6.3"
 	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
 	APPNAME = "한일 PDF 리더"
 	MAKER   = "한일특장(주)"
@@ -68,6 +68,9 @@ var (
 	pSetWLP    = user32.NewProc("SetWindowLongPtrW")
 	pCallWP    = user32.NewProc("CallWindowProcW")
 	pPostMsg   = user32.NewProc("PostMessageW")
+	pAllowFg   = user32.NewProc("AllowSetForegroundWindow")
+	pBringTop  = user32.NewProc("BringWindowToTop")
+	pFlashWin  = user32.NewProc("FlashWindow")
 	pGetOFN    = comdlg32.NewProc("GetOpenFileNameW")
 	pGetSFN    = comdlg32.NewProc("GetSaveFileNameW")
 	pBrowse    = shell32.NewProc("SHBrowseForFolderW")
@@ -205,6 +208,9 @@ func loadToken() string {
 
 func forward(token string, files []string) bool {
 	b, _ := json.Marshal(files)
+	//  ⚠ 윈도우는 뒤에 있는 프로그램이 스스로 앞으로 나오는 것을 막는다 → 지금 누른 이 프로세스(앞에 나올 권한이 있음)가
+	//    떠 있는 창에 그 권한을 넘겨준다. 안 그러면 파일이 다른 창 뒤에 깔린 창에서 열려 「아무 일도 안 일어난」 것처럼 보인다
+	pAllowFg.Call(uintptr(0xFFFFFFFF)) //  ASFW_ANY
 	cl := http.Client{Timeout: 3 * time.Second}
 	r, err := cl.Post("http://127.0.0.1:"+strconv.Itoa(PORT)+"/open?t="+token, "application/json", bytes.NewReader(b))
 	if err != nil {
@@ -224,26 +230,40 @@ var (
 	firstRun   bool
 )
 
-func dispatchOpen(files []string) {
+var startedAt = time.Now()
+
+// 떠 있는 창에 파일 넘기기 — 창이 없으면(아직 뜨는 중) 기다렸다가 연다. 오래(30초) 창이 없으면 false(새 프로세스가 맡게)
+func dispatchOpen(files []string) bool {
 	wvMu.Lock()
 	w := wv
 	if w == nil {
+		if time.Since(startedAt) > 30*time.Second {
+			wvMu.Unlock()
+			logf("창이 없는 채로 남아 있음 — 새로 뜨는 쪽에 넘김")
+			return false
+		}
 		pending = append(pending, files...)
 		wvMu.Unlock()
-		return
+		return true
 	}
 	wvMu.Unlock()
 	w.Dispatch(func() {
 		h := uintptr(w.Window())
 		if r, _, _ := pIsIconic.Call(h); r != 0 {
-			pShowWin.Call(h, 9)
+			pShowWin.Call(h, 9) //  SW_RESTORE
+		} else {
+			pShowWin.Call(h, 5) //  SW_SHOW
 		}
-		pSetFg.Call(h)
+		pBringTop.Call(h)
+		if r, _, _ := pSetFg.Call(h); r == 0 {
+			pFlashWin.Call(h, 1) //  앞으로 못 나오면 작업 표시줄에서 깜빡이기라도
+		}
 		for _, f := range files {
 			b, _ := json.Marshal(f)
 			w.Eval("window.HANIL_HOST && window.HANIL_HOST.openPath(" + string(b) + ")")
 		}
 	})
+	return true
 }
 
 func run(token string, files []string, installed bool) {
@@ -432,7 +452,11 @@ func server(token string, port int) http.Handler {
 		}
 		var files []string
 		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&files)
-		dispatchOpen(files)
+		if !dispatchOpen(files) {
+			http.Error(w, "no window", 503)
+			return
+		}
+		logf("다른 실행에서 파일 %d개 받음", len(files))
 		_, _ = w.Write([]byte("ok"))
 	})
 	return mux

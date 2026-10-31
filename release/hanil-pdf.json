@@ -1,7 +1,7 @@
 {
- "version": "1.6.2",
- "file": "hanil-pdf-v1.6.2.exe",
- "size": 30325760,
- "sha256": "703b534e8858910e76751b63659a462ed25900102cfbdae7266abe02145a4dd1",
- "notes": "인쇄할 때 빈 장이 하나 더 나오던 것을 고쳤습니다."
+ "version": "1.6.3",
+ "file": "hanil-pdf-v1.6.3.exe",
+ "size": 30326784,
+ "sha256": "0ed06fa0a4f6014d0d5d5ac9c7b27f8dde6cf89f5b5b56dd2b7a598fe9f39c17",
+ "notes": "탐색기에서 PDF 를 두 번 눌러도 창이 앞에 안 나오던 것을 고쳤습니다."
 }

@@ -5,7 +5,7 @@ PDF-XChange Editor 와 비슷한 모양의 PDF 리더·편집기입니다. 제�
 
 ## 프로그램 하나 — 세 가지 일
 
-**받기: [hanil-pdf-v1.6.2.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-v1.6.2.exe)** (29MB · 두 번 누르면 설치, 관리자 권한 없이)
+**받기: [hanil-pdf-v1.6.3.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-v1.6.3.exe)** (29MB · 두 번 누르면 설치, 관리자 권한 없이)
 
 | | 하는 일 |
 |---|---|
@@ -18,7 +18,7 @@ PDF-XChange Editor 와 비슷한 모양의 PDF 리더·편집기입니다. 제�
 
 ### 윈도우 프로그램 설치·지우기
 
-1. `hanil-pdf-v1.6.2.exe` 를 두 번 누릅니다(「Windows의 PC 보호」가 뜨면 **[추가 정보] → [실행]** — 서명 없는 사내 프로그램이라 그렇습니다).
+1. `hanil-pdf-v1.6.3.exe` 를 두 번 누릅니다(「Windows의 PC 보호」가 뜨면 **[추가 정보] → [실행]** — 서명 없는 사내 프로그램이라 그렇습니다).
 2. `%LOCALAPPDATA%\Programs\HanilPDF` 에 깔리고 창이 뜹니다. 처음 한 번 「기본 프로그램으로」를 누르면 윈도우 설정이 열립니다 →
    **.pdf 의 앱을 「한일 PDF 리더」로** 고르세요(윈도우 10·11 은 프로그램이 기본 앱을 마음대로 못 바꿉니다).
 3. 탐색기에서 PDF 를 고르고 **Alt+P**(미리 보기 창) — 쪽을 바퀴로 넘겨 봅니다. **보기 → 큰 아이콘·아주 큰 아이콘** 에서는 PDF 마다 첫 장이 그림으로 나옵니다.
