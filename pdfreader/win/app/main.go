@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	VERSION = "1.6.5"
+	VERSION = "1.6.6"
 	PORT    = 47321 //  ⚠ 늘 같은 자리 — 리더의 설정·최근 파일(브라우저 저장소)이 주소마다 따로라서
 	APPNAME = "한일 PDF 리더"
 	MAKER   = "한일특장(주)"
@@ -136,6 +136,15 @@ func main() {
 			logf("업데이트 설치 실패: %v", err)
 			os.Exit(1)
 		}
+		return
+	}
+	//  진단: 탐색기 미리 보기 점검(결과는 로그)
+	if flags["--preview-check"] {
+		pdf := ""
+		if len(files) > 0 {
+			pdf = files[0]
+		}
+		logf("미리 보기 점검\n%s", previewCheck(pdf))
 		return
 	}
 	//  진단: 창 없이 업데이트만 확인·받기(결과는 로그 %LOCALAPPDATA%\HanilPDF\…log)
@@ -362,6 +371,17 @@ func bind(w webview.WebView) {
 		return map[string]interface{}{"auto": autoUpdateOn(), "version": VERSION, "ready": updReady, "notes": updNotes}
 	})
 	_ = w.Bind("hostSetAutoUpdate", func(on bool) { setAutoUpdate(on) })
+	//  🔍 탐색기 미리 보기 점검(창이 멈추지 않게 뒤에서 — 끝나면 리더에 글로)
+	_ = w.Bind("hostPreviewCheck", func(pdf string) {
+		go func() {
+			m := previewCheck(pdf)
+			logf("미리 보기 점검\n%s", m)
+			b, _ := json.Marshal(m)
+			w.Dispatch(func() {
+				w.Eval("window.HANIL_HOST && window.HANIL_HOST.previewReport && window.HANIL_HOST.previewReport(" + string(b) + ")")
+			})
+		}()
+	})
 	_ = w.Bind("hostRestart", func() { restartApp() })
 	_ = w.Bind("hostReallyClose", func() {
 		allowClose = true
@@ -916,6 +936,10 @@ func explorerThumbs() {
 		}
 	}
 	set(`Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidThumb, clsThumb)
+	//  회사 PC 는 「허가된 셸 확장만」 정책이 켜져 있을 수 있다 → 허가 목록(사용자 단위)에도 올린다
+	for _, c := range []string{clsThumb, clsPreview} {
+		_ = setStr(cu, `Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved`, c, APPNAME)
+	}
 	set(`Software\Classes\SystemFileAssociations\.pdf\shellex\`+iidPreview, clsPreview)
 	if k, _, err := registry.CreateKey(cu, `Software\HanilPDF`, registry.SET_VALUE); err == nil {
 		_ = k.SetStringsValue("ThumbProgIds", written)

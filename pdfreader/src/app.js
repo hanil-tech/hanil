@@ -1350,7 +1350,7 @@ const RIB = {
     ['내보내기', [['big', 'expImg', '이미지로 내보내기', 'expImg', 'PNG·JPEG (여러 쪽은 ZIP)'], ['big', 'pExt', '페이지 추출', 'ext', ''], ['big', 'split', '문서 분할', 'split', 'N쪽마다 나눠 ZIP'], ['big', 'saveOpt', '최적화 저장', 'opt', '파일 크기 줄이기']]],
   ],
   help: [
-    ['도움말', [['big', 'keys', '단축키', 'keys', ''], ['big', 'about', '정보', 'help', ''], ['big', 'updCheck', '업데이트 확인', 'upd', '새 판이 있으면 받아 깔기'], ['big', 'settings', '환경 설정', 'gear', '']]],
+    ['도움말', [['big', 'keys', '단축키', 'keys', ''], ['big', 'about', '정보', 'help', ''], ['big', 'updCheck', '업데이트 확인', 'upd', '새 판이 있으면 받아 깔기'], ['big', 'pvCheck', '미리 보기 점검', 'search', '탐색기 큰 아이콘·미리 보기 창이 안 될 때'], ['big', 'settings', '환경 설정', 'gear', '']]],
   ],
   fmt: [
     ['모양', 'style'],
@@ -1557,6 +1557,7 @@ const CMD = {
   full: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
   ribbonMini: () => $('#ribbon').classList.toggle('mini'),
   keys: () => about(true), about: () => about(false),
+  pvCheck: () => previewCheck(),
   updCheck: () => {
     //  설치 없이 연 브라우저판(html 한 장)은 스스로 바꿀 수 없다 → 새 판 html 이나 설치판을 받는 곳을 알려 준다
     if (!(HOST && HOST.updateCheck)) return ask('업데이트', '지금 창은 <b>설치 없이 연 브라우저판</b>(hanil-pdf-reader.html, ' + esc((document.querySelector('meta[name=hanil-pdf]') || {}).content || '') + ')입니다. 브라우저판은 스스로 새 판을 받지 못합니다.<br><br>'
@@ -2385,7 +2386,7 @@ function settings() {
     ['파일 연결', '🔗', () => (HOST && HOST.associate
       ? [note('<b>① 탐색기에서 PDF 를 두 번 누르면</b> 이 프로그램으로 — 윈도우 설정이 열리면 .pdf 의 앱을 「한일 PDF 리더」로 고르세요.'), h('button', { class: 'setbtn', text: '기본 PDF 프로그램으로', onclick: () => HOST.associate() }),
         note('<b>② 크롬·엣지에서 연 PDF</b>(포털 첨부 등)도 이 프로그램으로 — 브라우저 설정에서 「PDF 다운로드」를 한 번 켜면, 내려받은 PDF 가 이 프로그램으로 열립니다.'), browserRow(),
-        note('<b>③ 탐색기 미리 보기</b>(미리 보기 창 Alt+P · 큰 아이콘) — 설치할 때 함께 켜집니다.'), h('button', { class: 'setbtn', text: '탐색기 미리 보기 다시 켜기', onclick: () => HOST.preview && HOST.preview() }),
+        note('<b>③ 탐색기 미리 보기</b>(미리 보기 창 Alt+P · 큰 아이콘) — 설치할 때 함께 켜집니다.'), h('button', { class: 'setbtn', text: '탐색기 미리 보기 다시 켜기', onclick: () => HOST.preview && HOST.preview() }), h('button', { class: 'setbtn', text: '미리 보기 점검', onclick: previewCheck }),
         note('설치가 안 되는 PC 에서 쓰려면 브라우저용 파일 한 장을 만들어 가져가세요.'), h('button', { class: 'setbtn', text: '브라우저용 파일 만들기…', onclick: () => HOST.exportHtml() })]
       : [note('지금은 브라우저에서 열려 있습니다. PDF 를 두 번 눌러 열기 · 크롬·엣지의 PDF 를 이 리더로 · 탐색기 미리 보기는 <b>윈도우 프로그램 hanil-pdf.exe</b> 하나를 설치하면 모두 됩니다.')])],
     ['정보·업데이트', 'ℹ', () => [note('<b>한일 PDF 리더</b> ' + esc((document.querySelector('meta[name=hanil-pdf]') || {}).content || '') + '<br>제작사: <b>' + MAKER + '</b><br>엔진: pdf.js (Apache-2.0) · pdf-lib (MIT)'),
@@ -3103,6 +3104,15 @@ function welcome() {
   ask('한일 PDF 리더를 설치했습니다', '이 프로그램 하나가 세 가지를 합니다:<br>① PDF 보기·찾기·고치기 창 (바탕 화면·시작 메뉴 아이콘)<br>② 크롬·엣지에서 연 PDF 도 이 프로그램으로 (환경 설정 → 파일 연결의 안내대로 브라우저에서 한 번 켜면)<br>③ 탐색기 미리 보기 (미리 보기 창 Alt+P · 큰 아이콘)<br><br>'
     + 'PDF 를 <b>두 번 누르면 이 프로그램으로</b> 열리게 할까요?<br><small style="color:#777">윈도우 설정 화면이 열리면 .pdf 의 앱을 「한일 PDF 리더」로 고르세요.</small><br><br><small>제작: ' + MAKER + '</small>',
     { ok: '기본 프로그램으로', cancel: '나중에' }).then((r) => { if (r === true && HOST.associate) HOST.associate(); });
+}
+//  🔍 탐색기 미리 보기 점검 — 지금 연 PDF(없으면 최근 파일)로 그림을 실제로 만들어 본다
+async function previewCheck() {
+  if (!(HOST && HOST.previewCheck)) return ask('미리 보기 점검', '윈도우 프로그램(설치판)에서만 됩니다.', { cancel: null });
+  const local = (p) => /^[A-Za-z]:[\\/]|^\\\\/.test(p || '');
+  let pdf = cur && local(cur.path) ? cur.path : '';
+  if (!pdf) pdf = (((await idb.get('recent')) || []).find((r) => local(r.path)) || {}).path || '';
+  toast('점검하는 중…', 30000);
+  HOST.previewCheck(pdf);
 }
 //  🔄 새 판을 받아 깔았다(윈도우 프로그램이 알려 줌) — 아래 띠에 「다시 시작」
 function updateReady(info) {

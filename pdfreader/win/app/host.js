@@ -31,6 +31,9 @@ window.HANIL_HOST = (function () {
     updateState: function () { return window.hostUpdateState(); },
     setAutoUpdate: function (on) { return window.hostSetAutoUpdate(on); },
     restart: function () { return window.hostRestart(); },
+    //  🔍 탐색기 미리 보기 점검
+    previewCheck: function (pdf) { return window.hostPreviewCheck(pdf || ''); },
+    previewReport: function (m) { R && R.ask && R.ask('탐색기 미리 보기 점검', '<pre style="white-space:pre-wrap;font:12px/1.5 Consolas,monospace;max-height:60vh;overflow:auto;margin:0">' + String(m).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>', { cancel: null }); },
     open: function () { return window.hostOpenDialog().then(function (ps) { return (ps || []).reduce(function (p, f) { return p.then(function () { return openPath(f); }); }, Promise.resolve()); }); },
     openPath: openPath,
     save: async function (d, bytes, asNew) {
