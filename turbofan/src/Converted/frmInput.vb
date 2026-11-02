@@ -192,6 +192,7 @@ Partial Class frmInput
             Initial_Vbelt_Type_Selection 'V-Belt에 대한 계산수행
         End If
 
+        Z = Val(txtBladeNo.Text) ' (수정) 날개수 칸에서 Enter 를 안 눌러도 반영
         bt = Val(txtBladeThickness.text)
 
         Call Calculation_for_Output_Form '출력폼이 로드될 때 잔여 Factor 계산

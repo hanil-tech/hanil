@@ -81,8 +81,9 @@ Public Module TestMain
         RunStep("뒤로", Sub() frmOutMan.cmdBack.PerformClick())
         RunStep("뒤로 → 입력", Sub() frmOutput.cmdRestart.PerformClick())
         RunStep("새로설계", Sub() frmInput.cmdRedesign.PerformClick())
-        DesignVBelt("1500", "250", "8", "10", "4.5")
+        DesignVBelt("1500", "250", "8", "9", "4.5", bladeEnter:=False)
         DumpOutput()
+        Check(Z = 9, "날개수 칸에서 Enter 없이 설계결과를 눌러도 날개수가 반영되어야 함: Z=" & Z)
         RunStep("설계결과 → 출력관리", Sub() frmOutput.cmdOut.PerformClick())
         SetDirection("CW", "UP", "MR")
         Draw("big-fan", "큰 송풍기 외형도", Sub() frmOutMan.cmdFan.PerformClick())
@@ -111,7 +112,7 @@ Public Module TestMain
         Return 1
     End Function
 
-    Private Sub DesignVBelt(q As String, ps As String, d2no As String, blades As String, thick As String)
+    Private Sub DesignVBelt(q As String, ps As String, d2no As String, blades As String, thick As String, Optional bladeEnter As Boolean = True)
         RunStep("V벨트 선택", Sub() frmInput.optVbelt.Value = True)
         TypeInto(frmInput.txtCustomer, "시험 고객")
         TypeInto(frmInput.txtQ, q)
@@ -125,7 +126,7 @@ Public Module TestMain
         Console.WriteLine("    #1: N=" & frmInput.txtN_1.Text & " D2=" & frmInput.txtD2_1.Text & " Ns=" & frmInput.txtNs_1.Text)
         Check(frmInput.txtN_1.Text <> "", "예비설계 회전수가 나와야 함")
         RunStep("선택 #1", Sub() frmInput.cmdNsOk_1.PerformClick())
-        TypeInto(frmInput.txtBladeNo, blades, enter:=True)
+        TypeInto(frmInput.txtBladeNo, blades, enter:=bladeEnter)
         TypeInto(frmInput.txtBladeThickness, thick)
         RunStep("회전차 재질", Sub()
                            frmInput.cboBladeMaterial.Focus()

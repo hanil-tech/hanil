@@ -787,6 +787,25 @@ def designer(fname, f, resources):
     return out
 
 
+# ------------------------------------------------------------------ fixes to the original logic
+# 원본의 버그를 고치는 곳. 원본 문장을 바꾸지 않고 한 줄을 덧붙인다.
+PATCHES = {
+    # 원본: 날개수(Z)는 날개수 칸에서 Enter 를 눌러야만 저장됐다. Enter 없이 [설계결과]를 누르면
+    # Z 가 0(또는 이전 값)인 채로 응력·소음·회전차 도면이 계산됐다. → 설계결과에서 항상 다시 읽는다.
+    'frmInput': [('        bt = Val(txtBladeThickness.text)',
+                  "        Z = Val(txtBladeNo.Text) ' (수정) 날개수 칸에서 Enter 를 안 눌러도 반영\n        bt = Val(txtBladeThickness.text)")],
+}
+
+
+def apply_patches(name, code):
+    for old, new in PATCHES.get(name, []):
+        hits = [i for i, l in enumerate(code) if l.rstrip() == old.rstrip()]
+        if len(hits) != 1:
+            raise SystemExit('patch for %s did not match exactly once: %r' % (name, old))
+        code[hits[0]:hits[0] + 1] = new.split('\n')
+    return code
+
+
 # ------------------------------------------------------------------ main
 
 def main():
@@ -826,6 +845,7 @@ def main():
             code = hdr + ['Partial Class %s' % name] + ctor + body + ['End Class', '']
             dz = designer(name, FORMS[name], resources)
             open(os.path.join(OUT_FORMS, name + '.Designer.vb'), 'w', encoding='utf-8').write('\n'.join(dz))
+        code = apply_patches(name, code)
         open(os.path.join(OUT, name + '.vb'), 'w', encoding='utf-8').write('\n'.join(code))
         warnings += tr.warnings
         for k, v in tr.byref_params.items():

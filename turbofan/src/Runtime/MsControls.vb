@@ -146,6 +146,25 @@ Public Class MTextBox
         End Try
     End Sub
 
+#If Not TESTBUILD Then
+    ' Enter 가 대화상자 처리로 빠지지 않고 반드시 KeyDown 으로 오게 한다.
+    Protected Overrides Function IsInputKey(keyData As Keys) As Boolean
+        If keyData = Keys.Enter Then Return True
+        Return MyBase.IsInputKey(keyData)
+    End Function
+
+    ' 원본 안내문: "다른 계산은 (Tab Key)나 (Enter Key)를 누르세요".
+    ' 값이 있는 칸에서 Tab 을 누르면 Enter 와 같은 처리(원본 KeyDown 의 KeyCode=13)를 한다.
+    ' 그 처리에서 포커스를 다른 칸으로 옮겼으면 Tab 이동은 하지 않는다.
+    Protected Overrides Function ProcessDialogKey(keyData As Keys) As Boolean
+        If (keyData = Keys.Tab OrElse keyData = (Keys.Tab Or Keys.Shift)) AndAlso Text.Trim() <> "" AndAlso Not [ReadOnly] Then
+            RaiseEvent VbKeyDown(Me, New KeyDownVbEventArgs With {.KeyCode = 13, .Shift = If(keyData.HasFlag(Keys.Shift), 1, 0)})
+            If Not ContainsFocus Then Return True
+        End If
+        Return MyBase.ProcessDialogKey(keyData)
+    End Function
+#End If
+
     Protected Overrides Sub OnKeyDown(e As KeyEventArgs)
         MyBase.OnKeyDown(e)
         Dim a As New KeyDownVbEventArgs With {.KeyCode = e.KeyValue, .Shift = CInt(e.Modifiers) >> 16}
