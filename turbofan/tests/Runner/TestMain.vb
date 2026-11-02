@@ -89,6 +89,21 @@ Public Module TestMain
         Draw("big-fan", "큰 송풍기 외형도", Sub() frmOutMan.cmdFan.PerformClick())
         Draw("big-impeller", "큰 회전차", Sub() frmOutMan.cmdImp.PerformClick())
 
+        ' ---- 사용자 화면 재현: 모터직결, 풍량 100, 정압 100, 날개수 칸 (원본은 Log(0) 오류) ----
+        RunStep("뒤로", Sub() frmOutMan.cmdBack.PerformClick())
+        RunStep("뒤로 → 입력", Sub() frmOutput.cmdRestart.PerformClick())
+        RunStep("새로설계", Sub() frmInput.cmdRedesign.PerformClick())
+        RunStep("모터직결 먼저 선택", Sub() frmInput.optDirect.Value = True)
+        TypeInto(frmInput.txtQ, "100")
+        TypeInto(frmInput.txtPs, "100", enter:=True)
+        Console.WriteLine("    포커스: " & If(frmInput.ActiveControl?.Name, "-"))
+        Console.WriteLine("    직결 100/100: N=" & frmInput.txtN_1.Text & " D2=" & frmInput.txtD2_1.Text & " Ns=" & frmInput.txtNs_1.Text & " diaratio=" & diaratio)
+        TypeInto(frmInput.txtBladeNo, "10")
+        Console.WriteLine("    메시지: " & frmInput.lblMessage.Caption.Replace(vbCrLf, " / "))
+        RunStep("모터 출력 칸", Sub() frmInput.cboMotorOutput.Focus())
+        RunStep("설계결과", Sub() frmInput.cmdDesign.PerformClick())
+        RunStep("설계결과 → 출력관리", Sub() frmOutput.cmdOut.PerformClick())
+
         ' ---- 입력 오류 메시지 ----
         RunStep("뒤로", Sub() frmOutMan.cmdBack.PerformClick())
         RunStep("뒤로 → 입력", Sub() frmOutput.cmdRestart.PerformClick())

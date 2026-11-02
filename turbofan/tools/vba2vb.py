@@ -794,7 +794,15 @@ PATCHES = {
     # 원본: 날개수(Z)는 날개수 칸에서 Enter 를 눌러야만 저장됐다. Enter 없이 [설계결과]를 누르면
     # Z 가 0(또는 이전 값)인 채로 응력·소음·회전차 도면이 계산됐다. → 설계결과에서 항상 다시 읽는다.
     'frmInput': [('        bt = Val(txtBladeThickness.text)',
-                  "        Z = Val(txtBladeNo.Text) ' (수정) 날개수 칸에서 Enter 를 안 눌러도 반영\n        bt = Val(txtBladeThickness.text)")],
+                  "        Z = Val(txtBladeNo.Text) ' (수정) 날개수 칸에서 Enter 를 안 눌러도 반영\n        bt = Val(txtBladeThickness.text)"),
+                 # 원본 메모: "에러발생 추후에 고칠것, 직결에서". 모터직결에서 예비설계 값(diaratio)이 아직 없으면
+                 # Log(0) 으로 런타임 오류가 났다. → 안내만 하고 넘어간다.
+                 ("        zmin = Int(-8.16 * Sin(Dtr(45)) / Log(diaratio)) ' 에러발생 추후에 고칠것 , 직결에서",
+                  "        If diaratio <= 0 Then ' (수정) 원본 메모 \"에러발생 추후에 고칠것, 직결에서\": 예비설계 전이면 Log(0) 오류\n"
+                  "            lblMessage.Caption = \"모터직결 예비설계가 아직 되지 않았습니다.\" & vbCrLf & \"풍량·정압을 넣고 모터 출력·극수를 확인하세요.\" & vbCrLf & \"(비교회전도가 135~858 범위여야 합니다)\"\n"
+                  "            Exit Sub\n"
+                  "        End If\n"
+                  "        zmin = Int(-8.16 * Sin(Dtr(45)) / Log(diaratio)) ' 에러발생 추후에 고칠것 , 직결에서")],
 }
 
 

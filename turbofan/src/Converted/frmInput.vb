@@ -395,6 +395,10 @@ Partial Class frmInput
         Motor_Selection
         motor_direct_calculation
 
+        If diaratio <= 0 Then ' (수정) 원본 메모 "에러발생 추후에 고칠것, 직결에서": 예비설계 전이면 Log(0) 오류
+            lblMessage.Caption = "모터직결 예비설계가 아직 되지 않았습니다." & vbCrLf & "풍량·정압을 넣고 모터 출력·극수를 확인하세요." & vbCrLf & "(비교회전도가 135~858 범위여야 합니다)"
+            Exit Sub
+        End If
         zmin = Int(-8.16 * Sin(Dtr(45)) / Log(diaratio)) ' 에러발생 추후에 고칠것 , 직결에서
 
         lblMessage.Caption = "설계 날개수를 입력하시오." & vbCrLf & "필요한 최소의 날개수는 " & zmin & " 개 입니다. (필수사항)"
