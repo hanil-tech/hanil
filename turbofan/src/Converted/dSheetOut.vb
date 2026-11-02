@@ -13,7 +13,7 @@ Public Module dSheetOut
 
     'Word로의 접속
         wdApp.Visible = True
-        wdApp.Documents.Add(SupportRoot() & "\ALISP\Turbo Fan Design\Word\Fandatasheet.dot")
+        wdApp.Documents.Add(SupportFolder() & "\Word\Fandatasheet.dot")
         wdApp.Activate
         wdApp.Visible = True
 

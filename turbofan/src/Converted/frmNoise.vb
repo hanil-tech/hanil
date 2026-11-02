@@ -38,7 +38,7 @@ Partial Class frmNoise
 
     Private Sub cmdCatalogue_Click() Handles cmdCatalogue.VbClick
 
-        ShellExecute(GetDesktopWindow(), "Open", SupportRoot() & "\ALISP\Turbo Fan Design\Data\방진카타로그.pdf", "", "C:\", 1)
+        ShellExecute(GetDesktopWindow(), "Open", SupportFolder() & "\Data\방진카타로그.pdf", "", "C:\", 1)
 
     End Sub
 

@@ -211,43 +211,19 @@ Public Module TestMain
     End Sub
 
     ''' <summary>
-    ''' 원본 코드는 경로를 "\ALISP\..." 처럼 역슬래시로 붙인다(윈도우). 리눅스 시험에서는 그 문자열 그대로의
-    ''' 파일 이름에도 같은 내용을 써 둔다.
+    ''' 원본 자료(src/Bundle: Data, Pics, Acad, Word)를 시험 폴더의 ALISP\Turbo Fan Design 에 둔다.
+    ''' 원본 코드는 경로를 "...\Data\fandata.dat" 처럼 역슬래시로 붙인다(윈도우). 리눅스 시험에서는
+    ''' 그 문자열 그대로의 파일 이름으로도 같은 내용을 써 둔다.
     ''' </summary>
-    Private Sub WriteData(name As String, lines As IEnumerable(Of String))
-        Dim data = Path.Combine(AppDir(), "ALISP", "Turbo Fan Design", "Data")
-        Dim text = String.Join(vbCrLf, lines) & vbCrLf   ' 원본 자료 파일은 윈도우 줄바꿈
-        File.WriteAllText(Path.Combine(data, name), text)
-        File.WriteAllText(AppDir() & "\ALISP\Turbo Fan Design\Data\" & name, text)
-    End Sub
-
-    ''' <summary>원본 데이터 파일과 같은 형식의 시험용 값 (실제 설계값 아님).</summary>
     Private Sub MakeTestData()
-        Dim data = Path.Combine(AppDir(), "ALISP", "Turbo Fan Design", "Data")
-        Directory.CreateDirectory(data)
-        ' Ns, ku, sigma, delta
-        Dim lines As New List(Of String)
-        For i = 0 To 13
-            Dim ns = 100 + i * 100
-            Dim ku = 1.25 - i * 0.025
-            Dim sigma = 0.12 + i * 0.035
-            Dim delta = 3.4 - i * 0.09
-            lines.Add(String.Join(",", {ns, ku, sigma, delta}.Select(Function(v) v.ToString(Globalization.CultureInfo.InvariantCulture))))
+        Dim bundle = Path.GetFullPath(Path.Combine(AppDir(), "..", "..", "..", "..", "..", "src", "Bundle"))
+        Dim target = Path.Combine(AppDir(), "ALISP", "Turbo Fan Design")
+        For Each f In Directory.GetFiles(bundle, "*", SearchOption.AllDirectories)
+            Dim rel = Path.GetRelativePath(bundle, f)
+            Dim dest = Path.Combine(target, rel)
+            Directory.CreateDirectory(Path.GetDirectoryName(dest))
+            File.Copy(f, dest, True)
+            File.Copy(f, target & "\" & rel.Replace("/"c, "\"c), True)
         Next
-        WriteData("fandata.dat", lines)
-        Dim caps = {0.4, 0.75, 1.5, 2.2, 3.7, 5.5, 7.5, 11, 15, 18.5, 22, 30, 37, 45, 55, 75, 90, 110, 132}
-        Dim frames = {"71", "80", "90L", "100L", "112M", "132S", "132M", "160M", "160L", "180M", "180L", "200L", "225S", "225M", "250M", "280S", "280M", "280L", "280LL"}
-        For Each p In {2, 4, 6, 8}
-            Dim rpm = {3500, 1750, 1160, 870}({2, 4, 6, 8}.ToList().IndexOf(p))
-            Dim m As New List(Of String)
-            For i = 0 To 18
-                Dim c = caps(i)
-                m.Add(String.Format(Globalization.CultureInfo.InvariantCulture, "{0},""{1}"",{2},{3},{4},{5},{6},{7},{8},{9},{10},{11}",
-                    c, frames(i), rpm - 30 + i, 78 + i * 0.6, 80 + i * 0.4, c * 3.8, c * 25, c * 0.55, 2.1, 2.6, 0.01 * (i + 1) ^ 2, 12 + c * 7))
-            Next
-            WriteData("hs200" & p & "p.dat", m)
-        Next
-        Dim pics = Path.Combine(AppDir(), "ALISP", "Turbo Fan Design", "Pics")
-        Directory.CreateDirectory(pics)
     End Sub
 End Module

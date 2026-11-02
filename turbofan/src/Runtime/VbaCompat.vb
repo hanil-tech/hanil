@@ -73,6 +73,28 @@ Public Module VbaCompat
         Return Conversion.Val(value)
     End Function
 
+    ' ---- Input #n, 변수: 원본(VBA)처럼 숫자 변수에 숫자가 아닌 값(예: fandata.dat 첫 줄 "Ns,ku,...")이
+    '      오면 0 으로 읽는다. .NET 의 FileSystem.Input 은 여기서 오류가 난다.
+    Public Sub Input(fileNumber As Integer, ByRef value As Double)
+        Dim s As String = Nothing
+        FileSystem.Input(fileNumber, s)
+        s = NormalizeDigits(If(s, "")).Trim()
+        value = If(s <> "" AndAlso Information.IsNumeric(s), CDbl(s), 0.0)
+    End Sub
+    Public Sub Input(fileNumber As Integer, ByRef value As Integer)
+        Dim d As Double
+        Input(fileNumber, d)
+        value = CInt(d)
+    End Sub
+    Public Sub Input(fileNumber As Integer, ByRef value As String)
+        FileSystem.Input(fileNumber, value)
+    End Sub
+    Public Sub Input(fileNumber As Integer, ByRef value As Object)
+        Dim s As String = Nothing
+        FileSystem.Input(fileNumber, s)
+        value = s
+    End Sub
+
     ' ---- Str: 숫자 앞에 공백(양수) — 문자열 숫자도 받는다 ----
     Public Function Str(value As Object) As String
         Dim d As Double

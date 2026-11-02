@@ -11,7 +11,7 @@ Public Module mNoise
         'Word로의 접속
         wdApp = CreateObject("Word.Application")
         wdApp.Visible = True
-        wdApp.Documents.Add(SupportRoot() & "\ALISP\Turbo Fan Design\Word\소음진동 계산서(Turbo).dot")
+        wdApp.Documents.Add(SupportFolder() & "\Word\소음진동 계산서(Turbo).dot")
         wdApp.Activate
         wdApp.Visible = True
 

@@ -20,7 +20,7 @@
     <Prefer32Bit>false</Prefer32Bit>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Resources\turbofan.ico</ApplicationIcon>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Product>Turbo Fan Design</Product>
     <Company>한일특장(주)</Company>
     <Copyright>한일특장(주)</Copyright>
@@ -41,5 +41,7 @@
     <Import Include="System.Collections.Generic" />
     <Import Include="System.Diagnostics" />
     <EmbeddedResource Include="Resources\*.bmp" LogicalName="%(Filename)" />
+    <!-- 원본 자료 폴더(ALISP\Turbo Fan Design 의 Data, Pics, Acad, Word). PC 에 그 폴더가 없으면 이것을 풀어 쓴다. -->
+    <EmbeddedResource Include="Bundle\**\*" LogicalName="bundle/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

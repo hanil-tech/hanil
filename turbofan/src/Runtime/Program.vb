@@ -36,9 +36,9 @@ Public Module Program
         End If
         If TypeOf ex Is IO.FileNotFoundException OrElse TypeOf ex Is IO.DirectoryNotFoundException Then
             MsgBox("필요한 파일을 찾을 수 없습니다." & vbCrLf & vbCrLf & ex.Message & vbCrLf & vbCrLf &
-                   "AutoCAD 폴더 안의 'ALISP\Turbo Fan Design' 폴더(Data, Pics, Acad, Word)가 있어야 합니다." & vbCrLf &
-                   "AutoCAD 가 없는 PC 라면 그 ALISP 폴더를 이 프로그램(exe) 옆에 복사해 두세요." & vbCrLf & vbCrLf &
-                   "지금 찾은 위치: " & SupportFolder(),
+                   "원래 매크로를 쓰던 PC 의 AutoCAD 폴더 안 'ALISP\Turbo Fan Design' 폴더(Data, Pics, Acad, Word)가 있어야 합니다." & vbCrLf &
+                   "그 ALISP 폴더를 이 프로그램(exe) 옆에 복사한 뒤 프로그램을 다시 실행하세요." & vbCrLf & vbCrLf &
+                   "지금 쓰는 자료 폴더: " & SupportFolder(),
                    MsgBoxStyle.Exclamation, "파일 없음")
             Return
         End If

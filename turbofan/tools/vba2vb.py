@@ -185,6 +185,8 @@ class Translator:
     def expr(self, s, lhs=False):
         """translate an expression (masked string)"""
         # ThisDrawing helpers
+        # 자료 폴더: 원본은 AutoCAD 폴더 + "\ALISP\Turbo Fan Design\..." 로 붙였다. 한 곳(SupportFolder)으로 모은다.
+        s = re.sub(r'(\bThisDrawing\.Application\.Path|(?<![.\w])Path)\s*[+&]\s*\x02', 'SupportFolder() & \x02', s, flags=re.I)
         s = re.sub(r'\bThisDrawing\.Application\.Path\b', 'SupportRoot()', s, flags=re.I)
         s = re.sub(r'\bThisDrawing\.Utility\.PolarPoint\s*\(', 'PolarPoint(', s, flags=re.I)
         # $-suffixed string functions
@@ -629,7 +631,9 @@ class Translator:
                 joined += ' ' + r
             elif r:
                 joined += ' : ' + r
-        return restore(lead + joined) + ((' ' + com) if com else '')
+        out_line = restore(lead + joined)
+        out_line = re.sub(r'SupportFolder\(\) & "\\ALISP\\Turbo Fan Design', 'SupportFolder() & "', out_line, flags=re.I)
+        return out_line + ((' ' + com) if com else '')
 
     def _is_known_call(self, name):
         return False

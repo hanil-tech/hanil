@@ -673,7 +673,7 @@ Partial Class frmInput
 
             FileName = Direction + ".bmp"
             Path = VbCopy(SupportRoot())
-            imgFan.Picture = LoadPicture(Path + "\ALISP\Turbo Fan Design\Pics\" + FileName)
+            imgFan.Picture = LoadPicture(SupportFolder() & "\Pics\" + FileName)
 
         End If ' V-Belt 구동일 때
 
@@ -701,8 +701,8 @@ Partial Class frmInput
             Direction = RD + d
 
             FileName = Direction + ".bmp"
-            Path = SupportRoot() & "\ALISP\Turbo Fan Design"
-            imgFan.Picture = LoadPicture(Path + "\Pics\" + FileName)
+            Path = SupportFolder() & ""
+            imgFan.Picture = LoadPicture(SupportFolder() & "\Pics\" + FileName)
 
         End If
 

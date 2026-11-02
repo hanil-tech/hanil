@@ -411,7 +411,7 @@ Public Module Calculation
 
         'Ns에 관계되는 Data읽어오기
 
-            FilePath = SupportRoot() + "\ALISP\Turbo Fan Design\Data\fandata.dat"
+            FilePath = SupportFolder() & "\Data\fandata.dat"
 
         FileOpen(1, FilePath, OpenMode.Input)
 
@@ -709,7 +709,7 @@ Public Module Calculation
             MP = frmInput.cboMotorPoles.text
             MV = CDbl(frmInput.cboMotorVoltage.text)
 
-                filePath1 = SupportRoot() + "\ALISP\Turbo Fan Design\Data\hs200" + MP + "p.dat"
+                filePath1 = SupportFolder() & "\Data\hs200" + MP + "p.dat"
 
             FileOpen(1, filePath1, OpenMode.Input)
                     For i = 1 To 19

@@ -783,7 +783,7 @@ Public Module FanDraw
             BlockCenP = VbCopy(CP)
         End If
 
-        Fanbox = ThisDrawing.ModelSpace.InsertBlock(BlockCenP, SupportRoot() & "\ALISP\Turbo Fan Design\Acad\dFanBox.dwg", Sc, Sc, 1#, 0)
+        Fanbox = ThisDrawing.ModelSpace.InsertBlock(BlockCenP, SupportFolder() & "\Acad\dFanBox.dwg", Sc, Sc, 1#, 0)
         ThisDrawing.SendCommand("Explode (entlast)  ")
         ThisDrawing.Application.ZoomExtents
 
@@ -1441,7 +1441,7 @@ Public Module FanDraw
 
 
         ' 도면박스 삽입하기
-        Fanbox = ThisDrawing.ModelSpace.InsertBlock(CP, SupportRoot() & "\ALISP\Turbo Fan Design\Acad\dFanBox.dwg", D3 / 58, D3 / 58, 1#, 0)
+        Fanbox = ThisDrawing.ModelSpace.InsertBlock(CP, SupportFolder() & "\Acad\dFanBox.dwg", D3 / 58, D3 / 58, 1#, 0)
         ThisDrawing.SendCommand("Explode (entlast)  ")
         ThisDrawing.Application.ZoomExtents
 

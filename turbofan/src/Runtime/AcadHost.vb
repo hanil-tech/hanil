@@ -120,50 +120,130 @@ Public Module AcadHost
         Return app
     End Function
 
-    ''' <summary>
-    ''' 원본의 ThisDrawing.Application.Path 자리.
-    ''' 원본은 "AutoCAD 폴더\ALISP\Turbo Fan Design\..." 에서 데이터·그림·블록·워드 서식을 읽었다.
-    ''' 이 함수는 그 "ALISP" 폴더를 품은 폴더를 돌려준다. 찾는 순서:
-    '''   1) 이 프로그램(exe) 옆
-    '''   2) 실행 중인 AutoCAD 폴더
-    '''   3) 설치된 AutoCAD 폴더들 (레지스트리)
-    ''' </summary>
+    ''' <summary>원본의 ThisDrawing.Application.Path 자리 (자료 폴더의 두 단계 위). 원본 코드 호환용.</summary>
     Public Function SupportRoot() As String
-        If _supportRoot IsNot Nothing Then Return _supportRoot
-        For Each candidate In SupportRootCandidates()
-            If Directory.Exists(Path.Combine(candidate, "ALISP", "Turbo Fan Design")) Then
-                _supportRoot = candidate
+        Dim f = SupportFolder()
+        Return If(Directory.GetParent(f)?.Parent?.FullName, f)
+    End Function
+
+    Private Const SettingsKey As String = "Software\Hanil\TurboFanDesign"
+    Private _supportFolder As String
+
+    ''' <summary>
+    ''' 원본이 쓰던 자료 폴더 "…\ALISP\Turbo Fan Design" (안에 Data, Pics, Acad, Word).
+    ''' 찾는 순서: 전에 고른 폴더, exe 옆, 실행 중인 AutoCAD 폴더, 설치된 AutoCAD 폴더들,
+    ''' Program Files\Autodesk 아래, C:\ D:\ 바로 아래. 없으면 프로그램 안에 넣어 둔 자료를 꺼내 쓴다.
+    ''' </summary>
+    Public Function SupportFolder() As String
+        If _supportFolder IsNot Nothing Then Return _supportFolder
+        For Each candidate In SupportFolderCandidates()
+            If IsSupportFolder(candidate) Then
+                _supportFolder = candidate
                 Return candidate
             End If
         Next
-        ' 못 찾으면 exe 폴더 (파일이 없다는 안내는 각 기능에서)
-        Return AppDir()
+        ' PC 에 자료 폴더가 없으면 프로그램 안에 넣어 둔 원본 자료(Data, Pics, Acad, Word)를 꺼내 쓴다.
+        Dim bundled = ExtractBundle()
+        If bundled IsNot Nothing Then
+            _supportFolder = bundled
+            Return bundled
+        End If
+        Return Path.Combine(AppDir(), "ALISP", "Turbo Fan Design")
     End Function
-    Private _supportRoot As String
 
-    Public Function SupportFolder() As String
-        Return Path.Combine(SupportRoot(), "ALISP", "Turbo Fan Design")
+    ''' <summary>폴더 안에 원본 자료(Data\fandata.dat)가 있는지.</summary>
+    Private Function IsSupportFolder(folder As String) As Boolean
+        Try
+            Return Directory.Exists(folder) AndAlso File.Exists(Path.Combine(folder, "Data", "fandata.dat"))
+        Catch
+            Return False
+        End Try
     End Function
+
+    Private Iterator Function SupportFolderCandidates() As IEnumerable(Of String)
+        Dim saved = LoadSetting()
+        If saved IsNot Nothing Then Yield saved
+        Dim roots As New List(Of String) From {AppDir()}
+        Dim parent = Directory.GetParent(AppDir())
+        If parent IsNot Nothing Then roots.Add(parent.FullName)
+        If _app IsNot Nothing Then
+            Try
+                roots.Add(CStr(_app.Path))
+            Catch
+            End Try
+        End If
+        roots.AddRange(InstalledAutoCadFolders())
+        For Each pf In {Environment.GetEnvironmentVariable("ProgramFiles"), Environment.GetEnvironmentVariable("ProgramFiles(x86)"), Environment.GetEnvironmentVariable("ProgramW6432")}
+            If String.IsNullOrEmpty(pf) Then Continue For
+            Dim autodesk = Path.Combine(pf, "Autodesk")
+            Dim subs As String() = {}
+            Try
+                If Directory.Exists(autodesk) Then subs = Directory.GetDirectories(autodesk)
+            Catch
+            End Try
+            roots.AddRange(subs.OrderByDescending(Function(d) d))
+        Next
+        roots.Add("C:\")
+        roots.Add("D:\")
+        For Each r In roots
+            If String.IsNullOrEmpty(r) Then Continue For
+            Yield Path.Combine(r, "ALISP", "Turbo Fan Design")
+            Yield Path.Combine(r, "Turbo Fan Design")
+        Next
+    End Function
+
+    ''' <summary>
+    ''' exe 안의 원본 자료(리소스 이름 "bundle/Data/fandata.dat" 등)를
+    ''' %LOCALAPPDATA%\Hanil\TurboFanDesign\<버전>\Turbo Fan Design 에 풀어 놓고 그 경로를 돌려준다.
+    ''' </summary>
+    Public Function ExtractBundle() As String
+        Try
+            Dim asm = Reflection.Assembly.GetExecutingAssembly()
+            Dim ver = asm.GetName().Version.ToString()
+            Dim target = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                      "Hanil", "TurboFanDesign", ver, "Turbo Fan Design")
+            Dim any = False
+            For Each name In asm.GetManifestResourceNames()
+                Dim n = name.Replace("\"c, "/"c)
+                If Not n.StartsWith("bundle/", StringComparison.OrdinalIgnoreCase) Then Continue For
+                any = True
+                Dim rel = n.Substring(7).Replace("/"c, Path.DirectorySeparatorChar)
+                Dim dest = Path.Combine(target, rel)
+                Using src = asm.GetManifestResourceStream(name)
+                    If File.Exists(dest) AndAlso New FileInfo(dest).Length = src.Length Then Continue For
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest))
+                    Using fs = File.Create(dest)
+                        src.CopyTo(fs)
+                    End Using
+                End Using
+            Next
+            If any AndAlso IsSupportFolder(target) Then Return target
+        Catch
+        End Try
+        Return Nothing
+    End Function
+
+    Private Function LoadSetting() As String
+        Try
+            Using k = Registry.CurrentUser.OpenSubKey(SettingsKey)
+                Return TryCast(k?.GetValue("SupportFolder"), String)
+            End Using
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    Private Sub SaveSetting(folder As String)
+        Try
+            Using k = Registry.CurrentUser.CreateSubKey(SettingsKey)
+                k.SetValue("SupportFolder", folder)
+            End Using
+        Catch
+        End Try
+    End Sub
 
     Public Function AppDir() As String
         Return Path.GetDirectoryName(Reflection.Assembly.GetExecutingAssembly().Location)
-    End Function
-
-    Private Iterator Function SupportRootCandidates() As IEnumerable(Of String)
-        Yield AppDir()
-        Dim parent = Directory.GetParent(AppDir())
-        If parent IsNot Nothing Then Yield parent.FullName
-        If _app IsNot Nothing Then
-            Dim p As String = Nothing
-            Try
-                p = CStr(_app.Path)
-            Catch
-            End Try
-            If p IsNot Nothing Then Yield p
-        End If
-        For Each p In InstalledAutoCadFolders()
-            Yield p
-        Next
     End Function
 
     ''' <summary>레지스트리에 적힌 AutoCAD 설치 폴더들 (최신 버전 먼저).</summary>

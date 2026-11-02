@@ -129,7 +129,7 @@ Public Module pCurveDraw
         Next i
 
         ' Pertable block 삽입(그래프블록삽입)
-            blockname = SupportRoot() & "\ALISP\Turbo Fan Design\Acad\pertable.dwg"
+            blockname = SupportFolder() & "\Acad\pertable.dwg"
             insp(0) = 0 : insp(1) = 0 : insp(2) = 0
 
         PerGraph = ThisDrawing.ModelSpace.InsertBlock(insp, blockname, 1#, 1#, 1#, 0)

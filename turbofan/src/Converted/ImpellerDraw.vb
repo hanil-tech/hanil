@@ -102,7 +102,7 @@ Public Module ImpellerDraw
         CP(0) = 0 : CP(1) = 0 : CP(2) = 0
 
         '도면틀 삽입
-        iFanBox = ThisDrawing.ModelSpace.InsertBlock(CP, SupportRoot() & "\ALISP\Turbo Fan Design\Acad\iFanBox.dwg", Sc, Sc, 1#, 0)
+        iFanBox = ThisDrawing.ModelSpace.InsertBlock(CP, SupportFolder() & "\Acad\iFanBox.dwg", Sc, Sc, 1#, 0)
         ThisDrawing.SendCommand("Explode (entlast)  ")
         ThisDrawing.Application.ZoomExtents
 

@@ -12,7 +12,7 @@ Public Module mReport
         'Word로의 접속
         wdApp = CreateObject("Word.Application")
         wdApp.Visible = True
-        wdApp.Documents.Add(SupportRoot() & "\ALISP\Turbo Fan Design\Word\makerReport.dot")
+        wdApp.Documents.Add(SupportFolder() & "\Word\makerReport.dot")
         wdApp.Activate
         wdApp.Visible = True
 
