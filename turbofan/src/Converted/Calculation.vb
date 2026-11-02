@@ -863,7 +863,7 @@ Public Module Calculation
         Next
 
         If MyExist = False Then
-            ThisDrawing.Linetypes.Load("CENTER", "acadiso.lin")
+            LoadLinetype("CENTER", "acadiso.lin")
         End If
 
         'Hidden Type로딩
@@ -877,7 +877,7 @@ Public Module Calculation
         Next
 
         If MyExist = False Then
-            ThisDrawing.Linetypes.Load("HIDDEN", "acadiso.lin")
+            LoadLinetype("HIDDEN", "acadiso.lin")
         End If
 
         'Phantom Type로딩
@@ -891,7 +891,7 @@ Public Module Calculation
         Next
 
         If MyExist = False Then
-            ThisDrawing.Linetypes.Load("PHANTOM", "acadiso.lin")
+            LoadLinetype("PHANTOM", "acadiso.lin")
         End If
 
     End Sub

@@ -51,7 +51,7 @@ Public Module Program
         If TypeOf ex Is Reflection.TargetInvocationException AndAlso ex.InnerException IsNot Nothing Then ex = ex.InnerException
         If TypeOf ex Is QuitSignal Then Return
         If TypeOf ex Is AutoCadNotAvailableException Then
-            MsgBox(ex.Message, MsgBoxStyle.Exclamation, "AutoCAD")
+            MsgBox(ex.Message, MsgBoxStyle.Exclamation, "CAD")
             Return
         End If
         If TypeOf ex Is IO.FileNotFoundException OrElse TypeOf ex Is IO.DirectoryNotFoundException Then
@@ -64,7 +64,7 @@ Public Module Program
         End If
         Dim msg = ex.Message
         If TypeOf ex Is Runtime.InteropServices.COMException Then
-            msg = "AutoCAD/Word 와 통신하는 중 오류가 났습니다." & vbCrLf & msg
+            msg = CadName & "/Word 와 통신하는 중 오류가 났습니다." & vbCrLf & msg
         End If
         MsgBox(msg & vbCrLf & vbCrLf & "(" & ex.GetType().Name & ")" & vbCrLf & ex.StackTrace?.Split({vbCrLf}, StringSplitOptions.None).FirstOrDefault(),
                MsgBoxStyle.Critical, "오류")

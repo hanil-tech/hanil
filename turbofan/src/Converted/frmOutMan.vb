@@ -39,6 +39,7 @@ Partial Class frmOutMan
     End Sub
 
     Private Sub cmdFan_Click() Handles cmdFan.VbClick
+        If Not EnsureCad() Then Exit Sub ' (추가) CAD 연결을 먼저 확인 — 취소하면 이 작업만 멈춤
 
         If frmInput.optVbelt.Value = True Then
 
@@ -54,6 +55,7 @@ Partial Class frmOutMan
     End Sub
 
     Private Sub cmdImp_Click() Handles cmdImp.VbClick
+        If Not EnsureCad() Then Exit Sub ' (추가) CAD 연결을 먼저 확인 — 취소하면 이 작업만 멈춤
 
         Draw_Impeller
 
@@ -67,6 +69,7 @@ Partial Class frmOutMan
     End Sub
 
     Private Sub cmdPer_Click() Handles cmdPer.VbClick
+        If Not EnsureCad() Then Exit Sub ' (추가) CAD 연결을 먼저 확인 — 취소하면 이 작업만 멈춤
 
         Performance
 

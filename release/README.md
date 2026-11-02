@@ -45,10 +45,10 @@ TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-turbofan-v1.0.6.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-turbofan-v1.0.6.exe)** | AutoCAD 가 있는 설계 PC | 5MB |
+| **[hanil-turbofan-v1.1.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-turbofan-v1.1.0.exe)** | CAD 가 있는 설계 PC | 5MB |
 
 AutoCAD VBA 매크로(`Turbo_Fan_Design.dvb`)를 따로 실행하는 프로그램으로 옮긴 것입니다. 두 번 누르면 바로 뜹니다(설치 없음).
-도면은 켜져 있는 AutoCAD 에 그리며, AutoCAD 에 VBA 모듈을 깔 필요가 없습니다.
+도면은 켜져 있는 CAD(AutoCAD·ZWCAD·GstarCAD·BricsCAD·progeCAD)에 그리고 DWG 로 저장할 수 있습니다. VBA 모듈은 필요 없습니다.
 설계 자료(Data·Pics·도면 틀·Word 서식)가 프로그램 안에 들어 있어 따로 준비할 것이 없습니다. 자세한 안내는 [turbofan/README.md](../turbofan/README.md).
 
 ## 📦 포털 대용량 파일 (올리기·받기)

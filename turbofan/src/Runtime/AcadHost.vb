@@ -57,8 +57,36 @@ Public Module AcadHost
     Private _app As Object
     Private _doc As Object
     Private _docCheckedAt As DateTime = DateTime.MinValue
+    ''' <summary>이번 도면 작업에서 사용자가 CAD 연결을 취소했으면 true — 다시 묻지 않는다.</summary>
+    Private _declined As Boolean
 
-    ''' <summary>원본 VBA 의 ThisDrawing — 지금 AutoCAD 에 열려 있는 도면.</summary>
+    ''' <summary>
+    ''' 지원하는 CAD. 모두 AutoCAD 와 같은 COM(ActiveX) 명령 체계를 갖고 있어 같은 코드로 그린다.
+    ''' </summary>
+    Public Class CadProduct
+        Public Name As String
+        Public ProgIds As String()
+        Public LinFiles As String()
+        Public Sub New(name As String, progIds As String(), linFiles As String())
+            Me.Name = name : Me.ProgIds = progIds : Me.LinFiles = linFiles
+        End Sub
+        Public Overrides Function ToString() As String
+            Return Name
+        End Function
+    End Class
+
+    Public ReadOnly CadProducts As CadProduct() = {
+        New CadProduct("AutoCAD", {"AutoCAD.Application"}, {"acadiso.lin", "acad.lin"}),
+        New CadProduct("ZWCAD", {"ZWCAD.Application", "ZwCAD.Application"}, {"zwcadiso.lin", "zwcad.lin"}),
+        New CadProduct("GstarCAD", {"GCAD.Application", "GstarCAD.Application"}, {"gcadiso.lin", "gcad.lin"}),
+        New CadProduct("BricsCAD", {"BricscadApp.AcadApplication", "BricsCAD.Application"}, {"iso.lin", "default.lin", "bricscad.lin"}),
+        New CadProduct("progeCAD / IntelliCAD", {"progeCAD.Application", "Icad.Application", "IntelliCAD.Application"}, {"icadiso.lin", "icad.lin"})
+    }
+
+    ''' <summary>지금 붙어 있는 CAD (없으면 Nothing).</summary>
+    Public CurrentCad As CadProduct
+
+    ''' <summary>원본 VBA 의 ThisDrawing — 지금 CAD 에 열려 있는 도면.</summary>
     Public ReadOnly Property ThisDrawing As Object
         Get
             If TestDocument IsNot Nothing Then Return TestDocument
@@ -70,20 +98,55 @@ Public Module AcadHost
         End Get
     End Property
 
-    ''' <summary>켜져 있는 AutoCAD. 없으면 켤지 물어본다.</summary>
+    ''' <summary>붙어 있는 CAD 프로그램. 없으면 (이번 작업에서 아직 취소하지 않았다면) 찾거나 고르게 한다.</summary>
     Public ReadOnly Property AcadApplication As Object
         Get
-            If _app IsNot Nothing Then
-                Try
-                    Dim unused = _app.Visible   ' 살아 있는지 확인
-                    Return _app
-                Catch
-                    _app = Nothing
-                    _doc = Nothing
-                End Try
+            If IsAlive() Then Return _app
+            If _declined Then Throw New AutoCadNotAvailableException("CAD 연결을 취소했습니다.")
+            If Not Connect() Then
+                _declined = True
+                Throw New AutoCadNotAvailableException("CAD 연결을 취소했습니다.")
             End If
-            _app = ConnectAutoCad()
             Return _app
+        End Get
+    End Property
+
+    Private Function IsAlive() As Boolean
+        If _app Is Nothing Then Return False
+        Try
+            Dim unused = _app.Visible
+            Return True
+        Catch
+            _app = Nothing
+            _doc = Nothing
+            CurrentCad = Nothing
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 도면 단추를 누를 때 먼저 부른다. CAD 에 붙어 있거나 붙으면 True.
+    ''' 취소하면 False — 그 작업은 바로 멈춘다 (원본 도면 코드는 오류를 무시하고 계속 진행하므로,
+    ''' 여기서 막지 않으면 줄마다 "CAD 를 찾지 못했습니다" 를 다시 묻게 된다).
+    ''' </summary>
+    Public Function EnsureCad() As Boolean
+        If TestDocument IsNot Nothing Then Return True
+        _declined = False
+        If IsAlive() Then Return True
+        If Connect() Then Return True
+        _declined = True
+        Return False
+    End Function
+
+    Public ReadOnly Property IsAutoCadConnected As Boolean
+        Get
+            Return _app IsNot Nothing
+        End Get
+    End Property
+
+    Public ReadOnly Property CadName As String
+        Get
+            Return If(CurrentCad?.Name, "CAD")
         End Get
     End Property
 
@@ -97,41 +160,136 @@ Public Module AcadHost
         Next
         _doc = Nothing
         _app = Nothing
+        CurrentCad = Nothing
         MessageFilter.Unregister()
     End Sub
 
-    Public ReadOnly Property IsAutoCadConnected As Boolean
-        Get
-            Return _app IsNot Nothing
-        End Get
-    End Property
-
-    Private Function ConnectAutoCad() As Object
-        MessageFilter.Register()
+    ''' <summary>켜져 있는 지원 CAD 들.</summary>
+    Public Function FindRunningCads() As List(Of KeyValuePair(Of CadProduct, Object))
+        Dim found As New List(Of KeyValuePair(Of CadProduct, Object))
 #If NETFRAMEWORK Then
+        For Each p In CadProducts
+            For Each id In p.ProgIds
+                Try
+                    Dim o = Marshal.GetActiveObject(id)
+                    If o IsNot Nothing Then
+                        found.Add(New KeyValuePair(Of CadProduct, Object)(p, o))
+                        Exit For
+                    End If
+                Catch
+                End Try
+            Next
+        Next
+#End If
+        Return found
+    End Function
+
+    ''' <summary>이 PC 에 설치된(등록된) 지원 CAD 와 그 ProgID.</summary>
+    Public Function FindInstalledCads() As List(Of KeyValuePair(Of CadProduct, String))
+        Dim found As New List(Of KeyValuePair(Of CadProduct, String))
+        For Each p In CadProducts
+            For Each id In p.ProgIds
+                Try
+                    If Type.GetTypeFromProgID(id) IsNot Nothing Then
+                        found.Add(New KeyValuePair(Of CadProduct, String)(p, id))
+                        Exit For
+                    End If
+                Catch
+                End Try
+            Next
+        Next
+        Return found
+    End Function
+
+    Private Function Connect() As Boolean
+        MessageFilter.Register()
+        Dim preferred = LoadCadSetting()
+        Do
+            Dim running = FindRunningCads()
+            If running.Count = 1 Then
+                Return UseCad(running(0).Key, running(0).Value)
+            End If
+            If running.Count > 1 Then
+                Dim pref = running.FirstOrDefault(Function(r) r.Key.Name = preferred)
+                If pref.Key IsNot Nothing Then Return UseCad(pref.Key, pref.Value)
+#If Not TESTBUILD Then
+                Dim pick = CadPicker.ChooseRunning(running.Select(Function(r) r.Key).ToList())
+                If pick Is Nothing Then Return False
+                Dim chosen = running.First(Function(r) r.Key Is pick)
+                Return UseCad(chosen.Key, chosen.Value)
+#Else
+                Return UseCad(running(0).Key, running(0).Value)
+#End If
+            End If
+#If Not TESTBUILD Then
+            ' 켜진 CAD 가 없다: 설치된 것 중 골라 실행하거나, 직접 켠 뒤 다시 찾는다.
+            Dim result = CadPicker.ChooseToLaunch(FindInstalledCads(), preferred)
+            If result.Action = CadPicker.PickAction.Cancel Then Return False
+            If result.Action = CadPicker.PickAction.Retry Then Continue Do
+            Try
+                Dim app As Object
+                Using New WaitCursor()
+                    app = Interaction.CreateObject(result.ProgId)
+                    app.Visible = True
+                End Using
+                Return UseCad(result.Product, app)
+            Catch ex As Exception
+                MsgBox(result.Product.Name & " 을(를) 실행하지 못했습니다." & vbCrLf & ex.Message, MsgBoxStyle.Exclamation, "CAD 연결")
+            End Try
+#Else
+            Return False
+#End If
+        Loop
+    End Function
+
+    Private Function UseCad(p As CadProduct, app As Object) As Boolean
+        _app = app
+        _doc = Nothing
+        CurrentCad = p
+        SaveCadSetting(p.Name)
+        Return True
+    End Function
+
+    Private Function LoadCadSetting() As String
         Try
-            Return Marshal.GetActiveObject("AutoCAD.Application")
+            Using k = Registry.CurrentUser.OpenSubKey("Software\Hanil\TurboFanDesign")
+                Return TryCast(k?.GetValue("Cad"), String)
+            End Using
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    Private Sub SaveCadSetting(name As String)
+        Try
+            Using k = Registry.CurrentUser.CreateSubKey("Software\Hanil\TurboFanDesign")
+                k.SetValue("Cad", name)
+            End Using
         Catch
         End Try
-#End If
-        Dim answer = MsgBox("실행 중인 AutoCAD 를 찾지 못했습니다." & vbCrLf & vbCrLf &
-                            "AutoCAD 를 지금 실행할까요? (시작하는 데 시간이 조금 걸립니다)" & vbCrLf &
-                            "[아니요] 를 누르면 도면 작업을 취소합니다.",
-                            MsgBoxStyle.YesNo Or MsgBoxStyle.Question, "AutoCAD 연결")
-        If answer <> MsgBoxResult.Yes Then
-            Throw New AutoCadNotAvailableException("AutoCAD 가 실행되어 있지 않습니다.")
-        End If
-        Dim app As Object
-        Try
-            Using New WaitCursor()
-                app = Interaction.CreateObject("AutoCAD.Application")
-                app.Visible = True
-            End Using
-        Catch ex As Exception
-            Throw New AutoCadNotAvailableException("AutoCAD 를 실행하지 못했습니다." & vbCrLf & ex.Message)
-        End Try
-        Return app
-    End Function
+    End Sub
+
+    ''' <summary>
+    ''' 원본의 ThisDrawing.Linetypes.Load "CENTER", "acadiso.lin".
+    ''' 선 종류 파일 이름이 CAD 마다 달라서(zwcadiso.lin, gcadiso.lin ...) 안 되면 다른 이름으로 다시 해 본다.
+    ''' 끝내 못 불러와도 도면 작업은 계속한다 (그 선만 실선으로 나옴).
+    ''' </summary>
+    Public Sub LoadLinetype(name As String, file As String)
+        Dim files As New List(Of String) From {file}
+        If CurrentCad IsNot Nothing Then files.AddRange(CurrentCad.LinFiles)
+        For Each p In CadProducts
+            files.AddRange(p.LinFiles)
+        Next
+        For Each f In files.Distinct(StringComparer.OrdinalIgnoreCase)
+            Try
+                ThisDrawing.Linetypes.Load(name, f)
+                Return
+            Catch ex As AutoCadNotAvailableException
+                Throw
+            Catch
+            End Try
+        Next
+    End Sub
 
     ''' <summary>원본의 ThisDrawing.Application.Path 자리 (자료 폴더의 두 단계 위). 원본 코드 호환용.</summary>
     Public Function SupportRoot() As String

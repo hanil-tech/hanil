@@ -189,6 +189,8 @@ class Translator:
         s = re.sub(r'(\bThisDrawing\.Application\.Path|(?<![.\w])Path)\s*[+&]\s*\x02', 'SupportFolder() & \x02', s, flags=re.I)
         s = re.sub(r'\bThisDrawing\.Application\.Path\b', 'SupportRoot()', s, flags=re.I)
         s = re.sub(r'\bThisDrawing\.Utility\.PolarPoint\s*\(', 'PolarPoint(', s, flags=re.I)
+        # 선 종류 파일 이름이 CAD 마다 달라서(acadiso.lin / zwcadiso.lin / gcadiso.lin ...) 대신 불러 주는 함수로
+        s = re.sub(r'\bThisDrawing\.Linetypes\.Load\b', 'LoadLinetype', s, flags=re.I)
         # $-suffixed string functions
         s = re.sub(r'\b(Left|Right|Mid|Trim|LTrim|RTrim|Str|Chr|UCase|LCase|Space|String|Format|Hex|Oct)\$', r'\1', s, flags=re.I)
         # VBA Date / Time / Now as values
@@ -790,7 +792,14 @@ def designer(fname, f, resources):
 
 # ------------------------------------------------------------------ fixes to the original logic
 # 원본의 버그를 고치는 곳. 원본 문장을 바꾸지 않고 한 줄을 덧붙인다.
+CAD_CHECK = "        If Not EnsureCad() Then Exit Sub ' (추가) CAD 연결을 먼저 확인 — 취소하면 이 작업만 멈춤"
 PATCHES = {
+    # 도면 단추: 그리기 전에 CAD 연결을 한 번 확인한다. 원본 도면 코드는 오류를 무시(On Error Resume Next)하므로
+    # 여기서 막지 않으면 줄마다 "CAD 를 찾지 못했습니다" 를 다시 묻는다.
+    'frmOutMan': [(h, h + "\n" + CAD_CHECK) for h in (
+        '    Private Sub cmdFan_Click() Handles cmdFan.VbClick',
+        '    Private Sub cmdImp_Click() Handles cmdImp.VbClick',
+        '    Private Sub cmdPer_Click() Handles cmdPer.VbClick')],
     # 원본: 날개수(Z)는 날개수 칸에서 Enter 를 눌러야만 저장됐다. Enter 없이 [설계결과]를 누르면
     # Z 가 0(또는 이전 값)인 채로 응력·소음·회전차 도면이 계산됐다. → 설계결과에서 항상 다시 읽는다.
     'frmInput': [('        bt = Val(txtBladeThickness.text)',

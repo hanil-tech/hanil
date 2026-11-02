@@ -93,7 +93,7 @@ Public Class cFlange
             End If
         Next
         If Not (Found) Then
-            ThisDrawing.Linetypes.Load("CENTER", "acad.lin")
+            LoadLinetype("CENTER", "acad.lin")
         End If
 
         Found = False
@@ -103,7 +103,7 @@ Public Class cFlange
             End If
         Next
         If Not (Found) Then
-            ThisDrawing.Linetypes.Load("HIDDEN", "acad.lin")
+            LoadLinetype("HIDDEN", "acad.lin")
         End If
         '-----------------------------------------------------------------
 

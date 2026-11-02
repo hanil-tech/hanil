@@ -57,6 +57,10 @@ Public Class MForm
     Protected Overridable Sub UserForm_Initialize()
     End Sub
 
+    ''' <summary>원본에 없던 컨트롤을 더할 때 (예: 출력관리의 DWG 저장). 처음 보일 때 한 번.</summary>
+    Protected Overridable Sub AddExtras()
+    End Sub
+
     ''' <summary>원본의 UserForm_Activate. 필요한 폼이 Overrides 한다.</summary>
     Protected Overridable Sub UserForm_Activate()
     End Sub
@@ -71,6 +75,7 @@ Public Class MForm
             MyBase.Show()
 #If Not TESTBUILD Then
             If zoom Is Nothing Then
+                AddExtras()
                 zoom = New FormZoom(Me)
                 zoom.ApplyInitialSize()
             End If
