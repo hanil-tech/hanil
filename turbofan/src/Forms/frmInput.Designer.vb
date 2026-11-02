@@ -113,6 +113,7 @@ Partial Class frmInput
         Me.Label1.TabIndex = 1
         Me.Label1.Text = "고객명"
         Me.Label1.UseMnemonic = False
+        Me.Label1.AutoSize = True
         Me.Frame1.Controls.Add(Me.Label1)
         Me.Label2 = New MLabel()
         Me.Label2.Name = "Label2"
@@ -121,6 +122,7 @@ Partial Class frmInput
         Me.Label2.TabIndex = 2
         Me.Label2.Text = "설계일자 :"
         Me.Label2.UseMnemonic = False
+        Me.Label2.AutoSize = True
         Me.Frame1.Controls.Add(Me.Label2)
         Me.lblDate = New MLabel()
         Me.lblDate.Name = "lblDate"
@@ -129,6 +131,7 @@ Partial Class frmInput
         Me.lblDate.TabIndex = 3
         Me.lblDate.Text = ""
         Me.lblDate.UseMnemonic = False
+        Me.lblDate.AutoSize = True
         Me.Frame1.Controls.Add(Me.lblDate)
         Me.Frame2 = New MFrame()
         Me.Frame2.Name = "Frame2"
@@ -144,6 +147,7 @@ Partial Class frmInput
         Me.Label3.TabIndex = 0
         Me.Label3.Text = "풍량"
         Me.Label3.UseMnemonic = False
+        Me.Label3.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label3)
         Me.txtQ = New MTextBox()
         Me.txtQ.Name = "txtQ"
@@ -180,6 +184,7 @@ Partial Class frmInput
         Me.Label4.TabIndex = 4
         Me.Label4.Text = "m3/min"
         Me.Label4.UseMnemonic = False
+        Me.Label4.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label4)
         Me.Label5 = New MLabel()
         Me.Label5.Name = "Label5"
@@ -188,6 +193,7 @@ Partial Class frmInput
         Me.Label5.TabIndex = 5
         Me.Label5.Text = "정압"
         Me.Label5.UseMnemonic = False
+        Me.Label5.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label5)
         Me.Label6 = New MLabel()
         Me.Label6.Name = "Label6"
@@ -196,6 +202,7 @@ Partial Class frmInput
         Me.Label6.TabIndex = 6
         Me.Label6.Text = "mmAq"
         Me.Label6.UseMnemonic = False
+        Me.Label6.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label6)
         Me.Label7 = New MLabel()
         Me.Label7.Name = "Label7"
@@ -204,6 +211,7 @@ Partial Class frmInput
         Me.Label7.TabIndex = 7
         Me.Label7.Text = "℃"
         Me.Label7.UseMnemonic = False
+        Me.Label7.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label7)
         Me.Label8 = New MLabel()
         Me.Label8.Name = "Label8"
@@ -212,6 +220,7 @@ Partial Class frmInput
         Me.Label8.TabIndex = 8
         Me.Label8.Text = "온도"
         Me.Label8.UseMnemonic = False
+        Me.Label8.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label8)
         Me.Label9 = New MLabel()
         Me.Label9.Name = "Label9"
@@ -220,6 +229,7 @@ Partial Class frmInput
         Me.Label9.TabIndex = 9
         Me.Label9.Text = "밀도(γ)"
         Me.Label9.UseMnemonic = False
+        Me.Label9.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label9)
         Me.Label11 = New MLabel()
         Me.Label11.Name = "Label11"
@@ -228,6 +238,7 @@ Partial Class frmInput
         Me.Label11.TabIndex = 10
         Me.Label11.Text = "kgf/m3"
         Me.Label11.UseMnemonic = False
+        Me.Label11.AutoSize = True
         Me.Frame2.Controls.Add(Me.Label11)
         Me.txtDensity = New MTextBox()
         Me.txtDensity.Name = "txtDensity"
@@ -249,7 +260,7 @@ Partial Class frmInput
         Me.Controls.Add(Me.Frame3)
         Me.lblMessage = New MLabel()
         Me.lblMessage.Name = "lblMessage"
-        Me.lblMessage.Location = New Point(8, 16)
+        Me.lblMessage.Location = New Point(8, 23)
         Me.lblMessage.Size = New Size(96, 224)
         Me.lblMessage.TabIndex = 0
         Me.lblMessage.Text = ""
@@ -264,14 +275,14 @@ Partial Class frmInput
         Me.Controls.Add(Me.Frame4)
         Me.Frame5 = New MFrame()
         Me.Frame5.Name = "Frame5"
-        Me.Frame5.Location = New Point(104, 12)
+        Me.Frame5.Location = New Point(104, 19)
         Me.Frame5.Size = New Size(72, 176)
         Me.Frame5.TabIndex = 0
         Me.Frame5.Text = "설계 #1"
         Me.Frame4.Controls.Add(Me.Frame5)
         Me.txtN_1 = New MTextBox()
         Me.txtN_1.Name = "txtN_1"
-        Me.txtN_1.Location = New Point(8, 40)
+        Me.txtN_1.Location = New Point(8, 47)
         Me.txtN_1.AutoSize = False
         Me.txtN_1.Size = New Size(53, 23)
         Me.txtN_1.TabIndex = 0
@@ -281,7 +292,7 @@ Partial Class frmInput
         Me.Frame5.Controls.Add(Me.txtN_1)
         Me.txtD2_1 = New MTextBox()
         Me.txtD2_1.Name = "txtD2_1"
-        Me.txtD2_1.Location = New Point(8, 68)
+        Me.txtD2_1.Location = New Point(8, 75)
         Me.txtD2_1.AutoSize = False
         Me.txtD2_1.Size = New Size(53, 23)
         Me.txtD2_1.TabIndex = 1
@@ -291,7 +302,7 @@ Partial Class frmInput
         Me.Frame5.Controls.Add(Me.txtD2_1)
         Me.txtNs_1 = New MTextBox()
         Me.txtNs_1.Name = "txtNs_1"
-        Me.txtNs_1.Location = New Point(8, 96)
+        Me.txtNs_1.Location = New Point(8, 103)
         Me.txtNs_1.AutoSize = False
         Me.txtNs_1.Size = New Size(53, 23)
         Me.txtNs_1.TabIndex = 2
@@ -301,7 +312,7 @@ Partial Class frmInput
         Me.Frame5.Controls.Add(Me.txtNs_1)
         Me.cmdNsOk_1 = New MCommandButton()
         Me.cmdNsOk_1.Name = "cmdNsOk_1"
-        Me.cmdNsOk_1.Location = New Point(8, 128)
+        Me.cmdNsOk_1.Location = New Point(8, 135)
         Me.cmdNsOk_1.Size = New Size(53, 31)
         Me.cmdNsOk_1.TabIndex = 3
         Me.cmdNsOk_1.Enabled = False
@@ -311,7 +322,7 @@ Partial Class frmInput
         Me.Frame5.Controls.Add(Me.cmdNsOk_1)
         Me.txtD2no_1 = New MTextBox()
         Me.txtD2no_1.Name = "txtD2no_1"
-        Me.txtD2no_1.Location = New Point(8, 12)
+        Me.txtD2no_1.Location = New Point(8, 19)
         Me.txtD2no_1.AutoSize = False
         Me.txtD2no_1.Size = New Size(53, 23)
         Me.txtD2no_1.TabIndex = 4
@@ -320,46 +331,50 @@ Partial Class frmInput
         Me.Frame5.Controls.Add(Me.txtD2no_1)
         Me.Label12 = New MLabel()
         Me.Label12.Name = "Label12"
-        Me.Label12.Location = New Point(10, 120)
+        Me.Label12.Location = New Point(10, 127)
         Me.Label12.Size = New Size(87, 15)
         Me.Label12.TabIndex = 1
         Me.Label12.Text = "비교회전도 (Ns)"
         Me.Label12.UseMnemonic = False
+        Me.Label12.AutoSize = True
         Me.Frame4.Controls.Add(Me.Label12)
         Me.Label13 = New MLabel()
         Me.Label13.Name = "Label13"
-        Me.Label13.Location = New Point(39, 64)
+        Me.Label13.Location = New Point(39, 71)
         Me.Label13.Size = New Size(58, 15)
         Me.Label13.TabIndex = 2
         Me.Label13.Text = "회전수 (N)"
         Me.Label13.UseMnemonic = False
+        Me.Label13.AutoSize = True
         Me.Frame4.Controls.Add(Me.Label13)
         Me.Label14 = New MLabel()
         Me.Label14.Name = "Label14"
-        Me.Label14.Location = New Point(4, 92)
+        Me.Label14.Location = New Point(4, 99)
         Me.Label14.Size = New Size(93, 15)
         Me.Label14.TabIndex = 3
         Me.Label14.Text = "회전차 외경 (D2)"
         Me.Label14.UseMnemonic = False
+        Me.Label14.AutoSize = True
         Me.Frame4.Controls.Add(Me.Label14)
         Me.Label15 = New MLabel()
         Me.Label15.Name = "Label15"
-        Me.Label15.Location = New Point(13, 36)
+        Me.Label15.Location = New Point(13, 43)
         Me.Label15.Size = New Size(84, 15)
         Me.Label15.TabIndex = 4
         Me.Label15.Text = "회전차 번호 (#)"
         Me.Label15.UseMnemonic = False
+        Me.Label15.AutoSize = True
         Me.Frame4.Controls.Add(Me.Label15)
         Me.Frame6 = New MFrame()
         Me.Frame6.Name = "Frame6"
-        Me.Frame6.Location = New Point(180, 12)
+        Me.Frame6.Location = New Point(180, 19)
         Me.Frame6.Size = New Size(72, 176)
         Me.Frame6.TabIndex = 5
         Me.Frame6.Text = "설계 #2"
         Me.Frame4.Controls.Add(Me.Frame6)
         Me.txtN_2 = New MTextBox()
         Me.txtN_2.Name = "txtN_2"
-        Me.txtN_2.Location = New Point(8, 40)
+        Me.txtN_2.Location = New Point(8, 47)
         Me.txtN_2.AutoSize = False
         Me.txtN_2.Size = New Size(53, 23)
         Me.txtN_2.TabIndex = 0
@@ -369,7 +384,7 @@ Partial Class frmInput
         Me.Frame6.Controls.Add(Me.txtN_2)
         Me.txtD2_2 = New MTextBox()
         Me.txtD2_2.Name = "txtD2_2"
-        Me.txtD2_2.Location = New Point(8, 68)
+        Me.txtD2_2.Location = New Point(8, 75)
         Me.txtD2_2.AutoSize = False
         Me.txtD2_2.Size = New Size(53, 23)
         Me.txtD2_2.TabIndex = 1
@@ -379,7 +394,7 @@ Partial Class frmInput
         Me.Frame6.Controls.Add(Me.txtD2_2)
         Me.txtNs_2 = New MTextBox()
         Me.txtNs_2.Name = "txtNs_2"
-        Me.txtNs_2.Location = New Point(8, 96)
+        Me.txtNs_2.Location = New Point(8, 103)
         Me.txtNs_2.AutoSize = False
         Me.txtNs_2.Size = New Size(53, 23)
         Me.txtNs_2.TabIndex = 2
@@ -389,7 +404,7 @@ Partial Class frmInput
         Me.Frame6.Controls.Add(Me.txtNs_2)
         Me.cmdNsOk_2 = New MCommandButton()
         Me.cmdNsOk_2.Name = "cmdNsOk_2"
-        Me.cmdNsOk_2.Location = New Point(8, 128)
+        Me.cmdNsOk_2.Location = New Point(8, 135)
         Me.cmdNsOk_2.Size = New Size(53, 31)
         Me.cmdNsOk_2.TabIndex = 3
         Me.cmdNsOk_2.Enabled = False
@@ -399,7 +414,7 @@ Partial Class frmInput
         Me.Frame6.Controls.Add(Me.cmdNsOk_2)
         Me.txtD2no_2 = New MTextBox()
         Me.txtD2no_2.Name = "txtD2no_2"
-        Me.txtD2no_2.Location = New Point(8, 12)
+        Me.txtD2no_2.Location = New Point(8, 19)
         Me.txtD2no_2.AutoSize = False
         Me.txtD2no_2.Size = New Size(53, 23)
         Me.txtD2no_2.TabIndex = 4
@@ -415,47 +430,52 @@ Partial Class frmInput
         Me.Controls.Add(Me.Frame7)
         Me.Label16 = New MLabel()
         Me.Label16.Name = "Label16"
-        Me.Label16.Location = New Point(4, 20)
+        Me.Label16.Location = New Point(4, 27)
         Me.Label16.Size = New Size(37, 15)
         Me.Label16.TabIndex = 0
         Me.Label16.Text = "날개수"
         Me.Label16.UseMnemonic = False
+        Me.Label16.AutoSize = True
         Me.Frame7.Controls.Add(Me.Label16)
         Me.Label17 = New MLabel()
         Me.Label17.Name = "Label17"
-        Me.Label17.Location = New Point(96, 20)
+        Me.Label17.Location = New Point(96, 27)
         Me.Label17.Size = New Size(15, 15)
         Me.Label17.TabIndex = 1
         Me.Label17.Text = "EA"
         Me.Label17.UseMnemonic = False
+        Me.Label17.AutoSize = True
         Me.Frame7.Controls.Add(Me.Label17)
         Me.Label18 = New MLabel()
         Me.Label18.Name = "Label18"
-        Me.Label18.Location = New Point(4, 48)
+        Me.Label18.Location = New Point(4, 55)
         Me.Label18.Size = New Size(49, 15)
         Me.Label18.TabIndex = 2
         Me.Label18.Text = "날개두께"
         Me.Label18.UseMnemonic = False
+        Me.Label18.AutoSize = True
         Me.Frame7.Controls.Add(Me.Label18)
         Me.Label19 = New MLabel()
         Me.Label19.Name = "Label19"
-        Me.Label19.Location = New Point(96, 48)
+        Me.Label19.Location = New Point(96, 55)
         Me.Label19.Size = New Size(23, 15)
         Me.Label19.TabIndex = 3
         Me.Label19.Text = "mm"
         Me.Label19.UseMnemonic = False
+        Me.Label19.AutoSize = True
         Me.Frame7.Controls.Add(Me.Label19)
         Me.Label20 = New MLabel()
         Me.Label20.Name = "Label20"
-        Me.Label20.Location = New Point(4, 72)
+        Me.Label20.Location = New Point(4, 79)
         Me.Label20.Size = New Size(49, 15)
         Me.Label20.TabIndex = 4
         Me.Label20.Text = "날개재질"
         Me.Label20.UseMnemonic = False
+        Me.Label20.AutoSize = True
         Me.Frame7.Controls.Add(Me.Label20)
         Me.txtBladeNo = New MTextBox()
         Me.txtBladeNo.Name = "txtBladeNo"
-        Me.txtBladeNo.Location = New Point(56, 16)
+        Me.txtBladeNo.Location = New Point(56, 23)
         Me.txtBladeNo.AutoSize = False
         Me.txtBladeNo.Size = New Size(36, 23)
         Me.txtBladeNo.TabIndex = 5
@@ -464,7 +484,7 @@ Partial Class frmInput
         Me.Frame7.Controls.Add(Me.txtBladeNo)
         Me.txtBladeThickness = New MTextBox()
         Me.txtBladeThickness.Name = "txtBladeThickness"
-        Me.txtBladeThickness.Location = New Point(56, 44)
+        Me.txtBladeThickness.Location = New Point(56, 51)
         Me.txtBladeThickness.AutoSize = False
         Me.txtBladeThickness.Size = New Size(36, 23)
         Me.txtBladeThickness.TabIndex = 6
@@ -473,7 +493,7 @@ Partial Class frmInput
         Me.Frame7.Controls.Add(Me.txtBladeThickness)
         Me.cboBladeMaterial = New MComboBox()
         Me.cboBladeMaterial.Name = "cboBladeMaterial"
-        Me.cboBladeMaterial.Location = New Point(8, 92)
+        Me.cboBladeMaterial.Location = New Point(8, 99)
         Me.cboBladeMaterial.DropDownStyle = ComboBoxStyle.DropDown
         Me.cboBladeMaterial.IntegralHeight = False
         Me.cboBladeMaterial.MaxDropDownItems = 12
@@ -490,7 +510,7 @@ Partial Class frmInput
         Me.Controls.Add(Me.Frame8)
         Me.optVbelt = New MOptionButton()
         Me.optVbelt.Name = "optVbelt"
-        Me.optVbelt.Location = New Point(12, 8)
+        Me.optVbelt.Location = New Point(12, 15)
         Me.optVbelt.Size = New Size(64, 25)
         Me.optVbelt.TabIndex = 0
         Me.optVbelt.Text = "V-벨트"
@@ -498,7 +518,7 @@ Partial Class frmInput
         Me.Frame8.Controls.Add(Me.optVbelt)
         Me.optDirect = New MOptionButton()
         Me.optDirect.Name = "optDirect"
-        Me.optDirect.Location = New Point(12, 32)
+        Me.optDirect.Location = New Point(12, 39)
         Me.optDirect.Size = New Size(75, 25)
         Me.optDirect.TabIndex = 1
         Me.optDirect.Text = "모터직결"
@@ -512,55 +532,61 @@ Partial Class frmInput
         Me.Controls.Add(Me.Frame9)
         Me.Label21 = New MLabel()
         Me.Label21.Name = "Label21"
-        Me.Label21.Location = New Point(8, 12)
+        Me.Label21.Location = New Point(8, 19)
         Me.Label21.Size = New Size(25, 15)
         Me.Label21.TabIndex = 0
         Me.Label21.Text = "출력"
         Me.Label21.UseMnemonic = False
+        Me.Label21.AutoSize = True
         Me.Frame9.Controls.Add(Me.Label21)
         Me.Label22 = New MLabel()
         Me.Label22.Name = "Label22"
-        Me.Label22.Location = New Point(108, 12)
+        Me.Label22.Location = New Point(108, 19)
         Me.Label22.Size = New Size(18, 15)
         Me.Label22.TabIndex = 1
         Me.Label22.Text = "kW"
         Me.Label22.UseMnemonic = False
+        Me.Label22.AutoSize = True
         Me.Frame9.Controls.Add(Me.Label22)
         Me.Label23 = New MLabel()
         Me.Label23.Name = "Label23"
-        Me.Label23.Location = New Point(140, 12)
+        Me.Label23.Location = New Point(140, 19)
         Me.Label23.Size = New Size(25, 15)
         Me.Label23.TabIndex = 2
         Me.Label23.Text = "전압"
         Me.Label23.UseMnemonic = False
+        Me.Label23.AutoSize = True
         Me.Frame9.Controls.Add(Me.Label23)
         Me.Label24 = New MLabel()
         Me.Label24.Name = "Label24"
-        Me.Label24.Location = New Point(240, 12)
+        Me.Label24.Location = New Point(240, 19)
         Me.Label24.Size = New Size(9, 15)
         Me.Label24.TabIndex = 3
         Me.Label24.Text = "V"
         Me.Label24.UseMnemonic = False
+        Me.Label24.AutoSize = True
         Me.Frame9.Controls.Add(Me.Label24)
         Me.Label25 = New MLabel()
         Me.Label25.Name = "Label25"
-        Me.Label25.Location = New Point(264, 12)
+        Me.Label25.Location = New Point(264, 19)
         Me.Label25.Size = New Size(25, 15)
         Me.Label25.TabIndex = 4
         Me.Label25.Text = "극수"
         Me.Label25.UseMnemonic = False
+        Me.Label25.AutoSize = True
         Me.Frame9.Controls.Add(Me.Label25)
         Me.Label26 = New MLabel()
         Me.Label26.Name = "Label26"
-        Me.Label26.Location = New Point(364, 12)
+        Me.Label26.Location = New Point(364, 19)
         Me.Label26.Size = New Size(8, 15)
         Me.Label26.TabIndex = 5
         Me.Label26.Text = "P"
         Me.Label26.UseMnemonic = False
+        Me.Label26.AutoSize = True
         Me.Frame9.Controls.Add(Me.Label26)
         Me.cboMotorOutput = New MComboBox()
         Me.cboMotorOutput.Name = "cboMotorOutput"
-        Me.cboMotorOutput.Location = New Point(40, 8)
+        Me.cboMotorOutput.Location = New Point(40, 15)
         Me.cboMotorOutput.DropDownStyle = ComboBoxStyle.DropDown
         Me.cboMotorOutput.IntegralHeight = False
         Me.cboMotorOutput.MaxDropDownItems = 12
@@ -570,7 +596,7 @@ Partial Class frmInput
         Me.Frame9.Controls.Add(Me.cboMotorOutput)
         Me.cboMotorVoltage = New MComboBox()
         Me.cboMotorVoltage.Name = "cboMotorVoltage"
-        Me.cboMotorVoltage.Location = New Point(172, 8)
+        Me.cboMotorVoltage.Location = New Point(172, 15)
         Me.cboMotorVoltage.DropDownStyle = ComboBoxStyle.DropDown
         Me.cboMotorVoltage.IntegralHeight = False
         Me.cboMotorVoltage.MaxDropDownItems = 12
@@ -580,7 +606,7 @@ Partial Class frmInput
         Me.Frame9.Controls.Add(Me.cboMotorVoltage)
         Me.cboMotorPoles = New MComboBox()
         Me.cboMotorPoles.Name = "cboMotorPoles"
-        Me.cboMotorPoles.Location = New Point(296, 8)
+        Me.cboMotorPoles.Location = New Point(296, 15)
         Me.cboMotorPoles.DropDownStyle = ComboBoxStyle.DropDown
         Me.cboMotorPoles.IntegralHeight = False
         Me.cboMotorPoles.MaxDropDownItems = 12
@@ -597,7 +623,7 @@ Partial Class frmInput
         Me.Controls.Add(Me.Frame10)
         Me.Label27 = New MLabel()
         Me.Label27.Name = "Label27"
-        Me.Label27.Location = New Point(8, 84)
+        Me.Label27.Location = New Point(8, 91)
         Me.Label27.Size = New Size(86, 13)
         Me.Label27.TabIndex = 0
         Me.Label27.Font = New Font("맑은 고딕", 8.25F)
@@ -608,14 +634,14 @@ Partial Class frmInput
         Me.Frame10.Controls.Add(Me.Label27)
         Me.Frame11 = New MFrame()
         Me.Frame11.Name = "Frame11"
-        Me.Frame11.Location = New Point(4, 104)
+        Me.Frame11.Location = New Point(4, 111)
         Me.Frame11.Size = New Size(96, 72)
         Me.Frame11.TabIndex = 1
         Me.Frame11.Text = "회전방향"
         Me.Frame10.Controls.Add(Me.Frame11)
         Me.optCW = New MOptionButton()
         Me.optCW.Name = "optCW"
-        Me.optCW.Location = New Point(4, 8)
+        Me.optCW.Location = New Point(4, 15)
         Me.optCW.Size = New Size(75, 25)
         Me.optCW.TabIndex = 0
         Me.optCW.Text = "시계방향"
@@ -623,21 +649,21 @@ Partial Class frmInput
         Me.Frame11.Controls.Add(Me.optCW)
         Me.optCCW = New MOptionButton()
         Me.optCCW.Name = "optCCW"
-        Me.optCCW.Location = New Point(4, 32)
+        Me.optCCW.Location = New Point(4, 39)
         Me.optCCW.Size = New Size(87, 25)
         Me.optCCW.TabIndex = 1
         Me.optCCW.Text = "반시계방향"
         Me.Frame11.Controls.Add(Me.optCCW)
         Me.Frame12 = New MFrame()
         Me.Frame12.Name = "Frame12"
-        Me.Frame12.Location = New Point(4, 184)
+        Me.Frame12.Location = New Point(4, 191)
         Me.Frame12.Size = New Size(96, 96)
         Me.Frame12.TabIndex = 2
         Me.Frame12.Text = "토출방향"
         Me.Frame10.Controls.Add(Me.Frame12)
         Me.optUp = New MOptionButton()
         Me.optUp.Name = "optUp"
-        Me.optUp.Location = New Point(4, 8)
+        Me.optUp.Location = New Point(4, 15)
         Me.optUp.Size = New Size(51, 25)
         Me.optUp.TabIndex = 0
         Me.optUp.Text = "상부"
@@ -645,28 +671,28 @@ Partial Class frmInput
         Me.Frame12.Controls.Add(Me.optUp)
         Me.optLeft = New MOptionButton()
         Me.optLeft.Name = "optLeft"
-        Me.optLeft.Location = New Point(4, 32)
+        Me.optLeft.Location = New Point(4, 39)
         Me.optLeft.Size = New Size(51, 25)
         Me.optLeft.TabIndex = 1
         Me.optLeft.Text = "좌측"
         Me.Frame12.Controls.Add(Me.optLeft)
         Me.optRight = New MOptionButton()
         Me.optRight.Name = "optRight"
-        Me.optRight.Location = New Point(4, 56)
+        Me.optRight.Location = New Point(4, 63)
         Me.optRight.Size = New Size(51, 25)
         Me.optRight.TabIndex = 2
         Me.optRight.Text = "우측"
         Me.Frame12.Controls.Add(Me.optRight)
         Me.Frame13 = New MFrame()
         Me.Frame13.Name = "Frame13"
-        Me.Frame13.Location = New Point(4, 288)
+        Me.Frame13.Location = New Point(4, 295)
         Me.Frame13.Size = New Size(96, 72)
         Me.Frame13.TabIndex = 3
         Me.Frame13.Text = "모터위치"
         Me.Frame10.Controls.Add(Me.Frame13)
         Me.optMLeft = New MOptionButton()
         Me.optMLeft.Name = "optMLeft"
-        Me.optMLeft.Location = New Point(4, 8)
+        Me.optMLeft.Location = New Point(4, 15)
         Me.optMLeft.Size = New Size(51, 25)
         Me.optMLeft.TabIndex = 0
         Me.optMLeft.Text = "좌측"
@@ -674,14 +700,14 @@ Partial Class frmInput
         Me.Frame13.Controls.Add(Me.optMLeft)
         Me.optMRight = New MOptionButton()
         Me.optMRight.Name = "optMRight"
-        Me.optMRight.Location = New Point(4, 32)
+        Me.optMRight.Location = New Point(4, 39)
         Me.optMRight.Size = New Size(51, 25)
         Me.optMRight.TabIndex = 1
         Me.optMRight.Text = "우측"
         Me.Frame13.Controls.Add(Me.optMRight)
         Me.imgFan = New MImage()
         Me.imgFan.Name = "imgFan"
-        Me.imgFan.Location = New Point(9, 12)
+        Me.imgFan.Location = New Point(9, 19)
         Me.imgFan.Size = New Size(85, 69)
         Me.imgFan.TabIndex = 4
         Me.imgFan.SizeMode = PictureBoxSizeMode.CenterImage

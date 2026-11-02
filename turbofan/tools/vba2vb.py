@@ -668,7 +668,11 @@ def designer(fname, f, resources):
     body = []
     font_default = (f['props'].get('font') or '맑은 고딕', f['props'].get('size_twips', 180) / 20.0)
 
-    def emit(c, parent):
+    # MSForms 의 테두리(Frame)는 제목 아래부터 안쪽 좌표가 시작되지만, WinForms GroupBox 는 바깥 위쪽부터다.
+    # 제목이 있는 테두리 안의 컨트롤을 제목 높이만큼 내리고, 모자라면 테두리를 그만큼 늘린다.
+    FRAME_CAPTION_SHIFT = 7
+
+    def emit(c, parent, yoff=0):
         t = c['type']
         cls = WRAP.get(t)
         if not cls:
@@ -678,8 +682,13 @@ def designer(fname, f, resources):
         decls.append('    Friend WithEvents %s As %s' % (n, cls))
         b = body
         b.append('        Me.%s = New %s()' % (n, cls))
-        x, y = himetric(c['x']), himetric(c['y'])
+        x, y = himetric(c['x']), himetric(c['y']) + yoff
         w, h = himetric(c.get('w', 2000)), himetric(c.get('h', 600))
+        shift = 0
+        if t == 'Frame' and c.get('caption', '').strip():
+            shift = FRAME_CAPTION_SHIFT
+            bottom = max([himetric(k['y']) + himetric(k.get('h', 600)) for k in c['children']] or [0]) + shift + 3
+            h = max(h, bottom)
         b.append('        Me.%s.Name = "%s"' % (n, n))
         b.append('        Me.%s.Location = New Point(%d, %d)' % (n, x, y))
         if t in ('TextBox',):
@@ -727,6 +736,9 @@ def designer(fname, f, resources):
         elif t == 'Label':
             b.append('        Me.%s.Text = %s' % (n, vbstr(c.get('caption', ''))))
             b.append('        Me.%s.UseMnemonic = False' % n)
+            # 한 줄짜리 글자는 글자 크기에 맞춰 늘린다 (윈도우 글꼴이 원본보다 넓어서 잘리던 것)
+            if '\n' not in c.get('caption', '') and c.get('h', 0) <= 450 and align not in (2, 3):
+                b.append('        Me.%s.AutoSize = True' % n)
             if align == 3:
                 b.append('        Me.%s.TextAlign = ContentAlignment.TopCenter' % n)
             elif align == 2:
@@ -752,7 +764,7 @@ def designer(fname, f, resources):
         b.append('        %s.Controls.Add(Me.%s)' % (parent, n))
         if t == 'Frame':
             for ch_ in sorted(c['children'], key=lambda z: z['tab']):
-                emit(ch_, 'Me.' + n)
+                emit(ch_, 'Me.' + n, shift)
 
     for c in sorted(f['controls'], key=lambda z: z['tab']):
         emit(c, 'Me')

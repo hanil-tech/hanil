@@ -45,6 +45,9 @@ Public Class MForm
     End Sub
 
     Private initialized As Boolean
+#If Not TESTBUILD Then
+    Private zoom As FormZoom
+#End If
 
     ''' <summary>
     ''' 원본의 UserForm_Initialize. 필요한 폼이 Overrides 한다.
@@ -66,6 +69,12 @@ Public Class MForm
         End If
         If Not Visible Then
             MyBase.Show()
+#If Not TESTBUILD Then
+            If zoom Is Nothing Then
+                zoom = New FormZoom(Me)
+                zoom.ApplyInitialSize()
+            End If
+#End If
         End If
         Activate()
         UserForm_Activate()

@@ -114,6 +114,14 @@ Public Class MTextBox
     End Sub
 
     Protected Overrides Sub OnTextChanged(e As EventArgs)
+        ' 한글 입력기의 전각 숫자(３００)는 바로 보통 숫자(300)로 바꾼다 — 계산에서 숫자로 읽히도록
+        Dim fixedText = NormalizeDigits(Text)
+        If fixedText <> Text Then
+            Dim caret = SelectionStart
+            Text = fixedText          ' 다시 OnTextChanged 로 들어온다
+            SelectionStart = Math.Min(caret, fixedText.Length)
+            Return
+        End If
         MyBase.OnTextChanged(e)
         If Not IsLoading(Me) Then RaiseEvent VbChange(Me, EventArgs.Empty)
     End Sub
@@ -220,6 +228,11 @@ Public Class MComboBox
     End Sub
 
     Protected Overrides Sub OnTextChanged(e As EventArgs)
+        Dim fixedText = NormalizeDigits(Text)
+        If fixedText <> Text Then
+            Text = fixedText
+            Return
+        End If
         MyBase.OnTextChanged(e)
         If Not IsLoading(Me) Then RaiseEvent VbChange(Me, EventArgs.Empty)
     End Sub

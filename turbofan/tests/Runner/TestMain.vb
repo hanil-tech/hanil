@@ -66,7 +66,8 @@ Public Module TestMain
         RunStep("뒤로 → 입력", Sub() frmOutput.cmdRestart.PerformClick())
         Check(frmInput.Visible, "입력 창으로")
         RunStep("새로설계", Sub() frmInput.cmdRedesign.PerformClick())
-        DesignDirect("120", "80", "10", "2.3")
+        DesignDirect("120", "８０", "10", "2.3")   ' 전각 숫자(한글 입력기)도 숫자로 받아야 함
+        Check(frmInput.txtPs.Text = "80", "전각 숫자 → 보통 숫자: " & frmInput.txtPs.Text)
         DumpOutput()
         RunStep("설계결과 → 출력관리", Sub() frmOutput.cmdOut.PerformClick())
         For Each dirCase In {("CW", "UP", "ML"), ("CW", "LEFT", "ML"), ("CCW", "RIGHT", "ML")}
