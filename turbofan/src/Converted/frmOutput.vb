@@ -62,7 +62,7 @@ Partial Class frmOutput
 
         If answer = vbYes Then
 
-            End
+            QuitApplication()
 
         End If
 

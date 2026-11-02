@@ -50,7 +50,7 @@ Partial Class frmNoise
 
         If answer = vbYes Then
 
-            End
+            QuitApplication()
 
         End If
 

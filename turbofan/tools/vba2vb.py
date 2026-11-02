@@ -309,7 +309,8 @@ class Translator:
             if firstw == 'with':
                 return lead + 'With ' + self.expr_no_default(body[4:].strip())
             if firstw == 'end' and low == 'end':
-                return lead + 'End'
+                # 원본의 End: 정리(AutoCAD 연결, COM 필터)한 뒤 끝낸다
+                return lead + 'QuitApplication()'
             return lead + self.expr(body)
         # assignment or call
         return lead + self.call_or_assign(body)

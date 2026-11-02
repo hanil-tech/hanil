@@ -85,7 +85,7 @@ Public Class MForm
         MyBase.OnFormClosing(e)
         If e.CloseReason = CloseReason.UserClosing Then
             e.Cancel = True
-            Program.QuitApplication()
+            Program.QuitApplication(stopCurrentCode:=False)
         End If
     End Sub
 End Class

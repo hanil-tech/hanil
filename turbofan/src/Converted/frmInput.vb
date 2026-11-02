@@ -208,7 +208,7 @@ Partial Class frmInput
 
             answer = MsgBox("정말로 끝내시겠습니까?", vbYesNo + vbQuestion, "종료확인")
         If answer = vbYes Then
-            End
+            QuitApplication()
         End If
 
     End Sub

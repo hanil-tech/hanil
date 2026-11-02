@@ -699,7 +699,7 @@ Public Module Calculation
             '설계범위초과 자동종료
             If spower > 200 Then
                 MsgBox("예상 소요 동력이 200kw(272HP)가 넘습니다. 본 설계 프로그램의 " & vbCrLf & "설계 범위를 초과하여 프로그램을 자동 종료합니다.", vbOKOnly + vbCritical, "설계 범위 초과")
-                End
+                QuitApplication()
             End If
 
             'Motor에 관계되는 Data읽어오기

@@ -32,7 +32,7 @@ Partial Class frmOutMan
 
         If answer = vbYes Then
 
-            End
+            QuitApplication()
 
         End If
 

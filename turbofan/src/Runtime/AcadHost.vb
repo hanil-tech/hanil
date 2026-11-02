@@ -87,6 +87,19 @@ Public Module AcadHost
         End Get
     End Property
 
+    ''' <summary>AutoCAD·도면 연결을 놓는다 (프로그램을 끝낼 때).</summary>
+    Public Sub ReleaseAutoCad()
+        For Each o In {_doc, _app}
+            Try
+                If o IsNot Nothing AndAlso Marshal.IsComObject(o) Then Marshal.FinalReleaseComObject(o)
+            Catch
+            End Try
+        Next
+        _doc = Nothing
+        _app = Nothing
+        MessageFilter.Unregister()
+    End Sub
+
     Public ReadOnly Property IsAutoCadConnected As Boolean
         Get
             Return _app IsNot Nothing
@@ -326,6 +339,20 @@ Public Class MessageFilter
             registered = True
         Catch
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' 프로그램을 끝내기 전에 꼭 부른다. 등록해 둔 채 끝내면 .NET 이 내려간 뒤에 윈도우가 이 필터를 불러서
+    ''' "unknown software exception (0xc0020001)" 오류 창이 뜬다.
+    ''' </summary>
+    Public Shared Sub Unregister()
+        If Not registered Then Return
+        Dim old As IOleMessageFilter = Nothing
+        Try
+            CoRegisterMessageFilter(Nothing, old)
+        Catch
+        End Try
+        registered = False
     End Sub
 
     Private Function HandleInComingCall(dwCallType As Integer, hTaskCaller As IntPtr, dwTickCount As Integer, lpInterfaceInfo As IntPtr) As Integer Implements IOleMessageFilter.HandleInComingCall

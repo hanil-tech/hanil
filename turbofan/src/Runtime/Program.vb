@@ -15,21 +15,41 @@ Public Module Program
         Catch
         End Try
 
-        ' AutoCAD 가 바쁠 때 호출을 다시 시도하게 (UI 스레드에 한 번)
-        MessageFilter.Register()
+        ' (AutoCAD 가 바쁠 때 다시 시도하게 하는 장치는 AutoCAD 에 붙을 때 등록한다)
 
         frmInput.Show(1)
         Application.Run()
+        ReleaseAutoCad()
     End Sub
 
-    Public Sub QuitApplication()
-        Application.Exit()
-        Environment.Exit(0)
+    ''' <summary>
+    ''' 원본의 End 문, 창의 [X].
+    ''' AutoCAD 연결과 COM 필터를 정리하고, 창을 닫아 메시지 루프가 끝나게 한 뒤 Main 에서 정상 종료한다.
+    ''' (프로세스를 바로 죽이면 0xc0020001 "unknown software exception" 오류 창이 뜬다.)
+    ''' End 뒤의 원본 코드가 이어서 돌지 않도록, stopCurrentCode 이면 지금 처리 중인 코드를 멈춘다.
+    ''' </summary>
+    Public Sub QuitApplication(Optional stopCurrentCode As Boolean = True)
+        If Not quitting Then
+            quitting = True
+            Try
+                ReleaseAutoCad()
+            Catch
+            End Try
+            Application.Exit()
+        End If
+        If stopCurrentCode Then Throw New QuitSignal()
     End Sub
+    Private quitting As Boolean
+
+    ''' <summary>End 이후 코드를 멈추기 위한 신호 (오류 아님).</summary>
+    Public Class QuitSignal
+        Inherits Exception
+    End Class
 
     ''' <summary>원본에서 "런타임 오류" 창이 뜨던 자리. 메시지를 보여 주고 계속 쓸 수 있게 한다.</summary>
     Public Sub ShowError(ex As Exception)
         If TypeOf ex Is Reflection.TargetInvocationException AndAlso ex.InnerException IsNot Nothing Then ex = ex.InnerException
+        If TypeOf ex Is QuitSignal Then Return
         If TypeOf ex Is AutoCadNotAvailableException Then
             MsgBox(ex.Message, MsgBoxStyle.Exclamation, "AutoCAD")
             Return
