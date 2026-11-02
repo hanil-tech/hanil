@@ -10,7 +10,7 @@ Public Module TestShims
 End Module
 
 Public Module Program
-    Public Sub QuitApplication()
+    Public Sub QuitApplication(Optional stopCurrentCode As Boolean = True)
         Throw New Exception("QuitApplication 호출됨")
     End Sub
 End Module
