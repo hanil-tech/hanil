@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Turbo Fan Design — AutoCAD VBA(Turbo_Fan_Design.dvb)를 윈도우 프로그램으로 옮긴 것.
+    .NET Framework 4.8 (윈도우 10/11 에 기본으로 들어 있음) 이라 따로 설치할 것이 없다.
+    리눅스에서도 빌드된다: ../build.sh
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <RootNamespace></RootNamespace>
+    <AssemblyName>TurboFanDesign</AssemblyName>
+    <MyType>WindowsFormsWithCustomSubMain</MyType>
+    <StartupObject>Program</StartupObject>
+    <OptionStrict>Off</OptionStrict>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionCompare>Binary</OptionCompare>
+    <OptionInfer>On</OptionInfer>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\turbofan.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>Turbo Fan Design</Product>
+    <Company>한일특장(주)</Company>
+    <Copyright>한일특장(주)</Copyright>
+    <Description>터보팬 설계 (AutoCAD 연동)</Description>
+    <NoWarn>$(NoWarn);42016;42017;42018;42019;42020;42021;42022;42024;42025;42032;41999;42104;42105;42106;42107;42108;42109;42353;42354;42355</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+    <DebugType>embedded</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Import Include="System.Drawing" />
+    <Import Include="System.Windows.Forms" />
+    <Import Include="System.Linq" />
+    <Import Include="System.Collections.Generic" />
+    <Import Include="System.Diagnostics" />
+    <EmbeddedResource Include="Resources\*.bmp" LogicalName="%(Filename)" />
+  </ItemGroup>
+</Project>

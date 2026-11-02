@@ -41,6 +41,16 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면만 열어 바코드·레이저 프린터로 라벨을 뽑습니다.
 설치 없이 두 번 눌러 실행합니다. 자세한 안내는 [label/README.md](../label/README.md).
 
+## 🌀 Turbo Fan Design (AutoCAD 터보팬 설계)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-turbofan-v1.0.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-turbofan-v1.0.0.exe)** | AutoCAD 가 있는 설계 PC | 0.6MB |
+
+AutoCAD VBA 매크로(`Turbo_Fan_Design.dvb`)를 따로 실행하는 프로그램으로 옮긴 것입니다. 두 번 누르면 바로 뜹니다(설치 없음).
+도면은 켜져 있는 AutoCAD 에 그리며, AutoCAD 에 VBA 모듈을 깔 필요가 없습니다.
+자료 파일은 지금처럼 AutoCAD 폴더의 `ALISP\Turbo Fan Design` 을 그대로 씁니다. 자세한 안내는 [turbofan/README.md](../turbofan/README.md).
+
 ## 📦 포털 대용량 파일 (올리기·받기)
 
 | 받기 | 어디에 | 크기 |

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 시험 전용: 가짜 WinForms + 가짜 AutoCAD (리눅스에서 변환 코드를 돌려 보기 위함) -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>CS0108;CS0114;CS0067;CS0436</NoWarn>
+  </PropertyGroup>
+</Project>
