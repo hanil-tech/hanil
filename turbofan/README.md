@@ -12,7 +12,7 @@ AutoCAD 안에서 VBA 매크로(`Turbo_Fan_Design.dvb`)로 돌던 **터보팬 �
 
 ## 받기
 
-**[release/hanil-turbofan-v1.0.4.exe](../release/hanil-turbofan-v1.0.4.exe)**: 받아서 두 번 누르면 됩니다.
+**[release/hanil-turbofan-v1.0.5.exe](../release/hanil-turbofan-v1.0.5.exe)**: 받아서 두 번 누르면 됩니다.
 
 > 처음 열 때 파란 "Windows의 PC 보호" 창이 뜨면 **[추가 정보] → [실행]** 을 누르세요.
 > 사내에서 만든 프로그램이라 서명이 없어서 그렇습니다.

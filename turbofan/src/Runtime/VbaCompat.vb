@@ -55,17 +55,48 @@ Public Module VbaCompat
                 Case &HFF0D, &H2212 : sb.Append("-"c)
                 Case &HFF0B : sb.Append("+"c)
                 Case &HFF0C : sb.Append(","c)
-                Case &H3000, &HA0 : sb.Append(" "c)
-                Case Else : sb.Append(ch)
+                Case &H3000, &HA0, &H2000 To &H200A : sb.Append(" "c)
+                Case Else
+                    ' 보이지 않는 글자(폭 없는 공백, 방향 표시, 제어 문자 등)는 버린다
+                    Dim cat = Char.GetUnicodeCategory(ch)
+                    If cat = Globalization.UnicodeCategory.Format OrElse cat = Globalization.UnicodeCategory.Control Then Continue For
+                    sb.Append(ch)
             End Select
         Next
         Return sb.ToString()
     End Function
 
     Public Function IsNumeric(value As Object) As Boolean
-        If TypeOf value Is String Then Return Information.IsNumeric(NormalizeDigits(CStr(value)).Trim())
+        If TypeOf value Is String Then
+            Dim ok = Information.IsNumeric(NormalizeDigits(CStr(value)).Trim())
+            LastNonNumeric = If(ok, Nothing, CStr(value))
+            Return ok
+        End If
         Return Information.IsNumeric(value)
     End Function
+
+    ''' <summary>마지막으로 숫자가 아니라고 판단한 글자 (오류 창에 그대로 보여 주기 위함).</summary>
+    Friend LastNonNumeric As String
+
+    ''' <summary>"[100]  (31 30 30)" 처럼 글자와 문자 코드를 보여 준다.</summary>
+    Public Function DescribeText(s As String) As String
+        If s Is Nothing Then Return "(없음)"
+        Return "[" & s & "]  (" & String.Join(" ", s.Select(Function(c) Hex(AscW(c)))) & ")"
+    End Function
+
+#If Not TESTBUILD Then
+    ''' <summary>
+    ''' 원본 MsgBox 그대로. 다만 "숫자가 아닙니다" 오류에는 실제로 칸에 들어 있던 글자와 문자 코드를 덧붙인다
+    ''' (화면에는 숫자로 보이는데 오류가 나는 경우 원인을 알 수 있게).
+    ''' </summary>
+    Public Function MsgBox(Prompt As Object, Optional Buttons As MsgBoxStyle = MsgBoxStyle.OkOnly, Optional Title As Object = Nothing) As MsgBoxResult
+        Dim text = CStr(Prompt)
+        If text IsNot Nothing AndAlso text.Contains("숫자가 아닙니다") AndAlso LastNonNumeric IsNot Nothing Then
+            text &= vbCrLf & vbCrLf & "입력된 값: " & DescribeText(LastNonNumeric)
+        End If
+        Return Interaction.MsgBox(text, Buttons, Title)
+    End Function
+#End If
 
     Public Function Val(value As Object) As Double
         If value Is Nothing Then Return 0
