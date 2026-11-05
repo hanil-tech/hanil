@@ -80,7 +80,7 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 #go:hover{background:var(--acc2)}
 #go:disabled{background:#9aa9c6;cursor:wait}
 /* ── 파레트(여러 품번) ── */
-#plist{display:none;max-height:440px;overflow:auto;padding:14px;border-right:1px solid var(--line);background:#fff}
+#plist{display:none;max-height:none;overflow:visible;padding:14px;border-right:1px solid var(--line);background:#fff}
 #plist table{width:100%;border-collapse:collapse;font-size:17px}
 #plist th{text-align:left;color:var(--muted);font-size:13px;padding:6px 8px;border-bottom:2px solid var(--line)}
 #plist td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -88,6 +88,10 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 #plist td.nm{color:var(--muted);font-size:14px}
 #plist input{width:110px;border:2px solid var(--line);border-radius:10px;padding:8px 10px;font-size:20px;font-weight:700;text-align:right}
 #plist input:focus{border-color:var(--acc);outline:0}
+#pprev{margin-top:16px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#f9fafc}
+#pprev .hd{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted);font-weight:700;padding:6px 10px;border-bottom:1px solid var(--line);background:#fff}
+#pvf{display:block;width:100%;height:320px;border:0;background:#fff}
+#pvmsg{padding:40px 12px;text-align:center;color:var(--muted);font-size:15px}
 body.pal #dimg,body.pal #qtyBox{display:none}
 body.pal #plist{display:block}
 #back{border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:17px;cursor:pointer;color:var(--ink)}
@@ -202,7 +206,7 @@ var L={
   none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',
   issue:'라벨 발행',making:'만드는 중…',back:'다른 품번 찾기 (Esc)',noimg:'사진이 없습니다',fromqr:'라벨 샘플에서 불러왔습니다',fromqr2:'수량을 확인하고 발행하세요',
   readqr:'라벨을 읽었습니다',needqty:'수량을 넣어 주세요',notready:'라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요',
-  qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',palItems:'품번 {n}개를 한 파레트로',palPart:'품번',palName:'품명',palNone:'이 파레트에 담긴 품번이 없습니다',palNoBundle:'라벨 화면에 파레트 묶기가 없습니다 — 「상세 화면」에서 뽑아 주세요',
+  qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',palItems:'품번 {n}개를 한 파레트로',palPart:'품번',palName:'품명',palNone:'이 파레트에 담긴 품번이 없습니다',palNoBundle:'라벨 화면에 파레트 묶기가 없습니다 — 「상세 화면」에서 뽑아 주세요',pv:'미리보기',pvWait:'미리보기 그리는 중…',pvQty:'수량을 모두 넣으면 미리보기가 나옵니다',pvNone:'미리보기는 포털 업데이트 뒤에 보입니다',pvFail:'미리보기를 못 그렸습니다',pvNote:'번호·로트는 발행할 때 매겨집니다',
   notlabel:'이 코드는 라벨 QR 이 아닙니다',nopart:'품목에 없는 품번입니다',pick:'언어를 고르세요',makefail:'라벨을 만들지 못했습니다'},
  en:{brand:'HANIL Label',sub:'Search a part no. or name, or scan a sample label',ph:'Part no. · name, or scan label QR',find:'Search',
   tip:'Scan a sample label to open it — just enter the quantity and print',ready:'Ready',wait:'Loading…',waitlong:'Waiting for the label screen',
@@ -210,7 +214,7 @@ var L={
   none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',
   issue:'Print label',making:'Printing…',back:'Search another (Esc)',noimg:'No photo',fromqr:'Opened from a sample label',fromqr2:'check the quantity and print',
   readqr:'Label scanned',needqty:'Enter the quantity',notready:'The label screen is not ready yet — try again in a moment',
-  qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',palItems:'{n} parts on one pallet',palPart:'Part',palName:'Name',palNone:'This pallet has no parts',palNoBundle:'Pallet bundling is not available — print it in "Advanced"',
+  qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',palItems:'{n} parts on one pallet',palPart:'Part',palName:'Name',palNone:'This pallet has no parts',palNoBundle:'Pallet bundling is not available — print it in "Advanced"',pv:'Preview',pvWait:'Drawing preview…',pvQty:'Enter every quantity to see the preview',pvNone:'Preview needs a portal update',pvFail:'Could not draw the preview',pvNote:'Numbers and LOT are assigned when printed',
   notlabel:'This is not a label QR code',nopart:'This part no. is not in the item list',pick:'Choose your language',makefail:'Could not make the label'},
  vi:{brand:'Nhãn HANIL',sub:'Tìm mã hàng hoặc tên hàng, hoặc quét nhãn mẫu',ph:'Mã hàng · tên hàng, hoặc quét QR nhãn',find:'Tìm',
   tip:'Quét nhãn mẫu để mở ngay — chỉ cần nhập số lượng và in',ready:'Sẵn sàng',wait:'Đang tải…',waitlong:'Đang chờ màn hình nhãn',
@@ -218,7 +222,7 @@ var L={
   none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',
   issue:'In nhãn',making:'Đang in…',back:'Tìm mã khác (Esc)',noimg:'Không có ảnh',fromqr:'Đã mở từ nhãn mẫu',fromqr2:'kiểm tra số lượng rồi in',
   readqr:'Đã quét nhãn',needqty:'Hãy nhập số lượng',notready:'Màn hình nhãn chưa sẵn sàng — vui lòng thử lại sau',
-  qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',palItems:'{n} mã hàng trên một pallet',palPart:'Mã',palName:'Tên',palNone:'Pallet này không có mã hàng',palNoBundle:'Không gộp pallet được — hãy in ở mục "Chi tiết"',
+  qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',palItems:'{n} mã hàng trên một pallet',palPart:'Mã',palName:'Tên',palNone:'Pallet này không có mã hàng',palNoBundle:'Không gộp pallet được — hãy in ở mục "Chi tiết"',pv:'Xem trước',pvWait:'Đang vẽ xem trước…',pvQty:'Nhập đủ số lượng để xem trước',pvNone:'Cần cập nhật portal để xem trước',pvFail:'Không vẽ được xem trước',pvNote:'Số và LOT được cấp khi in',
   notlabel:'Đây không phải mã QR nhãn',nopart:'Không có mã hàng này',pick:'Chọn ngôn ngữ',makefail:'Không tạo được nhãn'},
  my:{brand:'HANIL တံဆိပ်',sub:'ပစ္စည်းနံပါတ် သို့မဟုတ် အမည်ကို ရှာပါ၊ သို့မဟုတ် နမူနာတံဆိပ်ကို စကင်ဖတ်ပါ',ph:'ပစ္စည်းနံပါတ် · အမည်၊ သို့မဟုတ် QR စကင်',find:'ရှာရန်',
   tip:'နမူနာတံဆိပ်ကို စကင်ဖတ်ပါ — အရေအတွက်ထည့်ပြီး ပရင့်ထုတ်ပါ',ready:'အဆင်သင့်',wait:'ဖွင့်နေသည်…',waitlong:'တံဆိပ်စာမျက်နှာကို စောင့်နေသည်',
@@ -554,7 +558,11 @@ function pickPallet(no, pl, items){
     +CUR.items.map(function(x,i){
       return '<tr><td class="pn">'+esc(x.part_no)+'</td><td class="nm">'+esc(x.part_name||'')+'</td>'
         +'<td style="text-align:right"><input class="pq" data-i="'+i+'" inputmode="numeric" autocomplete="off" value="'+esc(x.qty!=null?String(x.qty):'')+'"></td></tr>';
-    }).join('')+'</table>';
+    }).join('')+'</table>'
+    +'<div id="pprev"><div class="hd"><span>👁 '+esc(t('pv'))+'</span><span>'+esc(t('pvNote'))+'</span></div>'
+    +'<div id="pvmsg">'+esc(t('pvWait'))+'</div>'
+    //  ⚠ sandbox(스크립트·인쇄 창 없음) — 라벨 HTML 에 저절로 인쇄하는 코드가 있어도 여기서는 안 돈다
+    +'<iframe id="pvf" sandbox="allow-same-origin" style="display:none" tabindex="-1"></iframe></div>';
   fillSel();
   var pref=load('hl_pl:'+no);
   if(pref){ if(pref.paper) $('paper').value=pref.paper; if(pref.form) $('form').value=pref.form; }
@@ -569,7 +577,9 @@ function pickPallet(no, pl, items){
       var L=$('plist').querySelectorAll('.pq'), i=Number(this.getAttribute('data-i'));
       if(i+1<L.length){ L[i+1].focus(); L[i+1].select(); } else issue();
     });
+    e.addEventListener('input', pvSoon);
   });
+  pvSoon(50);
   setTimeout(function(){ $('go').focus(); }, 30);
 }
 //  엔진(포털 라벨 화면)의 칸에 값을 넣고, 화면이 알아채도록 change 를 보낸다
@@ -747,39 +757,136 @@ async function issue(){
 }
 
 //  📦 파레트 — 담긴 품번을 모두 장바구니에 넣고 「로 묶기 (한 파레트)」를 켜서 한 라벨로
-async function issuePallet(){
+function palCart(){
   var L=$('plist').querySelectorAll('.pq'), cart=[];
   for(var i=0;i<L.length;i++){
     var x=CUR.items[i], q=String(L[i].value||'').replace(/[^0-9.]/g,'');
-    if(!q || !(Number(q)>0)){ toast(t('needqty')+' — '+x.part_no, 'bad'); L[i].focus(); return; }
+    if(!q || !(Number(q)>0)) return {bad:i, part:x.part_no};
     cart.push({img_id:x.img_id||0, customer:x.customer||'', part_no:x.part_no||'', part_name:x.part_name||'',
       model:x.model||'', spec:x.spec||'', due:'', qty:q, unit:x.unit||'EA', n:1});
   }
+  return {cart:cart};
+}
+//  숨은 라벨 화면에 양식·라벨지·장바구니·묶기·장수를 넣는다 → 넣은 장수를 돌려준다
+function engFillPallet(w, cart, n){
+  var doc=w.document, bc=doc.getElementById('bundleChk');
+  var fo=doc.getElementById('form'), sh=doc.getElementById('sheet');
+  if($('form').value && fo.value!==$('form').value){
+    fo.value=$('form').value;
+    try{ w.formChanged(); }catch(e){}
+    try{ w.loadOrient(); }catch(e){}
+    try{ w.loadTune(); }catch(e){}
+  }
+  if($('paper').value) sh.value=$('paper').value;
+  engSet(doc.getElementById('perBox'), '');
+  w.CART=cart;
+  engSet(bc, true);
+  w.CART=cart;                     //  ⚠ 묶기를 켜는 순간 화면이 장바구니를 다시 그릴 수 있다 — 한 번 더
+  var cp=engCopies(doc);
+  if(cp) engSet(cp, n); else n=1;  //  ⚠ 장수 칸을 못 찾으면 한 장만(품번 줄의 n 을 늘리면 그 품번만 여러 번 찍힌다)
+  return n;
+}
+//  ⚠ 엔진은 한 번에 하나만 — 미리보기와 발행이 겹치지 않게 줄을 세운다
+var engQ=Promise.resolve();
+function engRun(fn){ var p=engQ.then(fn, fn); engQ=p.catch(function(){}); return p; }
+
+//  👁 미리보기 — 라벨 화면의 preview() 는 /api/labels/make 로 **번호·로트를 매긴다**.
+//   그래서 미리보기 동안에는 그 요청을 /api/labels/make-preview(저장 안 함)로 돌린다.
+//   ⚠ 포털에 그 주소가 없으면 404 → 미리보기만 안 보인다. 번호는 하나도 쓰지 않는다(진짜 make 로 새지 않게 막는다).
+function dryOn(w){
+  var st={hit:0, status:0, bad:0};
+  var of=w.fetch, XP=w.XMLHttpRequest && w.XMLHttpRequest.prototype, ox=XP && XP.open, oa=w.alert, oc=w.confirm;
+  var MK=/\/api\/labels\/make(?=[?#]|$)/;
+  w.fetch=function(u, o){
+    var s=(typeof u==='string') ? u : (u && u.url) || '';
+    if(MK.test(s.split('?')[0]) || MK.test(s)){
+      st.hit++;
+      if(typeof u!=='string'){ st.bad++; return Promise.reject(new Error('preview')); }
+      return of.call(w, s.replace('/api/labels/make', '/api/labels/make-preview'), o).then(function(r){ st.status=r.status; return r; });
+    }
+    return of.apply(w, arguments);
+  };
+  if(XP) XP.open=function(m, u){
+    var a=[].slice.call(arguments);
+    if(MK.test(String(u||''))){ st.hit++; a[1]=String(u).replace('/api/labels/make', '/api/labels/make-preview'); }
+    return ox.apply(this, a);
+  };
+  w.alert=function(){}; w.confirm=function(){ return false; };
+  return {st:st, off:function(){ w.fetch=of; if(XP) XP.open=ox; w.alert=oa; w.confirm=oc; }};
+}
+var pvT=null, pvSeq=0;
+function pvSoon(ms){ clearTimeout(pvT); pvT=setTimeout(pvDraw, ms==null?500:ms); }
+function pvShow(msg){
+  var m=$('pvmsg'), f=$('pvf'); if(!m) return;
+  if(msg!=null){ m.textContent=msg; m.style.display='block'; f.style.display='none'; }
+  else { m.style.display='none'; f.style.display='block'; }
+}
+function pvDraw(){
+  if(!CUR || !CUR.pallet || !$('pvf')) return;
+  var my=++pvSeq, pc=palCart();
+  if(!pc.cart){ pvShow(t('pvQty')); return; }
+  var w=W();
+  if(!w || !engReady()){ pvShow(t('notready')); pvSoon(1500); return; }
+  if(!w.document.getElementById('bundleChk')){ pvShow(t('palNoBundle')); return; }
+  pvShow(t('pvWait'));
+  var n=Math.max(1, Math.min(200, Math.floor(Number($('cnt').value)||1)));
+  return engRun(async function(){
+    if(my!==pvSeq || !CUR || !CUR.pallet) return;
+    var dry=dryOn(w), html='';
+    try{
+      engFillPallet(w, pc.cart, n);
+      w.__lastHtml='';
+      try{ await w.preview(); }catch(e){}
+      html=w.__lastHtml||'';
+    }finally{
+      dry.off();
+      try{ engSet(w.document.getElementById('bundleChk'), false); }catch(e){}
+      w.__lastHtml='';
+    }
+    if(my!==pvSeq) return;
+    if(dry.st.hit && dry.st.status===404){ pvShow(t('pvNone')); return; }
+    if(!html){ pvShow(t('pvFail')); return; }
+    pvPaint(html);
+  });
+}
+//  라벨 HTML 을 칸 너비에 맞춰 줄여 보인다
+function pvPaint(html){
+  var f=$('pvf'); if(!f) return;
+  pvShow(null);
+  f.onload=function(){
+    try{
+      var d=f.contentDocument, b=d && d.body; if(!b) return;
+      d.documentElement.style.background='#fff';
+      var W0=Math.max(b.scrollWidth, d.documentElement.scrollWidth, 1);
+      var z=Math.min(1, (f.clientWidth-8)/W0);
+      b.style.zoom=z;
+      var H=Math.max(b.scrollHeight, d.documentElement.scrollHeight);
+      f.style.height=Math.min(900, Math.max(160, Math.ceil(H*z)+8))+'px';
+    }catch(e){}
+  };
+  f.srcdoc=html;
+}
+async function issuePallet(){
+  var pc=palCart();
+  if(!pc.cart){ toast(t('needqty')+' — '+pc.part, 'bad'); var L=$('plist').querySelectorAll('.pq'); L[pc.bad].focus(); return; }
+  var cart=pc.cart;
   var n=Math.max(1, Math.min(200, Math.floor(Number($('cnt').value)||1)));
   var w=W();
   if(!w || !engReady()){ toast(t('notready'), 'bad'); return; }
   var doc=w.document, bc=doc.getElementById('bundleChk');
   if(!bc){ toast(t('palNoBundle'), 'bad'); return; }
   busy=true; $('go').disabled=true; $('go').textContent=t('making');
+  clearTimeout(pvT); pvSeq++;                       //  그리던 미리보기는 버린다
   try{
-    var fo=doc.getElementById('form'), sh=doc.getElementById('sheet');
-    if($('form').value && fo.value!==$('form').value){
-      fo.value=$('form').value;
-      try{ w.formChanged(); }catch(e){}
-      try{ w.loadOrient(); }catch(e){}
-      try{ w.loadTune(); }catch(e){}
-    }
-    if($('paper').value) sh.value=$('paper').value;
-    engSet(doc.getElementById('perBox'), '');
-    w.CART=cart;
-    engSet(bc, true);
-    w.CART=cart;                     //  ⚠ 묶기를 켜는 순간 화면이 장바구니를 다시 그릴 수 있다 — 한 번 더
-    var cp=engCopies(doc);
-    if(cp) engSet(cp, n); else n=1;  //  ⚠ 장수 칸을 못 찾으면 한 장만(품번 줄의 n 을 늘리면 그 품번만 여러 번 찍힌다)
-    w.__lastHtml='';
-    await w.preview();
-    if(!w.__lastHtml) throw new Error(t('makefail'));
-    w.printHere();
+    await engRun(async function(){
+      try{
+        n=engFillPallet(w, cart, n);
+        w.__lastHtml='';
+        await w.preview();
+        if(!w.__lastHtml) throw new Error(t('makefail'));
+        w.printHere();
+      }finally{ try{ engSet(bc, false); }catch(e){} }
+    });
     var pref={paper:$('paper').value, form:$('form').value};
     store('hl_pl:'+CUR.pallet, pref); store('hl_last', pref);
     toast('🖨 '+t('printed')+' — 📦 '+CUR.pallet+' · '+t('palItems', cart.length)+' · '+t('cntS')+' '+n, 'ok');
@@ -787,7 +894,6 @@ async function issuePallet(){
   }catch(e){
     toast('⚠ '+e.message, 'bad');
   }finally{
-    try{ engSet(bc, false); }catch(e){}
     busy=false; $('go').disabled=false; $('go').innerHTML='🏷 '+esc(t('issue'));
   }
 }
@@ -802,6 +908,7 @@ $('qty').addEventListener('keydown', function(e){
   issue();
 });
 $('cnt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); issue(); } });
+['cnt','paper','form'].forEach(function(id){ $(id).addEventListener(id==='cnt'?'input':'change', function(){ if(CUR && CUR.pallet) pvSoon(); }); });
 document.addEventListener('keydown', function(e){
   if(document.body.classList.contains('lang')){
     //  ⚠ 언어 화면에서 리더기로 찍으면 지난번 언어로 곧장 찾기 화면으로(찍은 글자를 잃지 않게)

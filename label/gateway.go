@@ -159,6 +159,9 @@ func rule(method, p string) verdict {
 		return pass
 	case p == "/api/labels/make" && method == http.MethodPost:
 		return pass
+	//  👁 미리보기 — make 와 같은 그림을 주되 번호를 매기지도, 남기지도 않는다(포털에 없으면 404 — 미리보기만 안 보인다)
+	case p == "/api/labels/make-preview" && method == http.MethodPost:
+		return pass
 	case p == "/api/pv/label-forms" && get:
 		return pass
 	//  품목 사진 · 품번 미리보기(읽기만)
