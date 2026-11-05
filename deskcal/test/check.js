@@ -65,7 +65,7 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
 
   ok(await pg.$('.chip.wait[data-doc="101"]') !== null, '결재할 문서가 기안일 칸에 보인다');
   ok(await pg.$('.chip.wait[data-doc="201"]') === null && await pg.$('[data-doc="201"]') !== null, '내 차례가 아닌 문서(앞사람 차례)는 「결재할 문서」 가 아니다');
-  ok((await pg.textContent('#nWait')) === '1', '결재할 문서 수 = 포털이 센 내 차례 수(1)');
+  ok((await pg.textContent('#nWait')) === '1', '결재할 문서 = 문서의 my_turn 이 참인 것만(1건)');
   ok((await pg.textContent('#lTodo')).includes('납기 지난 발주') && !(await pg.textContent('#lTodo')).includes('po_overdue'), '포털 할 일 이름을 우리말로');
   await pg.hover('#lTodo [data-hidetodo="recon"]'.replace('"recon"', '"recon"'));
   await pg.click('#lTodo [data-hidetodo="recon"]');
@@ -90,6 +90,17 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   const fr = await (await pg.waitForSelector('#dFrame')).contentFrame();
   await fr.waitForSelector('h2', { timeout: 5000 });
   ok((await fr.textContent('h2')).includes('#101'), '결재 문서 종이가 달력 안에 열린다');
+  //  🌫 결재 문서를 보는 동안은 투명도 100%(바탕화면 모드인 척)
+  await pg.click('#docDlg .x');
+  await pg.evaluate(() => { window.__cal.S.desktop = true; });
+  await pg.click('.chip.wait[data-doc="101"]');
+  await sleep(300);
+  ok(/창 명령: talpha 100/.test(gw.out), '결재 문서를 열면 투명도를 잠시 100%');
+  await pg.click('#docDlg .x');
+  await sleep(300);
+  ok(/창 명령: talpha \n/.test(gw.out), '문서를 닫으면 투명도를 되돌린다');
+  await pg.evaluate(() => { window.__cal.S.desktop = false; });
+  await pg.click('.chip.wait[data-doc="101"]');
   await pg.click('#dOpen');
   await sleep(200);
   ok(/열기: http:\/\/127\.0\.0\.1:3998\/approval\?doc=101/.test(gw.out), '「포털에서 결재하기」 → 평소 브라우저로 결재 화면');
@@ -265,6 +276,25 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   await sleep(300);
   ok(/창 명령: alpha 60/.test(gw.out), '머리줄 투명도 막대 → 창에 바로');
   await pg.evaluate(() => { const S = window.__cal.S; S.desktop = false; S.pinned = false; window.__cal.draw(); });
+
+  //  🎨 색 바꾸기 · 🚀 시작프로그램
+  await pg.evaluate(() => { window.__cal.S.desktop = true; });
+  await pg.click('#setBtn');
+  await pg.click('[data-preset="바다"]');
+  ok((await pg.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--head').trim())) === '#0b4f7c', '색 묶음(바다) → 머리줄 색이 바뀐다');
+  await pg.$eval('[data-ck="bg"]', (el) => { el.value = '#ffeecc'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  ok((await pg.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgb(255, 238, 204)', '배경색을 직접 고른다');
+  await sleep(500);
+  ok(((await (await fetch(G + '/__cal/data')).json()).prefs.colors || {}).bg === '#ffeecc', '고른 색이 저장된다(동기화 대상)');
+  await pg.click('#sColorReset');
+  ok((await pg.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--head').trim())) === '#1b2a4a', '색 원래대로');
+  await pg.uncheck('#sAuto'); await sleep(400);
+  const ini = require('fs').readFileSync(BIN + '.ini', 'utf8');
+  ok(/AUTOSTART=0/.test(ini), '시작프로그램 끄기 → 설정 파일에 AUTOSTART=0');
+  await pg.check('#sAuto'); await sleep(400);
+  ok(/AUTOSTART=1/.test(require('fs').readFileSync(BIN + '.ini', 'utf8')), '시작프로그램 켜기 → AUTOSTART=1');
+  await pg.click('#setDlg .x');
+  await pg.evaluate(() => { window.__cal.S.desktop = false; });
 
   //  🔍 찾기
   await pg.fill('#q', '안전'); await pg.press('#q', 'Enter');

@@ -36,7 +36,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.2.1"
+const VERSION = "1.3.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 바탕화면 달력"
@@ -356,6 +356,28 @@ func addURLs(v string) {
 			conf.URLs = append(conf.URLs, s)
 		}
 	}
+}
+
+// 설정 파일의 한 줄(KEY=값)을 바꾼다 — 없으면 끝에 붙인다(뒤의 ; 설명은 남긴다)
+func setIniValue(p, key, val string) {
+	b, _ := os.ReadFile(p)
+	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+	done := false
+	for i, ln := range lines {
+		t := strings.TrimSpace(strings.TrimPrefix(ln, "\uFEFF"))
+		if j := strings.Index(t, "="); j > 0 && strings.EqualFold(strings.TrimSpace(t[:j]), key) {
+			rest := ""
+			if k := strings.Index(t, ";"); k > j {
+				rest = "  " + t[k:]
+			}
+			lines[i] = key + "=" + val + rest
+			done = true
+		}
+	}
+	if !done {
+		lines = append(lines, key+"="+val)
+	}
+	_ = os.WriteFile(p, []byte(strings.Join(lines, "\r\n")), 0o644)
 }
 
 func yes(v string) bool {

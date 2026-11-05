@@ -329,6 +329,10 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
     <div class="tabp on" data-p="look">
       <div class="fld two"><div><label>색</label><select id="sTheme"><option value="light">밝게</option><option value="dark">어둡게</option></select></div>
         <div><label>글자 크기 <b id="sFontV"></b></label><input type="range" id="sFont" min="85" max="140" step="5"></div></div>
+      <div class="fld"><label>🎨 색 묶음</label><div style="display:flex;gap:6px;flex-wrap:wrap" id="sPreset"></div></div>
+      <div class="fld"><label>🎨 색 직접 고르기</label>
+        <div class="two" style="flex-wrap:wrap;gap:8px 12px" id="sColors"></div>
+        <button class="b" id="sColorReset" style="margin-top:6px">색 원래대로</button></div>
       <div class="fld" id="sAlphaRow"><label>🌫 투명도 (바탕화면이 비쳐 보이게) <b id="sAlphaV"></b></label><input type="range" id="sAlpha" min="30" max="100" step="5">
         <div class="hint">화면이 검게 나오면 시계 옆 📅 아이콘 오른쪽 누르기 → 「투명도 원래대로」.</div></div>
       <div class="fld" id="sSizeRow"><label>↔ 달력 크기 · 위치</label>
@@ -337,7 +341,8 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
         <div class="hint">바탕화면에 깔린 채로 <b>가장자리·모서리를 끌면</b> 크기, <b>머리줄 빈 곳을 끌면</b> 자리가 바뀝니다.</div></div>
       <div class="fld two"><div><label>보기</label><select id="sView"><option value="month">한 달씩</option><option value="weeks">이번 주부터 몇 주</option></select></div>
         <div><label>몇 주</label><select id="sWeeks"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select></div></div>
-      <div class="fld"><label class="chk"><input type="checkbox" id="sSide"> 옆 칸(결재·할 일·쪽지) 보이기</label></div>
+      <div class="fld"><label class="chk"><input type="checkbox" id="sSide"> 옆 칸(결재·할 일·쪽지) 보이기</label>
+        <label class="chk" id="sAutoRow"><input type="checkbox" id="sAuto"> 🚀 윈도우가 켜질 때 저절로 띄우기 (시작프로그램)</label></div>
     </div>
     <div class="tabp" data-p="cal">
       <div class="fld two"><div><label>주 시작</label><select id="sWeek"><option value="0">일요일</option><option value="1">월요일</option></select></div>
@@ -403,6 +408,40 @@ var dowOf = function (s) { return new Date(s + 'T00:00:00').getDay(); };
 var DOW = ['일', '월', '화', '수', '목', '금', '토'];
 var COLORS = ['', '#d93025', '#e8710a', '#c79100', '#1a7f37', '#0f766e', '#2563c9', '#7c3aed', '#c026d3', '#5a6478'];
 var BGS = ['', '#ffe3e3', '#ffedd5', '#fff3bf', '#dcfce7', '#dbeafe', '#ede9fe', '#fce7f3', '#e5e7eb'];
+//  🎨 바꿀 수 있는 색 — 화면의 색 이름(CSS 변수)
+var CKEYS = [['bg', '배경'], ['card', '날짜 칸'], ['other', '다른 달 칸'], ['head', '머리줄'], ['ink', '글자'], ['sub', '흐린 글자'], ['today', '오늘 칸'], ['todayRing', '오늘 테두리'], ['sun', '일요일·공휴일'], ['sat', '토요일'], ['accent', '강조(단추)'], ['memo', '메모 글자']];
+var PRESETS = {
+  '기본': {}, '어둡게': 'dark',
+  '바다': { bg: '#e6f2fb', card: '#ffffff', head: '#0b4f7c', today: '#d6f0ff', todayRing: '#1d8fd1', accent: '#1d6fb8', other: '#eef5fb' },
+  '숲': { bg: '#eef6ee', card: '#ffffff', head: '#24553a', today: '#e1f5d8', todayRing: '#4b9b3c', accent: '#2f7d4a', other: '#f1f6f0' },
+  '벚꽃': { bg: '#fdf1f5', card: '#ffffff', head: '#8e3b5e', today: '#ffe4ee', todayRing: '#e06b98', accent: '#c2477a', other: '#fbf3f6' },
+  '모래': { bg: '#f7f1e6', card: '#fffdf8', head: '#6b4f2a', today: '#fff1c9', todayRing: '#d39a2b', accent: '#a6701c', other: '#f4ede1' },
+  '밤바다': { bg: '#0f1e2e', card: '#162a40', head: '#0a1520', ink: '#e3edf7', sub: '#8fa6bd', today: '#24405e', todayRing: '#5fb3ff', accent: '#5fb3ff', other: '#132233', memo: '#ffd98a', _dark: 1 }
+};
+function applyColors() {
+  var p = P(), c = p.colors || {}, st = document.documentElement.style;
+  CKEYS.forEach(function (k) { if (c[k[0]]) st.setProperty('--' + k[0], c[k[0]]); else st.removeProperty('--' + k[0]); });
+  //  머리줄 글자는 머리줄 색에 맞춰 흰색/검은색
+  if (c.head) { var h = c.head.replace('#', ''), r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); st.setProperty('--headInk', (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#1b1f27' : '#ffffff'); }
+  else st.removeProperty('--headInk');
+}
+function cssVar(k) { return getComputedStyle(document.documentElement).getPropertyValue('--' + k).trim(); }
+function drawColors() {
+  $('#sPreset').innerHTML = Object.keys(PRESETS).map(function (n) {
+    var v = PRESETS[n], bg = v === 'dark' ? '#141a26' : (v.head || '#1b2a4a');
+    return '<button class="b" data-preset="' + n + '" style="border-left:14px solid ' + bg + '">' + n + '</button>';
+  }).join('');
+  $('#sColors').innerHTML = CKEYS.map(function (k) {
+    var v = (P().colors || {})[k[0]] || cssVar(k[0]) || '#ffffff';
+    if (!/^#[0-9a-f]{6}$/i.test(v)) v = '#ffffff';
+    return '<label class="chk" style="font-weight:600;margin:0;min-width:130px"><input type="color" data-ck="' + k[0] + '" value="' + v + '" style="width:34px;height:26px;padding:0;border:0;background:none"> ' + k[1] + '</label>';
+  }).join('');
+}
+function setColorPref(c, theme) {
+  DATA.prefs = Object.assign({}, DATA.prefs, { colors: c });
+  if (theme) DATA.prefs.theme = theme;
+  saveData(); draw(); drawColors();
+}
 var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
 
 //  ── 내 자료(메모·할 일·기념일·설정) ──
@@ -649,12 +688,14 @@ function curStep(steps) {
   return null;
 }
 function decideWait() {
+  //  ⭐ 포털 문서 API(/api/appr/번호)가 my_turn(내 차례)을 알려 준다 — 폰 앱이 승인 단추를 띄우는 그 값. 그것이 기준이다.
+  //   (결재함의 waiting 에는 앞사람 차례·참조 문서도 들어 있다)
   var raw = S.rawWait || [];
   var list = raw.filter(function (x) {
     for (var i = 0; i < TURN_KEYS.length; i++) { var k = TURN_KEYS[i]; if (x[k] !== undefined && x[k] !== null) return !!x[k] && x[k] !== '0' && x[k] !== 'N'; }
     return !/참조|열람|수신|공람/.test(String(x.role || x.my_role || x.line_role || ''));
   });
-  var n = S.todoAppr;
+  var n = S.todoAppr, me = myNames();
   var done = function (keep) {
     var ids = {};
     keep.forEach(function (x) { ids[x.id] = 1; });
@@ -664,20 +705,23 @@ function decideWait() {
     checkWait();
   };
   if (n === 0) return Promise.resolve(done([]));
-  if (n == null || list.length <= n) return Promise.resolve(done(list));
-  //  ④ 결재선 보기(문서 20개까지, 한 번 본 것은 기억)
-  var me = myNames();
-  return Promise.all(list.slice(0, 20).map(function (x) {
-    if (STEPCACHE[x.id] && Date.now() - STEPCACHE[x.id].at < 60000) return Promise.resolve(STEPCACHE[x.id].st);
-    return api('/api/appr/' + x.id).then(function (d) { var st = curStep(d.steps); STEPCACHE[x.id] = { at: Date.now(), st: st }; return st; }).catch(function () { return undefined; });
-  })).then(function (cur) {
+  return Promise.all(list.slice(0, 40).map(function (x) {
+    var c = STEPCACHE[x.id];
+    if (c && Date.now() - c.at < 60000) return Promise.resolve(c);
+    return api('/api/appr/' + x.id).then(function (d) {
+      var v = { at: Date.now(), turn: d.my_turn !== undefined ? d.my_turn : (d.doc && d.doc.my_turn), st: curStep(d.steps) };
+      STEPCACHE[x.id] = v; return v;
+    }).catch(function () { return null; });
+  })).then(function (res) {
     var keep = list.filter(function (x, i) {
-      var c = cur[i];
-      if (c === undefined) return true;          //  못 열었으면 남겨 둔다
-      if (!c) return false;                      //  결재가 다 끝났다
-      return !!(me[c.name] || me[c.username] || me[c.user] || me[c.user_name]);
+      var r = res[i];
+      if (!r) return n == null || n > 0;                                        //  못 열었다 — 포털이 센 수가 있으면 남긴다
+      if (r.turn !== undefined && r.turn !== null) return !!r.turn && r.turn !== '0' && r.turn !== 'N';
+      if (!r.st) return false;                                                   //  결재가 다 끝났다
+      if (Object.keys(me).length) return !!(me[r.st.name] || me[r.st.username] || me[r.st.user] || me[r.st.user_name]);
+      return true;
     });
-    if (!Object.keys(me).length) keep = list.slice(0, n);   //  내 이름을 모르면 포털이 센 수만큼
+    if (n > 0 && keep.length > n) keep = keep.slice(0, n);
     done(keep);
   });
 }
@@ -952,6 +996,7 @@ var editing = '';
 function draw() {
   var p = P();
   document.documentElement.setAttribute('data-theme', p.theme);
+  applyColors();
   document.documentElement.style.setProperty('--fs', (13.5 * p.font / 100).toFixed(2) + 'px');
   $('#side').classList.toggle('hide', !p.side);
   var R = rows(), s = gridStart(), today = ymd(new Date()), m = S.cur.getMonth(), weeks = p.view === 'weeks', last = addDays(s, R * 7 - 1);
@@ -1057,6 +1102,7 @@ document.addEventListener('click', function (e) {
   if (t.closest('.mpal')) return;
   var ht = t.closest('[data-hidetodo]'); if (ht) { DATA.prefs = Object.assign({}, DATA.prefs, { hideTodo: (P().hideTodo || []).concat([ht.getAttribute('data-hidetodo')]) }); saveData(); draw(); return; }
   var uh = t.closest('[data-unhide]'); if (uh) { DATA.prefs = Object.assign({}, DATA.prefs, { hideTodo: (P().hideTodo || []).filter(function (k) { return k !== uh.getAttribute('data-unhide'); }) }); saveData(); drawHide(); draw(); return; }
+  var pr = t.closest('[data-preset]'); if (pr) { var v = PRESETS[pr.getAttribute('data-preset')]; if (v === 'dark') setColorPref({}, 'dark'); else { var c2 = Object.assign({}, v); var dk = c2._dark; delete c2._dark; setColorPref(c2, dk ? 'dark' : 'light'); } $('#sTheme').value = P().theme; return; }
   var sz = t.closest('[data-size]'); if (sz) { win('size', sz.getAttribute('data-size') + ',' + $('#sPos').value); return; }
   var a = t.closest('[data-open]'); if (a) { openPortal(a.getAttribute('data-open')); return; }
   var dc = t.closest('[data-doc]'); if (dc) { openDoc(dc.getAttribute('data-doc')); return; }
@@ -1181,7 +1227,15 @@ function openDoc(id) {
   $('#dOpen').textContent = x && x.kind === 'wait' ? '🌐 포털에서 결재하기' : '🌐 포털에서 열기';
   $('#dFrame').src = '/api/appr/' + encodeURIComponent(id) + '/print';
   $('#docDlg').classList.add('on');
+  //  🌫 문서는 비치면 안 읽힌다 — 보는 동안만 투명도 100%(설정은 그대로), 앞으로 꺼낸다
+  if (S.desktop) { win('talpha', 100); win('front'); }
 }
+//  문서 창이 닫히면(× · 닫기 · Esc · 바깥 누르기 · 포털에서 열기) 투명도를 되돌린다
+new MutationObserver(function () {
+  var on = $('#docDlg').classList.contains('on');
+  if (!on && S.docAlphaOn) { S.docAlphaOn = false; win('talpha', ''); }
+  if (on) S.docAlphaOn = true;
+}).observe($('#docDlg'), { attributes: true, attributeFilter: ['class'] });
 $('#dOpen').onclick = function () { openPortal('/approval?doc=' + encodeURIComponent(docId)); $('#docDlg').classList.remove('on'); };
 
 //  ── 회사 일정 등록·고치기 ──
@@ -1355,7 +1409,8 @@ function openSettings(tab) {
   $('#sView').value = p.view; $('#sWeeks').value = String(p.weeks); $('#sSide').checked = p.side;
   $('#sWeek').value = String(p.week); $('#sLunar').value = p.lunar; $('#sTerms').checked = p.terms; $('#sObs').checked = p.obs; $('#sWeekNo').checked = p.weekNo;
   $('#sDocs').value = p.docs; $('#sGg').checked = p.gg; $('#sPc').checked = p.pc; $('#sSizeRow').style.display = S.desktop ? '' : 'none';
-  drawPc(); drawHide(); $('#sAlert').value = p.alert; $('#sRemind').value = p.remind; $('#sMsg').value = p.msg;
+  drawPc(); drawHide(); drawColors();
+  $('#sAutoRow').style.display = S.desktop ? '' : 'none'; $('#sAuto').checked = S.autostart !== false; $('#sAlert').value = p.alert; $('#sRemind').value = p.remind; $('#sMsg').value = p.msg;
   $('#sAcct').innerHTML = '포털: <b>' + esc(PORTAL ? location.host : (S.portal || '연결 안 됨')) + '</b>' + (S.me ? ' · ' + esc(S.me.name) + (S.me.admin ? ' (관리자)' : '') : '');
   $('#sLogout').style.display = S.login ? '' : 'none';
   $('#syncState').textContent = SY.ok === false ? '⚠ 포털에 동기화 기능이 아직 없습니다(calendar-route.js 새 판을 넣어 주세요)' : (!S.login ? '로그인하면 동기화됩니다' : (DATA.dirty ? '☁ 올리는 중…' : '☁ 동기화됨' + (SY.at ? ' · ' + new Date(SY.at).toLocaleTimeString() : '') + ' · 판 ' + (DATA.rev || 0)));
@@ -1373,6 +1428,17 @@ function drawHide() {
   var h = P().hideTodo || [];
   $('#hideList').innerHTML = h.length ? h.map(function (k) { return '<span class="bdg" style="background:var(--line2);color:var(--ink);margin:2px" data-unhide="' + esc(k) + '">' + esc(TODO_NAME[k] || k) + ' ↺</span>'; }).join('') : '없음';
 }
+document.addEventListener('input', function (e) {
+  var k = e.target.getAttribute && e.target.getAttribute('data-ck');
+  if (!k) return;
+  var c = Object.assign({}, P().colors || {}); c[k] = e.target.value;
+  DATA.prefs = Object.assign({}, DATA.prefs, { colors: c }); applyColors(); saveData();
+});
+$('#sAuto').onchange = function () {
+  var on = this.checked;
+  fetch('/__cal/autostart?on=' + (on ? 1 : 0), { method: 'POST' }).then(function () { S.autostart = on; }).catch(function () {});
+};
+$('#sColorReset').onclick = function () { setColorPref({}); };
 $('#pcFind').onclick = function () { $('#pcState').textContent = '찾는 중… (몇 초)'; findPortalCal(true).then(drawPc); };
 function setTab(t) { $$('#setTabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === t); }); $$('.tabp').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-p') === t); }); }
 $('#setTabs').onclick = function (e) { var b = e.target.closest('[data-tab]'); if (b) setTab(b.getAttribute('data-tab')); };
@@ -1541,6 +1607,7 @@ if (PORTAL) {
     return fetch('/__cal/state', { cache: 'no-store' }).then(function (r) { return r.json(); });
   }).then(function (st) {
     S.portal = st.portal || ''; S.pinned = !!st.pinned; S.desktop = !!st.desktop;
+    S.autostart = st.autostart;
     S.pcApi = st.portalCal || ''; S.pcPage = st.portalCalPage || ''; S.pcAt = st.portalCalAt || 0;
     if (!st.portal) setOffline(true);
     //  ⚠ 알림 영역 메뉴에서 바꾼 투명도가 창의 것 — 그것을 따른다

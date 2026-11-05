@@ -39,11 +39,13 @@ app.get('/api/appr/:id/print', (req, res) => {
 });
 app.post('/api/appr/:id/act', need, (req, res) => res.json({ ok: true }));
 //  ⚠ 진짜 포털처럼 이름 없이 열쇠만 준다
-app.get('/api/my-today', need, (req, res) => res.json({ items: [{ key: 'appr', n: myTurn() }, { key: 'po_overdue', n: 5 }, { key: 'mailbox', n: 269 }, { key: 'recon', n: 575 }] }));
+//  ⚠ 진짜 포털처럼 결재 수(appr)는 없다 — 결재 차례는 문서의 my_turn 으로만 안다
+app.get('/api/my-today', need, (req, res) => res.json({ items: [{ key: 'po_overdue', n: 5 }, { key: 'mailbox', n: 269 }, { key: 'recon', n: 575 }] }));
 app.get('/api/appr/:id(\\d+)', need, (req, res) => {
   const x = waiting.concat(mine, done).find((y) => y.id === +req.params.id);
   if (!x) return res.status(404).json({ ok: false });
-  res.json({ ok: true, doc: x, steps: steps[x.id] || [], body: '' });
+  const c = (steps[x.id] || []).find((s) => s.role !== '작성' && s.state !== 'ok');
+  res.json({ ok: true, doc: x, steps: steps[x.id] || [], body: '', my_turn: !!(c && c.name === req.session.user.name) });
 });
 //  🗓 포털에 원래 있는 달력 — 화면(/schedule)이 /api/schedule/list 를 부른다
 app.get('/schedule', need, (req, res) => res.send('<html><body><div id=cal></div><script>fetch("/api/schedule/list?ym=" + ym).then(r=>r.json())</script></body></html>'));

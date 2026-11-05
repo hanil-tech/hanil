@@ -219,12 +219,15 @@ func layeredBit() uintptr {
 	return 0
 }
 
-func applyAlpha() {
+func applyAlpha() { applyAlphaValue(alpha) }
+
+// 정해 둔 투명도(alpha)는 그대로 두고 화면에만 잠시 a% 로 — 결재 문서를 볼 때는 비치면 안 된다(talpha)
+func applyAlphaValue(a int) {
 	h := hwndMain
 	ex, _, _ := pGetWindowLongPtr.Call(h, gwlExStyle)
-	if alpha < 100 {
+	if a < 100 {
 		pSetWindowLongPtr.Call(h, gwlExStyle, ex|wsExLayered)
-		pSetLayeredAttr.Call(h, 0, uintptr(alpha*255/100), 2) // LWA_ALPHA
+		pSetLayeredAttr.Call(h, 0, uintptr(a*255/100), 2) // LWA_ALPHA
 	} else if ex&wsExLayered != 0 {
 		pSetWindowLongPtr.Call(h, gwlExStyle, ex&^wsExLayered)
 	}
@@ -652,6 +655,13 @@ func windowCmd(m, v string) {
 		case "drag":
 			n, _ := strconv.Atoi(v)
 			doDrag(n)
+		case "talpha":
+			//  v 가 비면 정해 둔 투명도로 되돌린다
+			if n, err := strconv.Atoi(v); err == nil && n >= 30 && n <= 100 {
+				applyAlphaValue(n)
+			} else {
+				applyAlpha()
+			}
 		case "alpha":
 			if n, err := strconv.Atoi(v); err == nil && n >= 30 && n <= 100 && n != alpha {
 				alpha = n

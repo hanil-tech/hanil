@@ -23,7 +23,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -263,7 +265,7 @@ func (g *gateway) serveLocal(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok": true, "version": VERSION, "portal": portal, "tried": tried,
 			"session": !g.box.empty(), "pinned": isPinned(), "desktop": hasDesktop(), "alpha": currentAlpha(),
-			"update": updReadyVer(), "updateNotes": updNotesText(),
+			"update": updReadyVer(), "updateNotes": updNotesText(), "autostart": conf.Autostart,
 			"portalCal": discoveredAPI(), "portalCalPage": discNow.Page, "portalCalAt": discNow.At,
 		})
 	case "/__cal/update":
@@ -277,6 +279,24 @@ func (g *gateway) serveLocal(w http.ResponseWriter, r *http.Request) {
 		} else {
 			http.NotFound(w, r)
 		}
+	case "/__cal/autostart":
+		//  🚀 윈도우가 켜질 때 저절로 띄우기 — 설정 파일(AUTOSTART=)에 적고 시작프로그램 아이콘을 바로 넣거나 뺀다
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		on := r.URL.Query().Get("on") == "1"
+		conf.Autostart = on
+		v := "0"
+		if on {
+			v = "1"
+		}
+		if exe, err := os.Executable(); err == nil {
+			setIniValue(filepath.Join(filepath.Dir(exe), iniName), "AUTOSTART", v)
+			go ensureShortcuts(exe, on)
+		}
+		logf("시작프로그램: %v", on)
+		fmt.Fprint(w, `{"ok":true}`)
 	case "/__cal/diag":
 		//  🩺 화면이 포털 자료의 «모양»(칸 이름·첫 줄)을 기록에 남긴다 — 칸 이름이 예상과 다를 때 맞추려고
 		b, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
