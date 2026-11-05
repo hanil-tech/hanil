@@ -58,6 +58,7 @@ var (
 	pRegisterWindowMessage = user32.NewProc("RegisterWindowMessageW")
 	pShellNotifyIcon       = shell32.NewProc("Shell_NotifyIconW")
 	pSetLayeredAttr        = user32.NewProc("SetLayeredWindowAttributes")
+	pReleaseCapture        = user32.NewProc("ReleaseCapture")
 )
 
 const (
@@ -82,6 +83,8 @@ const (
 	wmActivate       = 0x0006
 	wmWindowPosChang = 0x0046
 	wmTimer          = 0x0113
+	wmExitSizeMove   = 0x0232
+	wmNcLButtonDown  = 0x00A1
 	wmNull           = 0x0000
 	wmLButtonUp      = 0x0202
 	wmRButtonUp      = 0x0205
@@ -240,6 +243,69 @@ func loadAlpha() {
 	}
 }
 
+const minW, minH = 420, 300
+
+// ↔ 크기 고르기 — 작업 영역(작업 표시줄 뺀 화면)의 몇 % · 어느 쪽
+//
+//	v = "60,right" · "40,left" · "80,center" · "100,full"
+func doSize(v string) {
+	pct, pos := 60, "right"
+	if i := strings.Index(v, ","); i >= 0 {
+		pct, _ = strconv.Atoi(v[:i])
+		pos = v[i+1:]
+	}
+	if pct < 25 || pct > 100 {
+		pct = 60
+	}
+	var wa rect
+	pSystemParametersInfo.Call(0x0030, 0, uintptr(unsafe.Pointer(&wa)), 0)
+	ww, wh := wa.Right-wa.Left, wa.Bottom-wa.Top
+	if pos == "full" || pct == 100 {
+		place = winRect{X: wa.Left, Y: wa.Top, W: ww, H: wh}
+	} else {
+		hp := int32(pct + 25)
+		if hp > 94 {
+			hp = 94
+		}
+		if hp < 50 {
+			hp = 50
+		}
+		place.W, place.H = ww*int32(pct)/100, wh*hp/100
+		if place.W < minW {
+			place.W = minW
+		}
+		place.Y = wa.Top + 24
+		switch pos {
+		case "left":
+			place.X = wa.Left + 24
+		case "center":
+			place.X, place.Y = wa.Left+(ww-place.W)/2, wa.Top+(wh-place.H)/2
+		default:
+			place.X = wa.Right - place.W - 24
+		}
+	}
+	savePlace()
+	if pinned {
+		pSetWindowPos.Call(hwndMain, hwndBottom, uintptr(place.X), uintptr(place.Y), uintptr(place.W), uintptr(place.H), swpNoActivate|swpShowWindow)
+	} else {
+		rc := rect{place.X, place.Y, place.X + place.W, place.Y + place.H}
+		pAdjustWindowRectEx.Call(uintptr(unsafe.Pointer(&rc)), wsOverlappedWindow, 0, 0)
+		pSetWindowPos.Call(hwndMain, 0, uintptr(rc.Left), uintptr(rc.Top), uintptr(rc.Right-rc.Left), uintptr(rc.Bottom-rc.Top), swpNoZOrder)
+	}
+}
+
+// 화면(달력)에서 가장자리·머리줄을 누른 채 끌 때 — 윈도우의 «크기 바꾸기/옮기기»를 대신 시작한다
+//
+//	ht: 2 = 옮기기(제목줄), 10 왼쪽 11 오른쪽 12 위 13 왼위 14 오른위 15 아래 16 왼아래 17 오른아래
+//	⚠ 단추를 누르고 있는 동안에 와야 한다(화면이 누르자마자 부른다). 놓으면 윈도우가 알아서 끝낸다.
+func doDrag(ht int) {
+	if ht != 2 && (ht < 10 || ht > 17) {
+		return
+	}
+	pReleaseCapture.Call()
+	pPostMessage.Call(hwndMain, wmNcLButtonDown, uintptr(ht), 0)
+}
+
 // ⭐ 바탕화면에 깐다(테두리 없음 · 작업 표시줄에 없음 · 늘 맨 아래)
 func doPin() {
 	h := hwndMain
@@ -281,12 +347,27 @@ func doPeek() {
 func subProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch msg {
 	case wmWindowPosChang:
+		p := (*windowPos)(unsafe.Pointer(lp))
 		//  ⭐ 늘 맨 아래 — 누가(누르기·다른 프로그램) 위로 올려도 바탕화면 바로 위로 돌려놓는다
 		if pinned && !peek {
-			p := (*windowPos)(unsafe.Pointer(lp))
 			if p.Flags&swpNoZOrder == 0 {
 				p.HwndInsertAfter = hwndBottom
 			}
+		}
+		//  너무 작게 줄이지 못하게(달력이 안 보이게 되면 다시 키울 곳이 없다)
+		if pinned && p.Flags&swpNoSize == 0 {
+			if p.Cx < minW {
+				p.Cx = minW
+			}
+			if p.Cy < minH {
+				p.Cy = minH
+			}
+		}
+	case wmExitSizeMove:
+		//  ↔ 바탕화면에 깔린 채로 끌어 옮기거나 크기를 바꿨다 — 그 자리를 기억한다
+		if pinned {
+			place = clientPlace(hwnd)
+			savePlace()
 		}
 	case wmActivate:
 		if wp&0xFFFF == 0 && peek && !alerting { // WA_INACTIVE
@@ -451,6 +532,11 @@ const (
 	cmdPortal
 	cmdReload
 	cmdAlpha
+	cmdA90
+	cmdA80
+	cmdA70
+	cmdA60
+	cmdA50
 	cmdQuit
 )
 
@@ -472,8 +558,17 @@ func trayMenu(h uintptr) {
 	}
 	add(cmdReload, "🔄 새로 고침")
 	add(cmdPortal, "🌐 포털 열기")
+	//  🌫 투명도 — 하위 메뉴 대신 한 줄씩(고르기 쉽게)
+	pAppendMenu.Call(m, 0x800, 0, 0)
 	if alpha < 100 {
-		add(cmdAlpha, "🌫 투명도 원래대로")
+		add(cmdAlpha, "🌫 투명도 원래대로 (100%)")
+	}
+	for i, a := range []int{90, 80, 70, 60, 50} {
+		mark := "   "
+		if alpha == a {
+			mark = "✓ "
+		}
+		add(cmdA90+i, mark+"🌫 "+strconv.Itoa(a)+"%")
 	}
 	pAppendMenu.Call(m, 0x800, 0, 0) // MF_SEPARATOR
 	add(cmdQuit, "끄기")
@@ -501,6 +596,10 @@ func trayMenu(h uintptr) {
 		}
 	case cmdAlpha:
 		alpha = 100
+		saveAlpha()
+		applyAlpha()
+	case cmdA90, cmdA80, cmdA70, cmdA60, cmdA50:
+		alpha = []int{90, 80, 70, 60, 50}[int(id)-cmdA90]
 		saveAlpha()
 		applyAlpha()
 	case cmdQuit:
@@ -541,11 +640,18 @@ func focusWindow() bool { return dispatch(doPeek) }
 
 func isPinned() bool { return pinned }
 
+func currentAlpha() int { return alpha }
+
 func hasDesktop() bool { return true }
 
 func windowCmd(m, v string) {
 	dispatch(func() {
 		switch m {
+		case "size":
+			doSize(v)
+		case "drag":
+			n, _ := strconv.Atoi(v)
+			doDrag(n)
 		case "alpha":
 			if n, err := strconv.Atoi(v); err == nil && n >= 30 && n <= 100 && n != alpha {
 				alpha = n

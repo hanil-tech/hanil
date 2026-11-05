@@ -55,7 +55,7 @@ AutoCAD VBA 매크로(`Turbo_Fan_Design.dvb`)를 따로 실행하는 프로그�
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-cal-v1.0.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.0.0.exe)** | 직원 PC — 두 번 누르면 설치·실행 | 7MB |
+| **[hanil-cal-v1.1.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.1.0.exe)** | 직원 PC — 두 번 누르면 설치·실행 | 7MB |
 | **[hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** | 회사 포털 서버(`server.js` 옆) — 회사 일정·자동 휴일·동기화·구글·폰 달력 | 40KB |
 
 DesktopCal 처럼 바탕화면이 달력이 됩니다. 결재할 문서·회사 일정·쪽지가 달력에 나오고, **내 결재 차례가 오면 화면 가운데에 크게** 알려 줍니다.

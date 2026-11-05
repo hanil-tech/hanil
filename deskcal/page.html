@@ -167,6 +167,22 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
 @keyframes ring{0%,100%{transform:rotate(0)}20%{transform:rotate(-15deg)}40%{transform:rotate(12deg)}60%{transform:rotate(-8deg)}80%{transform:rotate(5deg)}}
 #alertDlg .bell{display:block;text-align:center;font-size:44px;animation:ring 1.2s ease-in-out 3}
 
+/* ↔ 바탕화면에 깔린 채로 끌어 크기 바꾸기 */
+#rz{display:none}
+#rz.on{display:block}
+#rz div{position:fixed;z-index:40}
+#rz .n,#rz .s{left:10px;right:10px;height:6px}#rz .n{top:0;cursor:n-resize}#rz .s{bottom:0;cursor:s-resize}
+#rz .w,#rz .e{top:10px;bottom:10px;width:6px}#rz .w{left:0;cursor:w-resize}#rz .e{right:0;cursor:e-resize}
+#rz .nw,#rz .ne,#rz .sw,#rz .se{width:12px;height:12px}
+#rz .nw{left:0;top:0;cursor:nw-resize}#rz .ne{right:0;top:0;cursor:ne-resize}#rz .sw{left:0;bottom:0;cursor:sw-resize}#rz .se{right:0;bottom:0;cursor:se-resize;background:linear-gradient(135deg,transparent 50%,rgba(120,130,150,.6) 50%)}
+#top.drag{cursor:move}
+#alphaBox{display:none;align-items:center;gap:4px;background:rgba(255,255,255,.12);border-radius:8px;height:32px;padding:0 8px;font-size:12px;white-space:nowrap}
+#alphaBox.on{display:flex}
+#alphaBox input{width:80px;accent-color:#9cc3f0}
+.chip.pc{background:#e0f2fe;color:#0369a1}
+:root[data-theme="dark"] .chip.pc{background:#0c2d40;color:#7dd3fc}
+.row .hide{border:0;background:none;color:var(--sub);opacity:0;font-size:14px;padding:0 4px}
+.row:hover .hide{opacity:1}
 #ver{position:fixed;right:8px;bottom:3px;font-size:10.5px;color:var(--sub);opacity:.7;pointer-events:none}
 
 /* 🖨 인쇄 */
@@ -216,6 +232,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
   <input id="q" placeholder="🔍 찾기" autocomplete="off">
   <div id="badges"></div>
   <span id="conn"></span>
+  <span id="alphaBox" title="투명도 — 바탕화면이 비쳐 보이게">🌫 <input type="range" id="alphaTop" min="30" max="100" step="5"> <b id="alphaTopV"></b></span>
   <button class="btn" id="printBtn" title="인쇄">🖨</button>
   <button class="btn" id="sideBtn" title="옆 칸 보이기·숨기기">☰</button>
   <button class="btn" id="pinBtn"></button>
@@ -237,6 +254,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
 </div>
 <div id="ver">v{{VER}} <span id="syncMark"></span></div>
 <div id="printArea"></div>
+<div id="rz"><div class="n" data-ht="12"></div><div class="s" data-ht="15"></div><div class="w" data-ht="10"></div><div class="e" data-ht="11"></div><div class="nw" data-ht="13"></div><div class="ne" data-ht="14"></div><div class="sw" data-ht="16"></div><div class="se" data-ht="17"></div></div>
 
 <!-- 일정 등록·고치기 -->
 <div class="ov" id="evDlg"><div class="dlg">
@@ -313,6 +331,10 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
         <div><label>글자 크기 <b id="sFontV"></b></label><input type="range" id="sFont" min="85" max="140" step="5"></div></div>
       <div class="fld" id="sAlphaRow"><label>🌫 투명도 (바탕화면이 비쳐 보이게) <b id="sAlphaV"></b></label><input type="range" id="sAlpha" min="30" max="100" step="5">
         <div class="hint">화면이 검게 나오면 시계 옆 📅 아이콘 오른쪽 누르기 → 「투명도 원래대로」.</div></div>
+      <div class="fld" id="sSizeRow"><label>↔ 달력 크기 · 위치</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="b" data-size="40">작게</button><button class="b" data-size="60">보통</button><button class="b" data-size="80">크게</button><button class="b" data-size="100">화면 가득</button>
+          <select id="sPos" style="width:auto"><option value="right">오른쪽</option><option value="left">왼쪽</option><option value="center">가운데</option></select></div>
+        <div class="hint">바탕화면에 깔린 채로 <b>가장자리·모서리를 끌면</b> 크기, <b>머리줄 빈 곳을 끌면</b> 자리가 바뀝니다.</div></div>
       <div class="fld two"><div><label>보기</label><select id="sView"><option value="month">한 달씩</option><option value="weeks">이번 주부터 몇 주</option></select></div>
         <div><label>몇 주</label><select id="sWeeks"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select></div></div>
       <div class="fld"><label class="chk"><input type="checkbox" id="sSide"> 옆 칸(결재·할 일·쪽지) 보이기</label></div>
@@ -324,7 +346,11 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
         <label class="chk"><input type="checkbox" id="sObs"> 기념일·명절 정보 (어버이날·스승의날·정월대보름·단오·칠석 …)</label>
         <label class="chk"><input type="checkbox" id="sWeekNo"> 주차 (W45)</label></div>
       <div class="fld"><label>달력에 결재 문서 보이기</label><select id="sDocs"><option value="wait">결재할 것만</option><option value="mine">결재할 것 + 내가 올린 것</option><option value="all">끝난 것까지 모두</option><option value="none">안 보이기</option></select></div>
-      <div class="fld"><label class="chk"><input type="checkbox" id="sGg"> 구글 캘린더 일정 보이기</label></div>
+      <div class="fld"><label class="chk"><input type="checkbox" id="sGg"> 구글 캘린더 일정 보이기</label>
+        <label class="chk"><input type="checkbox" id="sPc"> 포털 달력 일정 보이기</label></div>
+      <div class="box"><h4>📅 포털 달력</h4><div id="pcState" class="hint"></div>
+        <button class="b" id="pcFind" style="margin-top:6px">🔎 포털 달력 다시 찾기</button><div id="pcLog" class="hint" style="margin-top:6px;max-height:160px;overflow:auto;white-space:pre-wrap;font-family:Consolas,monospace;font-size:11px"></div></div>
+      <div class="fld"><label>숨긴 「포털 할 일」</label><div id="hideList" class="hint"></div></div>
     </div>
     <div class="tabp" data-p="noti">
       <div class="fld"><label>결재 차례가 오면</label><select id="sAlert"><option value="pop">화면 가운데 크게 띄우기 + 알림</option><option value="toast">오른쪽 아래 알림만</option><option value="off">알리지 않기</option></select></div>
@@ -340,7 +366,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
     </div>
     <div class="tabp" data-p="sync">
       <div class="box"><h4>☁ 클라우드 동기화 (포털)</h4>
-        <div class="hint">메모·할 일·기념일·설정이 포털에 저장되어 <b>다른 PC·폰 앱(포털 → /calendar)</b>에서 똑같이 보입니다. 바꾸면 바로 올라가고, 30초마다 다른 기기에서 바뀐 것을 받아 옵니다.</div>
+        <div class="hint">메모·할 일·기념일·설정이 포털에 저장되어 <b>다른 PC·폰 앱(포털 → /deskcal)</b>에서 똑같이 보입니다. 바꾸면 바로 올라가고, 30초마다 다른 기기에서 바뀐 것을 받아 옵니다.</div>
         <div id="syncState" style="margin:6px 0;font-weight:700"></div>
         <button class="b" id="histBtn">🕘 지난 판 보기 · 되돌리기</button>
         <div id="histList" style="margin-top:8px"></div></div>
@@ -386,7 +412,7 @@ var LOCAL_ONLY = ['alerted', 'reminded', 'rev', 'dirty', 'local'];   //  기기�
 var DATA = { notes: {}, todos: [], annivs: [], prefs: {}, alerted: {}, reminded: {}, local: {} };
 var P = function () {
   return Object.assign({ theme: 'light', week: 0, docs: 'mine', alert: 'pop', remind: 'pop', msg: 'toast', font: 100, view: 'month', weeks: 5,
-    lunar: 'all', terms: true, obs: true, weekNo: false, gg: true }, DATA.prefs || {}, { side: (DATA.local || {}).side !== false, alpha: (DATA.local || {}).alpha || 100 });
+    lunar: 'all', terms: true, obs: true, weekNo: false, gg: true, pc: true, hideTodo: [] }, DATA.prefs || {}, { side: (DATA.local || {}).side !== false, alpha: (DATA.local || {}).alpha || 100 });
 };
 var SY = { ok: null, busy: false, at: 0, err: '' };
 var saveT = 0, pushT = 0;
@@ -542,7 +568,7 @@ function weekNo(d) {
 }
 
 //  ── 포털에서 받는 것 ──
-var S = { cur: new Date(), wofs: 0, apprWait: [], apprMine: [], apprDone: [], todo: [], msgs: [], events: [], gevents: [], evOK: null, me: null,
+var S = { cur: new Date(), wofs: 0, apprWait: [], apprLine: [], rawWait: [], todoAppr: null, pcEvents: [], pcApi: '', pcPage: '', apprMine: [], apprDone: [], todo: [], msgs: [], events: [], gevents: [], evOK: null, me: null,
   login: PORTAL, offline: false, portal: '', pinned: false, desktop: false, first: true, seenMsg: null, seenWait: null, hits: null, gLinked: false, gErr: '' };
 S.cur.setDate(1);
 
@@ -557,7 +583,7 @@ function api(u, opt) {
   });
 }
 function setLogin(ok) {
-  if (PORTAL && !ok) { location.href = '/?next=' + encodeURIComponent('/calendar'); return; }
+  if (PORTAL && !ok) { location.href = '/?next=' + encodeURIComponent('/deskcal'); return; }
   if (S.login !== ok) { S.login = ok; banner(); }
 }
 function setOffline(off) { if (S.offline !== off) { S.offline = off; banner(); } }
@@ -598,18 +624,89 @@ function docRow(x, kind) {
 function loadAppr() {
   return api('/api/apprdoc/list').then(function (r) {
     setLogin(true); setOffline(false);
-    S.apprWait = (r.waiting || []).map(function (x) { return docRow(x, 'wait'); });
+    S.rawWait = r.waiting || [];
     S.apprMine = (r.mine || []).map(function (x) { return docRow(x, 'mine'); });
     S.apprDone = (r.done || []).map(function (x) { return docRow(x, 'done'); });
-    checkWait();
+    diag('apprdoc', { keys: Object.keys(r), waiting: (r.waiting || []).slice(0, 2), mine: (r.mine || []).slice(0, 1) });
   });
+}
+//  ✍ 「내 차례」 가리기 — ⚠ 결재함의 waiting 에는 «내가 결재선에 있는 진행 중 문서»(앞사람 차례·참조)도 들어 있다.
+//   ① 문서 줄에 차례 표시(my_turn 등)가 있으면 그것  ② 참조·열람·수신은 뺀다
+//   ③ 포털 첫 화면의 「결재할 문서」 수(my-today appr)가 기준 — 0 이면 내 차례인 것은 없다
+//   ④ 그 수보다 많으면 문서마다 결재선을 열어 «지금 차례인 사람» 이 나인지 본다
+var TURN_KEYS = ['my_turn', 'myTurn', 'is_my_turn', 'is_turn', 'turn', 'can_act', 'canAct', 'actionable', 'need_act', 'mine_turn'];
+var STEPCACHE = {};
+function myNames() {
+  var n = {};
+  if (S.me) { n[String(S.me.name)] = 1; n[String(S.me.id)] = 1; }
+  S.apprMine.forEach(function (x) { if (x.who) n[x.who] = 1; });
+  return n;
+}
+function curStep(steps) {
+  var line = (steps || []).filter(function (x) { return x.role !== '작성' && !/참조|열람|수신|공람/.test(x.role || ''); });
+  for (var i = 0; i < line.length; i++) { if (!/ok|done|approve|reject|승인|반려|완료/.test(String(line[i].state || ''))) return line[i]; }
+  return null;
+}
+function decideWait() {
+  var raw = S.rawWait || [];
+  var list = raw.filter(function (x) {
+    for (var i = 0; i < TURN_KEYS.length; i++) { var k = TURN_KEYS[i]; if (x[k] !== undefined && x[k] !== null) return !!x[k] && x[k] !== '0' && x[k] !== 'N'; }
+    return !/참조|열람|수신|공람/.test(String(x.role || x.my_role || x.line_role || ''));
+  });
+  var n = S.todoAppr;
+  var done = function (keep) {
+    var ids = {};
+    keep.forEach(function (x) { ids[x.id] = 1; });
+    S.apprWait = keep.map(function (x) { return docRow(x, 'wait'); });
+    //  내 차례가 아닌 것은 「결재 중」 으로(달력에는 보이되 알리지 않는다)
+    S.apprLine = raw.filter(function (x) { return !ids[x.id]; }).map(function (x) { var d = docRow(x, 'line'); d.state = d.state || 'ing'; return d; });
+    checkWait();
+  };
+  if (n === 0) return Promise.resolve(done([]));
+  if (n == null || list.length <= n) return Promise.resolve(done(list));
+  //  ④ 결재선 보기(문서 20개까지, 한 번 본 것은 기억)
+  var me = myNames();
+  return Promise.all(list.slice(0, 20).map(function (x) {
+    if (STEPCACHE[x.id] && Date.now() - STEPCACHE[x.id].at < 60000) return Promise.resolve(STEPCACHE[x.id].st);
+    return api('/api/appr/' + x.id).then(function (d) { var st = curStep(d.steps); STEPCACHE[x.id] = { at: Date.now(), st: st }; return st; }).catch(function () { return undefined; });
+  })).then(function (cur) {
+    var keep = list.filter(function (x, i) {
+      var c = cur[i];
+      if (c === undefined) return true;          //  못 열었으면 남겨 둔다
+      if (!c) return false;                      //  결재가 다 끝났다
+      return !!(me[c.name] || me[c.username] || me[c.user] || me[c.user_name]);
+    });
+    if (!Object.keys(me).length) keep = list.slice(0, n);   //  내 이름을 모르면 포털이 센 수만큼
+    done(keep);
+  });
+}
+//  포털 「오늘 할 일」 칸 이름(영문 열쇠) → 우리말. 포털이 이름을 같이 주면 그것이 먼저다.
+var TODO_NAME = { appr: '결재할 문서', po_overdue: '납기 지난 발주', po_noack: '발주 미확인', directives_out: '보낸 업무지시(진행 중)', directives_in: '받은 업무지시',
+  directives: '업무지시', task: '업무 지시', tasks: '업무 지시', closing: '마감할 일', mailbox: '안 읽은 메일', mail: '안 읽은 메일', hr: '인사 처리', recon: '대사(맞춰 볼 것)',
+  chat: '안 읽은 쪽지', notice: '공지', contact: '연락 기록', as: 'A/S', claim: '클레임', qc: '품질', stock: '재고', order: '수주', quote: '견적', delivery: '납품', sched: '일정', schedule: '일정' };
+var TODO_URL = { appr: '/approval', mailbox: '/mail', mail: '/mail', chat: '/chat', directives_out: '/mywork', directives_in: '/mywork', directives: '/mywork' };
+function todoName(x) {
+  var n = x.label || x.title || x.name || x.text || x.t || x.nm || x.caption || x.desc;
+  if (n && n !== x.key) return n;
+  return TODO_NAME[x.key] || String(x.key || '').replace(/_/g, ' ');
 }
 function loadTodo() {
   return api('/api/my-today').then(function (d) {
-    S.todo = (d.items || []).filter(function (x) { return Number(x.n) > 0; }).map(function (x) {
-      return { key: x.key, n: Number(x.n) || 0, label: x.label || x.title || x.name || x.key, url: x.url || x.href || (x.key === 'appr' ? '/approval' : '/mywork') };
+    var items = d.items || d.list || [];
+    S.todoAppr = null;
+    items.forEach(function (x) { if (x.key === 'appr') S.todoAppr = Number(x.n) || 0; });
+    S.todo = items.filter(function (x) { return Number(x.n) > 0; }).map(function (x) {
+      return { key: x.key, n: Number(x.n) || 0, label: todoName(x), url: x.url || x.href || x.link || x.path || TODO_URL[x.key] || '/mywork' };
     });
+    diag('my-today', items.slice(0, 3));
   });
+}
+//  🩺 포털 자료 모양을 기록에 한 번 남긴다(칸 이름이 다를 때 맞추려고)
+var DIAG = {};
+function diag(k, v) {
+  if (PORTAL || DIAG[k]) return;
+  DIAG[k] = 1;
+  try { fetch('/__cal/diag', { method: 'POST', body: k + ' ' + JSON.stringify(v).slice(0, 3000) }).catch(function () {}); } catch (e) {}
 }
 function loadMsgs() {
   return api('/api/deskmsg').then(function (d) {
@@ -634,12 +731,50 @@ function loadEvents() {
   loadHolidays().then(function () { draw(); });
   var r = loadRange();
   if (P().gg) loadGoogle(r);
+  if (P().pc && S.pcApi) loadPortalCal(r);
   return api('/api/cal/events?from=' + r[0] + '&to=' + r[1]).then(function (d) {
     S.events = d.events || []; S.me = d.me || null; S.evOK = true;
   }).catch(function (e) {
     if (e.status === 404 || e.status === 403) S.evOK = false;   //  포털에 일정 조각(calendar-route.js)이 아직 없다
     throw e;
   });
+}
+//  📅 포털에 원래 있는 달력 — 관문이 찾아 둔 API 의 JSON 을 일정 모양으로
+function pick(o, ks) { for (var i = 0; i < ks.length; i++) { var v = o[ks[i]]; if (v !== undefined && v !== null && v !== '') return v; } return ''; }
+function findArr(v, dep) {
+  if (dep > 3 || !v) return null;
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'object') { var K = ['events', 'items', 'list', 'rows', 'data', 'schedules', 'schedule', 'result', 'results', 'calendar']; for (var i = 0; i < K.length; i++) { var a = findArr(v[K[i]], dep + 1); if (a) return a; } }
+  return null;
+}
+function timeOf(v) { var m = /[T\s](\d{1,2}):(\d{2})/.exec(String(v || '')); return m && !(m[1] === '00' && m[2] === '00' && !/T/.test(String(v))) ? pad(+m[1]) + ':' + m[2] : ''; }
+function normPortalCal(j) {
+  return (findArr(j, 0) || []).map(function (x, i) {
+    var s0 = pick(x, ['start', 'start_date', 'startDate', 'sdate', 's_date', 'start_at', 'startAt', 'begin', 'from', 'date', 'day', 'ymd', 'cal_date', 'sch_date', 'event_date']);
+    var e0 = pick(x, ['end', 'end_date', 'endDate', 'edate', 'e_date', 'end_at', 'endAt', 'finish', 'to', 'until']);
+    var s = dateOf(/^\d{8}$/.test(s0) ? s0.slice(0, 4) + '-' + s0.slice(4, 6) + '-' + s0.slice(6) : s0), e = dateOf(/^\d{8}$/.test(e0) ? e0.slice(0, 4) + '-' + e0.slice(4, 6) + '-' + e0.slice(6) : e0) || s;
+    if (!s) return null;
+    if (e < s) e = s;
+    //  종일 일정을 «다음날 0시까지» 로 주는 경우
+    if (e > s && /00:00/.test(String(e0)) && !timeOf(s0)) e = addDays(e, -1);
+    return { id: 'pc-' + (x.id || x.no || x.seq || i), title: String(pick(x, ['title', 'subject', 'name', 'summary', 'content', 'text', 'memo', 'contents']) || '(제목 없음)').replace(/<[^>]+>/g, '').slice(0, 200),
+      start: s, end: e, time: pick(x, ['time', 'start_time', 'stime']) || timeOf(s0), endTime: pick(x, ['end_time', 'etime']) || timeOf(e0),
+      place: String(pick(x, ['place', 'location', 'loc', 'where', 'room']) || ''), memo: String(pick(x, ['memo', 'description', 'desc', 'note', 'body', 'content', 'contents']) || '').replace(/<[^>]+>/g, '').slice(0, 500),
+      who: String(pick(x, ['writer_name', 'owner_name', 'user_name', 'author', 'writer', 'name_kr', 'reg_name', 'created_by']) || ''), color: /^#[0-9a-f]{6}$/i.test(x.color || '') ? x.color : '', kind: 'portal' };
+  }).filter(Boolean);
+}
+function loadPortalCal(r) {
+  if (!S.pcApi || PORTAL) return Promise.resolve();
+  var y = r[0].slice(0, 4), m = +r[0].slice(5, 7);
+  var q = '?from=' + r[0] + '&to=' + r[1] + '&start=' + r[0] + '&end=' + r[1] + '&year=' + y + '&month=' + m + '&ym=' + r[0].slice(0, 7);
+  return api(S.pcApi + q).then(function (j) { S.pcEvents = normPortalCal(j); diag('portalcal', findArr(j, 0) ? findArr(j, 0).slice(0, 2) : j); draw(); }).catch(function () {});
+}
+function findPortalCal(force) {
+  if (PORTAL) return Promise.resolve();
+  return fetch('/__cal/discover' + (force ? '?run=1' : ''), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+    S.pcApi = d.api || ''; S.pcPage = d.page || ''; S.pcLog = d.log || []; S.pcAt = d.at || 0;
+    return loadPortalCal(loadRange());
+  }).catch(function () {});
 }
 function loadGoogle(r) {
   return api('/api/cal/gcal?from=' + r[0] + '&to=' + r[1]).then(function (d) { S.gevents = d.events || []; S.gLinked = !!d.linked; S.gErr = d.error || ''; draw(); }).catch(function () { S.gevents = []; });
@@ -750,7 +885,13 @@ function poll() {
   if (polling) return;
   polling = true;
   var jobs = [loadAppr(), loadTodo(), loadMsgs(), loadEvents()].map(function (p) { return p.catch(function (e) { return e; }); });
-  Promise.all(jobs).then(function () { S.first = false; polling = false; banner(); draw(); checkRemind(); return syncNow(); });
+  Promise.all(jobs).then(function () { return S.login ? decideWait().catch(function () {}) : null; })
+    .then(function () {
+      S.first = false; polling = false; banner(); draw(); checkRemind();
+      //  📅 포털 달력을 아직 못 찾았으면(로그인한 뒤 · 하루 한 번) 찾아본다
+      if (S.login && P().pc && !S.pcApi && !S.pcTried && (!S.pcAt || Date.now() - S.pcAt > 86400000)) { S.pcTried = 1; findPortalCal(true); }
+      return syncNow();
+    });
 }
 
 //  ── 그리기 ──
@@ -770,9 +911,10 @@ function itemsOn(d) {
   annivOn(d).forEach(function (a) { out.push({ t: 'an', a: a }); });
   S.events.forEach(function (e) { if (occursOn(e, d)) out.push({ t: 'ev', e: e }); });
   if (p.gg) S.gevents.forEach(function (e) { if (e.start <= d && e.end >= d) out.push({ t: 'gg', e: e }); });
+  if (p.pc) S.pcEvents.forEach(function (e) { if (e.start <= d && e.end >= d) out.push({ t: 'pc', e: e }); });
   if (p.docs !== 'none') {
     S.apprWait.forEach(function (x) { if (x.date === d) out.push({ t: 'doc', x: x }); });
-    if (p.docs === 'mine' || p.docs === 'all') S.apprMine.forEach(function (x) { if (x.date === d) out.push({ t: 'doc', x: x }); });
+    if (p.docs === 'mine' || p.docs === 'all') S.apprMine.concat(S.apprLine).forEach(function (x) { if (x.date === d) out.push({ t: 'doc', x: x }); });
     if (p.docs === 'all') S.apprDone.forEach(function (x) { if (x.date === d) out.push({ t: 'doc', x: x }); });
   }
   return out;
@@ -780,6 +922,10 @@ function itemsOn(d) {
 function isHit(s) { return S.hits && s && String(s).toLowerCase().indexOf(S.hits) >= 0; }
 function chipHTML(it) {
   if (it.t === 'an') return '<span class="chip an" data-anv="' + esc(it.a.id) + '"' + (it.a.color ? ' style="color:' + it.a.color + '"' : '') + '>🎂 ' + esc(it.a.title) + (it.a.lunar ? ' (음)' : '') + '</span>';
+  if (it.t === 'pc') {
+    var c = it.e;
+    return '<span class="chip pc' + (isHit(c.title) ? ' hit' : '') + '" data-pc="' + esc(c.id) + '"' + (c.color ? ' style="color:' + c.color + '"' : '') + ' title="포털 달력 · ' + esc(c.title) + '">' + (c.time ? esc(c.time) + ' ' : '') + '📅 ' + esc(c.title) + '</span>';
+  }
   if (it.t === 'gg') {
     var g = it.e;
     return '<span class="chip gg' + (isHit(g.title) ? ' hit' : '') + '" data-gg="' + esc(g.id) + '" title="구글 캘린더 · ' + esc(g.title) + '">' + (g.time ? esc(g.time) + ' ' : '') + 'G ' + esc(g.title) + '</span>';
@@ -850,6 +996,7 @@ function draw() {
   drawBadges();
   $('#pinBtn').textContent = S.pinned ? '↔ 위치 조정' : '📌 고정';
   $('#pinBtn').style.display = S.desktop ? '' : 'none';
+  chrome();
   syncMark();
 }
 function drawSide() {
@@ -866,21 +1013,23 @@ function drawSide() {
     return '<div class="todo' + (x.done ? ' done' : '') + '"><input type="checkbox" data-td="' + x.id + '"' + (x.done ? ' checked' : '') + '><span>' + esc(x.t) + '</span>'
       + (x.due ? '<small' + (late ? ' style="color:var(--sun)"' : '') + '>' + esc(x.due.slice(5).replace('-', '/')) + '</small>' : '') + '<button class="x" data-tdx="' + x.id + '">×</button></div>';
   }).join('') : '<div class="empty">아래에 적고 Enter — 날짜(11/20)를 붙이면 그날 할 일</div>';
-  $('#lTodo').innerHTML = S.todo.length ? S.todo.map(function (x) {
-    return '<div class="row" data-open="' + esc(x.url) + '"><i>•</i><div class="tx"><b>' + esc(x.label) + ' <span style="color:var(--warn)">' + x.n + '</span></b></div></div>';
+  var hid = P().hideTodo || [], shown = S.todo.filter(function (x) { return hid.indexOf(x.key) < 0; });
+  $('#lTodo').innerHTML = shown.length ? shown.map(function (x) {
+    return '<div class="row" data-open="' + esc(x.url) + '"><i>•</i><div class="tx"><b>' + esc(x.label) + ' <span style="color:var(--warn)">' + x.n + '</span></b></div><button class="hide" data-hidetodo="' + esc(x.key) + '" title="이 항목 숨기기(⚙ 달력에서 다시 보이기)">×</button></div>';
   }).join('') : '<div class="empty">' + (S.login ? '남은 일이 없습니다' : '로그인하면 보입니다') + '</div>';
   var today = ymd(new Date()), up = [];
   for (var i = 0; i <= 14; i++) {
     var d = addDays(today, i);
     S.events.forEach(function (e) { if (occursOn(e, d) && (i === 0 || !occursOn(e, addDays(d, -1)))) up.push({ e: e, d: d }); });
     if (P().gg) S.gevents.forEach(function (e) { if (e.start === d || (i === 0 && e.start < d && e.end >= d)) up.push({ e: e, d: d }); });
+    if (P().pc) S.pcEvents.forEach(function (e) { if (e.start === d || (i === 0 && e.start < d && e.end >= d)) up.push({ e: e, d: d }); });
     annivOn(d).forEach(function (a) { up.push({ e: { id: '', title: '🎂 ' + a.title, kind: 'anv' }, d: d }); });
   }
   $('#nEv').textContent = up.length;
   $('#lEv').innerHTML = S.evOK === false && !up.length ? '<div class="empty">포털에 일정 기능(calendar-route.js)을 넣으면 회사 일정이 보이고 올릴 수 있습니다</div>'
     : (up.length ? up.slice(0, 40).map(function (x) {
-      var e = x.e, ic = e.kind === 'private' ? '🔒' : e.kind === 'google' ? 'G' : e.kind === 'anv' ? '🎂' : '🏢';
-      return '<div class="row"' + (e.kind === 'google' ? ' data-gg="' + esc(e.id) + '"' : e.id ? ' data-ev="' + esc(e.id) + '"' : '') + '><i>' + ic + '</i><div class="tx"><b>' + esc(e.title.replace(/^🎂 /, '')) + '</b><small>'
+      var e = x.e, ic = e.kind === 'private' ? '🔒' : e.kind === 'google' ? 'G' : e.kind === 'anv' ? '🎂' : e.kind === 'portal' ? '📅' : '🏢';
+      return '<div class="row"' + (e.kind === 'google' ? ' data-gg="' + esc(e.id) + '"' : e.kind === 'portal' ? ' data-pc="' + esc(e.id) + '"' : e.id ? ' data-ev="' + esc(e.id) + '"' : '') + '><i>' + ic + '</i><div class="tx"><b>' + esc(e.title.replace(/^🎂 /, '')) + '</b><small>'
         + esc(x.d.slice(5).replace('-', '/') + ' (' + DOW[dowOf(x.d)] + ')') + (e.time ? ' ' + esc(e.time) : '') + (e.place ? ' · ' + esc(e.place) : '') + (e.ownerName && !e.mine ? ' · ' + esc(e.ownerName) : '') + '</small></div></div>';
     }).join('') : '<div class="empty">2주 안에 일정이 없습니다</div>');
   $('#nMsg').textContent = S.msgs.length;
@@ -904,10 +1053,14 @@ document.addEventListener('click', function (e) {
   var mb = t.closest('[data-mbg]'); if (mb) { memoStyle('bg', mb.getAttribute('data-mbg')); return; }
   var m2 = t.closest('[data-m2ev]'); if (m2) { var tx = ($('textarea[data-memo]') || {}).value || ''; endMemo(); newEvent(m2.getAttribute('data-m2ev'), tx.split('\n')[0]); return; }
   if (t.closest('.mpal')) return;
+  var ht = t.closest('[data-hidetodo]'); if (ht) { DATA.prefs = Object.assign({}, DATA.prefs, { hideTodo: (P().hideTodo || []).concat([ht.getAttribute('data-hidetodo')]) }); saveData(); draw(); return; }
+  var uh = t.closest('[data-unhide]'); if (uh) { DATA.prefs = Object.assign({}, DATA.prefs, { hideTodo: (P().hideTodo || []).filter(function (k) { return k !== uh.getAttribute('data-unhide'); }) }); saveData(); drawHide(); draw(); return; }
+  var sz = t.closest('[data-size]'); if (sz) { win('size', sz.getAttribute('data-size') + ',' + $('#sPos').value); return; }
   var a = t.closest('[data-open]'); if (a) { openPortal(a.getAttribute('data-open')); return; }
   var dc = t.closest('[data-doc]'); if (dc) { openDoc(dc.getAttribute('data-doc')); return; }
   var ev = t.closest('[data-ev]'); if (ev) { openEvent(ev.getAttribute('data-ev')); return; }
   var gg = t.closest('[data-gg]'); if (gg) { openGoogle(gg.getAttribute('data-gg')); return; }
+  var pc = t.closest('[data-pc]'); if (pc) { openPortalCal(pc.getAttribute('data-pc')); return; }
   var an = t.closest('[data-anv]'); if (an) { openSettings('anv'); return; }
   var ad = t.closest('[data-add]'); if (ad) { newEvent(ad.getAttribute('data-add')); return; }
   var mo = t.closest('[data-day]'); if (mo) { dayList(mo.getAttribute('data-day')); return; }
@@ -1001,7 +1154,8 @@ $('#q').addEventListener('keydown', function (e) {
   Object.keys(DATA.notes || {}).forEach(function (d) { if (has(DATA.notes[d].t)) res.push({ d: d, ic: '📝', t: DATA.notes[d].t.split('\n')[0] }); });
   (DATA.todos || []).forEach(function (x) { if (has(x.t)) res.push({ d: x.due || '', ic: '☑', t: x.t }); });
   (DATA.annivs || []).forEach(function (a) { if (has(a.title)) res.push({ d: '', ic: '🎂', t: a.title + ' (' + (a.lunar ? '음력 ' : '') + a.md + ')' }); });
-  S.apprWait.concat(S.apprMine, S.apprDone).forEach(function (x) { if (has(x.title)) res.push({ d: x.date, ic: '📄', t: x.title }); });
+  S.apprWait.concat(S.apprMine, S.apprLine, S.apprDone).forEach(function (x) { if (has(x.title)) res.push({ d: x.date, ic: '📄', t: x.title }); });
+  S.pcEvents.forEach(function (x) { if (has(x.title) || has(x.memo)) res.push({ d: x.start, ic: '📅', t: x.title }); });
   var t = ymd(new Date());
   var done = function (evs) {
     evs.forEach(function (x) { if (has(x.title) || has(x.memo) || has(x.place)) res.push({ d: x.start, ic: x.kind === 'private' ? '🔒' : '🏢', t: x.title }); });
@@ -1020,7 +1174,7 @@ $('#vBody').addEventListener('click', function (e) { var g = e.target.closest('[
 var docId = 0;
 function openDoc(id) {
   docId = id;
-  var all = S.apprWait.concat(S.apprMine, S.apprDone), x = all.filter(function (y) { return String(y.id) === String(id); })[0];
+  var all = S.apprWait.concat(S.apprMine, S.apprLine, S.apprDone), x = all.filter(function (y) { return String(y.id) === String(id); })[0];
   $('#dTitle').textContent = (x ? (x.kind === 'wait' ? '✍ [내 결재 차례] ' : '📄 ') + x.title : '결재 문서');
   $('#dOpen').textContent = x && x.kind === 'wait' ? '🌐 포털에서 결재하기' : '🌐 포털에서 열기';
   $('#dFrame').src = '/api/appr/' + encodeURIComponent(id) + '/print';
@@ -1081,6 +1235,13 @@ function openEvent(id) {
   holRow(); $('#fHol').checked = !!e.holiday; $('#evDel').style.display = '';
   $('#evDlg').classList.add('on'); win('front');
 }
+function openPortalCal(id) {
+  var e = S.pcEvents.filter(function (x) { return x.id === id; })[0];
+  if (!e) return;
+  $('#vTitle').textContent = '📅 ' + e.title;
+  $('#vBody').innerHTML = evText(e) + (e.who ? '<dt>올린 사람</dt><dd>' + esc(e.who) + '</dd>' : '') + '<dt>어디서</dt><dd>포털 달력 · <a href="#" data-open="' + esc(S.pcPage || '/calendar') + '">포털에서 열기</a></dd>';
+  $('#viewDlg').classList.add('on');
+}
 function openGoogle(id) {
   var e = S.gevents.filter(function (x) { return x.id === id; })[0];
   if (!e) return;
@@ -1136,6 +1297,7 @@ $('#pGo').onclick = function () {
       annivOn(d).forEach(function (x) { a.push('🎂 ' + x.title); });
       S.events.forEach(function (e) { if (occursOn(e, d)) a.push((e.time ? e.time + ' ' : '') + e.title); });
       if (p.gg) S.gevents.forEach(function (e) { if (e.start <= d && e.end >= d) a.push((e.time ? e.time + ' ' : '') + e.title); });
+      if (p.pc) S.pcEvents.forEach(function (e) { if (e.start <= d && e.end >= d) a.push((e.time ? e.time + ' ' : '') + e.title); });
     }
     if (withDoc) S.apprWait.concat(S.apprMine).forEach(function (x) { if (x.date === d) a.push('📄 ' + x.title); });
     var nt = (DATA.notes || {})[d];
@@ -1190,7 +1352,8 @@ function openSettings(tab) {
   $('#sAlpha').value = p.alpha; $('#sAlphaV').textContent = p.alpha + '%'; $('#sAlphaRow').style.display = PORTAL ? 'none' : '';
   $('#sView').value = p.view; $('#sWeeks').value = String(p.weeks); $('#sSide').checked = p.side;
   $('#sWeek').value = String(p.week); $('#sLunar').value = p.lunar; $('#sTerms').checked = p.terms; $('#sObs').checked = p.obs; $('#sWeekNo').checked = p.weekNo;
-  $('#sDocs').value = p.docs; $('#sGg').checked = p.gg; $('#sAlert').value = p.alert; $('#sRemind').value = p.remind; $('#sMsg').value = p.msg;
+  $('#sDocs').value = p.docs; $('#sGg').checked = p.gg; $('#sPc').checked = p.pc; $('#sSizeRow').style.display = S.desktop ? '' : 'none';
+  drawPc(); drawHide(); $('#sAlert').value = p.alert; $('#sRemind').value = p.remind; $('#sMsg').value = p.msg;
   $('#sAcct').innerHTML = '포털: <b>' + esc(PORTAL ? location.host : (S.portal || '연결 안 됨')) + '</b>' + (S.me ? ' · ' + esc(S.me.name) + (S.me.admin ? ' (관리자)' : '') : '');
   $('#sLogout').style.display = S.login ? '' : 'none';
   $('#syncState').textContent = SY.ok === false ? '⚠ 포털에 동기화 기능이 아직 없습니다(calendar-route.js 새 판을 넣어 주세요)' : (!S.login ? '로그인하면 동기화됩니다' : (DATA.dirty ? '☁ 올리는 중…' : '☁ 동기화됨' + (SY.at ? ' · ' + new Date(SY.at).toLocaleTimeString() : '') + ' · 판 ' + (DATA.rev || 0)));
@@ -1200,16 +1363,24 @@ function openSettings(tab) {
   setTab(tab || 'look');
   $('#setDlg').classList.add('on'); win('front');
 }
+function drawPc() {
+  $('#pcState').innerHTML = PORTAL ? '포털 화면에서는 쓰지 않습니다' : (S.pcApi ? '✓ 찾았습니다: <b>' + esc(S.pcApi) + '</b> — 이번 화면에 ' + S.pcEvents.length + '건' : (S.pcAt ? '⚠ 포털 달력을 찾지 못했습니다. 아래 「물어본 것」 을 담당자에게 보내 주세요.' : '아직 찾아보지 않았습니다(로그인하면 저절로 찾습니다)'));
+  $('#pcLog').textContent = (S.pcLog || []).map(function (r) { return (r.status || '-') + '  ' + (r.path || '') + (r.rows > 0 ? '  → ' + r.rows + '줄' : '') + (r.note ? '  ' + r.note : ''); }).join('\n');
+}
+function drawHide() {
+  var h = P().hideTodo || [];
+  $('#hideList').innerHTML = h.length ? h.map(function (k) { return '<span class="bdg" style="background:var(--line2);color:var(--ink);margin:2px" data-unhide="' + esc(k) + '">' + esc(TODO_NAME[k] || k) + ' ↺</span>'; }).join('') : '없음';
+}
+$('#pcFind').onclick = function () { $('#pcState').textContent = '찾는 중… (몇 초)'; findPortalCal(true).then(drawPc); };
 function setTab(t) { $$('#setTabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === t); }); $$('.tabp').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-p') === t); }); }
 $('#setTabs').onclick = function (e) { var b = e.target.closest('[data-tab]'); if (b) setTab(b.getAttribute('data-tab')); };
 $('#setBtn').onclick = function () { openSettings(); };
 $('#sFont').oninput = function () { $('#sFontV').textContent = this.value + '%'; document.documentElement.style.setProperty('--fs', (13.5 * this.value / 100).toFixed(2) + 'px'); };
 //  🌫 투명도 — 움직이는 대로 바로
-$('#sAlpha').oninput = function () { $('#sAlphaV').textContent = this.value + '%'; win('alpha', this.value); DATA.local = Object.assign({}, DATA.local, { alpha: +this.value }); saveData(false); };
 $('#sSave').onclick = function () {
   DATA.prefs = Object.assign({}, DATA.prefs, { theme: $('#sTheme').value, font: +$('#sFont').value, view: $('#sView').value, weeks: +$('#sWeeks').value,
     week: +$('#sWeek').value, lunar: $('#sLunar').value, terms: $('#sTerms').checked, obs: $('#sObs').checked, weekNo: $('#sWeekNo').checked,
-    docs: $('#sDocs').value, gg: $('#sGg').checked, alert: $('#sAlert').value, remind: $('#sRemind').value, msg: $('#sMsg').value });
+    docs: $('#sDocs').value, gg: $('#sGg').checked, pc: $('#sPc').checked, alert: $('#sAlert').value, remind: $('#sRemind').value, msg: $('#sMsg').value });
   DATA.local = Object.assign({}, DATA.local, { side: $('#sSide').checked });
   S.wofs = 0;
   saveData(); $('#setDlg').classList.remove('on'); draw(); loadEvents().catch(function () {}).then(draw);
@@ -1309,6 +1480,30 @@ $('#fMake').onclick = function () { makeFeed(false); };
 $('#fReset').onclick = function (e) { e.preventDefault(); if (confirm('새 주소로 바꾸면 예전 주소는 바로 막힙니다. 구글에도 새 주소를 다시 넣어야 합니다. 바꿀까요?')) makeFeed(true); };
 $('#fCopy').onclick = function () { var i = $('#fUrl'); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } };
 
+//  🌫 머리줄 투명도 막대
+function setAlpha(v) {
+  v = Math.max(30, Math.min(100, +v || 100));
+  DATA.local = Object.assign({}, DATA.local, { alpha: v }); saveData(false);
+  $('#alphaTop').value = v; $('#alphaTopV').textContent = v + '%';
+  $('#sAlpha').value = v; $('#sAlphaV').textContent = v + '%';
+  win('alpha', v);
+}
+$('#alphaTop').oninput = function () { setAlpha(this.value); };
+$('#sAlpha').oninput = function () { setAlpha(this.value); };
+//  ↔ 가장자리·모서리를 끌어 크기 · 머리줄 빈 곳을 끌어 옮기기(바탕화면에 깔린 동안)
+$('#rz').addEventListener('mousedown', function (e) { var h = e.target.getAttribute('data-ht'); if (h && e.button === 0) { e.preventDefault(); win('drag', h); } });
+$('#top').addEventListener('mousedown', function (e) {
+  if (!S.desktop || !S.pinned || e.button !== 0) return;
+  if (e.target === this || e.target.classList.contains('sp') || e.target.id === 'ym') { e.preventDefault(); win('drag', 2); }
+});
+function chrome() {
+  var on = S.desktop && S.pinned;
+  $('#rz').classList.toggle('on', on);
+  $('#top').classList.toggle('drag', on);
+  $('#alphaBox').classList.toggle('on', S.desktop);
+  var a = P().alpha; $('#alphaTop').value = a; $('#alphaTopV').textContent = a + '%';
+}
+
 //  ── 시작 ──
 function start(d) {
   DATA = Object.assign({ notes: {}, todos: [], annivs: [], prefs: {}, alerted: {}, reminded: {}, local: {} }, d || {});
@@ -1324,8 +1519,11 @@ if (PORTAL) {
     return fetch('/__cal/state', { cache: 'no-store' }).then(function (r) { return r.json(); });
   }).then(function (st) {
     S.portal = st.portal || ''; S.pinned = !!st.pinned; S.desktop = !!st.desktop;
+    S.pcApi = st.portalCal || ''; S.pcPage = st.portalCalPage || ''; S.pcAt = st.portalCalAt || 0;
     if (!st.portal) setOffline(true);
-    if (P().alpha < 100) win('alpha', P().alpha);
+    //  ⚠ 알림 영역 메뉴에서 바꾼 투명도가 창의 것 — 그것을 따른다
+    if (st.alpha) DATA.local = Object.assign({}, DATA.local, { alpha: st.alpha });
+    chrome();
     poll();
   }).catch(function () { poll(); });
 }
@@ -1334,7 +1532,7 @@ setInterval(checkRemind, 20000);
 var lastDay = ymd(new Date());
 setInterval(function () { var t = ymd(new Date()); if (t !== lastDay) { lastDay = t; S.cur = new Date(); S.cur.setDate(1); S.wofs = 0; draw(); } }, 60000);
 window.addEventListener('resize', function () { clearTimeout(window.__rz); window.__rz = setTimeout(draw, 120); });
-window.__cal = { S: S, holidays: holidays, draw: draw, poll: poll, PH: PH, lunarOf: lunarOf, termsOf: termsOf, solarOfLunar: solarOfLunar, DATA: function () { return DATA; }, syncNow: syncNow };
+window.__cal = { decideWait: decideWait, normPortalCal: normPortalCal, S: S, holidays: holidays, draw: draw, poll: poll, PH: PH, lunarOf: lunarOf, termsOf: termsOf, solarOfLunar: solarOfLunar, DATA: function () { return DATA; }, syncNow: syncNow };
 })();
 </script>
 </body>

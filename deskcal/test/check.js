@@ -64,9 +64,26 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   ok(/알림: 📄 결재할 문서가 1건/.test(gw.out), '윈도 알림(풍선)도 보냈다');
 
   ok(await pg.$('.chip.wait[data-doc="101"]') !== null, '결재할 문서가 기안일 칸에 보인다');
+  ok(await pg.$('.chip.wait[data-doc="201"]') === null && await pg.$('[data-doc="201"]') !== null, '내 차례가 아닌 문서(앞사람 차례)는 「결재할 문서」 가 아니다');
+  ok((await pg.textContent('#nWait')) === '1', '결재할 문서 수 = 포털이 센 내 차례 수(1)');
+  ok((await pg.textContent('#lTodo')).includes('납기 지난 발주') && !(await pg.textContent('#lTodo')).includes('po_overdue'), '포털 할 일 이름을 우리말로');
+  await pg.hover('#lTodo [data-hidetodo="recon"]'.replace('"recon"', '"recon"'));
+  await pg.click('#lTodo [data-hidetodo="recon"]');
+  ok(!(await pg.textContent('#lTodo')).includes('대사'), '포털 할 일 항목 숨기기');
+  //  📅 포털에 원래 있는 달력 — 스스로 찾아서 보인다
+  await pg.waitForSelector('.chip.pc', { timeout: 10000 }).catch(() => {});
+  const disc = await (await fetch(G + '/__cal/discover')).json();
+  ok(disc.api === '/api/schedule/list' && disc.page === '/schedule', '포털 달력 API 를 스스로 찾았다: ' + disc.api);
+  const t2 = new Date(); t2.setDate(t2.getDate() + 2);
+  if (t2.getMonth() !== new Date().getMonth()) await pg.click('#next');
+  await pg.waitForSelector(`.cell[data-d="${ymd(t2)}"] .chip.pc`, { timeout: 5000 });
+  ok((await pg.textContent(`.cell[data-d="${ymd(t2)}"]`)).includes('15:00 📅 협력사 방문'), '포털 달력 일정이 달력에 나온다');
+  if (t2.getMonth() !== new Date().getMonth()) await pg.click('#prev');
+  r = await fetch(G + '/api/schedule/list');
+  ok(r.status === 200, '찾은 포털 달력 주소는 관문이 통과시킨다');
   ok(await pg.$('.chip.ing[data-doc="90"]') !== null, '내가 올린 문서도 보인다');
   ok((await pg.textContent('#lMsg')).includes('견적서'), '쪽지가 옆 칸에 보인다');
-  ok((await pg.textContent('#lTodo')).includes('업무 지시'), '오늘 할 일이 옆 칸에 보인다');
+  ok((await pg.textContent('#lTodo')).includes('안 읽은 메일 269'), '오늘 할 일이 옆 칸에 보인다');
 
   //  문서 보기 — 포털 인쇄 화면이 틀에 뜬다(X-Frame-Options 를 뗐다)
   await pg.click('.chip.wait[data-doc="101"]');
@@ -96,6 +113,7 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   await pg.fill('#fEnd', ymd(end));
   await pg.click('#evSave');
   await pg.waitForSelector('#evDlg', { state: 'hidden' });
+  await pg.waitForSelector('.chip.pv', { state: 'attached', timeout: 5000 }).catch(() => {});
   ok((await pg.$$('.chip.pv')).length >= 1, '내 일정(여러 날)도 나온다');
   //  잘못된 값
   await pg.click('#addBtn'); await pg.click('#evSave');
@@ -131,7 +149,7 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   await fetch(P + '/__test/wait', { method: 'POST' });
   await pg.evaluate(() => window.__cal.poll());
   await pg.waitForSelector('#alertDlg.on', { timeout: 5000 });
-  ok((await pg.textContent('#aBig')).includes('2건'), '새 결재 문서가 오면 다시 크게 뜬다');
+  ok((await pg.textContent('#aBig')).includes('2건') && !(await pg.textContent('#aList')).includes('업무일지'), '새 결재 문서가 오면 다시 크게 뜬다(내 차례 아닌 것은 빼고)');
   await pg.screenshot({ path: path.join(SHOT, '3-new-wait.png') });
   await pg.click('#aLater');
 
@@ -235,6 +253,19 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   ok(/창 명령: alpha 70/.test(gw.out), '투명도 70% → 창에 바로');
   await pg.click('#setDlg .x');
 
+  //  ↔ 크기 고르기 · 끌기(바탕화면 모드인 척)
+  await pg.evaluate(() => { const S = window.__cal.S; S.desktop = true; S.pinned = true; window.__cal.draw(); });
+  ok(await pg.isVisible('#rz .se') && await pg.isVisible('#alphaBox'), '크기 손잡이·머리줄 투명도 막대가 보인다');
+  await pg.dispatchEvent('#rz .se', 'mousedown', { button: 0 });
+  await pg.click('#setBtn'); await pg.selectOption('#sPos', 'left'); await pg.click('[data-size="80"]');
+  await sleep(300);
+  ok(/창 명령: drag 17/.test(gw.out) && /창 명령: size 80,left/.test(gw.out), '가장자리 끌기·크기 고르기 → 창에 바로');
+  await pg.click('#setDlg .x');
+  await pg.$eval('#alphaTop', (el) => { el.value = '60'; el.dispatchEvent(new Event('input')); });
+  await sleep(300);
+  ok(/창 명령: alpha 60/.test(gw.out), '머리줄 투명도 막대 → 창에 바로');
+  await pg.evaluate(() => { const S = window.__cal.S; S.desktop = false; S.pinned = false; window.__cal.draw(); });
+
   //  🔍 찾기
   await pg.fill('#q', '안전'); await pg.press('#q', 'Enter');
   await pg.waitForSelector('#viewDlg.on');
@@ -251,7 +282,7 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   ok((await pg.$$('.cell')).length === 28, '이번 주부터 4주 보기');
   await pg.click('#setBtn'); await pg.selectOption('#sView', 'month'); await pg.click('#sSave');
 
-  //  ☁ 클라우드 동기화 — PC 에서 적은 것이 포털에 올라가고, 폰(포털 /calendar)에서 고친 것이 PC 로
+  //  ☁ 클라우드 동기화 — PC 에서 적은 것이 포털에 올라가고, 폰(포털 /deskcal)에서 고친 것이 PC 로
   await sleep(1800);
   await pg.evaluate(() => window.__cal.syncNow());
   const lgk = await fetch(P + '/login', { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'username=kim&password=1234' });
@@ -260,11 +291,11 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   ok(md.rev > 0 && md.data.notes[td] && md.data.notes[td].t === '거래처 전화하기' && md.data.todos.length === 1 && md.data.annivs.length === 1, '☁ 메모·할 일·기념일이 포털에 올라갔다 (판 ' + md.rev + ')');
   const ph2 = await br.newPage({ viewport: { width: 390, height: 844 } });
   ph2.on('pageerror', (e) => errs.push('폰: ' + e.message));
-  await ph2.goto(P + '/calendar');
+  await ph2.goto(P + '/deskcal');
   await ph2.fill('#u', 'kim'); await ph2.fill('#p', '1234'); await ph2.click('#go');
-  await ph2.waitForURL(P + '/calendar');
+  await ph2.waitForURL(P + '/deskcal');
   await ph2.waitForSelector(`.cell[data-d="${td}"] .memo`, { state: "attached" });
-  ok((await ph2.textContent(`.cell[data-d="${td}"] .memo`)) === '거래처 전화하기', '📱 폰(포털 /calendar)에서 PC 메모가 보인다');
+  ok((await ph2.textContent(`.cell[data-d="${td}"] .memo`)) === '거래처 전화하기', '📱 폰(포털 /deskcal)에서 PC 메모가 보인다');
   await ph2.screenshot({ path: path.join(SHOT, '5-phone.png') });
   const d2 = ymd(new Date(t.getFullYear(), t.getMonth(), t.getDate() === 1 ? 2 : 1));
   await sleep(1500); for (let i = 0; i < 3 && await ph2.$('#alertDlg.on'); i++) { await ph2.click('#aLater'); await sleep(300); }

@@ -23,10 +23,19 @@ func runWindow(url string, gw *gateway) error {
 
 var quitCh = make(chan struct{})
 
-func focusWindow() bool                { return true }
-func isPinned() bool                   { return false }
-func hasDesktop() bool                 { return false }
-func windowCmd(m, v string)            { fmt.Println("창 명령:", m, v) }
+func focusWindow() bool { return true }
+func isPinned() bool    { return false }
+func hasDesktop() bool  { return false }
+func currentAlpha() int { return testAlpha }
+
+var testAlpha = 100
+
+func windowCmd(m, v string) {
+	fmt.Println("창 명령:", m, v)
+	if m == "alpha" {
+		fmt.Sscan(v, &testAlpha)
+	}
+}
 func quitApp()                         { close(quitCh) }
 func openExternal(u string)            { fmt.Println("열기:", u) }
 func showNotice(title, text, u string) { fmt.Println("알림:", title, "·", text, "·", u) }

@@ -44,6 +44,7 @@ const (
 	notifyPath = "/__cal/notify"
 	winPath    = "/__cal/win"
 	logoutPath = "/__cal/logout"
+	discPath   = "/__cal/discover"
 )
 
 type gateway struct {
@@ -55,6 +56,7 @@ type gateway struct {
 }
 
 func newGateway() *gateway {
+	loadDiscovered()
 	return &gateway{tr: map[string]*http.Transport{}, box: newCookieBox()}
 }
 
@@ -149,6 +151,9 @@ func allowed(method, p string) bool {
 	case !get:
 		return false //  ⭐ 그 밖의 쓰기는 하나도 통과시키지 않는다
 	case apiOK[p], reApprDoc.MatchString(p), reApprPrint.MatchString(p), strings.HasPrefix(p, "/api/appr/file/"):
+		return true
+	//  📅 포털에 원래 있는 달력 — 스스로 찾아낸 그 주소(읽기만)
+	case p != "" && p == discoveredAPI():
 		return true
 	case staticOK[p]:
 		return true
@@ -257,8 +262,22 @@ func (g *gateway) serveLocal(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok": true, "version": VERSION, "portal": portal, "tried": tried,
-			"session": !g.box.empty(), "pinned": isPinned(), "desktop": hasDesktop(),
+			"session": !g.box.empty(), "pinned": isPinned(), "desktop": hasDesktop(), "alpha": currentAlpha(),
+			"portalCal": discoveredAPI(), "portalCalPage": discNow.Page, "portalCalAt": discNow.At,
 		})
+	case "/__cal/diag":
+		//  🩺 화면이 포털 자료의 «모양»(칸 이름·첫 줄)을 기록에 남긴다 — 칸 이름이 예상과 다를 때 맞추려고
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+		logf("진단: %s", string(b))
+		fmt.Fprint(w, "ok")
+	case discPath:
+		//  📅 포털 달력 찾기 — ?run=1 이면 지금 다시 찾는다(로그인돼 있어야)
+		d := discNow
+		if r.URL.Query().Get("run") == "1" {
+			d = g.discover()
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(d)
 	case openPath:
 		//  🌐 평소 쓰는 브라우저로 포털의 그 화면을 연다(결재·답장은 거기서)
 		u := r.URL.Query().Get("u")

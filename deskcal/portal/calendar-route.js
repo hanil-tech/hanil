@@ -337,8 +337,8 @@ module.exports = function mountCalendar(app, ctx) {
 
   //  ════ 📱 폰·브라우저용 달력 화면 — 바탕화면 달력과 같은 화면(calendar-page.html)을 포털이 그대로 보여 준다 ════
   const PAGE = ctx.page || path.join(__dirname, 'calendar-page.html');
-  app.get('/calendar', (req, res) => {
-    if (!userOf(req)) return res.redirect('/?next=' + encodeURIComponent('/calendar'));
+  app.get('/deskcal', (req, res) => {
+    if (!userOf(req)) return res.redirect('/?next=' + encodeURIComponent('/deskcal'));
     let html;
     try { html = fs.readFileSync(PAGE, 'utf8'); } catch (e) { return res.status(404).send('calendar-page.html 이 포털 폴더에 없습니다'); }
     res.set('Cache-Control', 'no-store').type('html').send(html.replace(/\{\{VER\}\}/g, 'portal').replace('<head>', '<head><script>window.__CAL_PORTAL=1</script>'));
