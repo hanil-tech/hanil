@@ -293,8 +293,11 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   ok(/AUTOSTART=0/.test(ini), '시작프로그램 끄기 → 설정 파일에 AUTOSTART=0');
   await pg.check('#sAuto'); await sleep(400);
   ok(/AUTOSTART=1/.test(require('fs').readFileSync(BIN + '.ini', 'utf8')), '시작프로그램 켜기 → AUTOSTART=1');
+  ok(await pg.isVisible('#sQuit'), '설정 창에 「달력 끄기」');
   await pg.click('#setDlg .x');
-  await pg.evaluate(() => { window.__cal.S.desktop = false; });
+  ok(await pg.isVisible('#quitBtn'), '머리줄에 ⏻ 끄기 단추');
+  await pg.evaluate(() => { window.__cal.S.desktop = false; window.__cal.draw(); });
+  ok(!(await pg.isVisible('#quitBtn')), '포털 화면(폰)에는 끄기 단추가 없다');
 
   //  🔍 찾기
   await pg.fill('#q', '안전'); await pg.press('#q', 'Enter');
@@ -346,6 +349,11 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   await pg.click('#setDlg .x').catch(() => {});
   await pg.screenshot({ path: path.join(SHOT, '6-full.png') });
 
+  //  ⏻ 끄기 단추 → 프로그램이 끝난다
+  await pg.evaluate(() => { window.__cal.S.desktop = true; window.__cal.draw(); });
+  await pg.click('#quitBtn');
+  await sleep(800);
+  ok(gw.exitCode !== null || gw.signalCode !== null, '⏻ 끄기를 누르면 프로그램이 끝난다');
   //  껐다 켜도 로그인이 이어진다(세션을 보관)
   gw.kill(); await sleep(400);
   run(BIN, ['--url=' + P, '--port=' + GP], { LOCALAPPDATA: path.join(tmp, 'local') });

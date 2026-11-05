@@ -237,6 +237,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
   <button class="btn" id="sideBtn" title="옆 칸 보이기·숨기기">☰</button>
   <button class="btn" id="pinBtn"></button>
   <button class="btn" id="setBtn" title="설정">⚙</button>
+  <button class="btn" id="quitBtn" title="달력 끄기">⏻</button>
 </div>
 <div id="banner"></div>
 <div id="main">
@@ -391,7 +392,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
         <div class="hint" style="margin-top:4px">⚠ 이 주소를 아는 사람은 내 일정을 볼 수 있습니다. 새어 나갔으면 <a href="#" id="fReset">새 주소로 바꾸기</a>.</div></div>
     </div>
   </div>
-  <div class="df"><button class="b del" id="sLogout">로그아웃</button><button class="b" data-close>닫기</button><button class="b pri" id="sSave">저장</button></div>
+  <div class="df"><button class="b del" id="sLogout">로그아웃</button><button class="b" id="sQuit">⏻ 달력 끄기</button><button class="b" data-close>닫기</button><button class="b pri" id="sSave">저장</button></div>
 </div></div>
 
 <script>
@@ -1043,6 +1044,8 @@ function draw() {
   drawBadges();
   $('#pinBtn').textContent = S.pinned ? '↔ 위치 조정' : '📌 고정';
   $('#pinBtn').style.display = S.desktop ? '' : 'none';
+  $('#quitBtn').style.display = S.desktop ? '' : 'none';
+  $('#sQuit').style.display = S.desktop ? '' : 'none';
   chrome();
   syncMark();
 }
@@ -1434,6 +1437,14 @@ document.addEventListener('input', function (e) {
   var c = Object.assign({}, P().colors || {}); c[k] = e.target.value;
   DATA.prefs = Object.assign({}, DATA.prefs, { colors: c }); applyColors(); saveData();
 });
+//  ⏻ 끄기 — 바탕화면에 깔린 동안은 Alt+F4 로 안 꺼지게 해 두었다(실수 방지) → 여기서 끈다
+function quitCal() {
+  if (!confirm('달력을 끌까요?\n다시 켜려면 바탕화면이나 시작 메뉴의 「한일 바탕화면 달력」 아이콘을 누르세요.')) return;
+  saveLocal();
+  fetch('/__cal/quit', { method: 'POST' }).catch(function () {});
+}
+$('#quitBtn').onclick = quitCal;
+$('#sQuit').onclick = quitCal;
 $('#sAuto').onchange = function () {
   var on = this.checked;
   fetch('/__cal/autostart?on=' + (on ? 1 : 0), { method: 'POST' }).then(function () { S.autostart = on; }).catch(function () {});

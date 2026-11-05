@@ -3,7 +3,7 @@
 DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그램에 **회사 포털을 붙였습니다.**
 결재 문서 · 회사 일정 · 쪽지가 달력에 나오고, 메모는 **다른 PC·폰과 동기화**되며, **개인 구글 캘린더**와도 주고받습니다.
 
-**[⬇ hanil-cal-v1.3.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.3.0.exe)** (직원 PC, 설치 파일 하나)
+**[⬇ hanil-cal-v1.3.1.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.3.1.exe)** (직원 PC, 설치 파일 하나)
 · **[⬇ hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** (포털 서버 — 회사 일정·자동 휴일·동기화·구글·폰 달력)
 
 ![달력 화면](docs/calendar.png)
@@ -13,6 +13,7 @@ DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그�
 - **결재 문서를 열면 투명도 100%**(닫으면 원래대로 — 설정은 그대로).
 - **🎨 색 바꾸기**: ⚙ → 화면 → 색 묶음(기본·어둡게·바다·숲·벚꽃·모래·밤바다) 또는 배경·날짜 칸·머리줄·글자·오늘 칸·일/토요일·강조색을 직접. 다른 PC·폰과 동기화.
 - **🚀 시작프로그램**: ⚙ → 화면 → 「윈도우가 켜질 때 저절로 띄우기」 켜고 끄기.
+- **⏻ 끄기** (1.3.1): 머리줄 맨 오른쪽 ⏻ 단추 · ⚙ 설정 창 아래 「달력 끄기」 (시계 옆 📅 아이콘 오른쪽 메뉴 「끄기」도 그대로).
 
 ## 🔄 자동 업데이트 (1.2.0~)
 새 판을 다시 받아 깔 필요가 없습니다. 달력을 **켤 때마다 한 번**(30초 뒤) 저장소의 `release/hanil-cal.json` 을 보고,
@@ -99,7 +100,7 @@ DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그�
 ## 설치
 
 ### 직원 PC
-`hanil-cal-v1.3.0.exe` 를 두 번 누르면 끝(관리자 권한 필요 없음). `%LOCALAPPDATA%\HanilCal\app\` 에 스스로 설치하고 아이콘·시작프로그램을 만듭니다.
+`hanil-cal-v1.3.1.exe` 를 두 번 누르면 끝(관리자 권한 필요 없음). `%LOCALAPPDATA%\HanilCal\app\` 에 스스로 설치하고 아이콘·시작프로그램을 만듭니다.
 처음 한 번 **「로그인」** 띠를 눌러 포털 로그인(2단계 인증 포함 그대로) — 「로그인 유지」를 켜 두세요.
 
 > **파일이 안 열릴 때** — "Windows의 PC 보호" → **[추가 정보]** → **[실행]** (사내 프로그램이라 서명이 없어서).
