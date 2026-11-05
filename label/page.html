@@ -79,6 +79,17 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 #go{border:0;background:var(--acc);color:#fff;border-radius:14px;padding:22px;font-size:28px;font-weight:800;cursor:pointer;margin-top:4px}
 #go:hover{background:var(--acc2)}
 #go:disabled{background:#9aa9c6;cursor:wait}
+/* ── 파레트(여러 품번) ── */
+#plist{display:none;max-height:440px;overflow:auto;padding:14px;border-right:1px solid var(--line);background:#fff}
+#plist table{width:100%;border-collapse:collapse;font-size:17px}
+#plist th{text-align:left;color:var(--muted);font-size:13px;padding:6px 8px;border-bottom:2px solid var(--line)}
+#plist td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+#plist td.pn{font-weight:800;word-break:break-all}
+#plist td.nm{color:var(--muted);font-size:14px}
+#plist input{width:110px;border:2px solid var(--line);border-radius:10px;padding:8px 10px;font-size:20px;font-weight:700;text-align:right}
+#plist input:focus{border-color:var(--acc);outline:0}
+body.pal #dimg,body.pal #qtyBox{display:none}
+body.pal #plist{display:block}
 #back{border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;font-size:17px;cursor:pointer;color:var(--ink)}
 /* ── 처음으로 · 언어 ── */
 .hb{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:12px;padding:8px 16px;font-size:17px;font-weight:700;cursor:pointer;
@@ -147,13 +158,14 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
   <div id="results"></div>
   <div id="detail">
     <div id="dimg"></div>
+    <div id="plist"></div>
     <div id="dinfo">
       <div id="dfrom"></div>
       <div id="dpn"></div>
       <div id="dnm"></div>
       <div id="dcu"></div>
       <div class="fl">
-        <div style="flex:2"><label data-t="qty"></label><input id="qty" inputmode="numeric" autocomplete="off"></div>
+        <div id="qtyBox" style="flex:2"><label data-t="qty"></label><input id="qty" inputmode="numeric" autocomplete="off"></div>
         <div><label data-t="cnt"></label><input id="cnt" type="number" min="1" value="1" style="text-align:right"></div>
       </div>
       <div class="fl">
@@ -190,7 +202,7 @@ var L={
   none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',
   issue:'라벨 발행',making:'만드는 중…',back:'다른 품번 찾기 (Esc)',noimg:'사진이 없습니다',fromqr:'라벨 샘플에서 불러왔습니다',fromqr2:'수량을 확인하고 발행하세요',
   readqr:'라벨을 읽었습니다',needqty:'수량을 넣어 주세요',notready:'라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요',
-  qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',
+  qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',palItems:'품번 {n}개를 한 파레트로',palPart:'품번',palName:'품명',palNone:'이 파레트에 담긴 품번이 없습니다',palNoBundle:'라벨 화면에 파레트 묶기가 없습니다 — 「상세 화면」에서 뽑아 주세요',
   notlabel:'이 코드는 라벨 QR 이 아닙니다',nopart:'품목에 없는 품번입니다',pick:'언어를 고르세요',makefail:'라벨을 만들지 못했습니다'},
  en:{brand:'HANIL Label',sub:'Search a part no. or name, or scan a sample label',ph:'Part no. · name, or scan label QR',find:'Search',
   tip:'Scan a sample label to open it — just enter the quantity and print',ready:'Ready',wait:'Loading…',waitlong:'Waiting for the label screen',
@@ -198,7 +210,7 @@ var L={
   none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',
   issue:'Print label',making:'Printing…',back:'Search another (Esc)',noimg:'No photo',fromqr:'Opened from a sample label',fromqr2:'check the quantity and print',
   readqr:'Label scanned',needqty:'Enter the quantity',notready:'The label screen is not ready yet — try again in a moment',
-  qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',
+  qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',palItems:'{n} parts on one pallet',palPart:'Part',palName:'Name',palNone:'This pallet has no parts',palNoBundle:'Pallet bundling is not available — print it in "Advanced"',
   notlabel:'This is not a label QR code',nopart:'This part no. is not in the item list',pick:'Choose your language',makefail:'Could not make the label'},
  vi:{brand:'Nhãn HANIL',sub:'Tìm mã hàng hoặc tên hàng, hoặc quét nhãn mẫu',ph:'Mã hàng · tên hàng, hoặc quét QR nhãn',find:'Tìm',
   tip:'Quét nhãn mẫu để mở ngay — chỉ cần nhập số lượng và in',ready:'Sẵn sàng',wait:'Đang tải…',waitlong:'Đang chờ màn hình nhãn',
@@ -206,7 +218,7 @@ var L={
   none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',
   issue:'In nhãn',making:'Đang in…',back:'Tìm mã khác (Esc)',noimg:'Không có ảnh',fromqr:'Đã mở từ nhãn mẫu',fromqr2:'kiểm tra số lượng rồi in',
   readqr:'Đã quét nhãn',needqty:'Hãy nhập số lượng',notready:'Màn hình nhãn chưa sẵn sàng — vui lòng thử lại sau',
-  qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',
+  qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',palItems:'{n} mã hàng trên một pallet',palPart:'Mã',palName:'Tên',palNone:'Pallet này không có mã hàng',palNoBundle:'Không gộp pallet được — hãy in ở mục "Chi tiết"',
   notlabel:'Đây không phải mã QR nhãn',nopart:'Không có mã hàng này',pick:'Chọn ngôn ngữ',makefail:'Không tạo được nhãn'},
  my:{brand:'HANIL တံဆိပ်',sub:'ပစ္စည်းနံပါတ် သို့မဟုတ် အမည်ကို ရှာပါ၊ သို့မဟုတ် နမူနာတံဆိပ်ကို စကင်ဖတ်ပါ',ph:'ပစ္စည်းနံပါတ် · အမည်၊ သို့မဟုတ် QR စကင်',find:'ရှာရန်',
   tip:'နမူနာတံဆိပ်ကို စကင်ဖတ်ပါ — အရေအတွက်ထည့်ပြီး ပရင့်ထုတ်ပါ',ready:'အဆင်သင့်',wait:'ဖွင့်နေသည်…',waitlong:'တံဆိပ်စာမျက်နှာကို စောင့်နေသည်',
@@ -457,7 +469,7 @@ async function search(raw){
   var qr=parseQR(raw);
   if(qr){
     $('q').value='';
-    if(qr.bundle){ say('📦 '+qr.bundle+' — '+t('bundle'), true); return; }
+    if(qr.bundle) return openFromPallet(qr.bundle);
     if(qr.smp) return openFromSample(qr.smp);
     if(qr.unknown || !qr.pn){ say(t('notlabel')+': '+(qr.unknown||raw), true); return; }
     return openFromQR(qr);
@@ -506,6 +518,80 @@ async function openFromQR(qr){
     if(sv && sv.customer) row.customer=sv.customer;
     pick(row, {qty:qr.qty, serial:qr.serial, smp:qr.smp, form:qr.form, sheet:qr.sheet});
   }catch(e){ say(e.message, true); }
+}
+//  📦 파레트 라벨을 샘플로 — QR 에는 파레트 번호(P00011)만 있다. 포털에 그 파레트에 담긴 품번·수량을 물어
+//   같은 묶음으로 **새 파레트 라벨**을 뽑는다(새 파레트 번호·새 로트 — 포털이 매긴다).
+//   GET /api/labels/pallet/P00011 → {ok, pallet:{no, form, sheet, copies, items:[{part_no, part_name, customer, model, spec, unit, qty, img_id}]}}
+//   ⚠ 포털에 이 주소가 아직 없으면(404) 예전처럼 「상세 화면」 안내만 한다.
+async function openFromPallet(no){
+  no=String(no||'').trim().toUpperCase();
+  document.body.classList.add('found');
+  say('📦 '+t('readqr')+' — '+no);
+  var d;
+  try{
+    var r=await fetch('/api/labels/pallet/'+encodeURIComponent(no),{cache:'no-store'});
+    if(r.status===401){ location.href='/?next=/label'; return; }
+    try{ d=await r.json(); }catch(e){ d=null; }
+    //  ⚠ 404 인데 포털이 «파레트 창구»의 답(code)을 주지 않았다 = 포털에 이 주소가 아직 없다 → 예전 안내
+    if(r.status===404 && !(d && d.code)){ say('📦 '+no+' — '+t('bundle'), true); return; }
+    if(!r.ok || !d || d.ok===false){ say('📦 '+no+' — '+((d&&d.error)||t('bundle')), true); return; }
+  }catch(e){ say('📦 '+no+' — '+e.message, true); return; }
+  var pl=d.pallet||d.row||{};
+  var items=(pl.items||d.items||[]).filter(function(x){ return x && x.part_no; });
+  if(!items.length){ say('📦 '+no+' — '+t('palNone'), true); return; }
+  pickPallet(no, pl, items);
+}
+function pickPallet(no, pl, items){
+  hideSug();
+  CUR={pallet:no, items:items.map(function(x){ return Object.assign({}, x); })};
+  document.body.classList.add('found','pick','pal');
+  say('');
+  $('dpn').textContent='📦 '+no;
+  $('dnm').textContent=t('palItems', items.length);
+  $('dcu').textContent=items.map(function(x){ return x.customer; }).filter(function(v,i,a){ return v && a.indexOf(v)===i; }).join(' · ');
+  var fr=$('dfrom'); fr.style.display='block'; fr.textContent='📷 '+t('fromqr')+' ('+no+') — '+t('fromqr2');
+  $('plist').innerHTML='<table><tr><th>'+esc(t('palPart'))+'</th><th>'+esc(t('palName'))+'</th><th style="text-align:right">'+esc(t('qty'))+'</th></tr>'
+    +CUR.items.map(function(x,i){
+      return '<tr><td class="pn">'+esc(x.part_no)+'</td><td class="nm">'+esc(x.part_name||'')+'</td>'
+        +'<td style="text-align:right"><input class="pq" data-i="'+i+'" inputmode="numeric" autocomplete="off" value="'+esc(x.qty!=null?String(x.qty):'')+'"></td></tr>';
+    }).join('')+'</table>';
+  fillSel();
+  var pref=load('hl_pl:'+no);
+  if(pref){ if(pref.paper) $('paper').value=pref.paper; if(pref.form) $('form').value=pref.form; }
+  if(pl.form) setOpt('form', pl.form);
+  if(pl.sheet) setOpt('paper', pl.sheet);
+  $('cnt').value=Math.max(1, Math.floor(Number(pl.copies)||1));
+  [].forEach.call($('plist').querySelectorAll('.pq'), function(e){
+    e.addEventListener('keydown', function(ev){
+      if(ev.key!=='Enter') return;
+      ev.preventDefault();
+      if(/[|A-Za-zㄱ-힣]/.test(this.value)){ var v=this.value; this.value=''; search(v); return; }
+      var L=$('plist').querySelectorAll('.pq'), i=Number(this.getAttribute('data-i'));
+      if(i+1<L.length){ L[i+1].focus(); L[i+1].select(); } else issue();
+    });
+  });
+  setTimeout(function(){ $('go').focus(); }, 30);
+}
+//  엔진(포털 라벨 화면)의 칸에 값을 넣고, 화면이 알아채도록 change 를 보낸다
+function engSet(el, v){
+  if(!el) return;
+  if(el.type==='checkbox'){ if(el.checked===!!v) return; el.checked=!!v; }
+  else { if(el.value===String(v)) return; el.value=v; }
+  try{ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){}
+}
+//  「몇 장 (한 라벨로 묶을 때)」 칸 — 이름(id)을 모르니 글자로 찾는다
+function engCopies(doc){
+  var L=doc.querySelectorAll('label,span,div,td,th');
+  for(var i=0;i<L.length;i++){
+    var e=L[i]; if(e.children.length>3) continue;
+    if(/몇\s*장/.test(e.textContent||'') && /묶/.test(e.textContent||'')){
+      var inp=e.querySelector('input') || (e.htmlFor && doc.getElementById(e.htmlFor));
+      for(var n=e.nextElementSibling; !inp && n; n=n.nextElementSibling){ inp=(n.tagName==='INPUT')?n:n.querySelector('input'); }
+      if(!inp && e.parentElement) inp=e.parentElement.querySelector('input');
+      if(inp) return inp;
+    }
+  }
+  return null;
 }
 //  🏷 견본(샘플) 라벨 — QR 에는 견본번호(S0003)만 있다. 포털에 물어 그 품번·기본 수량·양식·라벨지로 연다.
 //   GET /api/labels/sample/S0003 → {ok, row:{part_no, part_name, customer, model, unit, qty_def, form, sheet, per_box, code}}
@@ -578,6 +664,7 @@ $('q').addEventListener('blur', function(){ setTimeout(hideSug, 150); });
 function pick(r, from){
   hideSug();
   CUR=r;
+  document.body.classList.remove('pal');
   document.body.classList.add('found','pick');
   say('');
   var img=Number(r.img_id)||0;
@@ -605,11 +692,11 @@ function setOpt(id, v){
   if([].some.call(el.options||[], function(o){ return o.value===v; })) el.value=v;
 }
 function backToList(){
-  document.body.classList.remove('pick'); CUR=null;
+  document.body.classList.remove('pick','pal'); CUR=null;
   if(!$('results').innerHTML) home(); else $('q').focus();
 }
 function home(){
-  document.body.classList.remove('found','pick'); CUR=null;
+  document.body.classList.remove('found','pick','pal'); CUR=null;
   $('results').innerHTML=''; say(''); $('q').value=''; $('q').focus();
 }
 function toast(t, kind){
@@ -619,6 +706,7 @@ function toast(t, kind){
 var busy=false;
 async function issue(){
   if(busy || !CUR) return;
+  if(CUR.pallet) return issuePallet();
   var qty=String($('qty').value||'').replace(/[^0-9.]/g,'');
   if(!qty || !(Number(qty)>0)){ toast(t('needqty'), 'bad'); $('qty').focus(); return; }
   var n=Math.max(1, Math.min(200, Math.floor(Number($('cnt').value)||1)));
@@ -636,8 +724,8 @@ async function issue(){
       try{ w.loadTune(); }catch(e){}
     }
     if($('paper').value) sh.value=$('paper').value;
-    var bc=doc.getElementById('bundleChk'); if(bc) bc.checked=false;
-    var pb=doc.getElementById('perBox'); if(pb) pb.value='';
+    engSet(doc.getElementById('bundleChk'), false);
+    engSet(doc.getElementById('perBox'), '');
     w.CART=[{img_id:CUR.img_id||0, customer:CUR.customer||'', part_no:CUR.part_no||'', part_name:CUR.part_name||'',
       model:CUR.model||'', spec:CUR.spec||'', due:'', qty:qty, unit:'EA', n:n}];
     w.__lastHtml='';
@@ -654,6 +742,52 @@ async function issue(){
   }catch(e){
     toast('⚠ '+e.message, 'bad');
   }finally{
+    busy=false; $('go').disabled=false; $('go').innerHTML='🏷 '+esc(t('issue'));
+  }
+}
+
+//  📦 파레트 — 담긴 품번을 모두 장바구니에 넣고 「로 묶기 (한 파레트)」를 켜서 한 라벨로
+async function issuePallet(){
+  var L=$('plist').querySelectorAll('.pq'), cart=[];
+  for(var i=0;i<L.length;i++){
+    var x=CUR.items[i], q=String(L[i].value||'').replace(/[^0-9.]/g,'');
+    if(!q || !(Number(q)>0)){ toast(t('needqty')+' — '+x.part_no, 'bad'); L[i].focus(); return; }
+    cart.push({img_id:x.img_id||0, customer:x.customer||'', part_no:x.part_no||'', part_name:x.part_name||'',
+      model:x.model||'', spec:x.spec||'', due:'', qty:q, unit:x.unit||'EA', n:1});
+  }
+  var n=Math.max(1, Math.min(200, Math.floor(Number($('cnt').value)||1)));
+  var w=W();
+  if(!w || !engReady()){ toast(t('notready'), 'bad'); return; }
+  var doc=w.document, bc=doc.getElementById('bundleChk');
+  if(!bc){ toast(t('palNoBundle'), 'bad'); return; }
+  busy=true; $('go').disabled=true; $('go').textContent=t('making');
+  try{
+    var fo=doc.getElementById('form'), sh=doc.getElementById('sheet');
+    if($('form').value && fo.value!==$('form').value){
+      fo.value=$('form').value;
+      try{ w.formChanged(); }catch(e){}
+      try{ w.loadOrient(); }catch(e){}
+      try{ w.loadTune(); }catch(e){}
+    }
+    if($('paper').value) sh.value=$('paper').value;
+    engSet(doc.getElementById('perBox'), '');
+    w.CART=cart;
+    engSet(bc, true);
+    w.CART=cart;                     //  ⚠ 묶기를 켜는 순간 화면이 장바구니를 다시 그릴 수 있다 — 한 번 더
+    var cp=engCopies(doc);
+    if(cp) engSet(cp, n); else n=1;  //  ⚠ 장수 칸을 못 찾으면 한 장만(품번 줄의 n 을 늘리면 그 품번만 여러 번 찍힌다)
+    w.__lastHtml='';
+    await w.preview();
+    if(!w.__lastHtml) throw new Error(t('makefail'));
+    w.printHere();
+    var pref={paper:$('paper').value, form:$('form').value};
+    store('hl_pl:'+CUR.pallet, pref); store('hl_last', pref);
+    toast('🖨 '+t('printed')+' — 📦 '+CUR.pallet+' · '+t('palItems', cart.length)+' · '+t('cntS')+' '+n, 'ok');
+    setTimeout(home, 1200);
+  }catch(e){
+    toast('⚠ '+e.message, 'bad');
+  }finally{
+    try{ engSet(bc, false); }catch(e){}
     busy=false; $('go').disabled=false; $('go').innerHTML='🏷 '+esc(t('issue'));
   }
 }
