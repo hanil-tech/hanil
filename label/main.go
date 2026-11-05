@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "2.6.0"
+const VERSION = "2.7.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -51,7 +51,8 @@ const startPath = "/label"
 const portalLabel = "/kiosk/label"
 
 // ⚠ 차례가 뜻이 있다: 사내 주소를 먼저 본다(더 빠르고, 바깥 인터넷이 끊겨도 된다).
-//  ⭐ 사용자 「외부에서 할 일이 없으니 192.168.1.30 접속 포트 고정」 — 사내 서버 하나만 본다
+//
+//	⭐ 사용자 「외부에서 할 일이 없으니 192.168.1.30 접속 포트 고정」 — 사내 서버 하나만 본다
 var defaultURLs = []string{
 	"http://192.168.1.30:8820",
 }
@@ -69,9 +70,12 @@ type Conf struct {
 	Password   string //  ⚠ 읽자마자 암호화해 옮기고 설정 파일에서는 지운다
 	Shortcut   bool   //  바탕화면·시작 메뉴 아이콘을 만들까(기본 켜짐)
 	Autostart  bool   //  윈도우가 켜지면 저절로 띄울까(기본 꺼짐)
+	//  🔄 자동 업데이트(update.go) — 끄려면 AUTOUPDATE=0
+	AutoUpdate bool
+	UpdateURL  string
 }
 
-var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3, Shortcut: true}
+var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3, Shortcut: true, AutoUpdate: true}
 
 const iniName = "hanil-label.ini"
 
@@ -167,6 +171,7 @@ func main() {
 	logf("포털 주소: %v", gw.tried)
 	gw.mu.Unlock()
 	go func() { _ = (&http.Server{Handler: gw}).Serve(ln) }()
+	go autoUpdateLoop()
 
 	//  🪟 먼저 **독자 창**으로 — 창을 닫으면 이 프로그램도 끝난다
 	if err := runWindow(local(conf.Port) + startPath); err == nil {
@@ -627,6 +632,10 @@ func setConf(k, v string) {
 		conf.Shortcut = yes(v)
 	case "AUTOSTART":
 		conf.Autostart = yes(v)
+	case "AUTOUPDATE":
+		conf.AutoUpdate = yes(v)
+	case "UPDATEURL":
+		conf.UpdateURL = v
 	case "FULLSCREEN", "KIOSK":
 		conf.Fullscreen = yes(v)
 	case "PORT":
@@ -674,4 +683,7 @@ SHORTCUT=1
 
 # 윈도우가 켜지면 저절로 띄우기 — 1 이면 켭니다
 AUTOSTART=0
+
+# 새 판이 나오면 저절로 받아, 키오스크가 3분 동안 쉴 때 바꿉니다 — 0 이면 끕니다
+AUTOUPDATE=1
 `

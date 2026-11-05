@@ -36,7 +36,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.1.0"
+const VERSION = "1.2.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 바탕화면 달력"
@@ -59,9 +59,12 @@ type Conf struct {
 	Shortcut  bool //  바탕화면·시작 메뉴 아이콘을 (없으면) 만든다
 	Autostart bool //  윈도우가 켜지면 저절로 띄운다 — 바탕화면 달력이니 기본으로 켠다
 	Pin       bool //  바탕화면에 깔기(끄면 보통 창)
+	//  🔄 자동 업데이트(update.go) — 끄려면 AUTOUPDATE=0
+	AutoUpdate bool
+	UpdateURL  string
 }
 
-var conf = Conf{Port: 18850, Probe: 3, Shortcut: true, Autostart: true, Pin: true}
+var conf = Conf{Port: 18850, Probe: 3, Shortcut: true, Autostart: true, Pin: true, AutoUpdate: true}
 
 const iniName = "hanil-cal.ini"
 
@@ -72,6 +75,7 @@ PIN=1               ; 1 = 바탕화면에 깔기(아이콘 사이) / 0 = 보통 
 AUTOSTART=1         ; 1 = 윈도우가 켜지면 저절로 띄웁니다
 SHORTCUT=1          ; 1 = 바탕화면·시작 메뉴 아이콘을 (없으면) 만듭니다
 PORT=18850          ; 이 PC 안의 관문 번호(다른 프로그램과 겹칠 때만 바꿉니다)
+AUTOUPDATE=1        ; 1 = 새 판이 나오면 저절로 받아 바꿉니다
 `
 
 func main() {
@@ -138,6 +142,7 @@ func main() {
 		}
 	}()
 	go func() { _ = (&http.Server{Handler: gw}).Serve(ln) }()
+	go autoUpdateLoop()
 
 	if err := runWindow(local(conf.Port)+startPath, gw); err != nil {
 		logf("창을 못 띄움: %v", err)
@@ -374,5 +379,9 @@ func setConf(k, v string) {
 		conf.Autostart = yes(v)
 	case "PIN":
 		conf.Pin = yes(v)
+	case "AUTOUPDATE":
+		conf.AutoUpdate = yes(v)
+	case "UPDATEURL":
+		conf.UpdateURL = v
 	}
 }

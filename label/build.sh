@@ -28,6 +28,14 @@ if [ -n "${SIGN_PFX:-}" ]; then
     -in "$OUT" -out "$OUT.signed" && mv "$OUT.signed" "$OUT"
   echo "서명했습니다"
 fi
+#  🔄 자동 업데이트용 판 정보 — 깔린 라벨 발행기가 이것을 읽고 새 판이면 받아, 키오스크가 쉴 때 바꾼다(크기·SHA-256 확인)
+#     ⚠ exe 와 같은 커밋에 올려야 한다.  알림 글:  NOTES="고친 것 한 줄" ./label/build.sh
+python3 - "$OUT" "$REL/hanil-label.json" "$VER" "${NOTES:-새 판입니다.}" <<'PY'
+import sys, json, hashlib, os
+f, out, ver, notes = sys.argv[1:5]
+b = open(f, 'rb').read()
+json.dump({'version': ver, 'file': os.path.basename(f), 'size': len(b), 'sha256': hashlib.sha256(b).hexdigest(), 'notes': notes}, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+PY
 #  안내 글의 내려받기 링크·글자도 새 이름으로
 sed -i -E "s#hanil-label(-v[0-9.]+)?\.exe\)#hanil-label-v$VER.exe)#g; s#\[hanil-label(-v[0-9.]+)?\.exe\]#[hanil-label-v$VER.exe]#g; s#⬇ hanil-label(-v[0-9.]+)?\.exe#⬇ hanil-label-v$VER.exe#g" "$REL/README.md" "$HERE/README.md"
 ls -l "$OUT"

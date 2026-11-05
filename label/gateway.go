@@ -197,6 +197,19 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
 		return
+	case "/__label/update":
+		//  🔄 키오스크가 한가하다(3분 동안 아무도 안 씀 — page.html) → 받아 둔 새 판이 있으면 바꾼다
+		if r.Method == http.MethodPost && applyUpdate() {
+			fmt.Fprint(w, "ok")
+		} else {
+			w.Header().Set("Cache-Control", "no-store")
+			http.NotFound(w, r)
+		}
+		return
+	case "/__label/updstate":
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprint(w, updReadyVer())
+		return
 	case focusPath:
 		//  바탕화면 아이콘을 또 눌렀다 — 떠 있는 독자 창을 앞으로
 		if focusWindow() {

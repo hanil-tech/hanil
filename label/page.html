@@ -402,7 +402,8 @@ var idleT=null;
 function idleReset(){
   clearTimeout(idleT);
   //  ⚠ 3분 동안 아무것도 안 하면 다음 사람을 위해 언어 고르기로 돌아간다(고르던 것이 있으면 그대로 둔다)
-  idleT=setTimeout(function(){ if(!busy && !document.body.classList.contains('pick') && !$('q').value) showLang(); else idleReset(); }, 180000);
+  //  🔄 3분 동안 아무도 안 쓰면 언어 화면으로 — 그때 받아 둔 새 판이 있으면 바꾼다(라벨을 뽑는 중에는 절대 안 바꾼다)
+  idleT=setTimeout(function(){ if(!busy && !document.body.classList.contains('pick') && !$('q').value){ showLang(); try{ fetch('/__label/update',{method:'POST'}).catch(function(){}); }catch(e){} idleReset(); } else idleReset(); }, 180000);
 }
 ['keydown','mousedown','touchstart'].forEach(function(ev){ document.addEventListener(ev, idleReset, true); });
 

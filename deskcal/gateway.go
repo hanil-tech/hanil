@@ -263,8 +263,20 @@ func (g *gateway) serveLocal(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok": true, "version": VERSION, "portal": portal, "tried": tried,
 			"session": !g.box.empty(), "pinned": isPinned(), "desktop": hasDesktop(), "alpha": currentAlpha(),
+			"update": updReadyVer(), "updateNotes": updNotesText(),
 			"portalCal": discoveredAPI(), "portalCalPage": discNow.Page, "portalCalAt": discNow.At,
 		})
+	case "/__cal/update":
+		//  🔄 받아 둔 새 판으로 바꾸기(화면이 한가할 때 부른다)
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST", http.StatusMethodNotAllowed)
+			return
+		}
+		if applyUpdate() {
+			fmt.Fprint(w, "ok")
+		} else {
+			http.NotFound(w, r)
+		}
 	case "/__cal/diag":
 		//  🩺 화면이 포털 자료의 «모양»(칸 이름·첫 줄)을 기록에 남긴다 — 칸 이름이 예상과 다를 때 맞추려고
 		b, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))

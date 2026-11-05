@@ -22,6 +22,15 @@ if [ -n "${SIGN_PFX:-}" ]; then
     -n "한일 바탕화면 달력" -h sha256 -t http://timestamp.digicert.com \
     -in "$OUT" -out "$OUT.signed" && mv "$OUT.signed" "$OUT"
 fi
+#  🔄 자동 업데이트용 판 정보 — 깔린 달력이 이것을 읽고 새 판이면 받아 바꾼다(크기·SHA-256 확인)
+#     ⚠ exe 와 같은 커밋에 올려야 한다.  알림 글:  NOTES="고친 것 한 줄" ./deskcal/build.sh
+python3 - "$OUT" "$REL/hanil-cal.json" "$VER" "${NOTES:-새 판입니다 — 메모·로그인은 그대로입니다.}" <<'PY'
+import sys, json, hashlib, os
+f, out, ver, notes = sys.argv[1:5]
+b = open(f, 'rb').read()
+json.dump({'version': ver, 'file': os.path.basename(f), 'size': len(b), 'sha256': hashlib.sha256(b).hexdigest(), 'notes': notes}, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+PY
+cat "$REL/hanil-cal.json"; echo
 #  포털 조각 — ⚠ zip 명령은 한글 이름이 윈도에서 깨진다 → 파이썬 zipfile
 python3 - "$REL/hanil-cal-portal.zip" <<'PY'
 import sys, zipfile
