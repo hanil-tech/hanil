@@ -51,6 +51,17 @@ AutoCAD VBA 매크로(`Turbo_Fan_Design.dvb`)를 따로 실행하는 프로그�
 도면은 켜져 있는 CAD(AutoCAD·ZWCAD·GstarCAD·BricsCAD·progeCAD)에 그리고 DWG 로 저장할 수 있습니다. VBA 모듈은 필요 없습니다.
 설계 자료(Data·Pics·도면 틀·Word 서식)가 프로그램 안에 들어 있어 따로 준비할 것이 없습니다. 자세한 안내는 [turbofan/README.md](../turbofan/README.md).
 
+## 📅 바탕화면 달력 (포털 결재·일정·알림 + 구글 캘린더)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-cal-v1.0.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.0.0.exe)** | 직원 PC — 두 번 누르면 설치·실행 | 7MB |
+| **[hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** | 회사 포털 서버(`server.js` 옆) — 회사 일정·자동 휴일·동기화·구글·폰 달력 | 40KB |
+
+DesktopCal 처럼 바탕화면이 달력이 됩니다. 결재할 문서·회사 일정·쪽지가 달력에 나오고, **내 결재 차례가 오면 화면 가운데에 크게** 알려 줍니다.
+날짜 메모(글자색·칸 배경색)·할 일·기념일(음력)은 포털로 **다른 PC·폰과 동기화**(지난 판 되돌리기)되고, 개인 **구글 캘린더**와도 주고받습니다.
+음력·24절기·공휴일(공공데이터포털 자동)·투명도·인쇄·찾기·반복 일정·미리 알림. 자세한 안내는 [deskcal/README.md](../deskcal/README.md).
+
 ## 📦 포털 대용량 파일 (올리기·받기)
 
 | 받기 | 어디에 | 크기 |
