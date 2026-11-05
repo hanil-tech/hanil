@@ -3,7 +3,7 @@ package main
 // 🔄 자동 업데이트 — 저장소(release/hanil-label.json)에 더 새 판이 올라오면 뒤에서 받아 바꾼다(PDF 리더와 같은 방식)
 //
 //	사용자 「다시 다운 안 받고 업그레이드되면 자동으로 확인해서 업그레이드되게」 (바탕화면 달력 deskcal/update.go 와 같은 것)
-//	1. 켜고 1분 뒤, 그 뒤로 6시간마다 판 정보(json)를 읽는다(저장소 두 곳 중 더 새 판)
+//	1. 켤 때 한 번 — 30초 뒤(안 되면 1분 간격으로 두 번 더) 판 정보(json)를 읽는다(저장소 두 곳 중 더 새 판)
 //	2. 새 판이면 exe 를 %LOCALAPPDATA%\HanilLabel\update\ 로 받아 크기·SHA-256 을 맞춰 본다
 //	3. 키오스크가 「한가할 때」 — 3분 동안 아무도 안 써서 언어 고르기 화면으로 돌아갈 때(page.html) — 받은 exe 를 띄운다 →
 //	   그 exe 가 스스로 설치(install.go: 떠 있는 예전 판을 내리고 app\ 에 덮어쓰기)하고 새 판으로 다시 뜬다.
@@ -70,18 +70,23 @@ func autoUpdateLoop() {
 		return
 	}
 	cleanUpdates()
+	//  ⭐ 켤 때 한 번만 확인한다(사용자 「실행할 때만 체크하면 되지」).
+	//    윈도우가 막 켜졌을 때는 인터넷이 아직 안 붙어 있을 수 있다 → 30초 뒤, 안 되면 1분 간격으로 두 번 더.
+	wait, again := 30*time.Second, time.Minute
 	if test {
-		time.Sleep(time.Second)
-	} else {
-		time.Sleep(time.Minute)
+		wait, again = time.Second, time.Second
 	}
-	for {
-		if msg, err := checkUpdate(); err != nil {
-			logf("업데이트 확인: %v", err)
-		} else if msg != "" {
-			logf("업데이트: %s", msg)
+	time.Sleep(wait)
+	for try := 1; try <= 3; try++ {
+		msg, err := checkUpdate()
+		if err == nil {
+			if msg != "" {
+				logf("업데이트: %s", msg)
+			}
+			return
 		}
-		time.Sleep(6 * time.Hour)
+		logf("업데이트 확인(%d/3): %v", try, err)
+		time.Sleep(again)
 	}
 }
 

@@ -7,7 +7,7 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 
 ## 🔄 자동 업데이트
 
-한 번 깔아 두면 **새 판을 다시 받을 필요가 없는** 프로그램들입니다. 켜 둔 프로그램이 6시간마다 이 폴더의 판 정보(`*.json`)를 보고,
+한 번 깔아 두면 **새 판을 다시 받을 필요가 없는** 프로그램들입니다. 프로그램을 켤 때마다 이 폴더의 판 정보(`*.json`)를 한 번 보고,
 새 판이면 뒤에서 받아 크기·SHA-256 을 맞춰 본 뒤 **쓰지 않을 때** 바꿉니다.
 
 | 프로그램 | 판 정보 | 언제 바꾸나 | 이 판부터 |
@@ -51,7 +51,7 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-label-v2.7.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.7.0.exe)** | 라벨을 뽑을 현장 키오스크 | 6MB |
+| **[hanil-label-v2.7.1.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.7.1.exe)** | 라벨을 뽑을 현장 키오스크 | 6MB |
 
 TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면만 열어 바코드·레이저 프린터로 라벨을 뽑습니다.
 설치 없이 두 번 눌러 실행합니다. 자세한 안내는 [label/README.md](../label/README.md).
@@ -70,7 +70,7 @@ AutoCAD VBA 매크로(`Turbo_Fan_Design.dvb`)를 따로 실행하는 프로그�
 
 | 받기 | 어디에 | 크기 |
 |---|---|---|
-| **[hanil-cal-v1.2.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.2.0.exe)** | 직원 PC — 두 번 누르면 설치·실행 | 7MB |
+| **[hanil-cal-v1.2.1.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.2.1.exe)** | 직원 PC — 두 번 누르면 설치·실행 | 7MB |
 | **[hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** | 회사 포털 서버(`server.js` 옆) — 회사 일정·자동 휴일·동기화·구글·폰 달력 | 40KB |
 
 DesktopCal 처럼 바탕화면이 달력이 됩니다. 결재할 문서·회사 일정·쪽지가 달력에 나오고, **내 결재 차례가 오면 화면 가운데에 크게** 알려 줍니다.

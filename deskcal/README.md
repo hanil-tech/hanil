@@ -3,13 +3,13 @@
 DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그램에 **회사 포털을 붙였습니다.**
 결재 문서 · 회사 일정 · 쪽지가 달력에 나오고, 메모는 **다른 PC·폰과 동기화**되며, **개인 구글 캘린더**와도 주고받습니다.
 
-**[⬇ hanil-cal-v1.2.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.2.0.exe)** (직원 PC, 설치 파일 하나)
+**[⬇ hanil-cal-v1.2.1.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.2.1.exe)** (직원 PC, 설치 파일 하나)
 · **[⬇ hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** (포털 서버 — 회사 일정·자동 휴일·동기화·구글·폰 달력)
 
 ![달력 화면](docs/calendar.png)
 
 ## 🔄 자동 업데이트 (1.2.0~)
-새 판을 다시 받아 깔 필요가 없습니다. 켜 둔 달력이 **6시간마다**(켤 때는 1분 뒤) 저장소의 `release/hanil-cal.json` 을 보고,
+새 판을 다시 받아 깔 필요가 없습니다. 달력을 **켤 때마다 한 번**(30초 뒤) 저장소의 `release/hanil-cal.json` 을 보고,
 새 판이면 뒤에서 받아 크기·SHA-256 을 맞춰 본 뒤 **화면이 한가할 때**(메모를 적거나 창을 열어 두지 않았을 때) 「새 판으로 바꿉니다」 를 5초 띄우고 바꿉니다.
 메모·로그인·자리·투명도는 그대로. 「나중에」 를 누르면 한 시간 뒤 다시. 끄려면 `hanil-cal.ini` 에 `AUTOUPDATE=0`.
 ⚠ 1.1.0 이하에는 이 기능이 없어 **1.2.0 은 한 번만 직접** 받아 두 번 눌러 주세요. 그다음부터는 저절로입니다.
@@ -93,7 +93,7 @@ DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그�
 ## 설치
 
 ### 직원 PC
-`hanil-cal-v1.2.0.exe` 를 두 번 누르면 끝(관리자 권한 필요 없음). `%LOCALAPPDATA%\HanilCal\app\` 에 스스로 설치하고 아이콘·시작프로그램을 만듭니다.
+`hanil-cal-v1.2.1.exe` 를 두 번 누르면 끝(관리자 권한 필요 없음). `%LOCALAPPDATA%\HanilCal\app\` 에 스스로 설치하고 아이콘·시작프로그램을 만듭니다.
 처음 한 번 **「로그인」** 띠를 눌러 포털 로그인(2단계 인증 포함 그대로) — 「로그인 유지」를 켜 두세요.
 
 > **파일이 안 열릴 때** — "Windows의 PC 보호" → **[추가 정보]** → **[실행]** (사내 프로그램이라 서명이 없어서).

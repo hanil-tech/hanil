@@ -1,7 +1,7 @@
 {
- "version": "2.7.0",
- "file": "hanil-label-v2.7.0.exe",
+ "version": "2.7.1",
+ "file": "hanil-label-v2.7.1.exe",
  "size": 7404544,
- "sha256": "e39e4a5b178bb1109062f43338a9e71dff7df242e880f152bd157a31ac7a998e",
- "notes": "새 판입니다."
+ "sha256": "f7df713e5724fcc113c95544652e990c9f3caf649e744527a65b06b6e6b59c50",
+ "notes": "새 판 확인을 켤 때 한 번만 합니다."
 }

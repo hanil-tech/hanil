@@ -4,7 +4,7 @@
 작업이 끝나면 바코드 리더기로 품번을 찍고, 담고, 인쇄합니다.
 바코드(라벨) 프린터와 레이저 프린터(A4 라벨지)를 모두 쓸 수 있습니다.
 
-**[⬇ hanil-label-v2.7.0.exe 내려받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.7.0.exe)** (약 6MB, 설치 없음)
+**[⬇ hanil-label-v2.7.1.exe 내려받기](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.7.1.exe)** (약 6MB, 설치 없음)
 
 ## 쓰는 법 (간편 발행 화면)
 
@@ -40,7 +40,7 @@
 
 ## 🔄 자동 업데이트 (v2.7.0~)
 
-새 판을 다시 받아 깔 필요가 없습니다. 켜 둔 라벨 발행기가 **6시간마다**(켤 때는 1분 뒤) 저장소의 `release/hanil-label.json` 을 보고,
+새 판을 다시 받아 깔 필요가 없습니다. 라벨 발행기를 **켤 때마다 한 번**(30초 뒤) 저장소의 `release/hanil-label.json` 을 보고,
 새 판이면 뒤에서 받아 크기·SHA-256 을 맞춰 본 뒤 **3분 동안 아무도 안 써서 언어 화면으로 돌아갈 때** 새 판으로 바꿉니다(잠깐 꺼졌다 다시 뜸).
 라벨을 찾거나 뽑는 중에는 바꾸지 않습니다. 계정·설정·프린터는 그대로입니다. 끄려면 `hanil-label.ini` 에 `AUTOUPDATE=0`.
 ⚠ 2.6.0 이하에는 이 기능이 없어 **2.7.0 은 한 번만 직접** 받아 두 번 눌러 주세요.
