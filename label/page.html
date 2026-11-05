@@ -435,7 +435,7 @@ var KO=(function(){
   return function(s){ return String(s).split('').map(one).join('').toUpperCase(); };
 }());
 function hasKo(s){ return /[ㄱ-ㆎ가-힣]/.test(s); }
-//  라벨 QR 읽기 — HANIL|품번|수량|날짜|로트|고유번호  ·  HANIL-PVL|전표|id|품번|수량|고유번호  ·  HANIL-PL|파레트
+//  라벨 QR 읽기 — HANIL|품번|수량|날짜|로트|고유번호  ·  HANIL-PVL|전표|id|품번|수량|고유번호  ·  HANIL-PL|파레트  ·  HANIL-SMP|견본번호
 function parseQR(s){
   var t=String(s||'').trim();
   if(t.indexOf('|')<0) return null;
@@ -444,6 +444,7 @@ function parseQR(s){
   if(h==='HANIL') return {pn:f[1]||'', qty:f[2]||'', serial:f[5]||''};
   if(h==='HANIL-PVL') return {pn:f[3]||'', qty:f[4]||'', serial:f[5]||''};
   if(h==='HANIL-PL') return {bundle:f[1]||''};
+  if(h==='HANIL-SMP') return {smp:f[1]||''};          //  🏷 견본(샘플) 라벨 — 포털 「견본」에서 만든 것
   return {unknown:t};
 }
 
@@ -457,6 +458,7 @@ async function search(raw){
   if(qr){
     $('q').value='';
     if(qr.bundle){ say('📦 '+qr.bundle+' — '+t('bundle'), true); return; }
+    if(qr.smp) return openFromSample(qr.smp);
     if(qr.unknown || !qr.pn){ say(t('notlabel')+': '+(qr.unknown||raw), true); return; }
     return openFromQR(qr);
   }
@@ -495,14 +497,30 @@ async function openFromQR(qr){
     //  🆔 고유번호가 있으면 그 라벨에 찍혔던 거래처를 그대로 쓴다
     var sv=null;
     if(qr.serial){ try{ var s=await api('/api/labels/serial/'+encodeURIComponent(qr.serial)); if(s.found) sv=s; }catch(e){} }
+    if(!row && qr.row) row={part_no:qr.row.part_no, part_name:qr.row.part_name||'', customer:qr.row.customer||'', model:qr.row.model||'', img_id:0};
     if(!row){
       if(!sv){ say(t('nopart')+': '+qr.pn, true); return; }
       row={part_no:sv.part_no, part_name:sv.part_name, customer:sv.customer, model:'', img_id:0};
     }
     row=Object.assign({}, row);
     if(sv && sv.customer) row.customer=sv.customer;
-    pick(row, {qty:qr.qty, serial:qr.serial});
+    pick(row, {qty:qr.qty, serial:qr.serial, smp:qr.smp, form:qr.form, sheet:qr.sheet});
   }catch(e){ say(e.message, true); }
+}
+//  🏷 견본(샘플) 라벨 — QR 에는 견본번호(S0003)만 있다. 포털에 물어 그 품번·기본 수량·양식·라벨지로 연다.
+//   GET /api/labels/sample/S0003 → {ok, row:{part_no, part_name, customer, model, unit, qty_def, form, sheet, per_box, code}}
+//   ⚠ 내려 둔 견본은 410 + «이 종이는 떼어 주세요» 글 → 그대로 빨갛게 보인다. 없는 번호는 404.
+//   ⚠ 견본은 제품 라벨이 아니다 — 여기서 뽑는 것은 늘 새 로트·새 고유번호의 진짜 라벨이다.
+async function openFromSample(code){
+  code=String(code||'').trim().toUpperCase();
+  document.body.classList.add('found');
+  say('🏷 '+t('readqr')+' — '+code);
+  var d;
+  try{ d=await api('/api/labels/sample/'+encodeURIComponent(code)); }
+  catch(e){ say('🏷 '+code+' — '+e.message, true); return; }
+  var r=(d&&d.row)||{};
+  if(!r.part_no){ say('🏷 '+code+' — '+t('nopart'), true); return; }
+  return openFromQR({pn:String(r.part_no), qty:r.qty_def||'', smp:code, form:r.form||'', sheet:r.sheet||'', row:r});
 }
 
 //  ── 치는 동안 아래에 미리보기 ─────────────────────────────
@@ -569,15 +587,22 @@ function pick(r, from){
   $('dnm').textContent=r.part_name||'';
   $('dcu').textContent=[r.customer,r.model,r.spec].filter(Boolean).join(' · ');
   var fr=$('dfrom');
-  if(from){ fr.style.display='block'; fr.textContent='📷 '+t('fromqr')+(from.serial?(' ('+from.serial+')'):'')+' — '+t('fromqr2'); }
+  if(from){ fr.style.display='block'; fr.textContent='📷 '+t('fromqr')+((from.smp||from.serial)?(' ('+(from.smp||from.serial)+')'):'')+' — '+t('fromqr2'); }
   else fr.style.display='none';
   //  ⭐ 이 품번을 지난번에 뽑은 라벨지·양식을 되살린다(거래처마다 양식이 다르다)
   fillSel();
   var pref=load('hl_pn:'+String(r.part_no||'').toUpperCase());
   if(pref){ if(pref.paper) $('paper').value=pref.paper; if(pref.form) $('form').value=pref.form; }
+  //  🏷 견본에 정해 둔 양식·라벨지가 있으면 그것이 먼저(이 PC 가 기억한 것보다)
+  if(from && from.form) setOpt('form', from.form);
+  if(from && from.sheet) setOpt('paper', from.sheet);
   $('qty').value=(from && from.qty && Number(from.qty)) ? from.qty : '';
   $('cnt').value=1;
   setTimeout(function(){ $('qty').focus(); $('qty').select(); }, 30);
+}
+function setOpt(id, v){
+  var el=$(id); v=String(v);
+  if([].some.call(el.options||[], function(o){ return o.value===v; })) el.value=v;
 }
 function backToList(){
   document.body.classList.remove('pick'); CUR=null;
