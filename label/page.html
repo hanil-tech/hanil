@@ -79,6 +79,14 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 #go{border:0;background:var(--acc);color:#fff;border-radius:14px;padding:22px;font-size:28px;font-weight:800;cursor:pointer;margin-top:4px}
 #go:hover{background:var(--acc2)}
 #go:disabled{background:#9aa9c6;cursor:wait}
+/* ── 양식별 프린터 — 인쇄하는 동안만 라벨만 보이게 ── */
+#printArea{display:none}
+#printer option[value=""]{color:var(--muted)}
+@media print{
+  body.hp{margin:0!important;padding:0!important;background:#fff!important}
+  body.hp>*:not(#printArea){display:none!important}
+  body.hp #printArea{display:block!important}
+}
 /* ── 파레트(여러 품번) ── */
 #plist{display:none;max-height:none;overflow:visible;padding:14px;border-right:1px solid var(--line);background:#fff}
 #plist table{width:100%;border-collapse:collapse;font-size:17px}
@@ -175,6 +183,7 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
       <div class="fl">
         <div><label data-t="paper"></label><select id="paper"></select></div>
         <div><label data-t="form"></label><select id="form"></select></div>
+        <div id="prBox" style="display:none"><label data-t="printer"></label><select id="printer"></select></div>
       </div>
       <button id="go" onclick="issue()">🏷 <span data-t="issue"></span></button>
       <button id="back" onclick="backToList()">← <span data-t="back"></span></button>
@@ -203,7 +212,7 @@ var L={
  ko:{brand:'한일 라벨',sub:'품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요',ph:'품번 · 품명 검색, 또는 라벨 QR 스캔',find:'찾기',
   tip:'라벨 샘플을 찍으면 그 라벨이 바로 열립니다 — 수량만 넣고 발행하세요',ready:'준비됨',wait:'준비 중…',waitlong:'라벨 화면을 기다리는 중',
   detail:'상세 화면',logout:'로그아웃',home:'처음으로',lang:'언어',searching:'찾는 중…',found:'{n}개 찾았습니다',many:'200개까지 보여 줍니다 — 더 자세히 적어 주세요',
-  none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',
+  none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',printer:'프린터',prDialog:'인쇄 창에서 고르기',prDefault:'기본 프린터로 바로',prSaved:'이 양식은 이제 이 프린터로 나갑니다',prFallback:'정한 프린터로 못 보냈습니다 — 인쇄 창으로',
   issue:'라벨 발행',making:'만드는 중…',back:'다른 품번 찾기 (Esc)',noimg:'사진이 없습니다',fromqr:'라벨 샘플에서 불러왔습니다',fromqr2:'수량을 확인하고 발행하세요',
   readqr:'라벨을 읽었습니다',needqty:'수량을 넣어 주세요',notready:'라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요',
   qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',palItems:'품번 {n}개를 한 파레트로',palPart:'품번',palName:'품명',palNone:'이 파레트에 담긴 품번이 없습니다',palNoBundle:'라벨 화면에 파레트 묶기가 없습니다 — 「상세 화면」에서 뽑아 주세요',pv:'미리보기',pvWait:'미리보기 그리는 중…',pvQty:'수량을 모두 넣으면 미리보기가 나옵니다',pvNone:'미리보기는 포털 업데이트 뒤에 보입니다',pvFail:'미리보기를 못 그렸습니다',pvNote:'번호·로트는 발행할 때 매겨집니다',
@@ -211,7 +220,7 @@ var L={
  en:{brand:'HANIL Label',sub:'Search a part no. or name, or scan a sample label',ph:'Part no. · name, or scan label QR',find:'Search',
   tip:'Scan a sample label to open it — just enter the quantity and print',ready:'Ready',wait:'Loading…',waitlong:'Waiting for the label screen',
   detail:'Advanced',logout:'Log out',home:'Home',lang:'Language',searching:'Searching…',found:'{n} found',many:'Showing the first 200 — type more to narrow',
-  none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',
+  none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',printer:'Printer',prDialog:'Choose in print dialog',prDefault:'Default printer',prSaved:'This format now prints to this printer',prFallback:'Could not send to the set printer — using the print dialog',
   issue:'Print label',making:'Printing…',back:'Search another (Esc)',noimg:'No photo',fromqr:'Opened from a sample label',fromqr2:'check the quantity and print',
   readqr:'Label scanned',needqty:'Enter the quantity',notready:'The label screen is not ready yet — try again in a moment',
   qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',palItems:'{n} parts on one pallet',palPart:'Part',palName:'Name',palNone:'This pallet has no parts',palNoBundle:'Pallet bundling is not available — print it in "Advanced"',pv:'Preview',pvWait:'Drawing preview…',pvQty:'Enter every quantity to see the preview',pvNone:'Preview needs a portal update',pvFail:'Could not draw the preview',pvNote:'Numbers and LOT are assigned when printed',
@@ -219,7 +228,7 @@ var L={
  vi:{brand:'Nhãn HANIL',sub:'Tìm mã hàng hoặc tên hàng, hoặc quét nhãn mẫu',ph:'Mã hàng · tên hàng, hoặc quét QR nhãn',find:'Tìm',
   tip:'Quét nhãn mẫu để mở ngay — chỉ cần nhập số lượng và in',ready:'Sẵn sàng',wait:'Đang tải…',waitlong:'Đang chờ màn hình nhãn',
   detail:'Chi tiết',logout:'Đăng xuất',home:'Trang đầu',lang:'Ngôn ngữ',searching:'Đang tìm…',found:'Tìm thấy {n}',many:'Chỉ hiện 200 mục đầu — hãy gõ thêm',
-  none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',
+  none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',printer:'Máy in',prDialog:'Chọn trong hộp thoại in',prDefault:'Máy in mặc định',prSaved:'Mẫu này sẽ in ra máy in này',prFallback:'Không gửi được tới máy in đã chọn — mở hộp thoại in',
   issue:'In nhãn',making:'Đang in…',back:'Tìm mã khác (Esc)',noimg:'Không có ảnh',fromqr:'Đã mở từ nhãn mẫu',fromqr2:'kiểm tra số lượng rồi in',
   readqr:'Đã quét nhãn',needqty:'Hãy nhập số lượng',notready:'Màn hình nhãn chưa sẵn sàng — vui lòng thử lại sau',
   qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',palItems:'{n} mã hàng trên một pallet',palPart:'Mã',palName:'Tên',palNone:'Pallet này không có mã hàng',palNoBundle:'Không gộp pallet được — hãy in ở mục "Chi tiết"',pv:'Xem trước',pvWait:'Đang vẽ xem trước…',pvQty:'Nhập đủ số lượng để xem trước',pvNone:'Cần cập nhật portal để xem trước',pvFail:'Không vẽ được xem trước',pvNote:'Số và LOT được cấp khi in',
@@ -568,6 +577,7 @@ function pickPallet(no, pl, items){
   if(pref){ if(pref.paper) $('paper').value=pref.paper; if(pref.form) $('form').value=pref.form; }
   if(pl.form) setOpt('form', pl.form);
   if(pl.sheet) setOpt('paper', pl.sheet);
+  prSync();
   $('cnt').value=Math.max(1, Math.floor(Number(pl.copies)||1));
   [].forEach.call($('plist').querySelectorAll('.pq'), function(e){
     e.addEventListener('keydown', function(ev){
@@ -693,6 +703,7 @@ function pick(r, from){
   //  🏷 견본에 정해 둔 양식·라벨지가 있으면 그것이 먼저(이 PC 가 기억한 것보다)
   if(from && from.form) setOpt('form', from.form);
   if(from && from.sheet) setOpt('paper', from.sheet);
+  prSync();
   $('qty').value=(from && from.qty && Number(from.qty)) ? from.qty : '';
   $('cnt').value=1;
   setTimeout(function(){ $('qty').focus(); $('qty').select(); }, 30);
@@ -741,13 +752,13 @@ async function issue(){
     w.__lastHtml='';
     await w.preview();
     if(!w.__lastHtml) throw new Error(t('makefail'));
-    w.printHere();
+    var usedPr=await doPrint(w);
     var info=(doc.getElementById('msg')||{}).textContent||'';
     var lot=(info.match(/로트\s+([0-9A-Za-z\-·\s]+)/)||[])[1]||'';
     //  다음에 같은 품번을 찍으면 같은 라벨지·양식으로
     var pref={paper:$('paper').value, form:$('form').value};
     store('hl_pn:'+String(CUR.part_no||'').toUpperCase(), pref); store('hl_last', pref);
-    toast('🖨 '+t('printed')+' — '+CUR.part_no+' · '+t('qtyS')+' '+Number(qty).toLocaleString('ko-KR')+' · '+t('cntS')+' '+n+(lot?(' · '+t('lotS')+' '+lot.trim()):''), 'ok');
+    toast('🖨 '+t('printed')+' — '+CUR.part_no+' · '+t('qtyS')+' '+Number(qty).toLocaleString('ko-KR')+' · '+t('cntS')+' '+n+(lot?(' · '+t('lotS')+' '+lot.trim()):'')+(usedPr?(' · 🖨 '+usedPr):''), 'ok');
     setTimeout(home, 1200);
   }catch(e){
     toast('⚠ '+e.message, 'bad');
@@ -877,6 +888,7 @@ async function issuePallet(){
   if(!bc){ toast(t('palNoBundle'), 'bad'); return; }
   busy=true; $('go').disabled=true; $('go').textContent=t('making');
   clearTimeout(pvT); pvSeq++;                       //  그리던 미리보기는 버린다
+  var usedPr='';
   try{
     await engRun(async function(){
       try{
@@ -884,18 +896,101 @@ async function issuePallet(){
         w.__lastHtml='';
         await w.preview();
         if(!w.__lastHtml) throw new Error(t('makefail'));
-        w.printHere();
+        usedPr=await doPrint(w);
       }finally{ try{ engSet(bc, false); }catch(e){} }
     });
     var pref={paper:$('paper').value, form:$('form').value};
     store('hl_pl:'+CUR.pallet, pref); store('hl_last', pref);
-    toast('🖨 '+t('printed')+' — 📦 '+CUR.pallet+' · '+t('palItems', cart.length)+' · '+t('cntS')+' '+n, 'ok');
+    toast('🖨 '+t('printed')+' — 📦 '+CUR.pallet+' · '+t('palItems', cart.length)+' · '+t('cntS')+' '+n+(usedPr?(' · 🖨 '+usedPr):''), 'ok');
     setTimeout(home, 1200);
   }catch(e){
     toast('⚠ '+e.message, 'bad');
   }finally{
     busy=false; $('go').disabled=false; $('go').innerHTML='🏷 '+esc(t('issue'));
   }
+}
+
+//  ── 🖨 양식별 프린터 ─────────────────────────────────────
+//   사용자 「양식별로 프린터를 지정할 수 있게」
+//   ⭐ 프로그램(독자 창)이 프린터 목록과 «양식 → 프린터»를 이 PC 에 들고 있다(printers.json).
+//     정해 둔 양식은 인쇄 창 없이 그 프린터로 바로, 안 정한 양식은 예전 그대로.
+//   ⚠ Edge 창으로 뜬 옛 PC(WebView2 없음)에는 hanilPrinters 가 없다 → 프린터 칸을 감춘다.
+var PRN=null;
+async function prLoad(){
+  if(typeof window.hanilPrinters!=='function') return;
+  try{ PRN=await window.hanilPrinters(); }catch(e){ PRN=null; }
+  if(!PRN) return;
+  PRN.map=PRN.map||{}; PRN.printers=PRN.printers||[];
+  var sel=$('printer');
+  sel.innerHTML='<option value="">'+esc(PRN.mode==='silent' ? t('prDefault')+(PRN.default?(' ('+PRN.default+')'):'') : t('prDialog'))+'</option>'
+    +PRN.printers.map(function(n){ return '<option value="'+esc(n)+'">🖨 '+esc(n)+(n===PRN.default?' ★':'')+'</option>'; }).join('');
+  $('prBox').style.display='';
+  prSync();
+}
+function printerFor(form){ return (PRN && PRN.map && form) ? (PRN.map[form]||'') : ''; }
+function prSync(){
+  if(!PRN) return;
+  var v=printerFor($('form').value), sel=$('printer');
+  //  ⚠ 정해 둔 프린터가 이 PC 에서 없어졌으면(이름 바뀜·빠짐) 목록에 «없음» 으로라도 보인다
+  if(v && ![].some.call(sel.options, function(o){ return o.value===v; })){
+    var o=document.createElement('option'); o.value=v; o.textContent='⚠ '+v; sel.appendChild(o);
+  }
+  sel.value=v;
+}
+$('form').addEventListener('change', prSync);
+$('printer').addEventListener('change', async function(){
+  var f=$('form').value, v=this.value; if(!PRN || !f) return;
+  if(v) PRN.map[f]=v; else delete PRN.map[f];
+  try{ await window.hanilSetPrinter(f, v); if(v) toast('🖨 '+($('form').selectedOptions[0]||{}).textContent+' → '+v+' — '+t('prSaved'), 'ok'); }
+  catch(e){ toast('⚠ '+(e&&e.message||e), 'bad'); }
+});
+//  라벨 HTML 을 이 창 문서 안(#printArea)에 옮겨 놓고, 프로그램에 «이 프린터로» 를 부탁한다.
+//   (PrintAsync 는 창의 문서를 찍는다 — 인쇄 때만 라벨 말고 다른 것은 모두 숨긴다)
+function nativePrint(html, printer){
+  return new Promise(function(resolve, reject){
+    var area=$('printArea');
+    if(!area){ area=document.createElement('div'); area.id='printArea'; document.body.appendChild(area); }
+    var d=new DOMParser().parseFromString(html, 'text/html');
+    var css=[].map.call(d.querySelectorAll('style'), function(e){ return '<style>'+e.textContent+'</style>'; }).join('')
+      +[].map.call(d.querySelectorAll('link[rel="stylesheet"]'), function(e){ return '<link rel="stylesheet" href="'+esc(e.getAttribute('href')||'')+'">'; }).join('');
+    var scripts=[].slice.call(d.querySelectorAll('script'));
+    scripts.forEach(function(e){ e.parentNode.removeChild(e); });
+    d.querySelectorAll('style,link[rel="stylesheet"]').forEach(function(e){ e.parentNode.removeChild(e); });
+    area.innerHTML=css+d.body.innerHTML;
+    //  라벨 안의 스크립트(QR 그리기 등)는 돌리되, 저절로 인쇄 창을 여는 것은 막는다
+    var op=window.print, oo=window.onload; window.print=function(){};
+    try{
+      scripts.forEach(function(e){ var n=document.createElement('script'); if(e.src) n.src=e.src; else n.textContent=e.textContent; area.appendChild(n); });
+      if(window.onload!==oo && typeof window.onload==='function'){ try{ window.onload(); }catch(e){} }
+    }finally{ window.print=op; window.onload=oo; }
+    var done=false;
+    function clean(){ document.body.classList.remove('hp'); area.innerHTML=''; window.__hpDone=null; }
+    window.__hpDone=function(hr, st){
+      if(done) return; done=true; clean();
+      if(hr===0 && st===0) resolve(); else reject(new Error(st===1 ? 'printer unavailable' : ('error '+hr+'/'+st)));
+    };
+    //  그림(QR·로고)이 다 들어온 뒤에 찍는다
+    var imgs=[].slice.call(area.querySelectorAll('img')).filter(function(i){ return !i.complete; });
+    Promise.all(imgs.map(function(i){ return new Promise(function(r){ i.onload=i.onerror=r; setTimeout(r, 4000); }); }))
+      .then(function(){ return new Promise(function(r){ setTimeout(r, 120); }); })
+      .then(function(){
+        document.body.classList.add('hp');
+        return window.hanilPrint(printer);
+      })
+      .then(function(){ setTimeout(function(){ if(!done){ done=true; clean(); resolve(); } }, 90000); })
+      .catch(function(e){ if(!done){ done=true; clean(); reject(e instanceof Error ? e : new Error(String(e))); } });
+  });
+}
+//  발행 — 정해 둔 프린터가 있으면 그리로, 없거나 실패하면 예전처럼(라벨 화면의 printHere)
+//   ⚠ 실패해서 인쇄 창으로 물러설 때는 아직 한 장도 안 나간 때뿐이다(인쇄 시작 전 실패·프린터 없음).
+async function doPrint(w){
+  var pr=printerFor($('form').value);
+  if(pr && typeof window.hanilPrint==='function'){
+    try{ await nativePrint(w.__lastHtml, pr); return pr; }
+    catch(e){ toast('⚠ 🖨 '+pr+' — '+t('prFallback')+' ('+(e&&e.message||e)+')', 'bad'); }
+  }
+  w.printHere();
+  return '';
 }
 
 //  ── 키보드 ───────────────────────────────────────────────
@@ -923,7 +1018,7 @@ document.addEventListener('keydown', function(e){
 });
 //  로그인이 풀렸는지 먼저 본다
 api('/api/labels/forms').catch(function(){});
-drawLangs(); applyLang(); showLang(); idleReset(); loadStaffLangs();
+drawLangs(); applyLang(); showLang(); idleReset(); loadStaffLangs(); prLoad();
 //  빈 창 지킴이에게 «그려졌다» 알림
 try{ fetch('/__label/alive',{cache:'no-store'}); }catch(e){}
 engWatch();

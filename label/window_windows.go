@@ -101,6 +101,7 @@ func runWindow(url string) error {
 	} else {
 		pShowWindow.Call(h, 3) // SW_MAXIMIZE — 현장 화면은 늘 크게
 	}
+	bindPrinters(w) //  🖨 양식별 프린터(print_windows.go)
 	w.Navigate(url)
 	logf("독자 창으로 띄웠습니다")
 	w.Run()
