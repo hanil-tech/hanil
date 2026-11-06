@@ -81,6 +81,17 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   if (t2.getMonth() !== new Date().getMonth()) await pg.click('#prev');
   r = await fetch(G + '/api/schedule/list');
   ok(r.status === 200, '찾은 포털 달력 주소는 관문이 통과시킨다');
+  //  같은 일정이 포털 일정(🏢)과 포털 달력(📅)으로 겹쳐 오면 하나만
+  const dupN = await pg.evaluate((d) => {
+    const S = window.__cal.S, pc = S.pcEvents.find((e) => e.start === d);
+    S.events = S.events.concat([{ id: 'dup1', title: pc.time + ' ' + pc.title, start: pc.start, end: pc.end, kind: 'company', editable: false }]);
+    window.__cal.draw();
+    return document.querySelectorAll('.cell[data-d="' + d + '"] .chip.pc').length;
+  }, ymd(t2));
+  ok(dupN === 0, '포털 일정과 포털 달력에 같은 일정이 있으면 한 번만 보인다');
+  await pg.evaluate(() => { const S = window.__cal.S; S.events = S.events.filter((e) => e.id !== 'dup1'); window.__cal.draw(); });
+  r = await fetch(G + '/api/cal/events/12345', { method: 'PUT', body: '{}' });
+  ok(r.status !== 403, '일정 번호가 숫자여도 고치기·지우기를 관문이 막지 않는다 (' + r.status + ')');
   ok(await pg.$('.chip.ing[data-doc="90"]') !== null, '내가 올린 문서도 보인다');
   ok((await pg.textContent('#lMsg')).includes('견적서'), '쪽지가 옆 칸에 보인다');
   ok((await pg.textContent('#lTodo')).includes('안 읽은 메일 269'), '오늘 할 일이 옆 칸에 보인다');

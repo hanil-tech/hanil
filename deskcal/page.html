@@ -608,7 +608,7 @@ function weekNo(d) {
 }
 
 //  ── 포털에서 받는 것 ──
-var S = { cur: new Date(), wofs: 0, apprWait: [], apprLine: [], rawWait: [], todoAppr: null, pcEvents: [], pcApi: '', pcPage: '', apprMine: [], apprDone: [], todo: [], msgs: [], events: [], gevents: [], evOK: null, me: null,
+var S = { cur: new Date(), wofs: 0, apprWait: [], apprLine: [], pcShow: [], rawWait: [], todoAppr: null, pcEvents: [], pcApi: '', pcPage: '', apprMine: [], apprDone: [], todo: [], msgs: [], events: [], gevents: [], evOK: null, me: null,
   login: PORTAL, offline: false, portal: '', pinned: false, desktop: false, first: true, seenMsg: null, seenWait: null, hits: null, gLinked: false, gErr: '' };
 S.cur.setDate(1);
 
@@ -958,7 +958,7 @@ function itemsOn(d) {
   annivOn(d).forEach(function (a) { out.push({ t: 'an', a: a }); });
   S.events.forEach(function (e) { if (occursOn(e, d)) out.push({ t: 'ev', e: e }); });
   if (p.gg) S.gevents.forEach(function (e) { if (e.start <= d && e.end >= d) out.push({ t: 'gg', e: e }); });
-  if (p.pc) S.pcEvents.forEach(function (e) { if (e.start <= d && e.end >= d) out.push({ t: 'pc', e: e }); });
+  if (p.pc) S.pcShow.forEach(function (e) { if (e.start <= d && e.end >= d) out.push({ t: 'pc', e: e }); });
   if (p.docs !== 'none') {
     S.apprWait.forEach(function (x) { if (x.date === d) out.push({ t: 'doc', x: x }); });
     if (p.docs === 'mine' || p.docs === 'all') S.apprMine.concat(S.apprLine).forEach(function (x) { if (x.date === d) out.push({ t: 'doc', x: x }); });
@@ -994,8 +994,16 @@ function lunarText(d, p) {
   return (L.leap ? '윤' : '') + L.m + '.' + L.d;
 }
 var editing = '';
+//  같은 일정이 두 길(포털 일정 /api/cal/events · 찾아 둔 포털 달력)로 겹쳐 오면 하나만 — 같은 날 · 같은 제목(앞의 시각은 빼고)
+function normTitle(t) { return String(t || '').replace(/^\s*\d{1,2}:\d{2}\s*/, '').replace(/\s+/g, '').toLowerCase().slice(0, 24); }
+function dedupePc() {
+  var seen = {};
+  S.events.forEach(function (e) { seen[e.start + '|' + normTitle(e.title)] = 1; });
+  S.pcShow = S.pcEvents.filter(function (e) { return !seen[e.start + '|' + normTitle(e.title)]; });
+}
 function draw() {
   var p = P();
+  dedupePc();
   document.documentElement.setAttribute('data-theme', p.theme);
   applyColors();
   document.documentElement.style.setProperty('--fs', (13.5 * p.font / 100).toFixed(2) + 'px');
@@ -1072,7 +1080,7 @@ function drawSide() {
     var d = addDays(today, i);
     S.events.forEach(function (e) { if (occursOn(e, d) && (i === 0 || !occursOn(e, addDays(d, -1)))) up.push({ e: e, d: d }); });
     if (P().gg) S.gevents.forEach(function (e) { if (e.start === d || (i === 0 && e.start < d && e.end >= d)) up.push({ e: e, d: d }); });
-    if (P().pc) S.pcEvents.forEach(function (e) { if (e.start === d || (i === 0 && e.start < d && e.end >= d)) up.push({ e: e, d: d }); });
+    if (P().pc) S.pcShow.forEach(function (e) { if (e.start === d || (i === 0 && e.start < d && e.end >= d)) up.push({ e: e, d: d }); });
     annivOn(d).forEach(function (a) { up.push({ e: { id: '', title: '🎂 ' + a.title, kind: 'anv' }, d: d }); });
   }
   $('#nEv').textContent = up.length;
@@ -1356,7 +1364,7 @@ $('#pGo').onclick = function () {
       annivOn(d).forEach(function (x) { a.push('🎂 ' + x.title); });
       S.events.forEach(function (e) { if (occursOn(e, d)) a.push((e.time ? e.time + ' ' : '') + e.title); });
       if (p.gg) S.gevents.forEach(function (e) { if (e.start <= d && e.end >= d) a.push((e.time ? e.time + ' ' : '') + e.title); });
-      if (p.pc) S.pcEvents.forEach(function (e) { if (e.start <= d && e.end >= d) a.push((e.time ? e.time + ' ' : '') + e.title); });
+      if (p.pc) S.pcShow.forEach(function (e) { if (e.start <= d && e.end >= d) a.push((e.time ? e.time + ' ' : '') + e.title); });
     }
     if (withDoc) S.apprWait.concat(S.apprMine).forEach(function (x) { if (x.date === d) a.push('📄 ' + x.title); });
     var nt = (DATA.notes || {})[d];

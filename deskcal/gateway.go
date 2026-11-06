@@ -102,7 +102,8 @@ func (g *gateway) transport(u *url.URL) *http.Transport {
 var (
 	reApprDoc   = regexp.MustCompile(`^/api/appr/\d+$`)
 	reApprPrint = regexp.MustCompile(`^/api/appr/\d+/print$`)
-	reCalEvent  = regexp.MustCompile(`^/api/cal/events/[0-9a-f]{16}$`)
+	//  ⚠ 일정 번호 모양은 포털마다 다르다(숫자 · 16자리 …) — 길 하나짜리 영문·숫자면 받는다
+	reCalEvent = regexp.MustCompile(`^/api/cal/events/[A-Za-z0-9_-]{1,64}$`)
 )
 
 // 읽기만 하는 포털 API — 달력이 쓰는 것뿐
