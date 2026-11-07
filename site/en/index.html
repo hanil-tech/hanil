@@ -13,6 +13,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../assets/hanil.css">
+<script>document.documentElement.classList.add("js")</script>
+<script src="../assets/hanil.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#business">Skip to content</a>
@@ -32,28 +34,114 @@
         <p class="hero__lead">Formed on a 1,500-ton hydraulic press, welded by robots and skilled welders, finished and inspected in one plant in Wanju, Korea.</p>
         <a class="btn hero__cta" href="mailto:hanil@hanil-steel.com?subject=Drawing%20review%20request">Send a drawing<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       </div>
-      <figure class="chart" role="img" aria-label="Revenue by year: 2023 KRW 2.13 billion, 2024 4.02 billion, 2025 6.04 billion, 2026 target 10 billion">
-        <div class="chart__head" aria-hidden="true"><strong>Revenue</strong><span>KRW 100 million</span></div>
-        <div class="chart__plot" aria-hidden="true"><div class="bar" style="--v: 21.3; --i: 0"><span class="bar__v">21.3</span></div><div class="bar" style="--v: 40.2; --i: 1"><span class="bar__v">40.2</span></div><div class="bar" style="--v: 60.4; --i: 2"><span class="bar__v">60.4</span></div><div class="bar bar--target" style="--v: 100; --i: 3"><span class="bar__v">100</span></div></div>
-        <div class="chart__years" aria-hidden="true"><span>2023</span><span>2024</span><span>2025</span><span>2026 target</span></div>
+      <figure class="hero__art" data-draw>
+        <svg class="draw " viewBox="0 0 820 470" role="img" aria-label="Side drawing of a tractor with the hood and fender Hanil makes marked in orange.">
+  <g class="ln">
+    <path pathLength="1" d="M20 440H800"/>
+    <path pathLength="1" d="M150 318H520V346H170Z"/>
+    <path pathLength="1" d="M470 300L486 118H664L652 300"/>
+    <path pathLength="1" d="M486 118L478 98H672L664 118"/>
+    <path pathLength="1" d="M500 136H640L632 262H508Z"/>
+    <path pathLength="1" d="M528 262L560 210L600 214"/>
+    <path pathLength="1" d="M582 262V236H624V262"/>
+    <path pathLength="1" d="M392 204V112H406V204"/>
+    <path pathLength="1" d="M386 112H412"/>
+    <circle pathLength="1" cx="575" cy="338" r="102"/>
+    <circle pathLength="1" cx="575" cy="338" r="64"/>
+    <circle pathLength="1" cx="575" cy="338" r="22"/>
+    <circle pathLength="1" cx="190" cy="380" r="60"/>
+    <circle pathLength="1" cx="190" cy="380" r="36"/>
+    <circle pathLength="1" cx="190" cy="380" r="12"/>
+    <path pathLength="1" d="M104 236H124V304H104Z"/>
+    <path pathLength="1" d="M108 250H120M108 262H120M108 274H120M108 286H120"/>
+  </g>
+  <circle class="lugs" cx="575" cy="338" r="94"/>
+  <circle class="lugs lugs--s" cx="190" cy="380" r="54"/>
+  <g class="mk">
+    <path pathLength="1" d="M124 304V246Q128 214 168 208L452 196L470 300Z"/>
+    <path pathLength="1" d="M455 338A120 120 0 0 1 679 278L668 284A108 108 0 0 0 467 338Z"/>
+    <path pathLength="1" d="M170 324A68 68 0 0 1 250 344L242 348A58 58 0 0 0 176 330Z"/>
+  </g>
+  <g class="call">
+    <path d="M300 200V150H340"/><text x="346" y="155">Hood</text>
+    <path d="M690 280L730 240H760"/><text x="680" y="230" text-anchor="start">Fender</text>
+  </g>
+</svg>
+        <figcaption class="legend"><i aria-hidden="true"></i>Parts made by Hanil</figcaption>
       </figure>
     </div>
     <div class="wrap hero__plate">
-      <div class="plate"><span class="plate__rivets" aria-hidden="true"></span><dl class="plate__grid"><div class="plate__cell"><dt>Largest press</dt><dd class="num">1,500<small>t</small></dd></div><div class="plate__cell"><dt>CO₂ welding robots</dt><dd class="num">11</dd></div><div class="plate__cell"><dt>Process steps</dt><dd class="num">8</dd></div><div class="plate__cell"><dt>Founded</dt><dd class="num">2021</dd></div></dl></div>
+      <div class="plate"><span class="plate__rivets" aria-hidden="true"></span><dl class="plate__grid"><div class="plate__cell"><dt>Largest press</dt><dd class="num"><span data-count="1,500">1,500</span><small>t</small></dd></div><div class="plate__cell"><dt>CO₂ welding robots</dt><dd class="num"><span data-count="11">11</span></dd></div><div class="plate__cell"><dt>Process steps</dt><dd class="num"><span data-count="8">8</span></dd></div><div class="plate__cell"><dt>Founded</dt><dd class="num"><span data-count="2021">2021</span></dd></div></dl></div>
+    </div>
+    <div class="ticker" aria-label="Products">
+      <ul class="ticker__track"><li>Tractor hoods</li><li>Tractor fenders</li><li>Bus side panels</li><li>Truck outer panels</li><li>Refrigerated body press parts</li><li>Implement parts</li><li>Fender cover sets</li></ul>
+      <ul class="ticker__track" aria-hidden="true"><li>Tractor hoods</li><li>Tractor fenders</li><li>Bus side panels</li><li>Truck outer panels</li><li>Refrigerated body press parts</li><li>Implement parts</li><li>Fender cover sets</li></ul>
+      <button class="ticker__pause" type="button" aria-pressed="false" data-pause="Pause motion" data-play="Play motion" aria-label="Pause motion"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8M9 2v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
     </div>
   </section>
 
   <section class="sec" id="business" aria-labelledby="business-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="business-h">Two divisions, one sheet-metal craft</h2><p>Visible outer panels are the core. Parts ship press-formed, welded and finished.</p></div>
-      <div class="segments"><article class="seg"><h3>Automotive parts</h3><p class="seg__for">Buses · trucks · special vehicles</p><p class="seg__text">Outer panels for buses and trucks, and press parts for refrigerated truck bodies. New models are developed with the customer from the design stage.</p><dl><div><dt>Main parts</dt><dd>Bus and truck outer panels, refrigerated body press parts</dd></div><div><dt>Supplied to</dt><dd>Hyundai Mobis, KGM Commercial</dd></div><div><dt>Order backlog</dt><dd>About three years of OEM orders</dd></div></dl></article><article class="seg"><h3>Agricultural machinery parts</h3><p class="seg__for">Tractor exteriors · implement parts</p><p class="seg__text">Tractor exteriors are the main line. Large, deeply curved hoods and fenders are formed from cold-rolled steel, then welded and finished in-house.</p><dl><div><dt>Main parts</dt><dd>Tractor hoods and fenders, implement and attachment parts</dd></div><div><dt>Supplied to</dt><dd>LS Mtron, Doosan Bobcat</dd></div><div><dt>Export</dt><dd>Taiwan since 2025, small fender cover sets</dd></div></dl></article></div>
+      <div class="segments"><article class="seg" data-reveal><div class="seg__art"><svg class="draw draw--bus" viewBox="0 0 820 420" role="img" aria-label="Side drawing of a bus with the side and front outer panels Hanil makes marked in orange.">
+  <g class="ln">
+    <path pathLength="1" d="M20 392H800"/>
+    <path pathLength="1" d="M60 352V110Q60 80 92 78H744Q782 80 786 120L790 352Z"/>
+    <path pathLength="1" d="M92 110H246V200H92Z M262 110H416V200H262Z M432 110H586V200H432Z M602 110H700V200H602Z"/>
+    <path pathLength="1" d="M714 110H770L776 200H714Z"/>
+    <path pathLength="1" d="M714 214H770V352"/>
+    <circle pathLength="1" cx="196" cy="352" r="42"/>
+    <circle pathLength="1" cx="196" cy="352" r="22"/>
+    <circle pathLength="1" cx="616" cy="352" r="42"/>
+    <circle pathLength="1" cx="616" cy="352" r="22"/>
+  </g>
+  <g class="mk">
+    <path pathLength="1" d="M64 222H704V340H662V330A46 46 0 0 0 570 330V340H242V330A46 46 0 0 0 150 330V340H64Z"/>
+    <path pathLength="1" d="M776 214H788L790 340H776Z"/>
+  </g>
+  <g class="call">
+    <path d="M300 262V60H340"/><text x="346" y="65">Side panels</text>
+    <path d="M783 214V60H760"/><text x="752" y="65" text-anchor="end">Front panel</text>
+  </g>
+</svg></div><h3>Automotive parts</h3><p class="seg__for">Buses · trucks · special vehicles</p><p class="seg__text">Outer panels for buses and trucks, and press parts for refrigerated truck bodies. New models are developed with the customer from the design stage.</p><dl><div><dt>Main parts</dt><dd>Bus and truck outer panels, refrigerated body press parts</dd></div><div><dt>Supplied to</dt><dd>Hyundai Mobis, KGM Commercial</dd></div><div><dt>Order backlog</dt><dd>About three years of OEM orders</dd></div></dl></article><article class="seg" data-reveal><div class="seg__art"><svg class="draw draw--seg" viewBox="0 0 820 470" role="img" aria-label="Side drawing of a tractor with the hood and fender Hanil makes marked in orange.">
+  <g class="ln">
+    <path pathLength="1" d="M20 440H800"/>
+    <path pathLength="1" d="M150 318H520V346H170Z"/>
+    <path pathLength="1" d="M470 300L486 118H664L652 300"/>
+    <path pathLength="1" d="M486 118L478 98H672L664 118"/>
+    <path pathLength="1" d="M500 136H640L632 262H508Z"/>
+    <path pathLength="1" d="M528 262L560 210L600 214"/>
+    <path pathLength="1" d="M582 262V236H624V262"/>
+    <path pathLength="1" d="M392 204V112H406V204"/>
+    <path pathLength="1" d="M386 112H412"/>
+    <circle pathLength="1" cx="575" cy="338" r="102"/>
+    <circle pathLength="1" cx="575" cy="338" r="64"/>
+    <circle pathLength="1" cx="575" cy="338" r="22"/>
+    <circle pathLength="1" cx="190" cy="380" r="60"/>
+    <circle pathLength="1" cx="190" cy="380" r="36"/>
+    <circle pathLength="1" cx="190" cy="380" r="12"/>
+    <path pathLength="1" d="M104 236H124V304H104Z"/>
+    <path pathLength="1" d="M108 250H120M108 262H120M108 274H120M108 286H120"/>
+  </g>
+  <circle class="lugs" cx="575" cy="338" r="94"/>
+  <circle class="lugs lugs--s" cx="190" cy="380" r="54"/>
+  <g class="mk">
+    <path pathLength="1" d="M124 304V246Q128 214 168 208L452 196L470 300Z"/>
+    <path pathLength="1" d="M455 338A120 120 0 0 1 679 278L668 284A108 108 0 0 0 467 338Z"/>
+    <path pathLength="1" d="M170 324A68 68 0 0 1 250 344L242 348A58 58 0 0 0 176 330Z"/>
+  </g>
+  <g class="call">
+    <path d="M300 200V150H340"/><text x="346" y="155">Hood</text>
+    <path d="M690 280L730 240H760"/><text x="680" y="230" text-anchor="start">Fender</text>
+  </g>
+</svg></div><h3>Agricultural machinery parts</h3><p class="seg__for">Tractor exteriors · implement parts</p><p class="seg__text">Tractor exteriors are the main line. Large, deeply curved hoods and fenders are formed from cold-rolled steel, then welded and finished in-house.</p><dl><div><dt>Main parts</dt><dd>Tractor hoods and fenders, implement and attachment parts</dd></div><div><dt>Supplied to</dt><dd>LS Mtron, Doosan Bobcat</dd></div><div><dt>Export</dt><dd>Taiwan since 2025, small fender cover sets</dd></div></dl></article></div>
     </div>
   </section>
 
   <section class="sec sec--paper" id="plant" aria-labelledby="plant-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="plant-h">From forming to inspection in one plant</h2><p>Shearing, forming, welding, finishing and inspection run in sequence on one site.</p></div>
-      <div class="plates"><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>Press line</h3><p class="eq__big">1,500<small>t</small></p><table><tr><th scope="row">Hydraulic deep drawing</th><td>Large panels in a single stroke</td></tr><tr><th scope="row">Compact presses</th><td>150 t, for small parts</td></tr><tr><th scope="row">Forming stages</th><td>1 to 4, by part</td></tr></table></article><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>Welding line</h3><p class="eq__big">11<small>robots</small></p><table><tr><th scope="row">CO₂ welding robots</th><td>Throughput and even quality</td></tr><tr><th scope="row">Manual welding</th><td>Joints robots cannot reach</td></tr><tr><th scope="row">Finishing</th><td>Weld beads and defects ground away</td></tr></table></article></div>
+      <div class="plates" data-reveal><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>Press line</h3><p class="eq__big"><span data-count="1,500">1,500</span><small>t</small></p><table><tr><th scope="row">Hydraulic deep drawing</th><td>Large panels in a single stroke</td></tr><tr><th scope="row">Compact presses</th><td>150 t, for small parts</td></tr><tr><th scope="row">Forming stages</th><td>1 to 4, by part</td></tr></table></article><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>Welding line</h3><p class="eq__big"><span data-count="11">11</span><small>robots</small></p><table><tr><th scope="row">CO₂ welding robots</th><td>Throughput and even quality</td></tr><tr><th scope="row">Manual welding</th><td>Joints robots cannot reach</td></tr><tr><th scope="row">Finishing</th><td>Weld beads and defects ground away</td></tr></table></article></div>
       <p class="plates__note">Nothing leaves the site mid-process, which keeps delivery dates. 10 certifications held.</p>
     </div>
   </section>
@@ -61,16 +149,25 @@
   <section class="sec" id="process" aria-labelledby="process-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="process-h">Eight steps from steel to shipment</h2><p>How cold-rolled steel becomes a finished part.</p></div>
-      <ol class="line"><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">01</span><h3>Incoming steel</h3><p>Grade and thickness checked and logged.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">02</span><h3>Shearing</h3><p>Cut to size, nested to keep offcuts low.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">03</span><h3>Forming</h3><p>Pressed in up to four stages, by part.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">04</span><h3>Welding</h3><p>Robots do the bulk; skilled welders finish the rest.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">05</span><h3>Finishing</h3><p>Beads and defects ground away for paint quality.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">06</span><h3>Inspection</h3><p>Dimensions and finish checked; only passes move on.</p></li><li class="st st--partner"><span class="st__dot" aria-hidden="true"></span><span class="st__n">07</span><h3>Painting</h3><p>Partner paint shops, to customer specification.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">08</span><h3>Shipping</h3><p>Packed to quantity with a delivery statement.</p></li></ol>
+      <ol class="line" data-run><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">01</span><h3>Incoming steel</h3><p>Grade and thickness checked and logged.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">02</span><h3>Shearing</h3><p>Cut to size, nested to keep offcuts low.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">03</span><h3>Forming</h3><p>Pressed in up to four stages, by part.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">04</span><h3>Welding</h3><p>Robots do the bulk; skilled welders finish the rest.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">05</span><h3>Finishing</h3><p>Beads and defects ground away for paint quality.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">06</span><h3>Inspection</h3><p>Dimensions and finish checked; only passes move on.</p></li><li class="st st--partner"><span class="st__dot" aria-hidden="true"></span><span class="st__n">07</span><h3>Painting</h3><p>Partner paint shops, to customer specification.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">08</span><h3>Shipping</h3><p>Packed to quantity with a delivery statement.</p></li></ol>
       <p class="line__legend"><span><i aria-hidden="true"></i>Hanil plant</span><span><i class="d" aria-hidden="true"></i>Partner</span></p>
     </div>
   </section>
 
   <section class="sec sec--paper" id="customers" aria-labelledby="customers-h">
     <div class="wrap">
-      <div class="sec__head"><h2 id="customers-h">Customers</h2><p>Parts reach these brands through their tier-1 suppliers.</p></div>
-      <table class="cust"><tbody><tr><th scope="row">LS Mtron</th><td>Tractor exterior parts</td></tr><tr><th scope="row">Doosan Bobcat</th><td>Agricultural and implement parts</td></tr><tr><th scope="row">Hyundai Mobis</th><td>Bus and truck outer panels</td></tr><tr><th scope="row">KGM Commercial</th><td>Bus outer panels</td></tr></tbody></table>
-      <p class="cust__note">In 2025 the first export shipment of small fender cover sets went to Taiwan.</p>
+      <div class="sec__head"><h2 id="customers-h">Customers and growth</h2><p>Parts reach these brands through their tier-1 suppliers.</p></div>
+      <div class="growth">
+        <div>
+          <table class="cust"><tbody><tr><th scope="row">LS Mtron</th><td>Tractor exterior parts</td></tr><tr><th scope="row">Doosan Bobcat</th><td>Agricultural and implement parts</td></tr><tr><th scope="row">Hyundai Mobis</th><td>Bus and truck outer panels</td></tr><tr><th scope="row">KGM Commercial</th><td>Bus outer panels</td></tr></tbody></table>
+          <p class="cust__note">In 2025 the first export shipment of small fender cover sets went to Taiwan.</p>
+        </div>
+        <figure class="chart" role="img" aria-label="Revenue by year: 2023 KRW 2.13 billion, 2024 4.02 billion, 2025 6.04 billion, 2026 target 10 billion" data-run>
+          <div class="chart__head" aria-hidden="true"><strong>Revenue</strong><span>KRW 100 million</span></div>
+          <div class="chart__plot" aria-hidden="true"><div class="bar" style="--v: 21.3; --i: 0"><span class="bar__v">21.3</span></div><div class="bar" style="--v: 40.2; --i: 1"><span class="bar__v">40.2</span></div><div class="bar" style="--v: 60.4; --i: 2"><span class="bar__v">60.4</span></div><div class="bar bar--target" style="--v: 100; --i: 3"><span class="bar__v">100</span></div></div>
+          <div class="chart__years" aria-hidden="true"><span>2023</span><span>2024</span><span>2025</span><span>2026 target</span></div>
+        </figure>
+      </div>
     </div>
   </section>
 </main>

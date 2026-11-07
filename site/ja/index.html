@@ -13,6 +13,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..500&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../assets/hanil.css">
+<script>document.documentElement.classList.add("js")</script>
+<script src="../assets/hanil.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#business">本文へスキップ</a>
@@ -32,28 +34,114 @@
         <p class="hero__lead">1,500トン油圧プレスで成形し、ロボットと熟練溶接工が溶接し、仕上げと検査まで韓国・完州の一つの工場で行います。</p>
         <a class="btn hero__cta" href="mailto:hanil@hanil-steel.com?subject=%E5%9B%B3%E9%9D%A2%E6%A4%9C%E8%A8%8E%E3%81%AE%E3%81%94%E4%BE%9D%E9%A0%BC">図面を送る<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       </div>
-      <figure class="chart" role="img" aria-label="年度別売上: 2023年21.3億ウォン、2024年40.2億ウォン、2025年60.4億ウォン、2026年目標100億ウォン">
-        <div class="chart__head" aria-hidden="true"><strong>売上推移</strong><span>単位: 億ウォン</span></div>
-        <div class="chart__plot" aria-hidden="true"><div class="bar" style="--v: 21.3; --i: 0"><span class="bar__v">21.3</span></div><div class="bar" style="--v: 40.2; --i: 1"><span class="bar__v">40.2</span></div><div class="bar" style="--v: 60.4; --i: 2"><span class="bar__v">60.4</span></div><div class="bar bar--target" style="--v: 100; --i: 3"><span class="bar__v">100</span></div></div>
-        <div class="chart__years" aria-hidden="true"><span>2023</span><span>2024</span><span>2025</span><span>2026 目標</span></div>
+      <figure class="hero__art" data-draw>
+        <svg class="draw " viewBox="0 0 820 470" role="img" aria-label="トラクターの側面図。ハンイル特装が製造するフードとフェンダーをオレンジで示しています。">
+  <g class="ln">
+    <path pathLength="1" d="M20 440H800"/>
+    <path pathLength="1" d="M150 318H520V346H170Z"/>
+    <path pathLength="1" d="M470 300L486 118H664L652 300"/>
+    <path pathLength="1" d="M486 118L478 98H672L664 118"/>
+    <path pathLength="1" d="M500 136H640L632 262H508Z"/>
+    <path pathLength="1" d="M528 262L560 210L600 214"/>
+    <path pathLength="1" d="M582 262V236H624V262"/>
+    <path pathLength="1" d="M392 204V112H406V204"/>
+    <path pathLength="1" d="M386 112H412"/>
+    <circle pathLength="1" cx="575" cy="338" r="102"/>
+    <circle pathLength="1" cx="575" cy="338" r="64"/>
+    <circle pathLength="1" cx="575" cy="338" r="22"/>
+    <circle pathLength="1" cx="190" cy="380" r="60"/>
+    <circle pathLength="1" cx="190" cy="380" r="36"/>
+    <circle pathLength="1" cx="190" cy="380" r="12"/>
+    <path pathLength="1" d="M104 236H124V304H104Z"/>
+    <path pathLength="1" d="M108 250H120M108 262H120M108 274H120M108 286H120"/>
+  </g>
+  <circle class="lugs" cx="575" cy="338" r="94"/>
+  <circle class="lugs lugs--s" cx="190" cy="380" r="54"/>
+  <g class="mk">
+    <path pathLength="1" d="M124 304V246Q128 214 168 208L452 196L470 300Z"/>
+    <path pathLength="1" d="M455 338A120 120 0 0 1 679 278L668 284A108 108 0 0 0 467 338Z"/>
+    <path pathLength="1" d="M170 324A68 68 0 0 1 250 344L242 348A58 58 0 0 0 176 330Z"/>
+  </g>
+  <g class="call">
+    <path d="M300 200V150H340"/><text x="346" y="155">フード</text>
+    <path d="M690 280L730 240H760"/><text x="680" y="230" text-anchor="start">フェンダー</text>
+  </g>
+</svg>
+        <figcaption class="legend"><i aria-hidden="true"></i>ハンイル特装が製造する部品</figcaption>
       </figure>
     </div>
     <div class="wrap hero__plate">
-      <div class="plate"><span class="plate__rivets" aria-hidden="true"></span><dl class="plate__grid"><div class="plate__cell"><dt>最大プレス</dt><dd class="num">1,500<small>トン</small></dd></div><div class="plate__cell"><dt>CO₂溶接ロボット</dt><dd class="num">11<small>台</small></dd></div><div class="plate__cell"><dt>生産工程</dt><dd class="num">8<small>段階</small></dd></div><div class="plate__cell"><dt>設立</dt><dd class="num">2021<small>年</small></dd></div></dl></div>
+      <div class="plate"><span class="plate__rivets" aria-hidden="true"></span><dl class="plate__grid"><div class="plate__cell"><dt>最大プレス</dt><dd class="num"><span data-count="1,500">1,500</span><small>トン</small></dd></div><div class="plate__cell"><dt>CO₂溶接ロボット</dt><dd class="num"><span data-count="11">11</span><small>台</small></dd></div><div class="plate__cell"><dt>生産工程</dt><dd class="num"><span data-count="8">8</span><small>段階</small></dd></div><div class="plate__cell"><dt>設立</dt><dd class="num"><span data-count="2021">2021</span><small>年</small></dd></div></dl></div>
+    </div>
+    <div class="ticker" aria-label="製品">
+      <ul class="ticker__track"><li>トラクターのフード</li><li>トラクターのフェンダー</li><li>バス側面外板</li><li>トラック外板</li><li>冷凍車プレス部品</li><li>作業機部品</li><li>フェンダーカバーセット</li></ul>
+      <ul class="ticker__track" aria-hidden="true"><li>トラクターのフード</li><li>トラクターのフェンダー</li><li>バス側面外板</li><li>トラック外板</li><li>冷凍車プレス部品</li><li>作業機部品</li><li>フェンダーカバーセット</li></ul>
+      <button class="ticker__pause" type="button" aria-pressed="false" data-pause="動きを止める" data-play="動きを再生" aria-label="動きを止める"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8M9 2v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
     </div>
   </section>
 
   <section class="sec" id="business" aria-labelledby="business-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="business-h">二つの事業部、一つの板金技術</h2><p>目に見える外装の板金パネルが中心です。プレス成形、溶接、仕上げまで終えた状態で納品します。</p></div>
-      <div class="segments"><article class="seg"><h3>自動車部品</h3><p class="seg__for">バス · トラック · 特装車</p><p class="seg__text">バスとトラックの外板、冷凍車ボディのプレス部品をつくります。新型車は設計段階からお客様と共同で開発します。</p><dl><div><dt>主要品目</dt><dd>バス・トラック外板、冷凍車プレス部品</dd></div><div><dt>納入先</dt><dd>現代モービス、KGMコマーシャル</dd></div><div><dt>受注残</dt><dd>OEM 約3年分</dd></div></dl></article><article class="seg"><h3>農業機械部品</h3><p class="seg__for">トラクター外装 · 作業機部品</p><p class="seg__text">トラクター外装が主力です。フードやフェンダーのように大きく深く曲がったパネルを冷延鋼板で成形し、工場内で溶接・仕上げします。</p><dl><div><dt>主要品目</dt><dd>トラクターのフード・フェンダー、作業機・アタッチメント部品</dd></div><div><dt>納入先</dt><dd>LSエムトロン、斗山ボブキャット</dd></div><div><dt>輸出</dt><dd>2025年 台湾、小型フェンダーカバーセット</dd></div></dl></article></div>
+      <div class="segments"><article class="seg" data-reveal><div class="seg__art"><svg class="draw draw--bus" viewBox="0 0 820 420" role="img" aria-label="バスの側面図。ハンイル特装が製造する側面・前面外板をオレンジで示しています。">
+  <g class="ln">
+    <path pathLength="1" d="M20 392H800"/>
+    <path pathLength="1" d="M60 352V110Q60 80 92 78H744Q782 80 786 120L790 352Z"/>
+    <path pathLength="1" d="M92 110H246V200H92Z M262 110H416V200H262Z M432 110H586V200H432Z M602 110H700V200H602Z"/>
+    <path pathLength="1" d="M714 110H770L776 200H714Z"/>
+    <path pathLength="1" d="M714 214H770V352"/>
+    <circle pathLength="1" cx="196" cy="352" r="42"/>
+    <circle pathLength="1" cx="196" cy="352" r="22"/>
+    <circle pathLength="1" cx="616" cy="352" r="42"/>
+    <circle pathLength="1" cx="616" cy="352" r="22"/>
+  </g>
+  <g class="mk">
+    <path pathLength="1" d="M64 222H704V340H662V330A46 46 0 0 0 570 330V340H242V330A46 46 0 0 0 150 330V340H64Z"/>
+    <path pathLength="1" d="M776 214H788L790 340H776Z"/>
+  </g>
+  <g class="call">
+    <path d="M300 262V60H340"/><text x="346" y="65">側面外板</text>
+    <path d="M783 214V60H760"/><text x="752" y="65" text-anchor="end">前面外板</text>
+  </g>
+</svg></div><h3>自動車部品</h3><p class="seg__for">バス · トラック · 特装車</p><p class="seg__text">バスとトラックの外板、冷凍車ボディのプレス部品をつくります。新型車は設計段階からお客様と共同で開発します。</p><dl><div><dt>主要品目</dt><dd>バス・トラック外板、冷凍車プレス部品</dd></div><div><dt>納入先</dt><dd>現代モービス、KGMコマーシャル</dd></div><div><dt>受注残</dt><dd>OEM 約3年分</dd></div></dl></article><article class="seg" data-reveal><div class="seg__art"><svg class="draw draw--seg" viewBox="0 0 820 470" role="img" aria-label="トラクターの側面図。ハンイル特装が製造するフードとフェンダーをオレンジで示しています。">
+  <g class="ln">
+    <path pathLength="1" d="M20 440H800"/>
+    <path pathLength="1" d="M150 318H520V346H170Z"/>
+    <path pathLength="1" d="M470 300L486 118H664L652 300"/>
+    <path pathLength="1" d="M486 118L478 98H672L664 118"/>
+    <path pathLength="1" d="M500 136H640L632 262H508Z"/>
+    <path pathLength="1" d="M528 262L560 210L600 214"/>
+    <path pathLength="1" d="M582 262V236H624V262"/>
+    <path pathLength="1" d="M392 204V112H406V204"/>
+    <path pathLength="1" d="M386 112H412"/>
+    <circle pathLength="1" cx="575" cy="338" r="102"/>
+    <circle pathLength="1" cx="575" cy="338" r="64"/>
+    <circle pathLength="1" cx="575" cy="338" r="22"/>
+    <circle pathLength="1" cx="190" cy="380" r="60"/>
+    <circle pathLength="1" cx="190" cy="380" r="36"/>
+    <circle pathLength="1" cx="190" cy="380" r="12"/>
+    <path pathLength="1" d="M104 236H124V304H104Z"/>
+    <path pathLength="1" d="M108 250H120M108 262H120M108 274H120M108 286H120"/>
+  </g>
+  <circle class="lugs" cx="575" cy="338" r="94"/>
+  <circle class="lugs lugs--s" cx="190" cy="380" r="54"/>
+  <g class="mk">
+    <path pathLength="1" d="M124 304V246Q128 214 168 208L452 196L470 300Z"/>
+    <path pathLength="1" d="M455 338A120 120 0 0 1 679 278L668 284A108 108 0 0 0 467 338Z"/>
+    <path pathLength="1" d="M170 324A68 68 0 0 1 250 344L242 348A58 58 0 0 0 176 330Z"/>
+  </g>
+  <g class="call">
+    <path d="M300 200V150H340"/><text x="346" y="155">フード</text>
+    <path d="M690 280L730 240H760"/><text x="680" y="230" text-anchor="start">フェンダー</text>
+  </g>
+</svg></div><h3>農業機械部品</h3><p class="seg__for">トラクター外装 · 作業機部品</p><p class="seg__text">トラクター外装が主力です。フードやフェンダーのように大きく深く曲がったパネルを冷延鋼板で成形し、工場内で溶接・仕上げします。</p><dl><div><dt>主要品目</dt><dd>トラクターのフード・フェンダー、作業機・アタッチメント部品</dd></div><div><dt>納入先</dt><dd>LSエムトロン、斗山ボブキャット</dd></div><div><dt>輸出</dt><dd>2025年 台湾、小型フェンダーカバーセット</dd></div></dl></article></div>
     </div>
   </section>
 
   <section class="sec sec--paper" id="plant" aria-labelledby="plant-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="plant-h">成形から検査まで一つの工場で</h2><p>せん断、成形、溶接、仕上げ、検査が同じ敷地内で順に続きます。</p></div>
-      <div class="plates"><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>プレスライン</h3><p class="eq__big">1,500<small>トン</small></p><table><tr><th scope="row">油圧深絞り</th><td>大型パネルを一工程で成形</td></tr><tr><th scope="row">小型プレス</th><td>150トン、小物部品</td></tr><tr><th scope="row">成形段階</th><td>部品に応じて1～4段</td></tr></table></article><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>溶接ライン</h3><p class="eq__big">11<small>台</small></p><table><tr><th scope="row">CO₂溶接ロボット</th><td>処理量と均一な品質</td></tr><tr><th scope="row">手溶接</th><td>ロボットが届かない継ぎ目</td></tr><tr><th scope="row">仕上げ</th><td>溶接ビードと欠陥を除去</td></tr></table></article></div>
+      <div class="plates" data-reveal><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>プレスライン</h3><p class="eq__big"><span data-count="1,500">1,500</span><small>トン</small></p><table><tr><th scope="row">油圧深絞り</th><td>大型パネルを一工程で成形</td></tr><tr><th scope="row">小型プレス</th><td>150トン、小物部品</td></tr><tr><th scope="row">成形段階</th><td>部品に応じて1～4段</td></tr></table></article><article class="eq"><span class="plate__rivets" aria-hidden="true"></span><h3>溶接ライン</h3><p class="eq__big"><span data-count="11">11</span><small>台</small></p><table><tr><th scope="row">CO₂溶接ロボット</th><td>処理量と均一な品質</td></tr><tr><th scope="row">手溶接</th><td>ロボットが届かない継ぎ目</td></tr><tr><th scope="row">仕上げ</th><td>溶接ビードと欠陥を除去</td></tr></table></article></div>
       <p class="plates__note">工程の途中で部品が外に出ないため、納期を守れます。保有認証は10件です。</p>
     </div>
   </section>
@@ -61,16 +149,25 @@
   <section class="sec" id="process" aria-labelledby="process-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="process-h">材料入荷から出荷まで8段階</h2><p>冷延鋼板が入荷し、完成品として出荷されるまでの流れです。</p></div>
-      <ol class="line"><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">01</span><h3>材料入荷</h3><p>鋼種と板厚を確認し登録します。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">02</span><h3>せん断</h3><p>作業サイズに切断し、端材を減らして配置します。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">03</span><h3>成形</h3><p>部品に応じて最大4段階に分けてプレスします。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">04</span><h3>溶接</h3><p>大部分をロボットが、残りを熟練溶接工が担います。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">05</span><h3>仕上げ</h3><p>溶接ビードと欠陥を削り、塗装品質を整えます。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">06</span><h3>検査</h3><p>寸法と外観を確認し、合格品のみ次へ送ります。</p></li><li class="st st--partner"><span class="st__dot" aria-hidden="true"></span><span class="st__n">07</span><h3>塗装</h3><p>協力塗装会社がお客様の仕様どおりに塗装します。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">08</span><h3>出荷</h3><p>数量どおりに梱包し、納品書とともに発送します。</p></li></ol>
+      <ol class="line" data-run><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">01</span><h3>材料入荷</h3><p>鋼種と板厚を確認し登録します。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">02</span><h3>せん断</h3><p>作業サイズに切断し、端材を減らして配置します。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">03</span><h3>成形</h3><p>部品に応じて最大4段階に分けてプレスします。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">04</span><h3>溶接</h3><p>大部分をロボットが、残りを熟練溶接工が担います。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">05</span><h3>仕上げ</h3><p>溶接ビードと欠陥を削り、塗装品質を整えます。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">06</span><h3>検査</h3><p>寸法と外観を確認し、合格品のみ次へ送ります。</p></li><li class="st st--partner"><span class="st__dot" aria-hidden="true"></span><span class="st__n">07</span><h3>塗装</h3><p>協力塗装会社がお客様の仕様どおりに塗装します。</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">08</span><h3>出荷</h3><p>数量どおりに梱包し、納品書とともに発送します。</p></li></ol>
       <p class="line__legend"><span><i aria-hidden="true"></i>ハンイル特装 工場</span><span><i class="d" aria-hidden="true"></i>協力会社</span></p>
     </div>
   </section>
 
   <section class="sec sec--paper" id="customers" aria-labelledby="customers-h">
     <div class="wrap">
-      <div class="sec__head"><h2 id="customers-h">納入先</h2><p>各ブランドの一次協力会社を通じて納品しています。</p></div>
-      <table class="cust"><tbody><tr><th scope="row">LSエムトロン</th><td>トラクター外装部品</td></tr><tr><th scope="row">斗山ボブキャット</th><td>農業機械・作業機部品</td></tr><tr><th scope="row">現代モービス</th><td>バス・トラック外板</td></tr><tr><th scope="row">KGMコマーシャル</th><td>バス外板</td></tr></tbody></table>
-      <p class="cust__note">2025年には小型フェンダーカバーセットを台湾へ初めて輸出しました。</p>
+      <div class="sec__head"><h2 id="customers-h">納入先と成長</h2><p>各ブランドの一次協力会社を通じて納品しています。</p></div>
+      <div class="growth">
+        <div>
+          <table class="cust"><tbody><tr><th scope="row">LSエムトロン</th><td>トラクター外装部品</td></tr><tr><th scope="row">斗山ボブキャット</th><td>農業機械・作業機部品</td></tr><tr><th scope="row">現代モービス</th><td>バス・トラック外板</td></tr><tr><th scope="row">KGMコマーシャル</th><td>バス外板</td></tr></tbody></table>
+          <p class="cust__note">2025年には小型フェンダーカバーセットを台湾へ初めて輸出しました。</p>
+        </div>
+        <figure class="chart" role="img" aria-label="年度別売上: 2023年21.3億ウォン、2024年40.2億ウォン、2025年60.4億ウォン、2026年目標100億ウォン" data-run>
+          <div class="chart__head" aria-hidden="true"><strong>売上推移</strong><span>単位: 億ウォン</span></div>
+          <div class="chart__plot" aria-hidden="true"><div class="bar" style="--v: 21.3; --i: 0"><span class="bar__v">21.3</span></div><div class="bar" style="--v: 40.2; --i: 1"><span class="bar__v">40.2</span></div><div class="bar" style="--v: 60.4; --i: 2"><span class="bar__v">60.4</span></div><div class="bar bar--target" style="--v: 100; --i: 3"><span class="bar__v">100</span></div></div>
+          <div class="chart__years" aria-hidden="true"><span>2023</span><span>2024</span><span>2025</span><span>2026 目標</span></div>
+        </figure>
+      </div>
     </div>
   </section>
 </main>
