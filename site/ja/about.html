@@ -23,8 +23,21 @@
     <a class="logo" href="../ja/index.html"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 20V8l7 7 7-7v12" fill="none" stroke="#ff5a1f" stroke-width="2.2" stroke-linejoin="round"/></svg><span translate="no">ハンイル特装</span></a>
     <nav class="top__nav" aria-label="メインメニュー"><a href="../ja/about.html" aria-current="page">会社概要</a><a href="../ja/products.html">製品</a><a href="../ja/plant.html">設備・工程</a><a href="../ja/contact.html">お問い合わせ</a></nav>
     <div class="lang" role="group" aria-label="Language"><a href="../about.html" hreflang="ko" lang="ko" aria-label="한국어">KO</a><a href="../en/about.html" hreflang="en" lang="en" aria-label="English">EN</a><a href="../ja/about.html" hreflang="ja" lang="ja" aria-label="日本語" aria-current="true">JA</a></div>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-menu" data-menu-open><span class="menu-btn__label">メニュー</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
   </div>
 </header>
+<div class="menu" id="site-menu" role="dialog" aria-modal="true" aria-label="メニュー" hidden>
+  <div class="wrap menu__bar">
+    <a class="logo" href="../ja/index.html"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 20V8l7 7 7-7v12" fill="none" stroke="#ff5a1f" stroke-width="2.2" stroke-linejoin="round"/></svg><span translate="no">ハンイル特装</span></a>
+    <button class="menu__close" type="button" data-menu-close><span>メニューを閉じる</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  </div>
+  <nav class="wrap menu__grid" aria-label="メニュー"><div class="menu__col" style="--i:0"><a class="menu__page" href="../ja/about.html" aria-current="page"><span class="num">01</span>会社概要</a><ul><li><a href="../ja/about.html#overview">会社概要</a></li><li><a href="../ja/about.html#history">沿革</a></li><li><a href="../ja/about.html#growth">成長と納入先</a></li></ul></div><div class="menu__col" style="--i:1"><a class="menu__page" href="../ja/products.html"><span class="num">02</span>製品</a><ul><li><a href="../ja/products.html#agri">農業機械部品</a></li><li><a href="../ja/products.html#auto">自動車部品</a></li><li><a href="../ja/products.html#how">製造の流れ</a></li></ul></div><div class="menu__col" style="--i:2"><a class="menu__page" href="../ja/plant.html"><span class="num">03</span>設備・工程</a><ul><li><a href="../ja/plant.html#equipment">プレス・溶接設備</a></li><li><a href="../ja/plant.html#strengths">一つの工場で行う理由</a></li><li><a href="../ja/plant.html#steps">8段階の工程</a></li></ul></div><div class="menu__col" style="--i:3"><a class="menu__page" href="../ja/contact.html"><span class="num">04</span>お問い合わせ</a><ul><li><a href="../ja/contact.html#request">図面検討のご依頼</a></li><li><a href="../ja/contact.html#visit">アクセス</a></li></ul></div></nav>
+  <div class="wrap menu__foot">
+    <a class="btn" href="../ja/contact.html#request">図面を送る<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+    <p class="menu__contact"><a href="tel:+82637143663">+82-63-714-3663</a><a href="mailto:hanil@hanil-steel.com">hanil@hanil-steel.com</a></p>
+    <p class="menu__langs"><a href="../about.html" hreflang="ko" lang="ko">한국어</a><a href="../en/about.html" hreflang="en" lang="en">English</a><a href="../ja/about.html" hreflang="ja" lang="ja" aria-current="true">日本語</a></p>
+  </div>
+</div>
 
 <main id="top">
   <section class="hero hero--page" aria-labelledby="hero-h" id="main">
@@ -38,21 +51,21 @@
   </section>
   <div class="wrap page-plate"><div class="plate"><span class="plate__rivets" aria-hidden="true"></span><dl class="plate__grid"><div class="plate__cell"><dt>設立</dt><dd class="num"><span data-count="2021">2021</span><small>年</small></dd></div><div class="plate__cell"><dt>保有認証</dt><dd class="num"><span data-count="10">10</span><small>件</small></dd></div><div class="plate__cell"><dt>OEM受注残</dt><dd class="num"><span data-count="3">3</span><small>年分</small></dd></div><div class="plate__cell"><dt>最大プレス</dt><dd class="num"><span data-count="1,500">1,500</span><small>トン</small></dd></div></dl></div></div>
 
-  <section class="sec" aria-labelledby="ov-h">
+  <section id="overview" class="sec" aria-labelledby="ov-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="ov-h">会社概要</h2><p>バス・トラックとトラクターの、目に見える外装板金部品をつくります。</p></div>
       <dl class="info" data-reveal><div><dt>会社名</dt><dd>ハンイル特装（한일특장 / Hanil Special Equipment）</dd></div><div><dt>設立</dt><dd>2021年</dd></div><div><dt>所在地</dt><dd>大韓民国 全北特別自治道 完州郡 鳳東邑 チョムダンサノプ3路 24</dd></div><div><dt>事業分野</dt><dd>自動車外装部品、農業機械外装部品</dd></div><div><dt>主要設備</dt><dd>1,500トンから150トンまでの油圧プレス、CO₂溶接ロボット11台</dd></div><div><dt>保有認証</dt><dd>10件</dd></div><div><dt>代表電話</dt><dd>+82-63-714-3663</dd></div></dl>
     </div>
   </section>
 
-  <section class="sec sec--paper" aria-labelledby="hist-h">
+  <section id="history" class="sec sec--paper" aria-labelledby="hist-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="hist-h">沿革</h2><p>創業以来、売上は毎年伸びており、2025年には初の輸出を行いました。</p></div>
       <ol class="tl" data-run><li class="tl__item"><span class="tl__year num">2021</span><p>全北・完州にハンイル特装を設立</p></li><li class="tl__item"><span class="tl__year num">2023</span><p>売上21.3億ウォン</p></li><li class="tl__item"><span class="tl__year num">2024</span><p>売上40.2億ウォン</p></li><li class="tl__item"><span class="tl__year num">2025</span><p>売上60.4億ウォン · 台湾へ小型フェンダーカバーセットを初輸出</p></li><li class="tl__item"><span class="tl__year num">2026</span><p>売上目標100億ウォン</p></li></ol>
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="grow-h">
+  <section id="growth" class="sec" aria-labelledby="grow-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="grow-h">成長と納入先</h2><p>各ブランドの一次協力会社を通じて納品しています。</p></div>
       <div class="growth">

@@ -337,6 +337,58 @@ def href(k, pid, from_k=None):
     up = "" if src == "ko" else "../"
     return f"{up}{PATHS[k]}{pid}.html"
 
+
+# ----- full-screen site menu ("전체 메뉴") -----
+MENU = {
+ "ko": dict(open="전체 메뉴", close="메뉴 닫기", sub={
+   "about": [("overview", "회사 개요"), ("history", "연혁"), ("growth", "성장과 납품처")],
+   "products": [("agri", "농기계 부품"), ("auto", "자동차 부품"), ("how", "생산 순서")],
+   "plant": [("equipment", "프레스·용접 설비"), ("strengths", "한 공장에서 하는 이유"), ("steps", "8단계 공정")],
+   "contact": [("request", "도면 검토 요청"), ("visit", "오시는 길")]}),
+ "en": dict(open="Menu", close="Close menu", sub={
+   "about": [("overview", "Company overview"), ("history", "History"), ("growth", "Growth and customers")],
+   "products": [("agri", "Agricultural machinery parts"), ("auto", "Automotive parts"), ("how", "How parts are made")],
+   "plant": [("equipment", "Presses and welding"), ("strengths", "Why one plant"), ("steps", "Eight-step process")],
+   "contact": [("request", "Request a drawing review"), ("visit", "Directions")]}),
+ "ja": dict(open="メニュー", close="メニューを閉じる", sub={
+   "about": [("overview", "会社概要"), ("history", "沿革"), ("growth", "成長と納入先")],
+   "products": [("agri", "農業機械部品"), ("auto", "自動車部品"), ("how", "製造の流れ")],
+   "plant": [("equipment", "プレス・溶接設備"), ("strengths", "一つの工場で行う理由"), ("steps", "8段階の工程")],
+   "contact": [("request", "図面検討のご依頼"), ("visit", "アクセス")]}),
+}
+
+def menu_html(k, pid):
+    d = L[k]; m = MENU[k]; p = P[k]
+    tel = d["tel"]; telhref = "+82" + tel.replace("+82-", "").lstrip("0").replace("-", "") if not tel.startswith("+") else tel.replace("-", "")
+    cols = ""
+    for i, (page, label) in enumerate(p["nav"]):
+        subs = "".join(f'<li><a href="{href(k, page)}#{a}">{e(t)}</a></li>' for a, t in m["sub"][page])
+        cur = ' aria-current="page"' if page == pid else ""
+        cols += (f'<div class="menu__col" style="--i:{i}"><a class="menu__page" href="{href(k, page)}"{cur}>'
+                 f'<span class="num">{i+1:02d}</span>{e(label)}</a><ul>{subs}</ul></div>')
+    langs = "".join(
+        f'<a href="{href(o, pid, k)}" hreflang="{o}" lang="{o}"' + (' aria-current="true"' if o == k else '') + f'>{NAMES[o]}</a>'
+        for o in ("ko", "en", "ja"))
+    return (
+        f'<div class="menu" id="site-menu" role="dialog" aria-modal="true" aria-label="{e(m["open"])}" hidden>\n'
+        f'  <div class="wrap menu__bar">\n'
+        f'    <a class="logo" href="{href(k, "index")}">{LOGO}<span translate="no">{e(d["name"])}</span></a>\n'
+        f'    <button class="menu__close" type="button" data-menu-close><span>{e(m["close"])}</span>'
+        f'<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>\n'
+        f'  </div>\n'
+        f'  <nav class="wrap menu__grid" aria-label="{e(m["open"])}">{cols}</nav>\n'
+        f'  <div class="wrap menu__foot">\n'
+        f'    <a class="btn" href="{href(k, "contact")}#request">{e(d["cta"])}{ARROW}</a>\n'
+        f'    <p class="menu__contact"><a href="tel:{telhref}">{e(tel)}</a><a href="mailto:{MAIL}">{MAIL}</a></p>\n'
+        f'    <p class="menu__langs">{langs}</p>\n'
+        f'  </div>\n'
+        f'</div>')
+
+MENU_BTN = ('<button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-menu" data-menu-open>'
+            '<span class="menu-btn__label">{label}</span><svg viewBox="0 0 20 20" aria-hidden="true">'
+            '<path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>')
+
+
 def shell(k, pid, title, desc, body, hero_photo=None):
     d = L[k]; x = X[k]; p = P[k]; up = "" if k == "ko" else "../"
     mail = f"mailto:{MAIL}?subject=" + urllib.parse.quote(d["subject"])
@@ -374,8 +426,10 @@ def shell(k, pid, title, desc, body, hero_photo=None):
     <a class="logo" href="{href(k, "index")}">{LOGO}<span translate="no">{e(d["name"])}</span></a>
     <nav class="top__nav" aria-label="{e(d["navlabel"])}">{nav}</nav>
     <div class="lang" role="group" aria-label="Language">{langs}</div>
+    {MENU_BTN.format(label=e(MENU[k]["open"]))}
   </div>
 </header>
+{menu_html(k, pid)}
 
 <main id="top">
 {body}
@@ -516,21 +570,21 @@ def page_about(k):
     body = f'''{page_head(k, "about", a["h1"], a["lead"], "welding", x["alt_weld"])}
   <div class="wrap page-plate">{plate_html(a["plate"])}</div>
 
-  <section class="sec" aria-labelledby="ov-h">
+  <section id="overview" class="sec" aria-labelledby="ov-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="ov-h">{e(a["ov_h"])}</h2><p>{e(a["ov_p"])}</p></div>
       <dl class="info" data-reveal>{ov}</dl>
     </div>
   </section>
 
-  <section class="sec sec--paper" aria-labelledby="hist-h">
+  <section id="history" class="sec sec--paper" aria-labelledby="hist-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="hist-h">{e(a["hist_h"])}</h2><p>{e(a["hist_p"])}</p></div>
       <ol class="tl" data-run>{hist}</ol>
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="grow-h">
+  <section id="growth" class="sec" aria-labelledby="grow-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="grow-h">{e(a["grow_h"])}</h2><p>{e(d["cust_p"])}</p></div>
       <div class="growth">
@@ -553,7 +607,7 @@ def page_products(k):
         return "".join(f'<tr><th scope="row">{e(a)}</th><td>{e(b)}</td></tr>' for a, b in items)
     body = f'''{page_head(k, "products", pr["h1"], pr["lead"], "loader", x["alt_loader"])}
 
-  <section class="sec" aria-labelledby="agri-h">
+  <section id="agri" class="sec" aria-labelledby="agri-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="agri-h">{e(pr["agri_h"])}</h2><p>{e(pr["agri_p"])}</p></div>
       <div class="prods">{cards(pr["agri"])}</div>
@@ -561,14 +615,14 @@ def page_products(k):
     </div>
   </section>
 
-  <section class="sec sec--paper" aria-labelledby="auto-h">
+  <section id="auto" class="sec sec--paper" aria-labelledby="auto-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="auto-h">{e(pr["auto_h"])}</h2><p>{e(pr["auto_p"])}</p></div>
       <div class="prods prods--split">{cards(pr["auto"])}<table class="cust cust--sm"><tbody>{rows(pr["auto_more"])}</tbody></table></div>
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="how-h">
+  <section id="how" class="sec" aria-labelledby="how-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="how-h">{e(pr["how_h"])}</h2><p>{e(pr["how_p"])}</p></div>
       <ol class="line" data-run>{steps_html(L[k])}</ol>
@@ -583,21 +637,21 @@ def page_plant(k):
     strengths = "".join(f'<article class="strength" data-reveal><h3>{e(h)}</h3><p>{e(t)}</p></article>' for h, t in pl["strengths"])
     body = f'''{page_head(k, "plant", pl["h1"], pl["lead"], "welding", x["alt_weld"])}
 
-  <section class="sec" aria-labelledby="eq-h">
+  <section id="equipment" class="sec" aria-labelledby="eq-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="eq-h">{e(d["plant_h"])}</h2><p>{e(d["plant_note"])}</p></div>
       <div class="plates" data-reveal>{eqs_html(d)}</div>
     </div>
   </section>
 
-  <section class="sec sec--paper" aria-labelledby="str-h">
+  <section id="strengths" class="sec sec--paper" aria-labelledby="str-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="str-h">{e(pl["str_h"])}</h2><p>{e(pl["str_p"])}</p></div>
       <div class="strengths">{strengths}</div>
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="steps-h">
+  <section id="steps" class="sec" aria-labelledby="steps-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="steps-h">{e(pl["steps_h"])}</h2><p>{e(d["proc_p"])}</p></div>
       <ol class="line line--detail" data-run>{steps_html(d, pl["detail"])}</ol>
@@ -614,7 +668,7 @@ def page_contact(k):
     mail = f"mailto:{MAIL}?subject=" + urllib.parse.quote(d["subject"])
     body = f'''{page_head(k, "contact", c["h1"], c["lead"], "hero", x["alt_hero"])}
 
-  <section class="sec" aria-labelledby="form-h">
+  <section id="request" class="sec" aria-labelledby="form-h">
     <div class="wrap contact">
       <form class="form" action="{mail}" method="post" enctype="text/plain" data-mailto="{MAIL}" data-subject="{e(d["subject"])}">
         <h2 id="form-h">{e(c["form_h"])}</h2>
@@ -632,7 +686,7 @@ def page_contact(k):
         <button class="btn" type="submit">{e(c["f_send"])}{ARROW}</button>
         <p class="form__note">{e(c["f_note"])}</p>
       </form>
-      <aside class="visit" aria-labelledby="visit-h">
+      <aside class="visit" id="visit" aria-labelledby="visit-h">
         <div class="eq">
           <span class="plate__rivets" aria-hidden="true"></span>
           <h2 id="visit-h">{e(c["visit_h"])}</h2>

@@ -23,8 +23,21 @@
     <a class="logo" href="index.html"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 20V8l7 7 7-7v12" fill="none" stroke="#ff5a1f" stroke-width="2.2" stroke-linejoin="round"/></svg><span translate="no">한일특장</span></a>
     <nav class="top__nav" aria-label="주 메뉴"><a href="about.html">회사소개</a><a href="products.html">제품</a><a href="plant.html">설비·공정</a><a href="contact.html" aria-current="page">문의</a></nav>
     <div class="lang" role="group" aria-label="Language"><a href="contact.html" hreflang="ko" lang="ko" aria-label="한국어" aria-current="true">KO</a><a href="en/contact.html" hreflang="en" lang="en" aria-label="English">EN</a><a href="ja/contact.html" hreflang="ja" lang="ja" aria-label="日本語">JA</a></div>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-menu" data-menu-open><span class="menu-btn__label">전체 메뉴</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
   </div>
 </header>
+<div class="menu" id="site-menu" role="dialog" aria-modal="true" aria-label="전체 메뉴" hidden>
+  <div class="wrap menu__bar">
+    <a class="logo" href="index.html"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 20V8l7 7 7-7v12" fill="none" stroke="#ff5a1f" stroke-width="2.2" stroke-linejoin="round"/></svg><span translate="no">한일특장</span></a>
+    <button class="menu__close" type="button" data-menu-close><span>메뉴 닫기</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  </div>
+  <nav class="wrap menu__grid" aria-label="전체 메뉴"><div class="menu__col" style="--i:0"><a class="menu__page" href="about.html"><span class="num">01</span>회사소개</a><ul><li><a href="about.html#overview">회사 개요</a></li><li><a href="about.html#history">연혁</a></li><li><a href="about.html#growth">성장과 납품처</a></li></ul></div><div class="menu__col" style="--i:1"><a class="menu__page" href="products.html"><span class="num">02</span>제품</a><ul><li><a href="products.html#agri">농기계 부품</a></li><li><a href="products.html#auto">자동차 부품</a></li><li><a href="products.html#how">생산 순서</a></li></ul></div><div class="menu__col" style="--i:2"><a class="menu__page" href="plant.html"><span class="num">03</span>설비·공정</a><ul><li><a href="plant.html#equipment">프레스·용접 설비</a></li><li><a href="plant.html#strengths">한 공장에서 하는 이유</a></li><li><a href="plant.html#steps">8단계 공정</a></li></ul></div><div class="menu__col" style="--i:3"><a class="menu__page" href="contact.html" aria-current="page"><span class="num">04</span>문의</a><ul><li><a href="contact.html#request">도면 검토 요청</a></li><li><a href="contact.html#visit">오시는 길</a></li></ul></div></nav>
+  <div class="wrap menu__foot">
+    <a class="btn" href="contact.html#request">도면 보내기<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+    <p class="menu__contact"><a href="tel:+82637143663">063-714-3663</a><a href="mailto:hanil@hanil-steel.com">hanil@hanil-steel.com</a></p>
+    <p class="menu__langs"><a href="contact.html" hreflang="ko" lang="ko" aria-current="true">한국어</a><a href="en/contact.html" hreflang="en" lang="en">English</a><a href="ja/contact.html" hreflang="ja" lang="ja">日本語</a></p>
+  </div>
+</div>
 
 <main id="top">
   <section class="hero hero--page" aria-labelledby="hero-h" id="main">
@@ -37,7 +50,7 @@
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="form-h">
+  <section id="request" class="sec" aria-labelledby="form-h">
     <div class="wrap contact">
       <form class="form" action="mailto:hanil@hanil-steel.com?subject=%EB%8F%84%EB%A9%B4%20%EA%B2%80%ED%86%A0%20%EC%9A%94%EC%B2%AD" method="post" enctype="text/plain" data-mailto="hanil@hanil-steel.com" data-subject="도면 검토 요청">
         <h2 id="form-h">도면 검토 요청</h2>
@@ -55,7 +68,7 @@
         <button class="btn" type="submit">메일로 보내기<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <p class="form__note">버튼을 누르면 사용하시는 메일 프로그램이 열립니다.</p>
       </form>
-      <aside class="visit" aria-labelledby="visit-h">
+      <aside class="visit" id="visit" aria-labelledby="visit-h">
         <div class="eq">
           <span class="plate__rivets" aria-hidden="true"></span>
           <h2 id="visit-h">오시는 길</h2>

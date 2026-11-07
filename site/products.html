@@ -23,8 +23,21 @@
     <a class="logo" href="index.html"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 20V8l7 7 7-7v12" fill="none" stroke="#ff5a1f" stroke-width="2.2" stroke-linejoin="round"/></svg><span translate="no">한일특장</span></a>
     <nav class="top__nav" aria-label="주 메뉴"><a href="about.html">회사소개</a><a href="products.html" aria-current="page">제품</a><a href="plant.html">설비·공정</a><a href="contact.html">문의</a></nav>
     <div class="lang" role="group" aria-label="Language"><a href="products.html" hreflang="ko" lang="ko" aria-label="한국어" aria-current="true">KO</a><a href="en/products.html" hreflang="en" lang="en" aria-label="English">EN</a><a href="ja/products.html" hreflang="ja" lang="ja" aria-label="日本語">JA</a></div>
+    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-menu" data-menu-open><span class="menu-btn__label">전체 메뉴</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
   </div>
 </header>
+<div class="menu" id="site-menu" role="dialog" aria-modal="true" aria-label="전체 메뉴" hidden>
+  <div class="wrap menu__bar">
+    <a class="logo" href="index.html"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 20V8l7 7 7-7v12" fill="none" stroke="#ff5a1f" stroke-width="2.2" stroke-linejoin="round"/></svg><span translate="no">한일특장</span></a>
+    <button class="menu__close" type="button" data-menu-close><span>메뉴 닫기</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  </div>
+  <nav class="wrap menu__grid" aria-label="전체 메뉴"><div class="menu__col" style="--i:0"><a class="menu__page" href="about.html"><span class="num">01</span>회사소개</a><ul><li><a href="about.html#overview">회사 개요</a></li><li><a href="about.html#history">연혁</a></li><li><a href="about.html#growth">성장과 납품처</a></li></ul></div><div class="menu__col" style="--i:1"><a class="menu__page" href="products.html" aria-current="page"><span class="num">02</span>제품</a><ul><li><a href="products.html#agri">농기계 부품</a></li><li><a href="products.html#auto">자동차 부품</a></li><li><a href="products.html#how">생산 순서</a></li></ul></div><div class="menu__col" style="--i:2"><a class="menu__page" href="plant.html"><span class="num">03</span>설비·공정</a><ul><li><a href="plant.html#equipment">프레스·용접 설비</a></li><li><a href="plant.html#strengths">한 공장에서 하는 이유</a></li><li><a href="plant.html#steps">8단계 공정</a></li></ul></div><div class="menu__col" style="--i:3"><a class="menu__page" href="contact.html"><span class="num">04</span>문의</a><ul><li><a href="contact.html#request">도면 검토 요청</a></li><li><a href="contact.html#visit">오시는 길</a></li></ul></div></nav>
+  <div class="wrap menu__foot">
+    <a class="btn" href="contact.html#request">도면 보내기<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+    <p class="menu__contact"><a href="tel:+82637143663">063-714-3663</a><a href="mailto:hanil@hanil-steel.com">hanil@hanil-steel.com</a></p>
+    <p class="menu__langs"><a href="products.html" hreflang="ko" lang="ko" aria-current="true">한국어</a><a href="en/products.html" hreflang="en" lang="en">English</a><a href="ja/products.html" hreflang="ja" lang="ja">日本語</a></p>
+  </div>
+</div>
 
 <main id="top">
   <section class="hero hero--page" aria-labelledby="hero-h" id="main">
@@ -37,7 +50,7 @@
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="agri-h">
+  <section id="agri" class="sec" aria-labelledby="agri-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="agri-h">농기계 부품</h2><p>트랙터 외장이 주력입니다. 프런트 로더와 미드 모어 같은 작업기 부품도 만듭니다. LS엠트론, 두산밥캣에 납품합니다.</p></div>
       <div class="prods"><article class="prod" data-reveal><figure class="ph"><img class="ph__img" src="assets/img/loader.webp" srcset="assets/img/loader-640.webp 640w, assets/img/loader.webp 1280w" sizes="(max-width: 720px) 100vw, 33vw" width="1280" height="853" alt="프런트 로더 붐" loading="lazy" decoding="async"></figure><h3>프런트 로더 붐</h3><p>트랙터 앞에 다는 로더의 붐(팔) 부분을 만듭니다.</p></article><article class="prod" data-reveal><figure class="ph"><img class="ph__img" src="assets/img/mower.webp" srcset="assets/img/mower-640.webp 640w, assets/img/mower.webp 1280w" sizes="(max-width: 720px) 100vw, 33vw" width="1280" height="853" alt="미드 마운트 모어" loading="lazy" decoding="async"></figure><h3>미드 마운트 모어</h3><p>트랙터 배 아래에 다는 잔디깎이 모어 부품을 만듭니다.</p></article><article class="prod" data-reveal><figure class="ph"><img class="ph__img" src="assets/img/hero.webp" srcset="assets/img/hero-960.webp 960w, assets/img/hero.webp 1920w" sizes="(max-width: 720px) 100vw, 33vw" width="1280" height="853" alt="트랙터 후드·펜더" loading="lazy" decoding="async"></figure><h3>트랙터 후드·펜더</h3><p>크고 깊게 휜 패널을 냉연강판으로 성형해 용접·사상합니다.</p></article></div>
@@ -45,14 +58,14 @@
     </div>
   </section>
 
-  <section class="sec sec--paper" aria-labelledby="auto-h">
+  <section id="auto" class="sec sec--paper" aria-labelledby="auto-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="auto-h">자동차 부품</h2><p>버스·트럭 외판과 냉동탑차 차체 프레스 부품입니다. 신차는 설계 단계부터 고객사와 함께 개발합니다. 현대모비스, KGM커머셜에 납품합니다.</p></div>
       <div class="prods prods--split"><article class="prod" data-reveal><figure class="ph"><img class="ph__img" src="assets/img/bus.webp" srcset="assets/img/bus-640.webp 640w, assets/img/bus.webp 1280w" sizes="(max-width: 720px) 100vw, 33vw" width="1280" height="853" alt="버스 외판" loading="lazy" decoding="async"></figure><h3>버스 외판</h3><p>버스 측면과 전면의 바깥 패널을 만듭니다.</p></article><table class="cust cust--sm"><tbody><tr><th scope="row">트럭 외판</th><td>트럭 차체의 바깥 패널입니다.</td></tr><tr><th scope="row">냉동탑차 차체 프레스 부품</th><td>냉동탑차 차체에 들어가는 프레스 부품입니다.</td></tr><tr><th scope="row">OEM 수주 잔고</th><td>약 3년치</td></tr></tbody></table></div>
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="how-h">
+  <section id="how" class="sec" aria-labelledby="how-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="how-h">모든 부품은 같은 순서로 만듭니다</h2><p>냉연강판 입고, 전단, 1~4단 성형, 로봇·수동 용접, 사상, 검사, 협력사 도장, 출하.</p></div>
       <ol class="line" data-run><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">01</span><h3>원자재 입고</h3><p>강종과 두께를 확인하고 등록합니다.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">02</span><h3>전단</h3><p>작업 크기로 자르고 자투리를 줄여 배치합니다.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">03</span><h3>성형</h3><p>부품에 따라 최대 네 단계로 나눠 프레스합니다.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">04</span><h3>용접</h3><p>로봇이 대부분을, 숙련 용접사가 나머지를 맡습니다.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">05</span><h3>사상</h3><p>용접 비드와 결함을 갈아내 도장 품질을 정합니다.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">06</span><h3>검사</h3><p>치수와 외관을 확인해 합격품만 넘깁니다.</p></li><li class="st st--partner"><span class="st__dot" aria-hidden="true"></span><span class="st__n">07</span><h3>도장</h3><p>협력 도장업체가 고객 사양대로 칠합니다.</p></li><li class="st"><span class="st__dot" aria-hidden="true"></span><span class="st__n">08</span><h3>출하</h3><p>수량대로 포장해 거래명세서와 함께 보냅니다.</p></li></ol>
