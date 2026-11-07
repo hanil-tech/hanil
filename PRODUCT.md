@@ -16,7 +16,7 @@ Purchasing and development staff at vehicle and agricultural-machinery makers an
 
 ## Product Purpose
 
-한일특장 (Hanil Special Equipment) is a contract manufacturer of exterior sheet-metal parts: bus and truck outer panels, refrigerated truck body press parts, tractor hoods and fenders, implement and attachment parts. The site exists to get a drawing sent in for review (new part quotes, transfers of existing parts, early development reviews).
+한일특장 (Hanil Special Equipment) is a contract manufacturer of exterior sheet-metal parts: bus and truck outer panels, refrigerated truck body press parts, tractor hoods and fenders, front loader booms, mid-mount mowers (which part of the mower is to confirm; the drawing marks the deck), implement and attachment parts. The site exists to get a drawing sent in for review (new part quotes, transfers of existing parts, early development reviews).
 
 ## Positioning
 
