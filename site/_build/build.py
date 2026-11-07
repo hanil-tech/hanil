@@ -494,6 +494,45 @@ def steps_html(d, detail=None):
         out += f'<li class="{cls}"><span class="st__dot" aria-hidden="true"></span><span class="st__n">{i:02d}</span><h3>{e(h)}</h3><p>{e(txt)}</p></li>'
     return out
 
+
+# ----- extra photographs (shown only when the file exists in assets/img) -----
+IMG_ALT = {
+ "ko": dict(coil="냉연강판 코일", shear="판재를 자르는 전단기", press="프레스 기계", grind="그라인더로 용접부를 다듬는 작업", inspect="부품 치수를 재는 모습",
+            paint="도장 작업", ship="지게차로 팔레트를 옮기는 모습", truck="화물 트럭", reefer="냉동탑차", field="밭을 가는 트랙터", factory="금속 가공 공장 내부",
+            gallery_h="현장", gallery_p="강판이 들어와 부품으로 나가기까지의 모습입니다."),
+ "en": dict(coil="Cold-rolled steel coils", shear="A shearing machine cutting sheet metal", press="A press", grind="Grinding a weld", inspect="Measuring a part",
+            paint="Painting", ship="Moving pallets with a forklift", truck="A cargo truck", reefer="A refrigerated truck", field="A tractor ploughing a field", factory="Inside a metal fabrication plant",
+            gallery_h="On the shop floor", gallery_p="From incoming steel to finished parts."),
+ "ja": dict(coil="冷延鋼板のコイル", shear="板材を切断するシャーリング機", press="プレス機", grind="グラインダーによる溶接部の仕上げ", inspect="部品の寸法を測る様子",
+            paint="塗装作業", ship="フォークリフトでパレットを運ぶ様子", truck="貨物トラック", reefer="冷凍車", field="畑を耕すトラクター", factory="金属加工工場の内部",
+            gallery_h="現場", gallery_p="鋼板が入荷し、部品として出荷されるまでの様子です。"),
+}
+STEP_IMG = ["coil", "shear", "press", "welding", "grind", "inspect", "paint", "ship"]
+
+def has(name):
+    return os.path.exists(os.path.join(ROOT, "assets", "img", f"{name}.webp"))
+
+def alt_of(k, name):
+    x = X[k]
+    return {"welding": x["alt_weld"], "loader": x["alt_loader"], "mower": x["alt_mower"], "bus": x["alt_bus"], "hero": x["alt_hero"]}.get(name) or IMG_ALT[k].get(name, "")
+
+def proc_cards(k, detail):
+    d = L[k]; up = "" if k == "ko" else "../"; out = ""
+    for i, (h, ptxt) in enumerate(d["steps"], 1):
+        img = STEP_IMG[i-1]
+        pic = (f'<figure class="ph">{photo(img, alt_of(k, img), "ph__img", up, "(max-width: 720px) 100vw, 25vw")}</figure>' if has(img)
+               else f'<div class="ph ph--num" aria-hidden="true"><span class="num">{i:02d}</span></div>')
+        partner = " pcard--partner" if i == 7 else ""
+        out += f'<li class="pcard{partner}" data-reveal style="--i:{(i-1)%4}">{pic}<span class="st__n">{i:02d}</span><h3>{e(h)}</h3><p>{e(detail[i-1])}</p></li>'
+    return f'<ol class="pcards">{out}</ol>'
+
+def strip(k, names, cls="strip"):
+    up = "" if k == "ko" else "../"
+    names = [n for n in names if has(n)]
+    if len(names) < 3: return ""
+    figs = "".join(f'<figure class="ph" style="--i:{i}">{photo(n, alt_of(k, n), "ph__img", up, "(max-width: 720px) 50vw, 25vw")}</figure>' for i, n in enumerate(names))
+    return f'<div class="{cls}" data-reveal>{figs}</div>'
+
 # ----- home -----
 def page_home(k):
     d = L[k]; x = X[k]; p = P[k]; up = "" if k == "ko" else "../"
@@ -543,6 +582,7 @@ def page_home(k):
       <div class="sec__head"><h2 id="process-h">{e(d["proc_h"])}</h2><p>{e(d["proc_p"])}</p></div>
       <ol class="line" data-run>{steps_html(d)}</ol>
       <p class="line__legend"><span><i aria-hidden="true"></i>{e(d["legend"][0])}</span><span><i class="d" aria-hidden="true"></i>{e(d["legend"][1])}</span></p>
+      {strip(k, ["coil", "press", "grind", "ship"])}
       {more(k, "plant", p["more_plant"])}
     </div>
   </section>
@@ -574,6 +614,7 @@ def page_about(k):
     <div class="wrap">
       <div class="sec__head"><h2 id="ov-h">{e(a["ov_h"])}</h2><p>{e(a["ov_p"])}</p></div>
       <dl class="info" data-reveal>{ov}</dl>
+      {strip(k, ["factory", "press", "welding", "field"], "strip strip--wide")}
     </div>
   </section>
 
@@ -618,7 +659,8 @@ def page_products(k):
   <section id="auto" class="sec sec--paper" aria-labelledby="auto-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="auto-h">{e(pr["auto_h"])}</h2><p>{e(pr["auto_p"])}</p></div>
-      <div class="prods prods--split">{cards(pr["auto"])}<table class="cust cust--sm"><tbody>{rows(pr["auto_more"])}</tbody></table></div>
+      <div class="prods">{cards(pr["auto"] + [(img, n, t) for img, (n, t) in zip(["truck", "reefer"], pr["auto_more"][:2]) if has(img)])}</div>
+      <table class="cust cust--sm"><tbody>{rows([r for img, r in zip(["truck", "reefer", None], pr["auto_more"]) if not (img and has(img))])}</tbody></table>
     </div>
   </section>
 
@@ -654,7 +696,7 @@ def page_plant(k):
   <section id="steps" class="sec" aria-labelledby="steps-h">
     <div class="wrap">
       <div class="sec__head"><h2 id="steps-h">{e(pl["steps_h"])}</h2><p>{e(d["proc_p"])}</p></div>
-      <ol class="line line--detail" data-run>{steps_html(d, pl["detail"])}</ol>
+      {proc_cards(k, pl["detail"])}
       <p class="line__legend"><span><i aria-hidden="true"></i>{e(d["legend"][0])}</span><span><i class="d" aria-hidden="true"></i>{e(d["legend"][1])}</span></p>
     </div>
   </section>'''
