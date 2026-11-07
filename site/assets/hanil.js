@@ -50,5 +50,20 @@
         : '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8M9 2v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
     });
   });
+  // contact form: compose an e-mail in the visitor's own mail program
+  document.querySelectorAll("form[data-mailto]").forEach(form => {
+    form.addEventListener("submit", ev => {
+      if (!form.reportValidity()) { ev.preventDefault(); return; }
+      ev.preventDefault();
+      const lines = [...form.querySelectorAll("label")].map(l => {
+        const f = l.querySelector("input, select, textarea");
+        const name = l.childNodes[0].textContent.trim();
+        return f && f.value ? `${name}: ${f.value}` : null;
+      }).filter(Boolean);
+      const company = form.querySelector('[name="company"]').value;
+      const subject = `${form.dataset.subject} - ${company}`;
+      location.href = `mailto:${form.dataset.mailto}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join("\n"))}`;
+    });
+  });
   root.classList.add("motion-ready");
 })();
