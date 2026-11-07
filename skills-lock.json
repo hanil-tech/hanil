@@ -15,6 +15,13 @@
       "computedHash": "23b3930015c478034b222e1a015da03a962c8ab48aee9fb4f3f69d977034feaa",
       "installMode": "copy"
     },
+    "image-to-code": {
+      "source": "Leonxlnx/imagegen-skills",
+      "sourceType": "github",
+      "skillPath": "skills/image-to-code/SKILL.md",
+      "computedHash": "58517b03b2a01f4c9ba65861559d03df931400871bbc200978c975b24bb92c73",
+      "installMode": "copy"
+    },
     "web-design-guidelines": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
