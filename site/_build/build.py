@@ -582,7 +582,7 @@ def page_home(k):
       <div class="sec__head"><h2 id="process-h">{e(d["proc_h"])}</h2><p>{e(d["proc_p"])}</p></div>
       <ol class="line" data-run>{steps_html(d)}</ol>
       <p class="line__legend"><span><i aria-hidden="true"></i>{e(d["legend"][0])}</span><span><i class="d" aria-hidden="true"></i>{e(d["legend"][1])}</span></p>
-      {strip(k, ["coil", "press", "grind", "ship"])}
+      {strip(k, ["coil", "grind", "inspect", "ship"])}
       {more(k, "plant", p["more_plant"])}
     </div>
   </section>
@@ -614,7 +614,7 @@ def page_about(k):
     <div class="wrap">
       <div class="sec__head"><h2 id="ov-h">{e(a["ov_h"])}</h2><p>{e(a["ov_p"])}</p></div>
       <dl class="info" data-reveal>{ov}</dl>
-      {strip(k, ["factory", "press", "welding", "field"], "strip strip--wide")}
+      {strip(k, ["field", "coil", "grind", "welding"], "strip strip--wide")}
     </div>
   </section>
 
