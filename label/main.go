@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "2.7.1"
+const VERSION = "2.8.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -69,13 +69,13 @@ type Conf struct {
 	User       string //  자동 로그인 계정(설정 파일로 넣을 때)
 	Password   string //  ⚠ 읽자마자 암호화해 옮기고 설정 파일에서는 지운다
 	Shortcut   bool   //  바탕화면·시작 메뉴 아이콘을 만들까(기본 켜짐)
-	Autostart  bool   //  윈도우가 켜지면 저절로 띄울까(기본 꺼짐)
+	Autostart  bool   //  윈도우가 켜지면 저절로 띄울까(v2.8.0~ 기본 켜짐)
 	//  🔄 자동 업데이트(update.go) — 끄려면 AUTOUPDATE=0
 	AutoUpdate bool
 	UpdateURL  string
 }
 
-var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3, Shortcut: true, AutoUpdate: true}
+var conf = Conf{Print: "dialog", Port: 18830, Width: 1280, Height: 900, Probe: 3, Shortcut: true, Autostart: true, AutoUpdate: true}
 
 const iniName = "hanil-label.ini"
 
@@ -97,6 +97,7 @@ func main() {
 	if _, err := os.Stat(ini); os.IsNotExist(err) {
 		_ = os.WriteFile(ini, []byte(strings.ReplaceAll(SAMPLE_INI, "\n", "\r\n")), 0o644)
 	}
+	migrateAutostart(ini)
 	readIni(ini)
 	readArgs()
 	//  🔑 설정 파일로 계정을 넣었으면 암호화해 옮기고 파일에서는 비밀번호를 지운다
@@ -112,8 +113,9 @@ func main() {
 	iconDone := make(chan struct{})
 	go func() {
 		defer close(iconDone)
-		if conf.Shortcut && exePath != "" {
-			ensureShortcuts(exePath, conf.Autostart)
+		if exePath != "" {
+			//  ⚠ 아이콘을 끄셨어도(SHORTCUT=0) 「저절로 띄우기」는 따로 챙긴다
+			ensureShortcuts(exePath, conf.Shortcut, conf.Autostart)
 		}
 	}()
 	defer func() {
@@ -681,9 +683,40 @@ FULLSCREEN=0
 # 바탕화면·시작 메뉴 아이콘 — 1 이면 켤 때마다 확인해 없으면 만듭니다
 SHORTCUT=1
 
-# 윈도우가 켜지면 저절로 띄우기 — 1 이면 켭니다
-AUTOSTART=0
+# 윈도우가 켜지면 저절로 띄우기 — 1 이면 켭니다(v2.8.0 부터 기본으로 켬)
+#   끄려면 0 으로 바꾸고 프로그램을 한 번 껐다 켜세요(시작프로그램에서 빠집니다).
+AUTOSTART=1
 
 # 새 판이 나오면 저절로 받아, 키오스크가 3분 동안 쉴 때 바꿉니다 — 0 이면 끕니다
 AUTOUPDATE=1
 `
+
+// 🚀 «윈도우가 켜지면 저절로» 를 기본으로(사용자 「윈도우가 실행하면 자동으로 실행되게」)
+//
+//	⚠ 예전 판이 만든 설정 파일에는 예전 기본값 AUTOSTART=0 이 적혀 있다 → 그대로 두면 이미 깔린 키오스크는 안 켜진다.
+//	  새 판이 처음 켜질 때 **한 번만** 1 로 바꾸고 표시(«v2.8.0 부터 기본»)를 남긴다.
+//	  표시가 있는 파일은 건드리지 않는다 — 그 뒤 누가 0 으로 바꿨으면 그 뜻을 따른다.
+func migrateAutostart(ini string) {
+	b, err := os.ReadFile(ini)
+	if err != nil || strings.Contains(string(b), "v2.8.0 부터 기본") {
+		return
+	}
+	lines := strings.Split(string(b), "\n")
+	changed := false
+	for i, ln := range lines {
+		t := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(ln), " ", ""))
+		if t == "AUTOSTART=0" {
+			lines[i] = "# (v2.8.0 부터 기본으로 켬 — 끄려면 0)\r\nAUTOSTART=1\r"
+			changed = true
+		} else if strings.HasPrefix(t, "AUTOSTART=") {
+			lines[i] = strings.TrimRight(ln, "\r") + "   # v2.8.0 부터 기본으로 켬\r"
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if err := os.WriteFile(ini, []byte(strings.Join(lines, "\n")), 0o644); err == nil {
+		logf("설정 파일: 윈도우가 켜지면 저절로 띄우기를 켰습니다(AUTOSTART=1)")
+	}
+}

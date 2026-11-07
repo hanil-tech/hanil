@@ -18,11 +18,15 @@ import (
 //	  시작 메뉴에도 같이 넣는다(바탕화면을 정리해도 찾을 수 있게).
 //	⚠ 윈도우 바로가기(.lnk)는 표준 라이브러리로 못 만든다 → 윈도우에 들어 있는 PowerShell 에 맡긴다.
 //	  명령은 -EncodedCommand 로 넘긴다(한글·빈칸이 든 경로도 깨지지 않게).
-func ensureShortcuts(exe string, autostart bool) {
+func ensureShortcuts(exe string, icons, autostart bool) {
 	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 	auto := "$false"
 	if autostart {
 		auto = "$true"
+	}
+	ico := "$false"
+	if icons {
+		ico = "$true"
 	}
 	ps := `$ErrorActionPreference='SilentlyContinue'
 $W=New-Object -ComObject WScript.Shell
@@ -36,8 +40,10 @@ function Put($folder){
   $s=$W.CreateShortcut($p); $s.TargetPath=$exe; $s.WorkingDirectory=$dir
   $s.IconLocation="$exe,0"; $s.Description='현장 라벨 발행'; $s.Save()
 }
-Put ([Environment]::GetFolderPath('Desktop'))
-Put ([Environment]::GetFolderPath('Programs'))
+if(` + ico + `){
+  Put ([Environment]::GetFolderPath('Desktop'))
+  Put ([Environment]::GetFolderPath('Programs'))
+}
 $st=[Environment]::GetFolderPath('Startup')
 if(` + auto + `){ Put $st } elseif($st){ Remove-Item (Join-Path $st $name) -ErrorAction SilentlyContinue }
 `
