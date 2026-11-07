@@ -1,0 +1,73 @@
+//  인쇄 모아찍기 — node test/print-check.js <시험 PDF 폴더> <결과 폴더>
+const { chromium } = require('playwright');
+const path = require('path');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
+const dir = path.resolve(process.argv[2]), out = path.resolve(process.argv[3]);
+fs.mkdirSync(out, { recursive: true });
+let fails = 0;
+const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; };
+(async () => {
+  const b = await chromium.launch();
+  const page = await b.newPage({ viewport: { width: 1400, height: 900 } });
+  page.on('pageerror', (e) => { fails++; console.log('⚠ ' + e.message); });
+  await page.goto('file://' + path.join(__dirname, '..', 'out', 'hanil-pdf-reader.html'));
+  await page.evaluate(() => { window.print = () => { const imgs = [...document.querySelectorAll('#printArea img')]; window.__printed = { n: imgs.length, w: imgs[0] && imgs[0].naturalWidth, h: imgs[0] && imgs[0].naturalHeight, css: document.querySelector('#printPageStyle').textContent, src: imgs[0] && imgs[0].src }; }; });
+  await page.setInputFiles('#fOpen', path.join(dir, '설명서 50쪽.pdf'));
+  await page.waitForSelector('.pg canvas');
+  const run = async (nup, extra = {}) => {
+    await page.evaluate(() => { window.__printed = null; });
+    await page.keyboard.press('Control+p');
+    await page.waitForSelector('#prNup');
+    await page.selectOption('#prNup', String(nup));
+    if (extra.rng) { await page.check('input[name=pr][value=rng]'); await page.fill('#prRng', extra.rng); } else await page.check('input[name=pr][value=all]');
+    if (extra.paper) await page.selectOption('#prPaper', extra.paper);
+    await page.selectOption('#prOri', extra.ori || 'auto');
+    if (extra.border) await page.check('#prBorder');
+    await page.click('#mFoot button:first-child');
+    await page.waitForFunction(() => window.__printed, null, { timeout: 120000 });
+    return page.evaluate(() => window.__printed);
+  };
+  let r = await run(2, { rng: '1-8', border: true });
+  ok(r.n === 4 && r.w > r.h && /A4 landscape/.test(r.css), '2쪽 모아찍기: 8쪽 → 가로 A4 4장 (' + r.w + '×' + r.h + ') ' + r.css);
+  const data = await page.evaluate(async (src) => { const im = new Image(); im.src = src; await im.decode(); const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0); return c.toDataURL('image/png'); }, r.src).catch(() => null);
+  r = await run(4);
+  ok(r.n === 13 && r.h > r.w && /A4 portrait/.test(r.css), '4쪽 모아찍기: 50쪽 → 세로 A4 13장 ' + JSON.stringify({ n: r.n, w: r.w, h: r.h, css: r.css }));
+  r = await run(16, { rng: '1-16' });
+  ok(r.n === 1, '16쪽 모아찍기: 16쪽 → 1장');
+  r = await run(1, { rng: '3', paper: 'A3' });
+  ok(r.n === 1 && /A3 portrait/.test(r.css), '한 쪽 · A3 용지에 맞춤');
+  //  실제로 찍히는 장 수 — 크로미움 「PDF 로 인쇄」(인쇄용 CSS 그대로)로 세어 본다. 빈 장이 끼면 안 된다
+  const sheets = async (nup, extra = {}) => {
+    await page.evaluate(() => { window.print = () => { window.__printed = true; window.__hold = true; }; window.__printed = null; });
+    await page.keyboard.press('Control+p');
+    await page.waitForSelector('#prNup');
+    await page.selectOption('#prNup', String(nup));
+    if (extra.rng) { await page.check('input[name=pr][value=rng]'); await page.fill('#prRng', extra.rng); } else await page.check('input[name=pr][value=all]');
+    if (extra.paper) await page.selectOption('#prPaper', extra.paper);
+    await page.click('#mFoot button:first-child');
+    await page.waitForFunction(() => window.__printed, null, { timeout: 120000 });
+    //  알림 띠가 떠 있어도 빈 장이 생기면 안 된다
+    await page.evaluate(() => { const b = document.createElement('div'); b.id = 'updBar'; b.textContent = '새 판'; document.body.append(b); });
+    await page.emulateMedia({ media: 'print' });
+    const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
+    await page.emulateMedia({ media: 'screen' });
+    await page.evaluate(() => { document.querySelector('#updBar').remove(); });
+    fs.writeFileSync(path.join(out, 'print-' + nup + '.pdf'), pdf);
+    return +execFileSync('python3', ['-c', 'import sys;from pypdf import PdfReader;print(len(PdfReader(sys.argv[1]).pages))', path.join(out, 'print-' + nup + '.pdf')]).toString().trim();
+  };
+  let k = await sheets(1, { rng: '1' });
+  ok(k === 1, '한 쪽만 인쇄 → 용지 1장 (빈 장 없음): ' + k + '장');
+  k = await sheets(1, { rng: '1-3' });
+  ok(k === 3, '세 쪽 → 3장: ' + k + '장');
+  k = await sheets(2, { rng: '1-3' });
+  ok(k === 2, '2쪽 모아 세 쪽 → 2장: ' + k + '장');
+  k = await sheets(1, { rng: '2', paper: '원래 크기' });
+  ok(k === 1, '원래 크기 한 쪽 → 1장: ' + k + '장');
+  await page.keyboard.press('Control+p'); await page.waitForSelector('#prNup');
+  await page.screenshot({ path: path.join(out, 'print-dialog.png') });
+  await page.keyboard.press('Escape');
+  await b.close();
+  console.log(fails ? '\n❌ ' + fails + '개 실패' : '\n모두 통과');
+  process.exit(fails ? 1 : 0);
+})();

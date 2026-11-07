@@ -1,0 +1,40 @@
+//  Word·Excel 내보내기 — node test/office-check.js <시험 PDF 폴더> <결과 폴더>  (python-docx·openpyxl 로 열어 확인)
+const { chromium } = require('playwright');
+const path = require('path');
+const fs = require('fs');
+const { execFileSync } = require('child_process');
+const dir = path.resolve(process.argv[2]), out = path.resolve(process.argv[3]);
+fs.mkdirSync(out, { recursive: true });
+let fails = 0;
+const ok = (c, m) => { console.log((c ? '✅ ' : '❌ ') + m); if (!c) fails++; };
+const py = (code, ...a) => execFileSync('python3', ['-c', code, ...a]).toString().trim();
+(async () => {
+  const b = await chromium.launch();
+  const page = await b.newPage({ viewport: { width: 1500, height: 900 }, acceptDownloads: true });
+  page.on('pageerror', (e) => { fails++; console.log('⚠ ' + e.message); });
+  await page.goto('file://' + path.join(__dirname, '..', 'out', 'hanil-pdf-reader.html'));
+  await page.setInputFiles('#fOpen', path.join(dir, 'A-001 섀시 부품표.pdf'));
+  await page.waitForSelector('.pg canvas');
+  await page.click('.rt[data-rt=conv]');
+  const get = async (cmd, pick) => {
+    const dl = page.waitForEvent('download', { timeout: 30000 });
+    await page.click('#ribbon [data-cmd=' + cmd + ']');
+    await page.waitForSelector('#modal.on');
+    if (pick) await page.check(pick);
+    await page.click('#mFoot button:first-child');
+    const d = await dl; const f = path.join(out, (pick ? 'img-' : '') + d.suggestedFilename()); await d.saveAs(f); return f;
+  };
+  let f = await get('toWord');
+  const w = py('import sys,docx;d=docx.Document(sys.argv[1]);t=[p.text for p in d.paragraphs if p.text.strip()];print(len(t));print("|".join(t[:6]))', f).split('\n');
+  console.log('   ' + w[1]);
+  ok(+w[0] >= 9 && w[1].includes('부품 목록') && w[1].includes('40396607'), 'Word(글자로): 문단 ' + w[0] + '개 · 한글·품번 그대로 · python-docx 로 열림');
+  f = await get('toWord', 'input[name=wm][value=image]');
+  ok(py('import sys,docx;d=docx.Document(sys.argv[1]);print(len(d.inline_shapes))', f) === '3', 'Word(모양 그대로): 쪽 그림 3장');
+  f = await get('toExcel');
+  const x = py('import sys,openpyxl;wb=openpyxl.load_workbook(sys.argv[1]);ws=wb.worksheets[0];print(len(wb.worksheets));print([[c.value for c in r] for r in ws.iter_rows(min_row=1,max_row=5)])', f).split('\n');
+  console.log('   ' + x[1]);
+  ok(x[0] === '3' && /'품번', '품명', '수량'/.test(x[1]) && /'40396607-5', '브래킷 0', 0/.test(x[1]), 'Excel: 시트 3개 · 표가 칸으로(품번|품명|수량) · 수량은 숫자');
+  await b.close();
+  console.log(fails ? '\n❌ ' + fails + '개 실패' : '\n모두 통과');
+  process.exit(fails ? 1 : 0);
+})();

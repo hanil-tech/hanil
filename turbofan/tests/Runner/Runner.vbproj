@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    시험 전용: src/ 의 변환 코드를 그대로 .NET 8 로 빌드해서 리눅스에서 돌린다.
+    WinForms·AutoCAD 자리에 TestSupport 의 가짜를 넣는다.
+      dotnet run -project tests/Runner
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace></RootNamespace>
+    <MyType>WindowsFormsWithCustomSubMain</MyType>
+    <StartupObject>TestMain</StartupObject>
+    <OptionStrict>Off</OptionStrict>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionInfer>On</OptionInfer>
+    <NoWarn>$(NoWarn);42016;42017;42018;42019;42020;42021;42022;42024;42025;42032;41999;42104;42105;42106;42107;42108;42109;42353;42354;42355;42030;40000</NoWarn>
+    <DefineConstants>TESTBUILD=True</DefineConstants>
+    <ConvertedDir Condition="'$(ConvertedDir)' == ''">../../src/Converted</ConvertedDir>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ConvertedDir)/*.vb" Link="Converted/%(Filename)%(Extension)" />
+    <Compile Include="../../src/Forms/*.vb" Link="Forms/%(Filename)%(Extension)" />
+    <Compile Include="../../src/Runtime/VbaCompat.vb;../../src/Runtime/MsControls.vb;../../src/Runtime/MForm.vb;../../src/Runtime/AcadHost.vb" />
+    <ProjectReference Include="../TestSupport/TestSupport.csproj" />
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <Import Include="System.Drawing" />
+    <Import Include="System.Windows.Forms" />
+    <Import Include="System.Linq" />
+    <Import Include="System.Collections.Generic" />
+    <Import Include="System.Diagnostics" />
+    <Import Include="System" />
+    <Import Include="Microsoft.VisualBasic" />
+    <EmbeddedResource Include="../../src/Resources/*.bmp" LogicalName="%(Filename)" />
+  </ItemGroup>
+</Project>

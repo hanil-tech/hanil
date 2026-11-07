@@ -1,0 +1,51 @@
+📅 한일 포털 달력 (바탕화면 달력 · 폰 달력용) — 설치 안내
+=========================================================
+
+바탕화면 달력(hanil-cal.exe)에 회사 일정 · 자동 휴일 · 클라우드 동기화 · 구글 캘린더 연동을 붙이고,
+폰 앱·브라우저에서도 같은 달력(/deskcal)을 쓰게 하는 포털 조각입니다.
+이것을 넣지 않아도 바탕화면 달력의 결재 문서·쪽지·메모는 그대로 됩니다.
+
+1. 이 압축 파일 안의 두 파일을 포털 폴더(server.js 가 있는 곳)에 복사합니다.
+     calendar-route.js
+     calendar-page.html
+
+2. server.js 를 열어 세션(express-session)이 붙은 줄 아래, 다른 require('./...')(app) 들 사이에 한 줄을 넣습니다.
+
+     require('./calendar-route')(app, { holidayKey: '공공데이터포털 인증키' });
+
+   (인증키가 아직 없으면 그냥  require('./calendar-route')(app);  — 휴일은 달력이 스스로 계산합니다)
+
+3. 포털을 다시 켭니다. 끝입니다.
+   · 폰 앱·브라우저:  http://<포털 주소>/deskcal   — 메뉴에 이 주소로 링크를 달면 됩니다.
+   · 자료는 포털 폴더 옆 calendar-store\ 에 쌓입니다(백업 대상에 넣어 주세요).
+       events.json        회사 일정 · 내 일정
+       users\*.json       사람마다 메모·할 일·기념일·설정(지난 판 30개 포함) · 구글 캘린더 주소
+       holidays-*.json    받아 온 공휴일
+       feeds.json         구글로 보내는 구독 주소 열쇠
+
+
+■ 휴일 자동 (권장)
+
+  ① https://www.data.go.kr 가입 → 「한국천문연구원_특일 정보」 검색 → 활용 신청(무료, 자동 승인)
+  ② 마이페이지에서 「일반 인증키(Decoding)」 복사 → 2번 줄의 holidayKey 에 넣기
+  그해 공휴일·임시공휴일·선거일을 포털이 받아 와 모든 직원 달력에 빨간 날로 보입니다.
+
+
+■ 구글 캘린더 (직원 각자)
+
+  · 구글 → 달력 : 달력 ⚙ → 「구글」 → 구글 캘린더의 「iCal 형식의 비공개 주소」를 붙여 넣기
+                  (포털 서버가 calendar.google.com 에 나갈 수 있어야 합니다)
+  · 달력 → 구글 : 달력 ⚙ → 「구글」 → 「주소 만들기」 → 그 주소를 구글 캘린더 「URL로 추가」에 넣기
+                  ⚠ 구글이 바깥에서 읽으므로 포털의 바깥 주소가 필요합니다. 기본은 https://work.hanil-steel.com
+                    다르면:  require('./calendar-route')(app, { publicURL: 'https://바깥주소' });
+
+
+■ 회사 일정을 아무나 올리지 못하게 하려면
+
+     require('./calendar-route')(app, { companyEdit: 'admin' });
+
+  그러면 직원은 「내 일정(나만 보임)」만 올리고, 회사 일정은 관리자만 올립니다.
+  고치기·지우기는 언제나 올린 사람과 관리자만 됩니다.
+
+  여러 설정을 함께 쓸 때:
+     require('./calendar-route')(app, { holidayKey: '…', companyEdit: 'admin', publicURL: 'https://…' });
