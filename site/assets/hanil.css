@@ -507,3 +507,4 @@ html.menu-open { overflow: hidden; }
   .js .strip[data-reveal] .ph__img { clip-path: none; }
   .js .pcard[data-reveal] { opacity: 1; transform: none; }
 }
+@media (max-width: 480px) { .top .lang { display: none; } .top .menu-btn { margin-left: auto; } }
