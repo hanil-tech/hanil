@@ -293,3 +293,39 @@ section[id] { scroll-margin-top: 72px; }
   .ticker { overflow-x: auto; }
   .js .hero__art.is-in .lugs { animation: none; }
 }
+
+/* ---------- photographs ---------- */
+.hero { position: relative; isolation: isolate; overflow: hidden; }
+.hero__media { position: absolute; inset: 0; z-index: -1; }
+.hero__img { width: 100%; height: 100%; object-fit: cover; object-position: 70% 50%; animation: drift 24s ease-out both; }
+.hero__media::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(11,31,58,.94) 0%, rgba(11,31,58,.82) 38%, rgba(11,31,58,.25) 72%, rgba(11,31,58,.05) 100%),
+              linear-gradient(0deg, rgba(11,31,58,.92) 0%, rgba(11,31,58,0) 42%); }
+@keyframes drift { from { transform: scale(1.08); } to { transform: scale(1); } }
+.hero__body { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr); }
+.hero h1, .hero__lead { text-shadow: 0 1px 24px rgba(11,31,58,.5); }
+.top { background: linear-gradient(rgba(11,31,58,.6), rgba(11,31,58,0)); }
+
+.ph { margin: 0 0 28px; overflow: hidden; border-radius: 3px; background: var(--paper-2); aspect-ratio: 16 / 10; }
+.ph__img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.9s var(--ease); }
+.seg:hover .ph__img { transform: scale(1.04); }
+.ph-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 28px; }
+.ph-pair .ph { margin: 0; aspect-ratio: 4 / 5; }
+
+.band { margin: 0 0 24px; overflow: hidden; border-radius: 3px; aspect-ratio: 21 / 8; background: var(--navy); }
+.band__img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.js .band[data-reveal] .band__img { transform: scale(1.12); transition: transform 2.4s var(--ease); }
+.js .band.is-in .band__img { transform: scale(1); }
+.js [data-reveal] .ph__img { clip-path: inset(0 0 100% 0); transition: clip-path 1.2s var(--ease), transform 0.9s var(--ease); }
+.js [data-reveal].is-in .ph__img { clip-path: inset(0 0 0 0); }
+.js [data-reveal].is-in .ph-pair .ph:nth-child(2) .ph__img { transition-delay: 0.15s; }
+
+@media (max-width: 1023px) {
+  .hero__media::after { background: linear-gradient(0deg, rgba(11,31,58,.96) 0%, rgba(11,31,58,.86) 55%, rgba(11,31,58,.45) 100%); }
+  .band { aspect-ratio: 16 / 9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero__img { animation: none; }
+  .js [data-reveal] .ph__img { clip-path: none; }
+  .js .band[data-reveal] .band__img { transform: none; }
+}
