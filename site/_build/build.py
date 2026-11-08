@@ -6,13 +6,13 @@ MAIL = "hanil@hanil-steel.com"
 
 L = {
 "ko": dict(
-  lang="ko", fonts="family=Archivo:wdth,wght@100..125,400..500&family=Noto+Sans+KR:wght@400;500",
+  lang="ko", fonts="family=Barlow:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700",
   title="한일특장: 버스·트럭·트랙터 외장 판금 부품 제조",
   desc="버스·트럭과 트랙터의 외장 판금 부품을 1,500톤 프레스 성형부터 용접·사상·검사까지 전북 완주 한 공장에서 만듭니다.",
   name="한일특장", skip="본문으로 건너뛰기", navlabel="주 메뉴",
   nav=[("business","사업"),("plant","설비"),("process","공정"),("customers","납품처")],
   cta="도면 보내기", subject="도면 검토 요청",
-  h1="버스·트럭·트랙터의 외장 판금 부품을 만듭니다",
+  h1="버스·트럭·트랙터의 외장 판금 부품을 도면대로 만듭니다",
   lead="1,500톤 유압 프레스로 성형하고, 로봇과 숙련 용접사가 용접하고, 사상과 검사까지 전북 완주 한 공장에서 마칩니다.",
   chart_t="매출 추이", chart_u="단위: 억 원", vals=["21.3","40.2","60.4","100"], years=["2023","2024","2025","2026 목표"],
   chart_aria="연도별 매출: 2023년 21.3억 원, 2024년 40.2억 원, 2025년 60.4억 원, 2026년 목표 100억 원",
@@ -40,13 +40,13 @@ L = {
   addr="전북특별자치도 완주군 봉동읍 첨단산업3로 24", tel="063-714-3663", legal="© 2026 한일특장",
 ),
 "en": dict(
-  lang="en", fonts="family=Archivo:wdth,wght@100..125,400..500",
+  lang="en", fonts="family=Barlow:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700",
   title="Hanil Special Equipment: exterior sheet-metal parts for buses, trucks and tractors",
   desc="Exterior sheet-metal parts for buses, trucks and tractors, press-formed on presses up to 1,500 tons, welded, finished and inspected in one plant in Wanju, Korea.",
   name="Hanil Special Equipment", skip="Skip to content", navlabel="Main",
   nav=[("business","Business"),("plant","Plant"),("process","Process"),("customers","Customers")],
   cta="Send a drawing", subject="Drawing review request",
-  h1="Exterior sheet-metal parts for buses, trucks and tractors",
+  h1="Exterior sheet-metal parts for buses, trucks and tractors, made to your drawing",
   lead="Formed on a 1,500-ton hydraulic press, welded by robots and skilled welders, finished and inspected in one plant in Wanju, Korea.",
   chart_t="Revenue", chart_u="KRW 100 million", vals=["21.3","40.2","60.4","100"], years=["2023","2024","2025","2026 target"],
   chart_aria="Revenue by year: 2023 KRW 2.13 billion, 2024 4.02 billion, 2025 6.04 billion, 2026 target 10 billion",
@@ -74,13 +74,13 @@ L = {
   addr="24, Cheomdansaneop 3-ro, Bongdong-eup, Wanju-gun, Jeonbuk State, Republic of Korea", tel="+82-63-714-3663", legal="© 2026 Hanil Special Equipment",
 ),
 "ja": dict(
-  lang="ja", fonts="family=Archivo:wdth,wght@100..125,400..500&family=Noto+Sans+JP:wght@400;500",
+  lang="ja", fonts="family=Barlow:wght@500;600&family=IBM+Plex+Sans+JP:wght@400;500;600;700",
   title="ハンイル特装: バス・トラック・トラクターの外装板金部品メーカー",
   desc="バス・トラックとトラクターの外装板金部品を、1,500トンプレスによる成形から溶接・仕上げ・検査まで、韓国・完州の一つの工場で製造しています。",
   name="ハンイル特装", skip="本文へスキップ", navlabel="メインメニュー",
   nav=[("business","事業"),("plant","設備"),("process","工程"),("customers","納入先")],
   cta="図面を送る", subject="図面検討のご依頼",
-  h1="バス・トラック・トラクターの外装板金部品をつくります",
+  h1="バス・トラック・トラクターの外装板金部品を図面どおりにつくります",
   lead="1,500トン油圧プレスで成形し、ロボットと熟練溶接工が溶接し、仕上げと検査まで韓国・完州の一つの工場で行います。",
   chart_t="売上推移", chart_u="単位: 億ウォン", vals=["21.3","40.2","60.4","100"], years=["2023","2024","2025","2026 目標"],
   chart_aria="年度別売上: 2023年21.3億ウォン、2024年40.2億ウォン、2025年60.4億ウォン、2026年目標100億ウォン",
@@ -607,6 +607,42 @@ def bottom_bar(k, pid):
                                        f'<a class="btn mbar__cta" href="{href(k, "contact")}#request">{e(d["cta"])}{ARROW}</a></nav>')
     return bar + f'<a class="totop" href="#top" aria-label="{e(a["top"])}">{ICON["up"]}</a>'
 
+
+# ----- drawing title block (표제란) and customer strip, from the Figma design -----
+TB = {
+ "ko": dict(aria="회사 개요 표제란", proof_l="부품이 들어가는 장비", proof_n="1차 협력사를 통해 납품", cells=[
+   ("w2","회사명","한일특장"),("w2","소재지","전북 완주군 봉동읍"),
+   ("w1","설립","2021"),("w1","최대 프레스","1,500 t"),("w1","용접 로봇","11대"),("w1","보유 인증","10건"),
+   ("w2","주요 품목","버스·트럭 외판, 트랙터 외장"),("w2","납품처","LS엠트론 · 두산밥캣 · 현대모비스 · KGM"),
+   ("w3","검토 요청","도면을 보내 주시면 공정을 검토해 회신드립니다"),("w1","수주 잔고","약 3년")]),
+ "en": dict(aria="Company title block", proof_l="Our parts go into machines by", proof_n="Supplied through tier-1 partners", cells=[
+   ("w2","Company","Hanil Special Equipment"),("w2","Location","Bongdong-eup, Wanju, Jeonbuk"),
+   ("w1","Founded","2021"),("w1","Largest press","1,500 t"),("w1","Welding robots","11"),("w1","Certifications","10"),
+   ("w2","Main parts","Bus and truck panels, tractor exteriors"),("w2","Customers","LS Mtron · Doosan Bobcat · Hyundai Mobis · KGM"),
+   ("w3","Review","Send a drawing and we will review the process"),("w1","Backlog","About 3 years")]),
+ "ja": dict(aria="会社概要の表題欄", proof_l="部品が使われている機械", proof_n="一次協力会社を通じて納品", cells=[
+   ("w2","会社名","ハンイル特装"),("w2","所在地","全北 完州郡 鳳東邑"),
+   ("w1","設立","2021"),("w1","最大プレス","1,500 t"),("w1","溶接ロボット","11台"),("w1","保有認証","10件"),
+   ("w2","主要品目","バス・トラック外板、トラクター外装"),("w2","納入先","LSエムトロン · 斗山ボブキャット · 現代モービス · KGM"),
+   ("w3","ご相談","図面をお送りいただければ工程を検討します"),("w1","受注残","約3年")]),
+}
+CUSTOMERS = {"ko":["LS엠트론","두산밥캣","현대모비스","KGM커머셜"], "en":["LS Mtron","Doosan Bobcat","Hyundai Mobis","KGM Commercial"], "ja":["LSエムトロン","斗山ボブキャット","現代モービス","KGMコマーシャル"]}
+
+def title_block(k):
+    t = TB[k]
+    cells = ""
+    for w, lab, val in t["cells"]:
+        num = " tb__v--num" if val[:1].isdigit() else ""
+        cells += f'<div class="tb__c tb__c--{w}"><dt>{e(lab)}</dt><dd class="tb__v{num}">{e(val)}</dd></div>'
+    return f'<dl class="tb" aria-label="{e(t["aria"])}">{cells}</dl>'
+
+def proof_strip(k):
+    t = TB[k]
+    names = "".join(f"<li>{e(n)}</li>" for n in CUSTOMERS[k])
+    return f'''  <section class="proof" aria-label="{e(t["proof_l"])}">
+    <div class="wrap proof__in"><p class="proof__l">{e(t["proof_l"])}</p><ul class="proof__list">{names}</ul><p class="proof__n">{e(t["proof_n"])}</p></div>
+  </section>'''
+
 # ----- home -----
 def page_home(k):
     d = L[k]; x = X[k]; p = P[k]; up = "" if k == "ko" else "../"
@@ -626,13 +662,10 @@ def page_home(k):
         <a class="btn hero__cta" href="{href(k, "contact")}">{e(d["cta"])}{ARROW}</a>
       </div>
     </div>
-    <div class="wrap hero__plate">{plate_html(d["plate"])}</div>
-    <div class="ticker" aria-label="{e(x['ticker_label'])}">
-      <ul class="ticker__track">{ticker}</ul>
-      <ul class="ticker__track" aria-hidden="true">{ticker}</ul>
-      <button class="ticker__pause" type="button" aria-pressed="false" data-pause="{e(x['pause'])}" data-play="{e(x['play'])}" aria-label="{e(x['pause'])}"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8M9 2v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
-    </div>
+    <div class="wrap hero__tb">{title_block(k)}</div>
   </section>
+
+{proof_strip(k)}
 
   <section class="sec" id="main" aria-labelledby="business-h">
     <div class="wrap">
