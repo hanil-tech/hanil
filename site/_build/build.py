@@ -122,22 +122,22 @@ X = {
    tractor_alt="프런트 로더와 미드 모어를 단 트랙터 측면 도면. 한일특장이 만드는 로더 붐, 미드 모어, 후드, 펜더가 주황색으로 표시되어 있습니다.",
    bus_alt="버스 측면 도면. 한일특장이 만드는 측면·전면 외판이 주황색으로 표시되어 있습니다.",
    ticker=["프런트 로더 붐","미드 마운트 모어","트랙터 후드","트랙터 펜더","버스 측면 외판","트럭 외판","냉동탑차 프레스 부품","작업기 부품","펜더 커버 세트"],
-   ticker_label="생산 품목", credits="사진 출처", alt_hero="꽃이 핀 과수원에서 프런트 로더를 단 트랙터가 밭을 가는 모습", alt_loader="프런트 로더를 단 트랙터", alt_mower="미드 마운트 모어를 단 소형 트랙터", alt_bus="도로를 달리는 시내버스", alt_weld="용접 로봇이 늘어선 생산 라인", growth_h="납품처와 성장", pause="움직임 멈추기", play="움직임 재생"),
+   ticker_label="생산 품목", credits="사진 출처", alt_hero="자동화된 프레스 라인에서 차체 판금 패널을 성형하는 공장 내부", alt_loader="프런트 로더를 단 트랙터", alt_mower="미드 마운트 모어를 단 소형 트랙터", alt_bus="도로를 달리는 시내버스", alt_weld="용접 로봇이 늘어선 생산 라인", growth_h="납품처와 성장", pause="움직임 멈추기", play="움직임 재생"),
  "en": dict(boom="Loader boom", mower="Mid-mount mower", hood="Hood", fender="Fender", side="Side panels", front="Front panel", made="Parts made by Hanil",
    tractor_alt="Side drawing of a tractor with a front loader and a mid-mount mower; the loader boom, mower, hood and fender Hanil makes are marked in orange.",
    bus_alt="Side drawing of a bus with the side and front outer panels Hanil makes marked in orange.",
    ticker=["Front loader booms","Mid-mount mowers","Tractor hoods","Tractor fenders","Bus side panels","Truck outer panels","Refrigerated body press parts","Implement parts","Fender cover sets"],
-   ticker_label="Products", credits="Photo credits", alt_hero="A tractor with a front loader working a field beside a blossoming orchard", alt_loader="A tractor with a front loader", alt_mower="A compact tractor with a mid-mount mower", alt_bus="A city bus on the road", alt_weld="A production line of welding robots", growth_h="Customers and growth", pause="Pause motion", play="Play motion"),
+   ticker_label="Products", credits="Photo credits", alt_hero="Inside a plant where an automated press line forms vehicle body panels", alt_loader="A tractor with a front loader", alt_mower="A compact tractor with a mid-mount mower", alt_bus="A city bus on the road", alt_weld="A production line of welding robots", growth_h="Customers and growth", pause="Pause motion", play="Play motion"),
  "ja": dict(boom="ローダーブーム", mower="ミッドモア", hood="フード", fender="フェンダー", side="側面外板", front="前面外板", made="ハンイル特装が製造する部品",
    tractor_alt="フロントローダーとミッドモアを装着したトラクターの側面図。ハンイル特装が製造するローダーブーム、ミッドモア、フード、フェンダーをオレンジで示しています。",
    bus_alt="バスの側面図。ハンイル特装が製造する側面・前面外板をオレンジで示しています。",
    ticker=["フロントローダーブーム","ミッドマウントモア","トラクターのフード","トラクターのフェンダー","バス側面外板","トラック外板","冷凍車プレス部品","作業機部品","フェンダーカバーセット"],
-   ticker_label="製品", credits="写真クレジット", alt_hero="花の咲く果樹園の横でフロントローダー付きトラクターが畑を耕す様子", alt_loader="フロントローダー付きトラクター", alt_mower="ミッドマウントモアを装着した小型トラクター", alt_bus="道路を走る路線バス", alt_weld="溶接ロボットが並ぶ生産ライン", growth_h="納入先と成長", pause="動きを止める", play="動きを再生"),
+   ticker_label="製品", credits="写真クレジット", alt_hero="自動プレスラインで車体の板金パネルを成形する工場内部", alt_loader="フロントローダー付きトラクター", alt_mower="ミッドマウントモアを装着した小型トラクター", alt_bus="道路を走る路線バス", alt_weld="溶接ロボットが並ぶ生産ライン", growth_h="納入先と成長", pause="動きを止める", play="動きを再生"),
 }
 
 def photo(name, alt, cls="", up="", sizes="(max-width: 720px) 100vw, 50vw", lazy=True, w=1280, h=853):
     small = f"{up}assets/img/{name}-640.webp 640w, " if name != "hero" else f"{up}assets/img/{name}-960.webp 960w, "
-    big = f"{up}assets/img/{name}.webp {1920 if name=='hero' else 1280}w"
+    big = f"{up}assets/img/{name}.webp {1536 if name in ('hero', 'welding', 'bus') else 1280}w"
     ld = ' loading="lazy" decoding="async"' if lazy else ' fetchpriority="high"'
     return f'<img class="{cls}" src="{up}assets/img/{name}.webp" srcset="{small}{big}" sizes="{sizes}" width="{w}" height="{h}" alt="{e(alt)}"{ld}>'
 
@@ -229,7 +229,7 @@ P = {
     agri_h="농기계 부품", agri_p="트랙터 외장이 주력입니다. 프런트 로더와 미드 모어 같은 작업기 부품도 만듭니다. LS엠트론, 두산밥캣에 납품합니다.",
     agri=[("loader","프런트 로더 붐","트랙터 앞에 다는 로더의 붐(팔) 부분을 만듭니다."),
           ("mower","미드 마운트 모어","트랙터 배 아래에 다는 잔디깎이 모어 부품을 만듭니다."),
-          ("hero","트랙터 후드·펜더","크고 깊게 휜 패널을 냉연강판으로 성형해 용접·사상합니다.")],
+          ("press","트랙터 후드·펜더","크고 깊게 휜 패널을 냉연강판으로 성형해 용접·사상합니다.")],
     agri_more=[("작업기·어태치먼트 부품","최근 추가한 품목입니다."),("펜더 커버 세트","2025년 대만으로 첫 수출했습니다.")],
     auto_h="자동차 부품", auto_p="버스·트럭 외판과 냉동탑차 차체 프레스 부품입니다. 신차는 설계 단계부터 고객사와 함께 개발합니다. 현대모비스, KGM커머셜에 납품합니다.",
     auto=[("bus","버스 외판","버스 측면과 전면의 바깥 패널을 만듭니다.")],
@@ -267,7 +267,7 @@ P = {
     agri_h="Agricultural machinery parts", agri_p="Tractor exteriors are our main line, alongside implement parts such as front loaders and mid-mount mowers. Supplied to LS Mtron and Doosan Bobcat.",
     agri=[("loader","Front loader booms","The boom (arm) of the loader mounted on the front of a tractor."),
           ("mower","Mid-mount mowers","Parts for the mower mounted under a tractor's belly."),
-          ("hero","Tractor hoods and fenders","Large, deeply curved panels formed from cold-rolled steel, then welded and finished.")],
+          ("press","Tractor hoods and fenders","Large, deeply curved panels formed from cold-rolled steel, then welded and finished.")],
     agri_more=[("Implement and attachment parts","Recently added to our range."),("Fender cover sets","First exported to Taiwan in 2025.")],
     auto_h="Automotive parts", auto_p="Bus and truck outer panels and press parts for refrigerated truck bodies. New models are developed with the customer from the design stage. Supplied to Hyundai Mobis and KGM Commercial.",
     auto=[("bus","Bus outer panels","The outer side and front panels of buses.")],
@@ -305,7 +305,7 @@ P = {
     agri_h="農業機械部品", agri_p="トラクター外装が主力です。フロントローダーやミッドモアなどの作業機部品もつくります。LSエムトロン、斗山ボブキャットに納品しています。",
     agri=[("loader","フロントローダーブーム","トラクター前部に取り付けるローダーのブーム（アーム）部分をつくります。"),
           ("mower","ミッドマウントモア","トラクターの車体下に取り付ける芝刈りモアの部品をつくります。"),
-          ("hero","トラクターのフード・フェンダー","大きく深く曲がったパネルを冷延鋼板で成形し、溶接・仕上げします。")],
+          ("press","トラクターのフード・フェンダー","大きく深く曲がったパネルを冷延鋼板で成形し、溶接・仕上げします。")],
     agri_more=[("作業機・アタッチメント部品","最近加わった品目です。"),("フェンダーカバーセット","2025年に台湾へ初輸出しました。")],
     auto_h="自動車部品", auto_p="バス・トラックの外板と冷凍車ボディのプレス部品です。新型車は設計段階からお客様と共同で開発します。現代モービス、KGMコマーシャルに納品しています。",
     auto=[("bus","バス外板","バスの側面・前面の外装パネルをつくります。")],
@@ -453,7 +453,7 @@ def shell(k, pid, title, desc, body, hero_photo=None):
 def page_head(k, pid, h1, lead, img, alt):
     up = "" if k == "ko" else "../"
     return f'''  <section class="hero hero--page" aria-labelledby="hero-h" id="main">
-    <div class="hero__media">{photo(img, alt, "hero__img", up, "100vw", False, 1920 if img=="hero" else 1280, 1205 if img=="hero" else 853)}</div>
+    <div class="hero__media">{photo(img, alt, "hero__img", up, "100vw", False, 1536 if img in ("hero", "welding", "bus") else 1280, 864 if img in ("hero", "welding", "bus") else 960)}</div>
     <div class="wrap hero__body">
       <div>
         <h1 id="hero-h">{e(h1)}</h1>
@@ -654,7 +654,7 @@ def page_home(k):
         rows = "".join(f"<div><dt>{e(a)}</dt><dd>{e(b)}</dd></div>" for a, b in s["rows"])
         segs += f'<article class="seg" data-reveal>{art}<h3>{e(s["h"])}</h3><p class="seg__for">{e(s["f"])}</p><p class="seg__text">{e(s["t"])}</p><dl>{rows}</dl></article>'
     body = f'''  <section class="hero" aria-labelledby="hero-h">
-    <div class="hero__media">{photo("hero", x["alt_hero"], "hero__img", up, "100vw", False, 1920, 1205)}</div>
+    <div class="hero__media">{photo("hero", x["alt_hero"], "hero__img", up, "100vw", False, 1536, 864)}</div>
     <div class="wrap hero__body">
       <div>
         <h1 id="hero-h">{e(d["h1"])}</h1>
@@ -689,7 +689,7 @@ def page_home(k):
       <div class="sec__head"><h2 id="process-h">{e(d["proc_h"])}</h2><p>{e(d["proc_p"])}</p></div>
       <ol class="line" data-run>{steps_html(d)}</ol>
       <p class="line__legend"><span><i aria-hidden="true"></i>{e(d["legend"][0])}</span><span><i class="d" aria-hidden="true"></i>{e(d["legend"][1])}</span></p>
-      {strip(k, ["coil", "grind", "inspect", "ship"])}
+      {strip(k, ["shear", "press", "paint", "inspect"])}
       {more(k, "plant", p["more_plant"])}
     </div>
   </section>
@@ -723,7 +723,7 @@ def page_about(k):
     <div class="wrap">
       <div class="sec__head"><h2 id="ov-h">{e(a["ov_h"])}</h2><p>{e(a["ov_p"])}</p></div>
       <dl class="info" data-reveal>{ov}</dl>
-      {strip(k, ["field", "coil", "grind", "welding"], "strip strip--wide")}
+      {strip(k, ["press", "coil", "inspect", "welding"], "strip strip--wide")}
     </div>
   </section>
 
