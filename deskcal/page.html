@@ -183,6 +183,13 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
 :root[data-theme="dark"] .chip.pc{background:#0c2d40;color:#7dd3fc}
 .row .hide{border:0;background:none;color:var(--sub);opacity:0;font-size:14px;padding:0 4px}
 .row:hover .hide{opacity:1}
+/* 📝 메모장 */
+.pad{display:block;border-radius:8px;padding:6px 8px 6px 10px;margin-bottom:5px;cursor:pointer;background:var(--line2);border-left:4px solid var(--line)}
+.pad:hover{filter:brightness(.97)}
+.pad b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pad small{display:block;color:var(--sub);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#padDlg .dlg{width:min(560px,100%)}
+#padText{min-height:300px;resize:vertical;font-size:14px;line-height:1.55}
 #ver{position:fixed;right:8px;bottom:3px;font-size:10.5px;color:var(--sub);opacity:.7;pointer-events:none}
 
 /* 🖨 인쇄 */
@@ -248,6 +255,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
   <div id="side">
     <div class="sec" id="secWait"><h3>📄 결재할 문서 <span class="n" id="nWait">0</span><a data-open="/approval">결재함 ›</a></h3><div class="lst" id="lWait"></div></div>
     <div class="sec" id="secTodoList"><h3>☑ 할 일 <span class="n" id="nTd">0</span><a id="tdClean">끝난 것 지우기</a></h3><div class="lst" id="lTd"></div><input id="todoIn" placeholder="＋ 할 일 적고 Enter (예: 견적서 보내기 11/20)"></div>
+    <div class="sec" id="secPad"><h3>📝 메모장 <span class="n" id="nPad">0</span><a id="padNew">＋ 새 메모</a></h3><div class="lst" id="lPad"></div></div>
     <div class="sec" id="secTodo"><h3>✅ 포털 할 일 <a data-open="/mywork">열기 ›</a></h3><div class="lst" id="lTodo"></div></div>
     <div class="sec" id="secEv"><h3>📅 다가오는 일정 <span class="n" id="nEv">0</span></h3><div class="lst" id="lEv"></div></div>
     <div class="sec" id="secMsg"><h3>🔔 쪽지·알림 <span class="n" id="nMsg">0</span><a data-open="/chat">메신저 ›</a></h3><div class="lst" id="lMsg"></div></div>
@@ -280,6 +288,19 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
     <div class="fld"><label>색</label><div class="colors" id="fColors"></div></div>
   </div>
   <div class="df"><button class="b del" id="evDel">지우기</button><button class="b" data-close>닫기</button><button class="b pri" id="evSave">저장</button></div>
+</div></div>
+
+<!-- 📝 메모장 -->
+<div class="ov" id="padDlg"><div class="dlg">
+  <div class="dh">📝 메모 <small id="padAt" style="font-weight:400;color:var(--sub);font-size:12px"></small><button class="x" data-close>×</button></div>
+  <div class="db">
+    <textarea id="padText" placeholder="자유롭게 적으세요 — 적는 대로 저장됩니다.&#10;첫 줄이 메모 이름이 됩니다."></textarea>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">
+      <div class="colors" id="padColors"></div>
+      <label class="chk" style="margin-left:auto"><input type="checkbox" id="padPin"> 📌 맨 위에 두기</label>
+    </div>
+  </div>
+  <div class="df"><button class="b del" id="padDel">지우기</button><button class="b" id="padCopy">복사</button><button class="b pri" data-close>닫기</button></div>
 </div></div>
 
 <!-- 보기(남이 올린 일정 · 하루 목록 · 찾기 결과) -->
@@ -449,7 +470,7 @@ var uid = function () { return Date.now().toString(36) + Math.random().toString(
 //   바탕화면 프로그램: 이 PC(%LOCALAPPDATA%\HanilCal\data.json)에 두고, 포털(☁)과 주고받는다.
 //   포털 화면(폰): 포털(☁)만.  ⭐ 마지막에 쓴 것이 이기고, 포털이 지난 판 30개를 남긴다(되돌리기).
 var LOCAL_ONLY = ['alerted', 'reminded', 'rev', 'dirty', 'local'];   //  기기마다 따로(올리지 않는다)
-var DATA = { notes: {}, todos: [], annivs: [], prefs: {}, alerted: {}, reminded: {}, local: {} };
+var DATA = { notes: {}, todos: [], annivs: [], memos: [], prefs: {}, alerted: {}, reminded: {}, local: {} };
 var P = function () {
   return Object.assign({ theme: 'light', week: 0, docs: 'mine', alert: 'pop', remind: 'pop', msg: 'toast', font: 100, view: 'month', weeks: 5,
     lunar: 'all', terms: true, obs: true, weekNo: false, gg: true, pc: true, hideTodo: [] }, DATA.prefs || {}, { side: (DATA.local || {}).side !== false, alpha: (DATA.local || {}).alpha || 100 });
@@ -468,7 +489,7 @@ function saveData(sync) {
 function synced() { var o = {}; Object.keys(DATA).forEach(function (k) { if (LOCAL_ONLY.indexOf(k) < 0) o[k] = DATA[k]; }); return o; }
 function takeServer(d, rev) {
   LOCAL_ONLY.forEach(function (k) { if (DATA[k] !== undefined) d[k] = DATA[k]; });
-  DATA = Object.assign({ notes: {}, todos: [], annivs: [], prefs: {}, alerted: {}, reminded: {}, local: {} }, d);
+  DATA = Object.assign({ notes: {}, todos: [], annivs: [], memos: [], prefs: {}, alerted: {}, reminded: {}, local: {} }, d);
   DATA.rev = rev; DATA.dirty = false;
 }
 function syncNow() {
@@ -491,7 +512,7 @@ function syncNow() {
   return p.catch(function (e) { if (e.status === 404 || e.status === 403) SY.ok = false; SY.err = e.message; })
     .then(function () { SY.busy = false; syncMark(); });
 }
-function hasStuff() { return Object.keys(DATA.notes || {}).length || (DATA.todos || []).length || (DATA.annivs || []).length; }
+function hasStuff() { return Object.keys(DATA.notes || {}).length || (DATA.todos || []).length || (DATA.annivs || []).length || (DATA.memos || []).length; }
 function syncMark() {
   var m = $('#syncMark');
   m.textContent = SY.ok === false ? '' : (DATA.dirty ? '☁…' : (SY.ok ? '☁✓' : ''));
@@ -1072,6 +1093,7 @@ function drawSide() {
       + (x.due ? '<small' + (late ? ' style="color:var(--sun)"' : '') + '>' + esc(x.due.slice(5).replace('-', '/')) + '</small>' : '') + '<button class="x" data-tdx="' + x.id + '">×</button></div>';
   }).join('') : '<div class="empty">아래에 적고 Enter — 날짜(11/20)를 붙이면 그날 할 일</div>';
   var hid = P().hideTodo || [], shown = S.todo.filter(function (x) { return hid.indexOf(x.key) < 0; });
+  drawPads();
   $('#lTodo').innerHTML = shown.length ? shown.map(function (x) {
     return '<div class="row" data-open="' + esc(x.url) + '"><i>•</i><div class="tx"><b>' + esc(x.label) + ' <span style="color:var(--warn)">' + x.n + '</span></b></div><button class="hide" data-hidetodo="' + esc(x.key) + '" title="이 항목 숨기기(⚙ 달력에서 다시 보이기)">×</button></div>';
   }).join('') : '<div class="empty">' + (S.login ? '남은 일이 없습니다' : '로그인하면 보입니다') + '</div>';
@@ -1123,6 +1145,7 @@ document.addEventListener('click', function (e) {
   var an = t.closest('[data-anv]'); if (an) { openSettings('anv'); return; }
   var ad = t.closest('[data-add]'); if (ad) { newEvent(ad.getAttribute('data-add')); return; }
   var mo = t.closest('[data-day]'); if (mo) { dayList(mo.getAttribute('data-day')); return; }
+  var pd = t.closest('[data-pad]'); if (pd) { openPad(pd.getAttribute('data-pad')); return; }
   var tdx = t.closest('[data-tdx]'); if (tdx) { DATA.todos = (DATA.todos || []).filter(function (x) { return x.id !== tdx.getAttribute('data-tdx'); }); saveData(); draw(); return; }
   var cl = t.closest('[data-close]'); if (cl) { cl.closest('.ov').classList.remove('on'); return; }
   if (t.classList.contains('ov') && t.id !== 'alertDlg') { t.classList.remove('on'); return; }
@@ -1187,6 +1210,54 @@ $('#sideBtn').onclick = function () { DATA.local = Object.assign({}, DATA.local,
 $('#pinBtn').onclick = function () { win(S.pinned ? 'edit' : 'pin').then(function () { S.pinned = !S.pinned; draw(); }); };
 $('#addBtn').onclick = function () { var t = ymd(new Date()), r = viewRange(); newEvent(t >= r[0] && t <= r[1] && (P().view === 'weeks' || new Date().getMonth() === S.cur.getMonth()) ? t : ymd(S.cur)); };
 
+//  📝 메모장 — 날짜와 상관없는 메모. 적는 대로 저장되고, 다른 PC·폰과 동기화된다(DATA.memos).
+var PAD_COLORS = ['', '#fff3bf', '#ffe3e3', '#dcfce7', '#dbeafe', '#ede9fe', '#fce7f3', '#ffedd5'];
+var padId = '';
+function padFirst(t) { var l = String(t || '').split('\n').filter(function (x) { return x.trim(); }); return [l[0] || '(빈 메모)', l.slice(1).join(' ')]; }
+function padWhen(ms) { var d = new Date(ms), t = ymd(new Date()); return ymd(d) === t ? pad(d.getHours()) + ':' + pad(d.getMinutes()) : (d.getMonth() + 1) + '/' + d.getDate(); }
+function drawPads() {
+  var M = (DATA.memos || []).slice().sort(function (a, b) { return (!!b.pin - !!a.pin) || (b.at || 0) - (a.at || 0); });
+  $('#nPad').textContent = M.length;
+  $('#lPad').innerHTML = M.length ? M.map(function (m) {
+    var f = padFirst(m.t);
+    return '<div class="pad' + (isHit(m.t) ? ' chip hit' : '') + '" data-pad="' + m.id + '" style="' + (m.c ? 'background:' + m.c + (P().theme === 'dark' ? '33' : '') + ';border-left-color:' + m.c : '') + '">'
+      + '<b>' + (m.pin ? '📌 ' : '') + esc(f[0]) + '</b><small>' + esc(padWhen(m.at || 0)) + (f[1] ? ' · ' + esc(f[1]) : '') + '</small></div>';
+  }).join('') : '<div class="empty">「＋ 새 메모」 로 간단한 메모를 적어 두세요</div>';
+}
+$('#padColors').innerHTML = PAD_COLORS.map(function (c) { return '<span data-padc="' + c + '" title="' + (c || '기본') + '" style="background:' + (c || 'var(--line2)') + ';border-color:var(--line)"></span>'; }).join('');
+function padCur() { return (DATA.memos || []).filter(function (m) { return m.id === padId; })[0]; }
+function padMarkColor(c) { $$('#padColors span').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-padc') === (c || '')); }); }
+function openPad(id) {
+  DATA.memos = DATA.memos || [];
+  var m = id && DATA.memos.filter(function (x) { return x.id === id; })[0];
+  if (!m) { m = { id: uid(), t: '', c: '', pin: false, at: Date.now() }; DATA.memos.push(m); }
+  padId = m.id;
+  $('#padText').value = m.t || ''; $('#padPin').checked = !!m.pin; padMarkColor(m.c);
+  $('#padAt').textContent = m.t ? '· ' + new Date(m.at).toLocaleString() : '';
+  $('#padDlg').classList.add('on');
+  //  ⚠ 바로 커서를 넣는다 — 늦으면 「새 메모」 를 누르자마자 친 앞 글자가 빠진다
+  var ta = $('#padText'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  win('front');
+}
+$('#padNew').onclick = function () { openPad(''); };
+$('#padText').addEventListener('input', function () { var m = padCur(); if (!m) return; m.t = this.value; m.at = Date.now(); saveData(); drawPads(); });
+$('#padPin').onchange = function () { var m = padCur(); if (!m) return; m.pin = this.checked; saveData(); drawPads(); };
+$('#padColors').onclick = function (e) { var x = e.target.closest('[data-padc]'); var m = padCur(); if (!x || !m) return; m.c = x.getAttribute('data-padc'); padMarkColor(m.c); saveData(); drawPads(); };
+$('#padDel').onclick = function () {
+  var m = padCur(); if (!m) return;
+  if (m.t.trim() && !confirm('이 메모를 지울까요?\n(⚙ 동기화·백업 → 지난 판에서 되살릴 수 있습니다)')) return;
+  DATA.memos = DATA.memos.filter(function (x) { return x.id !== m.id; }); padId = '';
+  saveData(); $('#padDlg').classList.remove('on'); drawPads();
+};
+$('#padCopy').onclick = function () { var ta = $('#padText'); ta.select(); try { navigator.clipboard.writeText(ta.value); } catch (e) { document.execCommand('copy'); } };
+//  창이 닫히면 — 빈 메모는 버린다
+new MutationObserver(function () {
+  if ($('#padDlg').classList.contains('on') || !padId) return;
+  var m = padCur();
+  if (m && !m.t.trim()) { DATA.memos = DATA.memos.filter(function (x) { return x.id !== m.id; }); saveData(); }
+  padId = ''; drawPads();
+}).observe($('#padDlg'), { attributes: true, attributeFilter: ['class'] });
+
 //  ☑ 할 일 넣기 — 끝에 「11/20」·「2026-11-20」을 붙이면 그날까지
 $('#todoIn').addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
@@ -1212,6 +1283,7 @@ $('#q').addEventListener('keydown', function (e) {
   var res = [], has = function (s) { return s && String(s).toLowerCase().indexOf(q) >= 0; };
   Object.keys(DATA.notes || {}).forEach(function (d) { if (has(DATA.notes[d].t)) res.push({ d: d, ic: '📝', t: DATA.notes[d].t.split('\n')[0] }); });
   (DATA.todos || []).forEach(function (x) { if (has(x.t)) res.push({ d: x.due || '', ic: '☑', t: x.t }); });
+  (DATA.memos || []).forEach(function (m) { if (has(m.t)) res.push({ d: '', ic: '📝', t: padFirst(m.t)[0], pad: m.id }); });
   (DATA.annivs || []).forEach(function (a) { if (has(a.title)) res.push({ d: '', ic: '🎂', t: a.title + ' (' + (a.lunar ? '음력 ' : '') + a.md + ')' }); });
   S.apprWait.concat(S.apprMine, S.apprLine, S.apprDone).forEach(function (x) { if (has(x.title)) res.push({ d: x.date, ic: '📄', t: x.title }); });
   S.pcEvents.forEach(function (x) { if (has(x.title) || has(x.memo)) res.push({ d: x.start, ic: '📅', t: x.title }); });
@@ -1221,7 +1293,7 @@ $('#q').addEventListener('keydown', function (e) {
     res.sort(function (a, b) { return String(b.d).localeCompare(String(a.d)); });
     $('#vTitle').textContent = '🔍 「' + q + '」 ' + res.length + '건';
     $('#vBody').innerHTML = '<dt></dt><dd>' + (res.length ? res.slice(0, 200).map(function (r) {
-      return '<div class="row"' + (r.d ? ' data-go="' + r.d + '"' : '') + '><i>' + r.ic + '</i><div class="tx"><b>' + esc(r.t) + '</b><small>' + esc(r.d || '') + '</small></div></div>';
+      return '<div class="row"' + (r.pad ? ' data-pad="' + r.pad + '"' : r.d ? ' data-go="' + r.d + '"' : '') + '><i>' + r.ic + '</i><div class="tx"><b>' + esc(r.t) + '</b><small>' + esc(r.d || '') + '</small></div></div>';
     }).join('') : '찾은 것이 없습니다') + '</dd>';
     $('#viewDlg').classList.add('on');
   };
@@ -1535,7 +1607,7 @@ $('#impFile').onchange = function () {
   rd.onload = function () {
     try {
       var j = JSON.parse(rd.result), d = j.data || j;
-      if (!d || typeof d !== 'object' || !(d.notes || d.todos || d.annivs)) throw new Error('한일 달력 백업 파일이 아닙니다');
+      if (!d || typeof d !== 'object' || !(d.notes || d.todos || d.annivs || d.memos)) throw new Error('한일 달력 백업 파일이 아닙니다');
       if (!confirm('백업 파일로 메모 ' + Object.keys(d.notes || {}).length + '개 · 할 일 ' + (d.todos || []).length + '개 · 기념일 ' + (d.annivs || []).length + '개를 바꿔 넣을까요?\n(지금 것은 동기화 「지난 판」에 남습니다)')) return;
       takeServer(d, DATA.rev || 0); saveData(); draw(); alert('가져왔습니다.');
     } catch (e) { alert(e.message); }
@@ -1613,7 +1685,7 @@ function chrome() {
 
 //  ── 시작 ──
 function start(d) {
-  DATA = Object.assign({ notes: {}, todos: [], annivs: [], prefs: {}, alerted: {}, reminded: {}, local: {} }, d || {});
+  DATA = Object.assign({ notes: {}, todos: [], annivs: [], memos: [], prefs: {}, alerted: {}, reminded: {}, local: {} }, d || {});
   draw();
 }
 if (PORTAL) {

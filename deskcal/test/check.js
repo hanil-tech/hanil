@@ -310,6 +310,22 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   await pg.evaluate(() => { window.__cal.S.desktop = false; window.__cal.draw(); });
   ok(!(await pg.isVisible('#quitBtn')), '포털 화면(폰)에는 끄기 단추가 없다');
 
+  //  📝 메모장
+  await pg.click('#padNew');
+  await pg.waitForSelector('#padDlg.on');
+  await pg.keyboard.type('거래처 연락처\n대한정밀 김과장 010-1234-5678');
+  await pg.click('#padColors [data-padc="#fff3bf"]');
+  await pg.check('#padPin');
+  await pg.click('#padDlg .df [data-close]');
+  ok((await pg.textContent('#lPad')).includes('📌 거래처 연락처') && (await pg.textContent('#lPad')).includes('대한정밀'), '메모장: 새 메모가 옆 칸에(첫 줄이 이름) ' + (await pg.textContent('#lPad')));
+  await pg.click('#padNew'); await pg.click('#padDlg .x');
+  ok((await pg.textContent('#nPad')) === '1', '메모장: 아무것도 안 적고 닫으면 버린다');
+  await pg.click('#lPad [data-pad]');
+  await pg.press('#padText', 'End'); await pg.keyboard.type(' (내선 21)');
+  await pg.click('#padDlg .x'); await sleep(500);
+  const md0 = (await (await fetch(G + '/__cal/data')).json()).memos || [];
+  ok(md0.length === 1 && md0[0].t.endsWith('(내선 21)') && md0[0].c === '#fff3bf' && md0[0].pin === true, '메모장: 고친 것·색·고정이 저장된다');
+
   //  🔍 찾기
   await pg.fill('#q', '안전'); await pg.press('#q', 'Enter');
   await pg.waitForSelector('#viewDlg.on');
@@ -332,7 +348,7 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   const lgk = await fetch(P + '/login', { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'username=kim&password=1234' });
   const ckk = lgk.headers.get('set-cookie').split(';')[0];
   const md = await (await fetch(P + '/api/cal/mydata', { headers: { Cookie: ckk } })).json();
-  ok(md.rev > 0 && md.data.notes[td] && md.data.notes[td].t === '거래처 전화하기' && md.data.todos.length === 1 && md.data.annivs.length === 1, '☁ 메모·할 일·기념일이 포털에 올라갔다 (판 ' + md.rev + ')');
+  ok(md.rev > 0 && md.data.notes[td] && md.data.notes[td].t === '거래처 전화하기' && md.data.todos.length === 1 && md.data.annivs.length === 1 && (md.data.memos || []).length === 1, '☁ 메모·할 일·기념일·메모장이 포털에 올라갔다 (판 ' + md.rev + ')');
   const ph2 = await br.newPage({ viewport: { width: 390, height: 844 } });
   ph2.on('pageerror', (e) => errs.push('폰: ' + e.message));
   await ph2.goto(P + '/deskcal');

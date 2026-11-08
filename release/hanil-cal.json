@@ -1,7 +1,7 @@
 {
- "version": "1.3.2",
- "file": "hanil-cal-v1.3.2.exe",
- "size": 7596544,
- "sha256": "75b800228cf3d08f4ab071c5836832f843396b50deb9b38fd1b374ff6a06749d",
- "notes": "일정 고치기·지우기가 막히던 것 · 같은 일정이 두 번 보이던 것 고침"
+ "version": "1.4.0",
+ "file": "hanil-cal-v1.4.0.exe",
+ "size": 7602176,
+ "sha256": "79c9fab5051b64a39e1adbb803ec984e21118dfac6189f94a74d68d4beac493c",
+ "notes": "📝 메모장을 넣었습니다(옆 칸 「＋ 새 메모」)."
 }
