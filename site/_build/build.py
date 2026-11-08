@@ -425,6 +425,7 @@ def shell(k, pid, title, desc, body, hero_photo=None):
   <div class="wrap top__bar">
     <a class="logo" href="{href(k, "index")}">{LOGO}<span translate="no">{e(d["name"])}</span></a>
     <nav class="top__nav" aria-label="{e(d["navlabel"])}">{nav}</nav>
+    <a class="btn top__cta" href="{href(k, "contact")}#request">{e(d["cta"])}</a>
     <div class="lang" role="group" aria-label="Language">{langs}</div>
     {MENU_BTN.format(label=e(MENU[k]["open"]))}
   </div>
@@ -444,6 +445,7 @@ def shell(k, pid, title, desc, body, hero_photo=None):
     </div>
   </div>
 </footer>
+{bottom_bar(k, pid)}
 </body>
 </html>
 '''
@@ -533,6 +535,78 @@ def strip(k, names, cls="strip"):
     figs = "".join(f'<figure class="ph" style="--i:{i}">{photo(n, alt_of(k, n), "ph__img", up, "(max-width: 720px) 50vw, 25vw")}</figure>' for i, n in enumerate(names))
     return f'<div class="{cls}" data-reveal>{figs}</div>'
 
+
+# ----- additions from the ui-ux-pro-max "Trust & Authority + Conversion" pattern -----
+ICON = {
+ "mail": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+ "search": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+ "doc": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
+ "press": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v4H5zM12 7v5M7 12h10v3H7zM4 21h16M6 15v6M18 15v6"/></svg>',
+ "robot": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h8M8 21v-4l5-6M13 11l5 2M18 13v4"/><circle cx="8" cy="17" r="1.5"/><circle cx="13" cy="11" r="1.5"/><circle cx="18" cy="13" r="1.5"/></svg>',
+ "flow": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1"/><rect x="15" y="14" width="6" height="6" rx="1"/><path d="M6 10v4a3 3 0 0 0 3 3h6"/></svg>',
+ "phone": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>',
+ "up": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+}
+STRENGTH_ICONS = ["press", "robot", "flow"]
+
+ADD = {
+ "ko": dict(rfq_h="도면을 보내시면 이렇게 진행합니다", rfq_p="신규 부품 견적, 기존 부품 이관, 개발 초기 검토 모두 같은 순서로 시작합니다.",
+   rfq=[("mail","도면 보내기","도면 파일을 이메일로 보내 주세요. 부품 이름과 연간 수량을 함께 적어 주시면 좋습니다."),
+        ("search","공정 검토","프레스 성형 단계, 용접 방법, 사상과 도장 범위를 도면 기준으로 검토합니다."),
+        ("doc","회신","검토 결과와 견적을 담당자께 회신드립니다.")],
+   faq_h="자주 묻는 질문",
+   faq=[("어떤 부품을 만드나요?","버스·트럭 외판, 냉동탑차 차체 프레스 부품, 트랙터 후드·펜더, 프런트 로더 붐, 미드 마운트 모어, 작업기 부품처럼 눈에 보이는 바깥 판금 부품을 만듭니다."),
+        ("어떤 소재를 쓰나요?","냉연강판을 받아 강종과 두께를 확인한 뒤 성형합니다."),
+        ("도장까지 맡길 수 있나요?","네. 도장은 협력 도장업체가 맡고, 색과 도막은 고객 사양을 따릅니다."),
+        ("다른 곳에서 만들던 부품도 옮겨올 수 있나요?","네. 기존 부품 이관 문의도 받습니다. 도면을 보내 주시면 검토해 드립니다."),
+        ("해외로도 납품하나요?","2025년 대만으로 소형 펜더 커버 세트를 처음 수출했습니다.")],
+   bar_call="전화", top="맨 위로"),
+ "en": dict(rfq_h="What happens after you send a drawing", rfq_p="New part quotations, transfers of existing parts and early development reviews all start the same way.",
+   rfq=[("mail","Send a drawing","E-mail us your drawing. The part name and yearly quantity help us review it."),
+        ("search","Process review","We review forming stages, welding method, finishing and painting scope against the drawing."),
+        ("doc","Reply","We send the review result and quotation back to you.")],
+   faq_h="Frequently asked questions",
+   faq=[("What parts do you make?","Visible outer sheet-metal parts: bus and truck outer panels, refrigerated body press parts, tractor hoods and fenders, front loader booms, mid-mount mowers and implement parts."),
+        ("What material do you use?","Cold-rolled steel, checked for grade and thickness on arrival before forming."),
+        ("Can you deliver painted parts?","Yes. Painting is done by partner paint shops to your colour and film specification."),
+        ("Can you take over a part made elsewhere?","Yes, we review transfers of existing parts. Send us the drawing."),
+        ("Do you export?","Our first export, small fender cover sets, went to Taiwan in 2025.")],
+   bar_call="Call", top="Back to top"),
+ "ja": dict(rfq_h="図面をお送りいただいた後の流れ", rfq_p="新規部品のお見積り、既存部品の移管、開発初期のご相談は、いずれも同じ流れで始まります。",
+   rfq=[("mail","図面を送る","図面ファイルをメールでお送りください。部品名と年間数量もあわせてお知らせいただけると助かります。"),
+        ("search","工程の検討","プレス成形の段数、溶接方法、仕上げと塗装の範囲を図面に基づいて検討します。"),
+        ("doc","ご回答","検討結果とお見積りをご担当者様へお送りします。")],
+   faq_h="よくあるご質問",
+   faq=[("どのような部品をつくっていますか？","バス・トラック外板、冷凍車ボディのプレス部品、トラクターのフード・フェンダー、フロントローダーブーム、ミッドマウントモア、作業機部品など、目に見える外装板金部品です。"),
+        ("材料は何を使いますか？","冷延鋼板を受け入れ、鋼種と板厚を確認してから成形します。"),
+        ("塗装まで依頼できますか？","はい。塗装は協力塗装会社が担当し、色と塗膜はお客様の仕様に従います。"),
+        ("他社で生産していた部品を移管できますか？","はい、既存部品の移管もご相談ください。図面をお送りいただければ検討いたします。"),
+        ("海外へも納品していますか？","2025年に台湾へ小型フェンダーカバーセットを初めて輸出しました。")],
+   bar_call="電話", top="ページの先頭へ"),
+}
+
+def rfq_section(k):
+    a = ADD[k]
+    steps = "".join(f'<li class="rfq__step" data-reveal style="--i:{i}"><span class="rfq__icon">{ICON[ic]}</span><span class="st__n">{i+1:02d}</span><h3>{e(h)}</h3><p>{e(t)}</p></li>' for i, (ic, h, t) in enumerate(a["rfq"]))
+    faq = "".join(f'<details class="faq__item"><summary>{e(q)}<span class="faq__mark" aria-hidden="true"></span></summary><p>{e(ans)}</p></details>' for q, ans in a["faq"])
+    return f'''  <section class="sec" id="rfq" aria-labelledby="rfq-h">
+    <div class="wrap">
+      <div class="sec__head"><h2 id="rfq-h">{e(a["rfq_h"])}</h2><p>{e(a["rfq_p"])}</p></div>
+      <ol class="rfq">{steps}</ol>
+      <div class="faq" id="faq">
+        <h2 class="faq__h">{e(a["faq_h"])}</h2>
+        <div class="faq__list">{faq}</div>
+      </div>
+    </div>
+  </section>'''
+
+def bottom_bar(k, pid):
+    d = L[k]; a = ADD[k]
+    tel = d["tel"]; telhref = "+82" + tel.replace("+82-", "").lstrip("0").replace("-", "") if not tel.startswith("+") else tel.replace("-", "")
+    bar = "" if pid == "contact" else (f'<nav class="mbar" aria-label="{e(d["cta"])}"><a class="mbar__call" href="tel:{telhref}">{ICON["phone"]}<span>{e(a["bar_call"])}</span></a>'
+                                       f'<a class="btn mbar__cta" href="{href(k, "contact")}#request">{e(d["cta"])}{ARROW}</a></nav>')
+    return bar + f'<a class="totop" href="#top" aria-label="{e(a["top"])}">{ICON["up"]}</a>'
+
 # ----- home -----
 def page_home(k):
     d = L[k]; x = X[k]; p = P[k]; up = "" if k == "ko" else "../"
@@ -599,7 +673,9 @@ def page_home(k):
       </div>
       {more(k, "about", p["more_about"])}
     </div>
-  </section>'''
+  </section>
+
+{rfq_section(k)}'''
     return shell(k, "index", d["title"], d["desc"], body)
 
 # ----- about -----
@@ -676,7 +752,7 @@ def page_products(k):
 # ----- plant -----
 def page_plant(k):
     d = L[k]; x = X[k]; pl = P[k]["plant"]; up = "" if k == "ko" else "../"
-    strengths = "".join(f'<article class="strength" data-reveal><h3>{e(h)}</h3><p>{e(t)}</p></article>' for h, t in pl["strengths"])
+    strengths = "".join(f'<article class="strength" data-reveal><span class="strength__icon">{ICON[STRENGTH_ICONS[i]]}</span><h3>{e(h)}</h3><p>{e(t)}</p></article>' for i, (h, t) in enumerate(pl["strengths"]))
     body = f'''{page_head(k, "plant", pl["h1"], pl["lead"], "welding", x["alt_weld"])}
 
   <section id="equipment" class="sec" aria-labelledby="eq-h">
@@ -742,6 +818,7 @@ def page_contact(k):
       </aside>
     </div>
   </section>'''
+    body += "\n" + rfq_section(k).replace('class="sec" id="rfq"', 'class="sec sec--paper" id="rfq"')
     return shell(k, "contact", c["title"], c["desc"], body)
 
 BUILD = {"index": page_home, "about": page_about, "products": page_products, "plant": page_plant, "contact": page_contact}

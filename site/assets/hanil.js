@@ -93,5 +93,20 @@
       }
     });
   }
+  // sticky header: solid once past the hero, hides while scrolling down, returns on scroll up
+  const top = document.querySelector(".top");
+  const totop = document.querySelector(".totop");
+  let lastY = scrollY, ticking = false;
+  const onScroll = () => {
+    const y = scrollY;
+    if (top) {
+      top.classList.toggle("is-solid", y > 120);
+      top.classList.toggle("is-hidden", y > 400 && y > lastY && !root.classList.contains("menu-open") && !top.contains(document.activeElement));
+    }
+    if (totop) totop.classList.toggle("is-on", y > innerHeight);
+    lastY = y; ticking = false;
+  };
+  addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
+  onScroll();
   root.classList.add("motion-ready");
 })();
