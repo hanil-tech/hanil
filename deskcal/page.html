@@ -240,6 +240,7 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-
   <div id="badges"></div>
   <span id="conn"></span>
   <span id="alphaBox" title="투명도 — 바탕화면이 비쳐 보이게">🌫 <input type="range" id="alphaTop" min="30" max="100" step="5"> <b id="alphaTopV"></b></span>
+  <button class="btn" id="refBtn" title="새로고침 — 포털에서 다시 받아 오기 (30초마다 저절로도 합니다)">🔄</button>
   <button class="btn" id="printBtn" title="인쇄">🖨</button>
   <button class="btn" id="sideBtn" title="옆 칸 보이기·숨기기">☰</button>
   <button class="btn" id="pinBtn"></button>
@@ -686,10 +687,20 @@ function docRow(x, kind) {
 function loadAppr() {
   return api('/api/apprdoc/list').then(function (r) {
     setLogin(true); setOffline(false);
-    S.rawWait = r.waiting || [];
+    //  ⚠ 「결재할 문서」 가 waiting 말고 다른 칸에 오는 포털도 있다(사용자: 포털은 3건인데 달력은 0) →
+    //    끝난 것·내가 올린 것·참조 같은 칸만 빼고 **모든 목록 칸**을 모아, 문서마다 my_turn 으로 가린다
+    var cand = [], seen = {}, sizes = {};
+    Object.keys(r).forEach(function (k) {
+      if (!Array.isArray(r[k])) return;
+      sizes[k] = r[k].length;
+      if (/^(mine|my|sent|draft|drafts|done|finished|complete|completed|reject|rejected|cancel|canceled|cancelled|ref|refs|cc|read|reads|share|shared|all|history)$/i.test(k)) return;
+      r[k].forEach(function (x) { if (x && x.id != null && !seen[x.id]) { seen[x.id] = 1; cand.push(x); } });
+    });
+    cand.sort(function (a, b) { return String(b.created_at || b.date || '').localeCompare(String(a.created_at || a.date || '')); });
+    S.rawWait = cand;
     S.apprMine = (r.mine || []).map(function (x) { return docRow(x, 'mine'); });
     S.apprDone = (r.done || []).map(function (x) { return docRow(x, 'done'); });
-    diag('apprdoc', { keys: Object.keys(r), waiting: (r.waiting || []).slice(0, 2), mine: (r.mine || []).slice(0, 1) });
+    diag('apprdoc', { sizes: sizes, first: Object.keys(r).filter(function (k) { return Array.isArray(r[k]) && r[k].length; }).map(function (k) { return [k, r[k][0]]; }) });
   });
 }
 //  ✍ 「내 차례」 가리기 — ⚠ 결재함의 waiting 에는 «내가 결재선에 있는 진행 중 문서»(앞사람 차례·참조)도 들어 있다.
@@ -744,6 +755,7 @@ function decideWait() {
       return true;
     });
     if (n > 0 && keep.length > n) keep = keep.slice(0, n);
+    diag('turns', { n: n, cand: list.length, keep: keep.length, res: res.slice(0, 12).map(function (r, i) { return [list[i].id, r ? r.turn : 'x', r && r.st ? r.st.name : '']; }) });
     done(keep);
   });
 }
@@ -761,7 +773,7 @@ function loadTodo() {
   return api('/api/my-today').then(function (d) {
     var items = d.items || d.list || [];
     S.todoAppr = null;
-    items.forEach(function (x) { if (x.key === 'appr') S.todoAppr = Number(x.n) || 0; });
+    items.forEach(function (x) { if (x.key === 'appr' || x.key === 'approval' || (S.todoAppr == null && /결재할|결재 대기|미결/.test(todoName(x)))) S.todoAppr = Number(x.n) || 0; });
     S.todo = items.filter(function (x) { return Number(x.n) > 0; }).map(function (x) {
       return { key: x.key, n: Number(x.n) || 0, label: todoName(x), url: x.url || x.href || x.link || x.path || TODO_URL[x.key] || '/mywork' };
     });
@@ -881,32 +893,40 @@ function annivOn(d) {
 }
 
 //  🔔 결재 차례
+//  결재할 문서 수 — 찾은 문서 수와 포털 첫 화면이 센 수 중 큰 것(문서를 다 못 찾아도 숫자는 포털과 같게)
+function waitCount() { return Math.max(S.apprWait.length, S.todoAppr || 0); }
 function checkWait() {
-  var now = {}, fresh = [], today = ymd(new Date());
+  var now = {}, fresh = [], today = ymd(new Date()), cnt = waitCount();
   S.apprWait.forEach(function (x) { now[x.id] = 1; });
   var A = DATA.alerted || (DATA.alerted = {});
-  if (S.seenWait === null) { if (S.apprWait.length && A.day !== today) fresh = S.apprWait.slice(); }
-  else fresh = S.apprWait.filter(function (x) { return !S.seenWait[x.id]; });
-  S.seenWait = now;
-  if (!fresh.length) return;
+  var grew = false;
+  if (S.seenWait === null) { if (cnt && A.day !== today) { fresh = S.apprWait.slice(); grew = !fresh.length; } }
+  else {
+    fresh = S.apprWait.filter(function (x) { return !S.seenWait[x.id]; });
+    //  문서를 못 찾았어도 포털이 센 수가 늘었으면 새 결재가 온 것이다
+    grew = !fresh.length && S.prevN != null && (S.todoAppr || 0) > S.prevN;
+  }
+  S.seenWait = now; S.prevN = S.todoAppr || 0;
+  if (!fresh.length && !grew) return;
   A.day = today; saveData(false);
   var mode = P().alert;
   if (mode === 'off') return;
-  notify('📄 결재할 문서가 ' + S.apprWait.length + '건 있습니다', fresh.map(function (x) { return x.title; }).slice(0, 3).join(' · '), fresh.length === 1 ? '/approval?doc=' + fresh[0].id : '/approval');
+  notify('📄 결재할 문서가 ' + cnt + '건 있습니다', fresh.length ? fresh.map(function (x) { return x.title; }).slice(0, 3).join(' · ') : '포털 결재함에서 확인해 주세요', fresh.length === 1 ? '/approval?doc=' + fresh[0].id : '/approval');
   if (mode === 'pop') showAlert();
 }
 var ALERT = 'wait';
 function showAlert() {
-  var L = S.apprWait;
-  if (!L.length) return;
+  var L = S.apprWait, cnt = waitCount();
+  if (!cnt) return;
   ALERT = 'wait';
   $('#aBell').textContent = '🔔';
-  $('#aBig').textContent = '📄 결재할 문서가 ' + L.length + '건 있습니다';
+  $('#aBig').textContent = '📄 결재할 문서가 ' + cnt + '건 있습니다';
   $('#aSub').textContent = '내 결재 차례가 된 문서입니다';
   $('#aGo').textContent = '결재하러 가기'; $('#aGo').style.display = '';
   $('#aList').innerHTML = L.slice(0, 6).map(function (x) {
     return '<div class="row" data-adoc="' + esc(x.id) + '"><i>📄</i><div class="tx"><b>' + esc(x.title) + '</b><small>' + esc(x.who) + (x.date ? ' · ' + esc(x.date) : '') + (x.label ? ' · ' + esc(x.label) : '') + '</small></div></div>';
-  }).join('') + (L.length > 6 ? '<div class="empty">… 외 ' + (L.length - 6) + '건</div>' : '');
+  }).join('') + (L.length > 6 ? '<div class="empty">… 외 ' + (L.length - 6) + '건</div>' : '')
+    + (cnt > L.length ? '<div class="row" data-aopen="/approval"><i>📂</i><div class="tx"><b>포털 결재함에 ' + (cnt - L.length) + '건 더</b><small>눌러서 결재함 열기</small></div></div>' : '');
   $('#alertDlg').classList.add('on');
   win('alert');
 }
@@ -945,12 +965,15 @@ function checkRemind() {
 function hideAlert() { $('#alertDlg').classList.remove('on'); win('back'); }
 $('#aLater').onclick = hideAlert;
 $('#aGo').onclick = function () { var L = S.apprWait; hideAlert(); openPortal(L.length === 1 ? '/approval?doc=' + L[0].id : '/approval'); };
-$('#aList').onclick = function (e) { var r = e.target.closest('[data-adoc]'); if (r) { hideAlert(); openDoc(r.getAttribute('data-adoc')); } };
+$('#aList').onclick = function (e) {
+  var r = e.target.closest('[data-adoc]'); if (r) { hideAlert(); openDoc(r.getAttribute('data-adoc')); return; }
+  var o = e.target.closest('[data-aopen]'); if (o) { hideAlert(); openPortal(o.getAttribute('data-aopen')); }
+};
 
 var polling = false;
 function poll() {
   if (polling) return;
-  polling = true;
+  polling = true; S.lastPoll = Date.now();
   var jobs = [loadAppr(), loadTodo(), loadMsgs(), loadEvents()].map(function (p) { return p.catch(function (e) { return e; }); });
   Promise.all(jobs).then(function () { return S.login ? decideWait().catch(function () {}) : null; })
     .then(function () {
@@ -1079,11 +1102,12 @@ function draw() {
   syncMark();
 }
 function drawSide() {
-  var w = S.apprWait;
-  $('#nWait').textContent = w.length; $('#nWait').className = 'n' + (w.length ? ' hot' : '');
-  $('#lWait').innerHTML = !S.login ? '<div class="empty">로그인하면 보입니다</div>' : (w.length ? w.map(function (x) {
+  var w = S.apprWait, wc = waitCount();
+  $('#nWait').textContent = wc; $('#nWait').className = 'n' + (wc ? ' hot' : '');
+  $('#lWait').innerHTML = !S.login ? '<div class="empty">로그인하면 보입니다</div>' : (wc ? w.map(function (x) {
     return '<div class="row" data-doc="' + esc(x.id) + '"><i>✍</i><div class="tx"><b>' + esc(x.title) + '</b><small>' + esc(x.who) + (x.date ? ' · ' + esc(x.date) : '') + '</small></div></div>';
-  }).join('') : '<div class="empty">결재할 문서가 없습니다 👍</div>');
+  }).join('') + (wc > w.length ? '<div class="row" data-open="/approval"><i>📂</i><div class="tx"><b>포털 결재함에 ' + (wc - w.length) + '건' + (w.length ? ' 더' : '') + '</b><small>눌러서 결재함 열기</small></div></div>' : '')
+    : '<div class="empty">결재할 문서가 없습니다 👍</div>');
   //  ☑ 할 일(내 것 — 동기화)
   var T = DATA.todos || [];
   $('#nTd').textContent = T.filter(function (x) { return !x.done; }).length;
@@ -1119,7 +1143,7 @@ function drawSide() {
 }
 function drawBadges() {
   var b = '';
-  if (S.apprWait.length) b += '<span class="bdg hot" id="bdWait">✍ 결재 ' + S.apprWait.length + '</span>';
+  if (waitCount()) b += '<span class="bdg hot" id="bdWait">✍ 결재 ' + waitCount() + '</span>';
   var dm = S.msgs.filter(function (x) { return x.kind === 'dm'; }).length;
   if (dm) b += '<span class="bdg" data-open="/chat">💬 ' + dm + '</span>';
   $('#badges').innerHTML = b;
@@ -1202,6 +1226,17 @@ function goDate(d) {
   else { S.cur = new Date(d + 'T00:00:00'); S.cur.setDate(1); }
   draw(); loadEvents().catch(function () {}).then(draw);
 }
+//  🔄 새로고침 — 포털에서 바로 다시 받아 온다(결재 차례는 문서마다 새로 묻는다)
+function refreshNow() {
+  STEPCACHE = {};
+  var b = $('#refBtn'); b.disabled = true; b.style.opacity = .5;
+  poll();
+  setTimeout(function () { b.disabled = false; b.style.opacity = ''; }, 1500);
+}
+$('#refBtn').onclick = refreshNow;
+//  달력 창을 다시 볼 때(다른 창에서 돌아오기 · 앞으로 불러내기) — 마지막으로 받은 지 15초가 넘었으면 바로 새로고침
+window.addEventListener('focus', function () { if (Date.now() - (S.lastPoll || 0) > 15000) { STEPCACHE = {}; poll(); } });
+document.addEventListener('visibilitychange', function () { if (!document.hidden && Date.now() - (S.lastPoll || 0) > 15000) poll(); });
 $('#prev').onclick = function () { move(-1); };
 $('#next').onclick = function () { move(1); };
 $('#todayBtn').onclick = function () { S.wofs = 0; goDate(ymd(new Date())); };

@@ -1,7 +1,7 @@
 {
- "version": "1.4.0",
- "file": "hanil-cal-v1.4.0.exe",
- "size": 7602176,
- "sha256": "79c9fab5051b64a39e1adbb803ec984e21118dfac6189f94a74d68d4beac493c",
- "notes": "📝 메모장을 넣었습니다(옆 칸 「＋ 새 메모」)."
+ "version": "1.4.1",
+ "file": "hanil-cal-v1.4.1.exe",
+ "size": 7605248,
+ "sha256": "d57be445aa1634f67194db1e1fa5329d006f211f9c0d373c38d60eca25fe5b0a",
+ "notes": "결재할 문서가 0 으로 나오던 것 고침 · 🔄 새로고침 단추"
 }

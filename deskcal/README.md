@@ -3,10 +3,16 @@
 DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그램에 **회사 포털을 붙였습니다.**
 결재 문서 · 회사 일정 · 쪽지가 달력에 나오고, 메모는 **다른 PC·폰과 동기화**되며, **개인 구글 캘린더**와도 주고받습니다.
 
-**[⬇ hanil-cal-v1.4.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.4.0.exe)** (직원 PC, 설치 파일 하나)
+**[⬇ hanil-cal-v1.4.1.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.4.1.exe)** (직원 PC, 설치 파일 하나)
 · **[⬇ hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** (포털 서버 — 회사 일정·자동 휴일·동기화·구글·폰 달력)
 
 ![달력 화면](docs/calendar.png)
+
+## 1.4.1
+- **결재할 문서가 0 으로 나오던 것** — 포털은 내 차례 문서를 결재함 응답의 `waiting` 이 아닌 다른 칸에 준다.
+  이제 끝난 것·내가 올린 것·참조 칸을 뺀 **모든 목록 칸**을 모아 문서마다 `my_turn` 으로 가린다.
+  그래도 못 찾은 것이 있으면 **포털 첫 화면이 센 「결재할 문서」 수**를 따르고 「포털 결재함에 N건」 으로 이어 준다(그 수가 늘면 알림).
+- **🔄 새로고침 단추**(머리줄) — 30초마다 저절로 하는 것과 별도로 바로. 달력 창으로 돌아올 때도 바로 새로고침.
 
 ## 1.4.0 — 📝 메모장
 옆 칸의 **「📝 메모장」** — 날짜와 상관없는 간단한 메모(연락처·할 말·참고 글 …).
@@ -106,7 +112,7 @@ DesktopCal 처럼 **바탕화면 자체가 달력**이 되는 Windows 프로그�
 ## 설치
 
 ### 직원 PC
-`hanil-cal-v1.4.0.exe` 를 두 번 누르면 끝(관리자 권한 필요 없음). `%LOCALAPPDATA%\HanilCal\app\` 에 스스로 설치하고 아이콘·시작프로그램을 만듭니다.
+`hanil-cal-v1.4.1.exe` 를 두 번 누르면 끝(관리자 권한 필요 없음). `%LOCALAPPDATA%\HanilCal\app\` 에 스스로 설치하고 아이콘·시작프로그램을 만듭니다.
 처음 한 번 **「로그인」** 띠를 눌러 포털 로그인(2단계 인증 포함 그대로) — 「로그인 유지」를 켜 두세요.
 
 > **파일이 안 열릴 때** — "Windows의 PC 보호" → **[추가 정보]** → **[실행]** (사내 프로그램이라 서명이 없어서).

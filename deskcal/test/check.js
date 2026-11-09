@@ -65,7 +65,17 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
 
   ok(await pg.$('.chip.wait[data-doc="101"]') !== null, '결재할 문서가 기안일 칸에 보인다');
   ok(await pg.$('.chip.wait[data-doc="201"]') === null && await pg.$('[data-doc="201"]') !== null, '내 차례가 아닌 문서(앞사람 차례)는 「결재할 문서」 가 아니다');
-  ok((await pg.textContent('#nWait')) === '1', '결재할 문서 = 문서의 my_turn 이 참인 것만(1건)');
+  ok((await pg.textContent('#nWait')) === '1', '결재할 문서 = 문서의 my_turn 이 참인 것만(1건) — waiting 이 아닌 칸에 와도 찾는다');
+  //  포털이 센 수가 더 크면(문서를 다 못 찾아도) 숫자는 포털과 같게 + 결재함으로
+  await fetch(P + '/__test/extra?n=2', { method: 'POST' });
+  await pg.click('#refBtn');
+  await pg.waitForFunction(() => document.querySelector('#nWait').textContent === '3', null, { timeout: 8000 });
+  ok((await pg.textContent('#lWait')).includes('포털 결재함에 2건 더'), '🔄 새로고침 · 포털이 센 결재 수(3)를 따른다 — 못 찾은 2건은 결재함으로');
+  if (await pg.$('#alertDlg.on')) await pg.click('#aLater');
+  await fetch(P + '/__test/extra?n=0', { method: 'POST' });
+  await pg.click('#refBtn');
+  await pg.waitForFunction(() => document.querySelector('#nWait').textContent === '1', null, { timeout: 8000 });
+  if (await pg.$('#alertDlg.on')) await pg.click('#aLater');
   ok((await pg.textContent('#lTodo')).includes('납기 지난 발주') && !(await pg.textContent('#lTodo')).includes('po_overdue'), '포털 할 일 이름을 우리말로');
   await pg.hover('#lTodo [data-hidetodo="recon"]'.replace('"recon"', '"recon"'));
   await pg.click('#lTodo [data-hidetodo="recon"]');

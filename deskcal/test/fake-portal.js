@@ -32,7 +32,11 @@ app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
 app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/')); });
 app.get('/api/version', (req, res) => res.json({ version: '15.80.0' }));
 const need = (req, res, next) => (req.session.user ? next() : res.status(401).json({ ok: false, error: 'login' }));
-app.get('/api/apprdoc/list', need, (req, res) => res.json({ waiting, mine, done }));
+//  ⚠ 진짜 포털처럼 — 내 차례 문서는 waiting 이 아닌 다른 칸(todo)에, waiting 에는 앞사람 차례 문서
+const isMine = (x) => { const c = (steps[x.id] || []).find((s) => s.role !== '작성' && s.state !== 'ok'); return c && c.name === '김부장'; };
+app.get('/api/apprdoc/list', need, (req, res) => res.json({ todo: waiting.filter(isMine), waiting: waiting.filter((x) => !isMine(x)), mine, done }));
+let extraN = 0;   //  포털이 센 수만 더 크게(달력이 문서를 다 못 찾는 경우 시험)
+app.post('/__test/extra', (req, res) => { extraN = Number(req.query.n) || 0; res.json({ ok: true }); });
 app.get('/api/appr/:id/print', (req, res) => {
   if (!req.session.user) return res.redirect('/');
   res.set('X-Frame-Options', 'DENY').send(`<!doctype html><meta charset=utf-8><body style="font-family:sans-serif;padding:30px"><h2>결재 문서 #${req.params.id}</h2><table border=1 cellpadding=8><tr><td>기안</td><td>검토</td><td>승인</td></tr><tr><td>박대리</td><td>✓</td><td></td></tr></table><p>종이 화면입니다.</p></body>`);
@@ -40,7 +44,7 @@ app.get('/api/appr/:id/print', (req, res) => {
 app.post('/api/appr/:id/act', need, (req, res) => res.json({ ok: true }));
 //  ⚠ 진짜 포털처럼 이름 없이 열쇠만 준다
 //  ⚠ 진짜 포털처럼 결재 수(appr)는 없다 — 결재 차례는 문서의 my_turn 으로만 안다
-app.get('/api/my-today', need, (req, res) => res.json({ items: [{ key: 'po_overdue', n: 5 }, { key: 'mailbox', n: 269 }, { key: 'recon', n: 575 }] }));
+app.get('/api/my-today', need, (req, res) => res.json({ items: [{ key: 'appr', label: '결재할 문서', n: myTurn() + extraN }, { key: 'po_overdue', n: 5 }, { key: 'mailbox', n: 269 }, { key: 'recon', n: 575 }] }));
 app.get('/api/appr/:id(\\d+)', need, (req, res) => {
   const x = waiting.concat(mine, done).find((y) => y.id === +req.params.id);
   if (!x) return res.status(404).json({ ok: false });
