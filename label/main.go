@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-const VERSION = "2.9.0"
+const VERSION = "2.10.0"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 라벨 발행기"
@@ -150,6 +150,11 @@ func main() {
 		}
 		logf("예전 판(%s)이 떠 있음 — 내리고 새로 연다", v)
 		killOld = true
+	}
+	//  🔄 지난번에 받아 둔 새 판이 있으면 **창을 띄우기 전에** 그 판으로 바꾼다(사용자 「실행시마다 자동으로 업그레이드」)
+	//    새 판이 떠 있는 예전 판을 내리고 설치한 뒤 다시 뜬다 — 이 실행은 여기서 끝.
+	if applyPendingAtStart() {
+		return
 	}
 	//  🧹 빈 창의 원인들을 치운다 — 남은 Edge, 예전 판, 창 자리 기억(전체 화면으로 굳은 것)
 	logf("치우기: %s", cleanupStale(profileDir(), os.Getpid(), killOld))

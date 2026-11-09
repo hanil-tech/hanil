@@ -8,6 +8,10 @@ package main
 //	3. 키오스크가 「한가할 때」 — 3분 동안 아무도 안 써서 언어 고르기 화면으로 돌아갈 때(page.html) — 받은 exe 를 띄운다 →
 //	   그 exe 가 스스로 설치(install.go: 떠 있는 예전 판을 내리고 app\ 에 덮어쓰기)하고 새 판으로 다시 뜬다.
 //	   ⚠ 라벨을 찾거나 뽑는 중에는 절대 안 바꾼다. 계정·설정·프린터 고른 것은 그대로.
+//	⭐ v2.10.0 — 사용자 「실행할 때마다 자동으로 업그레이드」
+//	   · 켤 때 **지난번에 받아 둔 새 판이 있으면 창을 띄우기 전에 바로 그 판으로** 바꾼다(applyPendingAtStart)
+//	   · 확인은 켜고 5초 뒤(30초 → 5초)
+//	   · 받고 나면 첫 화면에서 20초쯤 아무도 안 쓸 때 바로 바꾼다(3분을 기다리지 않는다 — page.html)
 //	끄기: hanil-label.ini 에 AUTOUPDATE=0
 
 import (
@@ -70,9 +74,9 @@ func autoUpdateLoop() {
 		return
 	}
 	cleanUpdates()
-	//  ⭐ 켤 때 한 번만 확인한다(사용자 「실행할 때만 체크하면 되지」).
-	//    윈도우가 막 켜졌을 때는 인터넷이 아직 안 붙어 있을 수 있다 → 30초 뒤, 안 되면 1분 간격으로 두 번 더.
-	wait, again := 30*time.Second, time.Minute
+	//  ⭐ 켤 때마다 확인한다(사용자 「실행할 때만 체크하면 되지」 · 「실행시마다 자동으로 업그레이드」).
+	//    윈도우가 막 켜졌을 때는 인터넷이 아직 안 붙어 있을 수 있다 → 5초 뒤, 안 되면 1분 간격으로 두 번 더.
+	wait, again := 5*time.Second, time.Minute
 	if test {
 		wait, again = time.Second, time.Second
 	}
@@ -187,6 +191,10 @@ func checkUpdate() (string, error) {
 	if err := os.Rename(dst+".part", dst); err != nil {
 		return "", err
 	}
+	//  다음에 켤 때 바로 쓸 수 있게 «무엇을 받았는지» 를 옆에 적어 둔다(applyPendingAtStart)
+	if b, err := json.Marshal(pendingInfo{Version: in.Version, Size: in.Size, SHA256: in.SHA256}); err == nil {
+		_ = os.WriteFile(dst+".ok", b, 0o644)
+	}
 	updMu.Lock()
 	updReady, updExe, updNotes = in.Version, dst, in.Notes
 	updMu.Unlock()
@@ -213,4 +221,71 @@ func applyUpdate() bool {
 	}
 	go c.Wait()
 	return true
+}
+
+// ── 켤 때 바로 바꾸기 ──
+
+type pendingInfo struct {
+	Version string `json:"version"`
+	Size    int64  `json:"size"`
+	SHA256  string `json:"sha256"`
+	Tries   int    `json:"tries"`
+}
+
+// 지난번에 받아 맞춰 본 새 판이 update\ 에 있으면 그것을 --update 로 띄우고 true(이 실행은 끝낸다).
+//
+//	⚠ 파일을 다시 한 번 크기·SHA-256 으로 맞춰 본다(받은 뒤 바뀌었으면 안 쓴다).
+//	⚠ 두 번 띄웠는데도 안 바뀌었으면(설치 실패) 그 파일은 버린다 — 켤 때마다 같은 실패를 되풀이하지 않게.
+func applyPendingAtStart() bool {
+	test := os.Getenv("HANILLABEL_UPDATE_TEST") == "1"
+	if (runtime.GOOS != "windows" && !test) || !conf.AutoUpdate {
+		return false
+	}
+	ents, err := os.ReadDir(updDir())
+	if err != nil {
+		return false
+	}
+	for _, e := range ents {
+		if !strings.HasSuffix(strings.ToLower(e.Name()), ".exe") {
+			continue
+		}
+		exe := filepath.Join(updDir(), e.Name())
+		var pi pendingInfo
+		b, err := os.ReadFile(exe + ".ok")
+		if err != nil || json.Unmarshal(b, &pi) != nil || !newer(pi.Version, VERSION) {
+			continue
+		}
+		if pi.Tries >= 2 {
+			logf("받아 둔 새 판 v%s 이 두 번 바뀌지 않아 버립니다", pi.Version)
+			_ = os.Remove(exe)
+			_ = os.Remove(exe + ".ok")
+			continue
+		}
+		f, err := os.Open(exe)
+		if err != nil {
+			continue
+		}
+		h := sha256.New()
+		n, _ := io.Copy(h, f)
+		f.Close()
+		if n != pi.Size || !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), pi.SHA256) {
+			logf("받아 둔 새 판 v%s 이 맞지 않아 버립니다", pi.Version)
+			_ = os.Remove(exe)
+			_ = os.Remove(exe + ".ok")
+			continue
+		}
+		pi.Tries++
+		if b, err := json.Marshal(pi); err == nil {
+			_ = os.WriteFile(exe+".ok", b, 0o644)
+		}
+		logf("켤 때 받아 둔 새 판 v%s 으로 바꿉니다", pi.Version)
+		c := exec.Command(exe, "--update")
+		c.Dir = filepath.Dir(exe)
+		if err := c.Start(); err != nil {
+			logf("새 판을 못 띄움: %v", err)
+			continue
+		}
+		return true
+	}
+	return false
 }

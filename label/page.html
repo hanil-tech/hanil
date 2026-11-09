@@ -422,6 +422,18 @@ function idleReset(){
   idleT=setTimeout(function(){ if(!busy && !document.body.classList.contains('pick') && !$('q').value){ showLang(); try{ fetch('/__label/update',{method:'POST'}).catch(function(){}); }catch(e){} idleReset(); } else idleReset(); }, 180000);
 }
 ['keydown','mousedown','touchstart'].forEach(function(ev){ document.addEventListener(ev, idleReset, true); });
+//  🔄 새 판을 받아 두었으면 «조금 쉴 때» 바로 바꾼다(사용자 「실행시마다 자동으로 업그레이드」)
+//   첫 화면(찾기·언어)에서 20초 동안 아무도 안 만지고, 라벨을 고르거나 뽑는 중이 아니면 — 3분을 기다리지 않는다.
+var lastTouch=Date.now();
+['keydown','mousedown','touchstart','input'].forEach(function(ev){ document.addEventListener(ev, function(){ lastTouch=Date.now(); }, true); });
+setInterval(function(){
+  if(busy || document.body.classList.contains('pick') || $('q').value || Date.now()-lastTouch<20000) return;
+  fetch('/__label/updstate',{cache:'no-store'}).then(function(r){ return r.ok ? r.text() : ''; }).then(function(v){
+    if(!v || busy || document.body.classList.contains('pick') || $('q').value || Date.now()-lastTouch<20000) return;
+    toast('🔄 v'+v, 'ok');
+    fetch('/__label/update',{method:'POST'}).catch(function(){});
+  }).catch(function(){});
+}, 10000);
 
 
 //  ── 포털 연결 ───────────────────────────────────────────

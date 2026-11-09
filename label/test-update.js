@@ -29,6 +29,15 @@ const rel = http.createServer((q, s) => {
   for (let i = 0; i < 20 && !fs.existsSync(MARK); i++) await sleep(200);
   ok(r.status === 200 && fs.existsSync(MARK) && fs.readFileSync(MARK, 'utf8').includes('--update'), '쉴 때 부르면 새 판을 「--update」 로 띄운다');
   gw.kill(); rel.close();
+  await sleep(300);
+  //  ⭐ v2.10.0 — 다시 켜면(실행할 때마다) 받아 둔 새 판으로 **창을 띄우기 전에** 바로 바꾼다
+  fs.unlinkSync(MARK);
+  const gw2 = spawn(BIN, ['--url=http://127.0.0.1:1', '--port=' + GP, '--browser=/bin/true', '--updateurl=http://127.0.0.1:' + RP + '/'],
+    { env: Object.assign({}, process.env, { LOCALAPPDATA: path.join(tmp, 'local'), HANILLABEL_UPDATE_TEST: '1' }) });
+  let exited = false; gw2.on('exit', () => { exited = true; });
+  for (let i = 0; i < 30 && !(exited && fs.existsSync(MARK)); i++) await sleep(200);
+  ok(exited && fs.existsSync(MARK) && fs.readFileSync(MARK, 'utf8').includes('--update'), '다시 켜면 받아 둔 새 판을 바로 띄우고 이 실행은 끝낸다');
+  if (!exited) gw2.kill();
   console.log(`\n✅ ${pass} · ❌ ${fail}`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
