@@ -1,7 +1,7 @@
 {
- "version": "1.4.1",
- "file": "hanil-cal-v1.4.1.exe",
- "size": 7605248,
- "sha256": "d57be445aa1634f67194db1e1fa5329d006f211f9c0d373c38d60eca25fe5b0a",
- "notes": "결재할 문서가 0 으로 나오던 것 고침 · 🔄 새로고침 단추"
+ "version": "1.4.2",
+ "file": "hanil-cal-v1.4.2.exe",
+ "size": 7608320,
+ "sha256": "ae187fb1b3405d9fb1ef0bbc7830d7dea4a8024844a925e1d1dca25d30ba5353",
+ "notes": "문서를 열면 「포털에 연결되지 않았습니다」 가 뜨던 것 고침"
 }

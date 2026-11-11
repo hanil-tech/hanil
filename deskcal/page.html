@@ -738,15 +738,19 @@ function decideWait() {
     checkWait();
   };
   if (n === 0) return Promise.resolve(done([]));
-  return Promise.all(list.slice(0, 40).map(function (x) {
-    var c = STEPCACHE[x.id];
-    if (c && Date.now() - c.at < 60000) return Promise.resolve(c);
+  //  ⚠ 포털에 한꺼번에 많이 물으면 포털이 버거워 끊긴다 → 최근 25개까지, 4개씩 차례로 · 2분 동안은 다시 안 묻는다
+  var todo = list.slice(0, 25), res = new Array(todo.length), at = 0;
+  function one(i) {
+    var x = todo[i], c = STEPCACHE[x.id];
+    if (c && Date.now() - c.at < 120000) { res[i] = c; return Promise.resolve(); }
     return api('/api/appr/' + x.id).then(function (d) {
       var v = { at: Date.now(), turn: d.my_turn !== undefined ? d.my_turn : (d.doc && d.doc.my_turn), st: curStep(d.steps) };
-      STEPCACHE[x.id] = v; return v;
-    }).catch(function () { return null; });
-  })).then(function (res) {
-    var keep = list.filter(function (x, i) {
+      STEPCACHE[x.id] = v; res[i] = v;
+    }).catch(function () { res[i] = null; });
+  }
+  function worker() { if (at >= todo.length) return Promise.resolve(); var i = at++; return one(i).then(worker); }
+  return Promise.all([worker(), worker(), worker(), worker()]).then(function () {
+    var keep = todo.filter(function (x, i) {
       var r = res[i];
       if (!r) return n == null || n > 0;                                        //  못 열었다 — 포털이 센 수가 있으면 남긴다
       if (r.turn !== undefined && r.turn !== null) return !!r.turn && r.turn !== '0' && r.turn !== 'N';
@@ -755,7 +759,7 @@ function decideWait() {
       return true;
     });
     if (n > 0 && keep.length > n) keep = keep.slice(0, n);
-    diag('turns', { n: n, cand: list.length, keep: keep.length, res: res.slice(0, 12).map(function (r, i) { return [list[i].id, r ? r.turn : 'x', r && r.st ? r.st.name : '']; }) });
+    diag('turns', { n: n, cand: list.length, keep: keep.length, res: res.slice(0, 12).map(function (r, i) { return [todo[i].id, r ? r.turn : 'x', r && r.st ? r.st.name : '']; }) });
     done(keep);
   });
 }

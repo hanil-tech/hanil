@@ -37,6 +37,9 @@ const isMine = (x) => { const c = (steps[x.id] || []).find((s) => s.role !== '�
 app.get('/api/apprdoc/list', need, (req, res) => res.json({ todo: waiting.filter(isMine), waiting: waiting.filter((x) => !isMine(x)), mine, done }));
 let extraN = 0;   //  포털이 센 수만 더 크게(달력이 문서를 다 못 찾는 경우 시험)
 app.post('/__test/extra', (req, res) => { extraN = Number(req.query.n) || 0; res.json({ ok: true }); });
+//  끊김 시험 — 777: 3초 늦게 답함(화면이 그만두기) · 778: 연결을 끊어 버림(포털은 살아 있음)
+app.get('/api/appr/777/print', (req, res) => setTimeout(() => res.send('늦은 종이'), 3000));
+app.get('/api/appr/778/print', (req, res) => req.socket.destroy());
 app.get('/api/appr/:id/print', (req, res) => {
   if (!req.session.user) return res.redirect('/');
   res.set('X-Frame-Options', 'DENY').send(`<!doctype html><meta charset=utf-8><body style="font-family:sans-serif;padding:30px"><h2>결재 문서 #${req.params.id}</h2><table border=1 cellpadding=8><tr><td>기안</td><td>검토</td><td>승인</td></tr><tr><td>박대리</td><td>✓</td><td></td></tr></table><p>종이 화면입니다.</p></body>`);

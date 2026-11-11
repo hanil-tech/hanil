@@ -126,6 +126,16 @@ const ymd = (t) => t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, 
   await sleep(200);
   ok(/열기: http:\/\/127\.0\.0\.1:3998\/approval\?doc=101/.test(gw.out), '「포털에서 결재하기」 → 평소 브라우저로 결재 화면');
 
+  //  🔌 화면이 요청을 그만둬도(문서 창 닫기) · 요청 하나가 실패해도 「포털 끊김」 이 되지 않는다
+  const ac = new AbortController();
+  fetch(G + '/api/appr/777/print', { signal: ac.signal }).catch(() => {});
+  await sleep(300); ac.abort(); await sleep(500);
+  ok(!!(await (await fetch(G + '/__cal/state')).json()).portal, '요청을 중간에 그만둬도 포털이 끊긴 것으로 치지 않는다');
+  const r778 = await fetch(G + '/api/appr/778/print');
+  const t778 = await r778.text();
+  ok(r778.status === 502 && t778.includes('다시 시도') && !!(await (await fetch(G + '/__cal/state')).json()).portal, '문서 하나가 실패해도 끊김이 아니고, 종이 대신 「다시 시도」 안내');
+  ok(!(await pg.$('#banner.off')), '달력에 「연결되지 않았습니다」 가 뜨지 않는다');
+
   //  📅 회사 일정 등록
   const t = new Date(), td = ymd(t);
   await pg.click('#addBtn');

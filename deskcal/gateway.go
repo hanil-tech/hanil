@@ -15,9 +15,11 @@ package main
 //	⚠ 포털의 문지기(로그인·권한·CSRF)는 그대로 거친다 — 관문은 **좁히기만** 하고 넓히지 않는다.
 
 import (
+	"context"
 	"crypto/tls"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -93,7 +95,7 @@ func (g *gateway) transport(u *url.URL) *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	//  ⚠ 사내 주소는 인증서가 제 이름이 아닐 수 있다 — **사내망 주소일 때만** 눈감아 준다
 	t.TLSClientConfig = &tls.Config{InsecureSkipVerify: isLAN(u.String())}
-	t.ResponseHeaderTimeout = 30 * time.Second
+	t.ResponseHeaderTimeout = 90 * time.Second //  문서 종이(인쇄 화면)는 만드는 데 오래 걸릴 수 있다
 	g.tr[k] = t
 	return t
 }
@@ -382,16 +384,35 @@ func (g *gateway) proxy(up *url.URL) *httputil.ReverseProxy {
 		},
 		ModifyResponse: func(res *http.Response) error { return g.fixResponse(res, up) },
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			logf("포털 연결 끊김 %s %s: %v", r.Method, r.URL.Path, err)
-			g.mu.Lock()
-			g.upstream = nil
-			g.tried = []string{up.String() + "  →  연결이 끊겼습니다"}
-			g.mu.Unlock()
-			if strings.HasPrefix(r.URL.Path, "/api/") {
-				jsonErr(w, http.StatusBadGateway, map[string]any{"ok": false, "offline": true, "error": "회사 포털에 연결되지 않았습니다"})
+			//  ⚠⚠ 화면이 요청을 그만둔 것(문서 창 닫기 · 다른 문서 누르기 · 새로고침)은 끊김이 아니다 —
+			//    예전에는 이것도 «포털 끊김» 으로 보고 1분 동안 달력 전체를 「연결 안 됨」 으로 만들었다
+			if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
 				return
 			}
-			http.Redirect(w, r, startPath, http.StatusFound)
+			//  요청 하나가 실패했다고 끊긴 것은 아니다 — 포털에 한 번 더 물어보고 정말 안 될 때만 「끊김」
+			alive, _ := probe(up.String(), 2)
+			logf("포털 요청 실패 %s %s: %v (포털 살아 있음=%v)", r.Method, r.URL.Path, err, alive)
+			if !alive {
+				g.mu.Lock()
+				g.upstream = nil
+				g.tried = []string{up.String() + "  →  연결이 끊겼습니다"}
+				g.mu.Unlock()
+			}
+			msg := "포털이 답하지 않았습니다 — 잠시 뒤 다시 해 주세요"
+			if !alive {
+				msg = "회사 포털에 연결되지 않았습니다"
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/") && !reApprPrint.MatchString(r.URL.Path) {
+				jsonErr(w, http.StatusBadGateway, map[string]any{"ok": false, "offline": !alive, "error": msg})
+				return
+			}
+			//  문서 종이(틀 안) — 날 JSON 대신 사람이 읽을 안내와 「다시 시도」
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusBadGateway)
+			fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><body style="font:15px/1.6 'Malgun Gothic',sans-serif;color:#444;text-align:center;padding:60px 20px">`+
+				`<div style="font-size:40px">📄</div><b>문서를 불러오지 못했습니다</b><br><span style="color:#888">`+htmlEsc(msg)+`</span><br><br>`+
+				`<button onclick="location.reload()" style="border:0;background:#2954A5;color:#fff;border-radius:8px;padding:9px 20px;font-size:15px;cursor:pointer">다시 시도</button></body>`)
 		},
 	}
 }
@@ -496,3 +517,7 @@ const loginNote = `<div style="position:fixed;left:0;right:0;bottom:0;background
 	`font:14px/1.6 'Malgun Gothic',sans-serif;text-align:center;padding:9px">` +
 	`📅 <b>한일 바탕화면 달력 v` + VERSION + `</b> · 로그인하면 달력에 결재·알림이 나옵니다 · 「로그인 유지」를 켜 두세요` +
 	` · <a href="/cal" style="color:#9cc3f0">달력으로 돌아가기</a></div>`
+
+func htmlEsc(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)
+}

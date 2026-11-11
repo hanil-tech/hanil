@@ -36,7 +36,7 @@ import (
 	"time"
 )
 
-const VERSION = "1.4.1"
+const VERSION = "1.4.2"
 
 // 바탕화면·시작 메뉴 아이콘 이름
 const shortcutName = "한일 바탕화면 달력"
@@ -133,9 +133,9 @@ func main() {
 	gw := newGateway()
 	gw.pickUpstream()
 	go func() {
-		//  ⚠ 회사 밖에서 켰다가 사내망에 붙는 노트북 — 끊겨 있으면 1분마다 다시 고른다
+		//  ⚠ 회사 밖에서 켰다가 사내망에 붙는 노트북 · 잠깐 끊겼던 포털 — 끊겨 있으면 15초마다 다시 고른다
 		for {
-			time.Sleep(time.Minute)
+			time.Sleep(15 * time.Second)
 			if gw.current() == nil {
 				gw.pickUpstream()
 			}
