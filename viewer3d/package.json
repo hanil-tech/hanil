@@ -1,0 +1,17 @@
+{
+  "name": "hanil-viewer3d",
+  "version": "1.3.0",
+  "private": true,
+  "description": "한일특장 도면 미리보기 — 3D(STEP·IGES) + 2D(DWG·DXF) · 폰 앱 안 + 포털 + PC 단독 HTML",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "occt-import-js": "0.0.23",
+    "three": "0.170.0",
+    "@mlightcad/libredwg-web": "0.7.14"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

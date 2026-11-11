@@ -1,0 +1,129 @@
+' =====================================================================
+'  한일특장 - CATIA -> STP 변환기 v2 (CATIA V5 매크로)
+'
+'  두 가지로 씁니다.
+'   1) 손으로: CATIA 에서 「도구 -> 매크로 -> 매크로(Alt+F8)」 -> 이 파일 -> 실행
+'      -> 폴더를 고르면 그 안(하위 폴더까지)의 CATIA 파일을 바꿔 「STP」 폴더에 저장
+'   2) 자동으로: run_convert.bat 이 CATIA 를 화면 없이(batch) 띄워 이 매크로를 돌립니다.
+'      (폴더는 run_convert.bat 맨 위에서 정합니다 - 창이 안 뜨고 기록만 남깁니다)
+'
+'  바꾸는 것
+'   .CATPart · .CATProduct  ->  이름.CATPart.stp · 이름.CATProduct.stp  (3D, 도면 보기에서 돌려 봄)
+'   .CATDrawing             ->  이름.CATDrawing.dxf                     (2D, 도면 보기에서 봄)
+'  ※ 하위 폴더 구조를 그대로 따라 만듭니다.
+'  ※ 이미 바꾼 것(결과가 원본보다 새것)은 건너뜁니다 -> 몇 번 돌려도 새로 바뀐 것만 바꿉니다.
+'  ※ 3분 안에 고친 파일은 저장 중일 수 있어 다음 차례로 미룹니다.
+'  ※ 결과 폴더에 「변환기록.txt」 가 쌓입니다(실패한 파일과 까닭).
+' =====================================================================
+Dim fso, outRoot, batch, ok, bad, skip, logTxt
+
+Sub CATMain()
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    Dim sh, src
+    Set sh = CreateObject("WScript.Shell")
+    src = sh.ExpandEnvironmentStrings("%HANIL_STP_SRC%")
+    outRoot = sh.ExpandEnvironmentStrings("%HANIL_STP_OUT%")
+    batch = (sh.ExpandEnvironmentStrings("%HANIL_STP_BATCH%") = "1")
+
+    If src = "%HANIL_STP_SRC%" Or src = "" Then
+        If batch Then Exit Sub
+        Dim app, picked
+        Set app = CreateObject("Shell.Application")
+        Set picked = app.BrowseForFolder(0, "STP 로 바꿀 CATIA 파일이 있는 폴더를 고르세요 (하위 폴더까지)", 0)
+        If picked Is Nothing Then Exit Sub
+        src = picked.Self.Path
+        outRoot = src & "\STP"
+    ElseIf outRoot = "%HANIL_STP_OUT%" Or outRoot = "" Then
+        outRoot = src & "\STP"
+    End If
+
+    ok = 0 : bad = 0 : skip = 0 : logTxt = ""
+    If Not fso.FolderExists(src) Then
+        logTxt = "원본 폴더가 없습니다: " & src & vbCrLf
+    Else
+        EnsureFolder outRoot
+        CATIA.DisplayFileAlerts = False
+        ProcessFolder src, outRoot
+        CATIA.DisplayFileAlerts = True
+    End If
+
+    Dim lf, head
+    head = "[" & Now & "] 바꿈 " & ok & " · 건너뜀 " & skip & " · 실패 " & bad & "  (" & src & ")" & vbCrLf
+    On Error Resume Next
+    EnsureFolder outRoot
+    Set lf = fso.OpenTextFile(outRoot & "\변환기록.txt", 8, True)
+    lf.Write head & logTxt
+    lf.Close
+    On Error GoTo 0
+
+    If Not batch Then
+        MsgBox "CATIA -> STP 변환 끝" & vbCrLf & vbCrLf & _
+               "바꿈: " & ok & "개" & vbCrLf & _
+               "건너뜀(이미 있음·저장 중): " & skip & "개" & vbCrLf & _
+               "실패: " & bad & "개 (변환기록.txt 참고)" & vbCrLf & vbCrLf & _
+               "저장한 곳: " & outRoot, vbInformation, "한일특장"
+    End If
+End Sub
+
+Sub EnsureFolder(p)
+    If p = "" Then Exit Sub
+    If fso.FolderExists(p) Then Exit Sub
+    EnsureFolder fso.GetParentFolderName(p)
+    fso.CreateFolder p
+End Sub
+
+Sub ProcessFolder(src, outDir)
+    Dim f, sf, ext, fmt
+    For Each f In fso.GetFolder(src).Files
+        ext = LCase(fso.GetExtensionName(f.Name))
+        fmt = ""
+        If ext = "catpart" Or ext = "catproduct" Then fmt = "stp"
+        If ext = "catdrawing" Then fmt = "dxf"
+        If fmt <> "" Then ConvertOne f, outDir, fmt
+    Next
+    For Each sf In fso.GetFolder(src).SubFolders
+        '  결과 폴더가 원본 안에 있으면 그 폴더는 건너뛴다
+        If LCase(sf.Path) <> LCase(outRoot) Then ProcessFolder sf.Path, outDir & "\" & sf.Name
+    Next
+End Sub
+
+Sub ConvertOne(f, outDir, fmt)
+    Dim target, doc, i
+    target = outDir & "\" & f.Name & "." & fmt
+    If DateDiff("n", f.DateLastModified, Now) < 3 Then
+        skip = skip + 1
+        Exit Sub
+    End If
+    If fso.FileExists(target) Then
+        If fso.GetFile(target).DateLastModified >= f.DateLastModified Then
+            skip = skip + 1
+            Exit Sub
+        End If
+    End If
+    EnsureFolder outDir
+
+    On Error Resume Next
+    Err.Clear
+    If fso.FileExists(target) Then fso.DeleteFile target, True
+    Set doc = Nothing
+    Set doc = CATIA.Documents.Open(f.Path)
+    If Err.Number = 0 Then doc.ExportData target, fmt
+    If Err.Number = 0 And fso.FileExists(target) Then
+        ok = ok + 1
+    Else
+        bad = bad + 1
+        logTxt = logTxt & "   실패: " & f.Path & " : " & Err.Description & vbCrLf
+    End If
+    Err.Clear
+    If batch Then
+        '  자동일 때는 조립품이 끌고 온 부품까지 다 닫는다(밤새 돌며 메모리가 차지 않게)
+        For i = CATIA.Documents.Count To 1 Step -1
+            CATIA.Documents.Item(i).Close
+        Next
+    ElseIf Not doc Is Nothing Then
+        doc.Close
+    End If
+    Set doc = Nothing
+    Err.Clear
+    On Error GoTo 0
+End Sub

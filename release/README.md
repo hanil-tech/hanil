@@ -5,6 +5,21 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 압축을 풀 것도, 다른 파일을 같이 둘 것도 없습니다.
 설치에 필요한 모든 것이 이 파일 안에 들어 있습니다. .NET 도 따로 필요 없습니다.
 
+## 🔄 자동 업데이트
+
+한 번 깔아 두면 **새 판을 다시 받을 필요가 없는** 프로그램들입니다. 프로그램을 켤 때마다 이 폴더의 판 정보(`*.json`)를 한 번 보고,
+새 판이면 뒤에서 받아 크기·SHA-256 을 맞춰 본 뒤 **쓰지 않을 때** 바꿉니다.
+
+| 프로그램 | 판 정보 | 언제 바꾸나 | 이 판부터 |
+|---|---|---|---|
+| 📕 PDF 리더 | `hanil-pdf.json` | 받아 깔고 「다시 시작」 안내(그냥 두면 다음에 켤 때) | 1.6.0 |
+| 📅 바탕화면 달력 | `hanil-cal.json` | 메모를 적거나 창을 열어 두지 않았을 때(5초 안내 뒤) | 1.2.0 |
+| 🏷 라벨 발행기 | `hanil-label.json` | 3분 동안 아무도 안 써서 언어 화면으로 돌아갈 때 | 2.7.0 |
+| 📱 폰 앱 | `hanil-staff.json` | 새 판 알림 → 「설치」 한 번(안드로이드 규칙) | — |
+
+⚠ 표의 「이 판부터」 보다 예전 판에는 이 기능이 없어 **그 판은 한 번만 직접** 받아 두 번 눌러 주세요.
+⚠ 새 판을 올릴 때는 각 `build.sh` 가 만든 exe 와 json 을 **같은 커밋**으로 올립니다(json 만 먼저 올라가면 받다가 크기가 안 맞아 다음 확인 때 다시 받음).
+
 ## 내려받기
 
 | 받기 | 어디에 | 크기 |
@@ -19,6 +34,58 @@ Windows 64비트용입니다. **받을 파일은 하나씩, 그게 전부입니�
 > · 그래도 안 되면 파일 오른쪽 클릭 → **[속성]** → **[차단 해제]** 체크 → **[확인]**
 >
 > 사내에서 만든 프로그램이라 서명이 없어서 그렇습니다.
+
+## 📕 PDF 리더 (제작: 한일특장(주))
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-pdf-v1.6.6.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-v1.6.6.exe)** | PDF 를 볼 PC 아무 데나 | 29MB |
+| **[hanil-pdf-reader.html](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-pdf-reader.html)** | exe 를 받을 수 없는 PC — 설치 없이 크롬·엣지로 열기(보기·찾기·주석·구성·변환 같음, 탐색기 미리 보기·자동 업데이트 없음) | 12MB |
+
+**프로그램 하나가 세 가지를 합니다** — 두 번 누르면 설치(관리자 권한 없이):
+① PDF 보기·폴더째 검색·주석(Acrobat·PDF-XChange 에서도 보이고 고쳐짐)·페이지 구성 창
+② 크롬·엣지에서 연 PDF 도 이 프로그램으로 ③ 탐색기 미리 보기(미리 보기 창·큰 아이콘).
+자세한 안내는 [pdfreader/README.md](../pdfreader/README.md).
+
+## 🏷 현장 라벨 발행기
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-label-v2.11.0.exe](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-label-v2.11.0.exe)** | 라벨을 뽑을 현장 키오스크 | 6MB |
+
+TimeGuard 와는 별개의 프로그램입니다. 회사 포털의 라벨 화면만 열어 바코드·레이저 프린터로 라벨을 뽑습니다.
+설치 없이 두 번 눌러 실행합니다. 자세한 안내는 [label/README.md](../label/README.md).
+
+## 🌀 Turbo Fan Design (AutoCAD 터보팬 설계)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-turbofan-v1.1.0.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-turbofan-v1.1.0.exe)** | CAD 가 있는 설계 PC | 5MB |
+
+AutoCAD VBA 매크로(`Turbo_Fan_Design.dvb`)를 따로 실행하는 프로그램으로 옮긴 것입니다. 두 번 누르면 바로 뜹니다(설치 없음).
+도면은 켜져 있는 CAD(AutoCAD·ZWCAD·GstarCAD·BricsCAD·progeCAD)에 그리고 DWG 로 저장할 수 있습니다. VBA 모듈은 필요 없습니다.
+설계 자료(Data·Pics·도면 틀·Word 서식)가 프로그램 안에 들어 있어 따로 준비할 것이 없습니다. 자세한 안내는 [turbofan/README.md](../turbofan/README.md).
+
+## 📅 바탕화면 달력 (포털 결재·일정·알림 + 구글 캘린더)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-cal-v1.4.2.exe](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-v1.4.2.exe)** | 직원 PC — 두 번 누르면 설치·실행 | 7MB |
+| **[hanil-cal-portal.zip](https://github.com/hanil-tech/hanil/raw/claude/magical-pascal-b2ksp0/release/hanil-cal-portal.zip)** | 회사 포털 서버(`server.js` 옆) — 회사 일정·자동 휴일·동기화·구글·폰 달력 | 40KB |
+
+DesktopCal 처럼 바탕화면이 달력이 됩니다. 결재할 문서·회사 일정·쪽지가 달력에 나오고, **내 결재 차례가 오면 화면 가운데에 크게** 알려 줍니다.
+날짜 메모(글자색·칸 배경색)·할 일·기념일(음력)은 포털로 **다른 PC·폰과 동기화**(지난 판 되돌리기)되고, 개인 **구글 캘린더**와도 주고받습니다.
+음력·24절기·공휴일(공공데이터포털 자동)·투명도·인쇄·찾기·반복 일정·미리 알림. 자세한 안내는 [deskcal/README.md](../deskcal/README.md).
+
+## 📦 포털 대용량 파일 (올리기·받기)
+
+| 받기 | 어디에 | 크기 |
+|---|---|---|
+| **[hanil-bigfile-portal.zip](https://github.com/hanil-tech/hanil/raw/HEAD/release/hanil-bigfile-portal.zip)** | 회사 포털 서버(`server.js` 옆) | 52KB |
+
+큰 파일(하나 50GB 까지)과 **폴더째** 올리고 받는 화면입니다. 목록표로 빠진 파일이 없는지 맞춰 보고, 받기는 크기 제한이 없습니다(폴더는 ZIP 또는 폴더째). 직원은 설치할 것 없이 브라우저·폰 앱으로 씁니다.
+압축 안의 `설치안내.txt` 대로 두 파일을 복사하고 `server.js` 에 한 줄 넣으면 됩니다.
+켜기 전에 **`주의사항.txt`** 를 꼭 읽어 주세요(Ⅰ부는 직원용 — 그대로 전달). 자세한 안내는 [bigfile/README.md](../bigfile/README.md).
 
 ## 설치 순서
 

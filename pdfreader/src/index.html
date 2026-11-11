@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>한일 PDF 리더</title>
+<style>
+  :root{--bar:#f3f3f3;--bar2:#fbfbfb;--line:#c9c9c9;--line2:#e1e1e1;--ink:#1f1f1f;--muted:#6d6d6d;
+    --acc:#2b6cb0;--hot:#fbe6a6;--hotline:#e0c060;--file:#c8102e;--sel:#cfe3fb;--mark:rgba(255,213,0,.45);--markcur:rgba(255,120,0,.55)}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bar);color:var(--ink);
+    font:13px/1.35 "Malgun Gothic","맑은 고딕","Segoe UI","Apple SD Gothic Neo",sans-serif}
+  button,input,select{font:inherit;color:inherit}
+  input[type=file]{display:none}
+  #app{display:flex;flex-direction:column;height:100%}
+
+  /* ── 맨 위: 빠른 도구 + 제목 ── */
+  #qbar{display:flex;align-items:center;gap:2px;height:30px;padding:0 6px;background:var(--bar);border-bottom:1px solid var(--line2);flex:0 0 auto}
+  #qbar .logo{width:20px;height:20px;border-radius:3px;background:var(--file);color:#fff;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;margin-right:6px}
+  #title{flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#333}
+  .qb{border:1px solid transparent;background:none;border-radius:3px;height:24px;min-width:26px;padding:0 4px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .qb:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
+  .qb:disabled{opacity:.35;cursor:default}
+  .qb svg{width:18px;height:18px}
+  .sep{width:1px;height:18px;background:var(--line);margin:0 4px}
+  #quick{width:200px;height:22px;border:1px solid var(--line);border-radius:2px;padding:0 6px;background:#fff}
+
+  /* ── 리본 ── */
+  #tabs{display:flex;align-items:stretch;height:28px;background:var(--bar);flex:0 0 auto}
+  #tabs .rt{border:0;background:none;padding:0 11px;cursor:pointer;border:1px solid transparent;border-bottom:0}
+  #tabs .rt:hover{color:var(--acc)}
+  #tabs .rt.on{background:var(--bar2);border-color:var(--line);position:relative;top:1px}
+  #tabs .rt.file{background:var(--file);color:#fff;margin-right:4px}
+  #tabs .rt.file:hover{background:#a50d26;color:#fff}
+  #tabs .grow{flex:1}
+  #tabs .side{border:1px solid transparent;background:none;cursor:pointer;padding:0 8px;display:inline-flex;align-items:center;gap:4px;margin:2px 1px}
+  #tabs .side:hover{background:var(--hot);border-color:var(--hotline)}
+  #tabs .side.on{background:var(--hot);border-color:var(--hotline)}
+  #ribbon{height:86px;background:var(--bar2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;align-items:stretch;padding:3px 4px;gap:0;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;scrollbar-width:thin}
+  #ribbon.mini{height:0;padding:0;border-bottom:0}
+  .grp{display:flex;flex-direction:column;border-right:1px solid var(--line2);padding:0 4px;flex:0 0 auto}
+  .grp .row{display:flex;align-items:flex-start;gap:1px;flex:1;flex-wrap:nowrap}
+  .grp .row>*{flex:0 0 auto}
+  .grp .cap{font-size:11px;color:var(--muted);text-align:center;white-space:nowrap;padding-top:1px}
+  .big{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;min-width:48px;white-space:nowrap;height:62px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:3px 3px 0;font-size:12px;line-height:1.15;text-align:center}
+  .big svg{width:28px;height:28px;flex:0 0 28px}
+  .stack{display:flex;flex-direction:column;gap:1px;flex:0 0 auto}
+  .sm{display:flex;align-items:center;gap:5px;height:20px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:0 6px 0 3px;white-space:nowrap;font-size:12px}
+  .sm svg{width:16px;height:16px}
+  .big:hover:not(:disabled),.sm:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
+  .big.on,.sm.on{background:#f8d77e;border-color:#c9a23e}
+  .big:disabled,.sm:disabled{opacity:.35;cursor:default}
+
+  /* ── 파일 메뉴(뒤 화면) ── */
+  #backstage{position:fixed;left:0;top:58px;bottom:0;width:100%;background:#f3f1f0;z-index:40;display:none}
+  #backstage.on{display:flex}
+  #backstage .menu{width:200px;height:100%;background:#a8323c;color:#fff;padding:6px 0;overflow:auto;flex:0 0 auto;position:relative}
+  #backstage .menu button{display:block;width:100%;border:0;background:none;color:#fff;text-align:left;padding:8px 16px;cursor:pointer;font-size:13px}
+  #backstage .menu button:hover:not(:disabled),#backstage .menu button.on{background:rgba(0,0,0,.22)}
+  #backstage .menu button:disabled{opacity:.5;cursor:default}
+  #backstage .menu hr{border:0;border-top:1px solid rgba(255,255,255,.25);margin:4px 0}
+  .bsmaker{position:sticky;top:100%;padding:16px;font-size:11px;opacity:.7;line-height:1.5}
+  #bsPanel{flex:1;overflow:auto;padding:10px 24px}
+  #bsPanel h1{font-weight:400;font-size:28px;margin:6px 0 12px}
+  .bsgrid{display:grid;grid-template-columns:minmax(260px,420px) minmax(220px,1fr);gap:20px;align-items:start}
+  .bscol,.bslist{display:flex;flex-direction:column;gap:2px}
+  .bssec{font-weight:700;color:#555;margin:12px 0 4px;border-bottom:1px solid #ddd;padding-bottom:3px}
+  .bsitem{display:flex;align-items:center;gap:10px;padding:6px 8px;cursor:pointer;border:1px solid transparent;position:relative}
+  .bsitem:hover{background:#cfe0f3;border-color:#9dbbe0}
+  .bsitem .bsi{font-size:24px;width:32px;text-align:center}
+  .bsitem.small .bsi{font-size:16px;width:22px}
+  .bsitem b{font-weight:400;display:block;word-break:break-all}
+  .bsitem small{color:#777;display:block;word-break:break-all}
+  .bsx{position:absolute;right:6px;top:6px;border:0;background:none;cursor:pointer;color:#888}
+  .bsnone{color:#999;padding:6px 8px}
+  .bslist{max-height:calc(100vh - 150px);overflow:auto;background:#fff;border:1px solid #ddd;padding:4px}
+  .bshead{display:flex;align-items:center;gap:8px;position:sticky;top:-4px;background:#fff;margin-top:0;padding-top:4px}
+  .bshead span{flex:1;word-break:break-all}
+  .bsadd{border:1px solid #c9a23e;background:#fbe6a6;border-radius:3px;cursor:pointer;font-size:12px;padding:2px 8px;font-weight:400}
+  .bsrow{display:flex;gap:4px}.bsurl{flex:1;height:26px;border:1px solid #aaa;padding:0 6px}.bsrow button{height:26px}
+
+  /* ── 문서 탭 ── */
+  #doctabs{display:flex;align-items:flex-end;gap:2px;height:27px;padding:0 4px;background:#e6e6e6;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;flex:0 0 auto;scrollbar-width:none}
+  #doctabs:empty{display:none}
+  .dt{display:flex;align-items:center;gap:6px;max-width:240px;height:24px;padding:0 4px 0 9px;border:1px solid var(--line);border-bottom:0;background:#ededed;border-radius:3px 3px 0 0;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+  .dt span{overflow:hidden;text-overflow:ellipsis}
+  .dt.on{background:#fff;height:26px}
+  .dt b{font-weight:400;border-radius:2px;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:#777}
+  .dt b:hover{background:#e04a4a;color:#fff}
+
+  /* ── 가운데 ── */
+  #main{flex:1;display:flex;min-height:0;position:relative}
+  .pane{background:#fff;border:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  #left{width:190px;flex:0 0 auto;border-left:0;border-top:0}
+  #left.off,#right.off{display:none}
+  .phd{display:flex;align-items:center;height:22px;padding:0 4px 0 6px;background:#f1f1f1;border-bottom:1px solid var(--line2);font-weight:600;flex:0 0 auto}
+  .phd span{flex:1}
+  .phd .x{border:0;background:none;cursor:pointer;width:18px;height:18px;line-height:16px;color:#555;border-radius:2px}
+  .phd .x:hover{background:#e04a4a;color:#fff}
+  .ltabs{display:flex;border-bottom:1px solid var(--line2);flex:0 0 auto}
+  .ltabs button{flex:1;border:0;background:#f7f7f7;cursor:pointer;padding:4px 0;border-bottom:2px solid transparent}
+  .ltabs button.on{background:#fff;border-bottom-color:var(--acc);font-weight:600}
+  #thumbs,#outline,#comments{flex:1;overflow:auto;min-height:0}
+  .bmbar{display:flex;gap:1px;padding:3px;border-bottom:1px solid var(--line2);position:sticky;top:-4px;background:#fff;z-index:1}
+  .bmbar button{flex:1;border:1px solid transparent;background:none;cursor:pointer;padding:2px 0;border-radius:2px}
+  .bmbar button:hover{background:var(--hot);border-color:var(--hotline)}
+  .ol.sel{background:#9dc3f0}
+  .cmh{padding:4px 6px;background:#f1f1f1;font-weight:600;font-size:12px;position:sticky;top:0}
+  .cmr{display:flex;align-items:center;gap:5px;padding:4px 6px;cursor:pointer;font-size:12px;border-bottom:1px solid #f3f3f3}
+  .cmr:hover{background:var(--sel)}
+  .cmr i{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid rgba(0,0,0,.2)}
+  .cmr b{font-weight:600;white-space:nowrap}
+  .cmr span{color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cbrow{display:flex;align-items:center;gap:6px;padding:3px 2px}.cbrow span{flex:1}.cbrow button{border:1px solid #ccc;background:#fafafa;cursor:pointer}
+  #thumbs{padding:8px 0;background:#f4f4f4}
+  .th{margin:0 auto 10px;width:122px;text-align:center;cursor:pointer;font-size:11px;color:#555}
+  .th .box{background:#fff;border:1px solid #bbb;margin:0 auto 3px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .th canvas{display:block;max-width:100%;max-height:100%}
+  .th.on .box{outline:3px solid #f0b030;outline-offset:1px}
+  #outline{padding:4px 0}
+  .ol{padding:3px 6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:2px}
+  .ol:hover{background:var(--sel)}
+  .ol i{display:inline-block;width:14px;font-style:normal;color:#777;cursor:pointer}
+  .olk{display:none}.olk.open{display:block}
+  .empty{color:#999;text-align:center;padding:30px 8px;font-size:12px}
+
+  #center{flex:1;min-width:0;position:relative;display:flex;flex-direction:column}
+  #viewer{flex:1;overflow:auto;position:relative;outline:0;
+    background:#8c8c8c linear-gradient(180deg,#8f8f8f,#b4b4b4);background-attachment:local}
+  #viewer.hand{cursor:grab}
+  #viewer.hand.grabbing{cursor:grabbing}
+  #viewer.hand .textLayer span{cursor:grab}
+  #viewer.hand .textLayer{-webkit-user-select:none;user-select:none}
+  #emptyMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;user-select:none;overflow:auto;padding:20px 16px 40px}
+  #emptyMsg .drop{display:none}
+  #emptyMsg.drag{pointer-events:none;background:rgba(43,108,176,.25);outline:3px dashed #fff;outline-offset:-14px}
+  #emptyMsg.drag .start{opacity:.35}
+  #emptyMsg.drag .drop{display:block;position:absolute;left:0;right:0;top:46%;text-align:center;color:#fff;font-size:20px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .start{width:min(640px,100%);background:#fff;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:22px 24px 16px;color:#333}
+  .sthead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .stlogo{width:44px;height:44px;border-radius:8px;font-size:15px}
+  .sthead b{display:block;font-size:19px}.sthead small{color:#777;font-size:13px}
+  .stbtns{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .stbtns button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 6px 11px;border:1px solid #dde3ea;border-radius:8px;background:#f8fafc;cursor:pointer;font:inherit;color:#333;transition:background .12s,border-color .12s,transform .12s}
+  .stbtns button:hover{background:#eef5ff;border-color:#7aa7e0;transform:translateY(-1px)}
+  .stbtns button.main{background:#fff4f5;border-color:#e8a3ad}.stbtns button.main:hover{background:#ffe9ec;border-color:#c8102e}
+  .stbtns i{width:34px;height:34px;display:block}.stbtns i svg{width:100%;height:100%}
+  .stbtns b{font-size:13.5px}.stbtns small{font-size:11px;color:#888}
+  .strec{margin-top:16px;border-top:1px solid #eee;padding-top:10px}
+  .stcap{font-size:12px;color:#888;margin-bottom:4px}
+  #stRecent .rf{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:13px}
+  #stRecent .rf:hover{background:#eef5ff}
+  #stRecent .rf span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #stRecent .rf small{color:#999;font-size:11px;flex:0 0 auto}
+  .stnone{color:#aaa;font-size:12px;padding:4px 8px}
+  .sthint{margin-top:12px;font-size:12px;color:#777;text-align:center}
+  @media (max-width:560px){.stbtns{grid-template-columns:repeat(2,1fr)}}
+  .doc{padding:10px 0 14px;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:min-content}
+  .doc.two{display:grid;grid-template-columns:auto auto;justify-content:center;align-items:start}
+  .pg{position:relative;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35);flex:0 0 auto;--scale-factor:1}
+  .pg canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .pg .hl{position:absolute;pointer-events:none;background:var(--mark);mix-blend-mode:multiply;border-radius:1px}
+  .pg .hl.cur{background:var(--markcur);outline:2px solid #ff7a00}
+  .pg .lnk{position:absolute;cursor:pointer;z-index:3}
+  .pg .lnk:hover{background:rgba(43,108,176,.12);outline:1px solid rgba(43,108,176,.35)}
+  .pg .ldg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:12px}
+
+  /* ── 찾기 줄 ── */
+  #findbar{position:absolute;top:6px;right:22px;z-index:20;background:#fff;border:1px solid var(--line);box-shadow:0 3px 10px rgba(0,0,0,.2);border-radius:3px;display:none;align-items:center;gap:3px;padding:4px}
+  #findbar.on{display:flex}
+  #findIn{width:200px;height:24px;border:1px solid var(--line);padding:0 6px}
+  #findIn.bad{background:#ffe3e3}
+  #findCnt{min-width:58px;text-align:center;color:var(--muted);font-size:12px}
+  #findbar label{font-size:12px;display:flex;align-items:center;gap:2px;margin:0 2px}
+
+  /* ── 오른쪽: 검색 · 속성 ── */
+  #right{width:300px;flex:0 0 auto;display:flex;flex-direction:column;border:0;background:var(--bar);gap:4px;min-height:0}
+  #right .pane{flex:1 1 0;min-height:0}
+  #right .pane.off{display:none}
+  #right #pSearch{flex:3 1 0}
+  #right #pProps{min-height:150px}
+  .sbody{padding:8px;display:flex;flex-direction:column;gap:6px;min-height:0;flex:1;overflow:auto}
+  .sbody .q{display:flex;align-items:center;gap:5px}
+  .sbody .q input[type=text]{flex:1;min-width:0;height:24px;border:1px solid #9aa;padding:0 5px;background:#fff}
+  .sbody a{color:#1a4f9c;text-decoration:underline;cursor:pointer}
+  .sbody select{width:100%;height:24px;border:1px solid #9aa;background:#fff}
+  #where2{color:var(--muted);font-size:12px;word-break:break-all}
+  .sbtns{display:flex;gap:4px}
+  .sbtns button{flex:1;height:26px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);border-radius:2px;cursor:pointer}
+  .sbtns button:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
+  .sbtns button:disabled{opacity:.45}
+  #opts{display:none;border:1px solid var(--line2);background:#fafafa;padding:5px 7px;gap:3px;flex-direction:column;font-size:12px}
+  #opts.on{display:flex}
+  #opts label{display:flex;align-items:center;gap:5px}
+  #prog{height:10px;border:1px solid #bbb;background:#fff;flex:0 0 auto}
+  #prog i{display:block;height:100%;width:0;background:linear-gradient(#7fd17f,#3fa53f)}
+  #sstat{font-size:12px;padding-left:26px;line-height:1.4;white-space:pre-line;word-break:break-all}
+  #results{flex:1 0 140px;min-height:140px;border:1px solid var(--line);background:#fff;overflow:auto;font-size:12px}
+  .rd{border-bottom:1px solid #eee}
+  .rd>.rh{display:flex;align-items:center;gap:4px;padding:4px 5px;background:#f5f7fa;cursor:pointer;font-weight:600;position:sticky;top:0}
+  .rd>.rh span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rd>.rh em{font-style:normal;color:var(--muted);font-weight:400}
+  .rd.shut .ri{display:none}
+  .ri{padding:3px 6px 3px 22px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ri:hover{background:var(--sel)}
+  .ri.on{background:#9dc3f0}
+  .ri u{text-decoration:none;color:#1a4f9c;margin-right:6px}
+  .ri b{background:#ffe066;font-weight:600}
+  #pProps .pbody{flex:1;overflow:auto;font-size:12px}
+  #pProps table{border-collapse:collapse;width:100%}
+  #pProps td{padding:3px 6px;border-bottom:1px solid #f0f0f0;vertical-align:top;word-break:break-all}
+  #pProps td:first-child{color:var(--muted);white-space:nowrap;width:1%}
+  #pProps .sec td{background:#f1f1f1;color:#333;font-weight:600}
+
+  /* ── 아래 상태 줄 ── */
+  #status{height:28px;display:flex;align-items:center;gap:2px;padding:0 6px;background:var(--bar);border-top:1px solid var(--line);flex:0 0 auto;font-size:12px}
+  #status .grow{flex:1}
+  #pgIn{width:44px;height:20px;text-align:center;border:1px solid var(--line);background:#fff}
+  #zoomSel{height:20px;border:1px solid var(--line);background:#fff;width:92px}
+  #zoomRange{width:110px}
+  #dims{color:var(--muted);margin-right:8px}
+  #stMaker{color:#8a1a26;font-weight:600;letter-spacing:.2px;white-space:nowrap}
+  /* 시작 화면 — 켤 때 잠깐(누르면 바로 닫힘, 아래 화면은 막지 않음) */
+  #splash{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(40,40,40,.25);pointer-events:none;transition:opacity .5s}
+  #splash.off{opacity:0}
+  #splash .card{width:440px;max-width:92vw;background:#fff;border-radius:6px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;text-align:center}
+  #splash .top{background:linear-gradient(135deg,#c8102e,#8a0c22);color:#fff;padding:28px 20px 22px}
+  #splash .top img{width:84px;height:84px;display:block;margin:0 auto 10px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.3))}
+  #splash .top b{display:block;font-size:26px;letter-spacing:1px}
+  #splash .top small{opacity:.85}
+  #splash .co{padding:18px 20px 6px;font-size:22px;font-weight:700;color:#222;letter-spacing:2px}
+  #splash .co2{color:#777;font-size:12px;padding-bottom:16px}
+  #splash .bar{height:4px;background:#eee}
+  #splash .bar i{display:block;height:100%;width:0;background:#c8102e;animation:spl 1.5s ease-out forwards}
+  @keyframes spl{to{width:100%}}
+
+  #toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:rgba(30,30,30,.9);color:#fff;padding:8px 14px;border-radius:4px;z-index:60;display:none;max-width:80%;text-align:center}
+  #modal{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:70}
+  #modal.on{display:flex}
+  #modal .box{background:#fff;border:1px solid #888;box-shadow:0 10px 30px rgba(0,0,0,.35);min-width:320px;max-width:min(560px,92vw);max-height:86vh;display:flex;flex-direction:column}
+  #modal .mh{background:#f1f1f1;padding:7px 10px;font-weight:600;border-bottom:1px solid var(--line2)}
+  #modal .mb{padding:12px 14px;overflow:auto;line-height:1.6}
+  #modal .mb input:not([type=radio]):not([type=checkbox]):not([type=color]){height:26px;border:1px solid #999;padding:0 6px}
+  #modal .mb #mIn{width:100%;margin-top:6px}
+  #modal .mb input[type=radio],#modal .mb input[type=checkbox]{width:auto;height:auto;margin:0 4px 0 0;vertical-align:middle}
+  #modal .mb select{height:24px}
+  #modal .mf{display:flex;justify-content:flex-end;gap:6px;padding:8px 10px;border-top:1px solid var(--line2)}
+  #modal .mf button{min-width:76px;height:26px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
+  #modal kbd{border:1px solid #bbb;border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:11px;background:#f7f7f7}
+
+  /* 글자 층 — pdf.js(pdf_viewer.css) 에서 필요한 것만 */
+  .textLayer{position:absolute;text-align:initial;inset:0;overflow:clip;opacity:1;line-height:1;-webkit-text-size-adjust:none;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;caret-color:CanvasText;z-index:2}
+  .textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0% 0%}
+  .textLayer > :not(.markedContent),.textLayer .markedContent span:not(.markedContent){z-index:1}
+  .textLayer span.markedContent{top:0;height:0}
+  .textLayer ::selection{background:rgba(0,90,255,.28)}
+  .textLayer br::selection{background:transparent}
+  .textLayer .endOfContent{display:block;position:absolute;inset:100% 0 0;z-index:0;cursor:default;user-select:none}
+  .textLayer.selecting .endOfContent{top:0}
+
+  #tabs .rt.fmt{background:#fbe6a6;border:1px solid #e0c060;border-bottom:0;margin-left:6px;display:flex;flex-direction:column;align-items:center;line-height:1.1;padding-top:1px;font-size:12px}
+  #tabs .rt.fmt small{font-size:10px;color:#6a5600}
+  #tabs .rt.fmt.on{background:#fff4cf}
+  .mwrap{position:relative;display:flex}
+  .rmenu{position:absolute;top:100%;left:0;z-index:60;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none;flex-direction:column;min-width:170px;padding:3px 0}
+  .rmenu.on{display:flex}
+  .rmenu button,.ctxm button{border:0;background:none;text-align:left;padding:6px 14px;cursor:pointer;font-size:12px;white-space:nowrap}
+  .rmenu button:hover,.ctxm button:hover{background:var(--hot)}
+  .rmenu.stamps{display:none;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px;min-width:0}
+  .rmenu.stamps.on{display:grid}
+  .rmenu .stp{border:2px solid #e5262e;border-radius:5px;color:#e5262e;font-weight:700;text-align:center;padding:4px 10px}
+  .ctxm{position:fixed;z-index:80;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:flex;flex-direction:column;padding:3px 0;min-width:170px}
+  .ctxm hr{border:0;border-top:1px solid #e3e3e3;margin:3px 0}
+  .stack.icos{flex-direction:row;flex-wrap:wrap;width:78px}
+  .zgrp{display:flex;flex-direction:column;gap:1px;padding-top:1px}
+  .zrow{display:flex;align-items:center;gap:1px}
+  .zrow .ico,.stack .ico{display:inline-flex;align-items:center;justify-content:center;width:24px;height:20px;border:1px solid transparent;background:none;border-radius:2px;cursor:pointer;padding:0}
+  .ico svg{width:17px;height:17px}
+  .ico:hover:not(:disabled){background:var(--hot);border-color:var(--hotline)}
+  .ico.on{background:#f8d77e;border-color:#c9a23e}.ico:disabled{opacity:.35}
+  .zsel{height:20px;width:96px;border:1px solid #aaa;background:#fff;font-size:12px}
+  .npg{width:70px;height:21px;border:1px solid #aaa;text-align:center;font-size:12px}
+  .th.ps .box{outline:3px solid #2b6cb0;outline-offset:1px}
+  #thumbs:focus{outline:0}
+  #viewer.erasing .pg .ov{pointer-events:all;cursor:not-allowed}
+  #viewer.erasing .pg .ov .hit{cursor:pointer}
+  body.darkbg #viewer{background:#3a3d42}
+  .setback{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:75;display:flex;align-items:center;justify-content:center}
+  .setwin{background:#f0f0f0;border:1px solid #888;box-shadow:0 10px 30px rgba(0,0,0,.35);width:min(780px,96vw);height:min(560px,92vh);display:flex;flex-direction:column}
+  .setttl{display:flex;align-items:center;padding:6px 10px;background:#fff;border-bottom:1px solid #ddd}.setttl span{flex:1}.setttl button{border:0;background:none;font-size:18px;cursor:pointer}
+  .setmain{flex:1;display:flex;gap:6px;padding:8px;min-height:0}
+  .setleft{width:220px;display:flex;flex-direction:column;border:1px solid #ccc;background:#fff}
+  .setcap{text-align:center;background:#e9e9e9;padding:4px;color:#555}
+  .setcats{overflow:auto;display:flex;flex-direction:column}
+  .setcats button{border:0;background:none;text-align:left;padding:7px 10px;cursor:pointer}
+  .setcats button.on{background:#cfd6df}
+  .setbody{flex:1;border:1px solid #ccc;background:#fff;padding:10px 14px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+  .sethd{text-align:center;background:#e9e9e9;padding:5px;margin:-10px -14px 4px}
+  .setrow{display:flex;align-items:center;gap:10px}.setrow span{width:180px}
+  .setrow input[type=text]{flex:1;height:24px;border:1px solid #aaa;padding:0 6px}.setrow select{height:24px}
+  .setnote{color:#555;font-size:12px;line-height:1.6;background:#f7f7f7;border:1px solid #eee;padding:8px}
+  .setbtn{align-self:flex-start;height:28px;padding:0 14px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
+  .setfoot{display:flex;justify-content:flex-end;gap:8px;padding:8px}
+  .setfoot button{min-width:96px;height:28px;border:1px solid #adadad;background:linear-gradient(#fdfdfd,#ececec);cursor:pointer}
+  #maker{font-size:11px;color:#8a8a8a;margin-right:8px;white-space:nowrap}
+  #emptyMsg .mk{position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:11px;color:#e4e4e4}
+  #updBar{position:fixed;left:50%;transform:translateX(-50%);bottom:34px;z-index:70;display:flex;gap:10px;align-items:center;background:#1f4f8a;color:#fff;padding:9px 14px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.3);font-size:13px;max-width:min(860px,94vw)}
+  #updBar button{border:0;border-radius:5px;padding:5px 12px;cursor:pointer;font:inherit;background:#fff;color:#1f4f8a;font-weight:700;white-space:nowrap}
+  #updBar button.x{background:transparent;color:#cfe0f5;font-weight:400}
+  .logo{background:#c8102e;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center}
+
+  /* 고치기 겹 */
+  .pg .ov{position:absolute;left:0;top:0;transform-origin:0 0;z-index:5;pointer-events:none;overflow:visible}
+  #viewer.editing .pg .ov{pointer-events:all;cursor:default}
+  #viewer.editing .pg .ov .hit{cursor:move}
+  #viewer.creating .pg .ov,#viewer.creating .pg .ov .hit{cursor:crosshair}
+  .ov .hd{cursor:nwse-resize}.ov .hd-ne,.ov .hd-sw{cursor:nesw-resize}.ov .hd-n,.ov .hd-s{cursor:ns-resize}.ov .hd-e,.ov .hd-w{cursor:ew-resize}.ov .hd-p1,.ov .hd-p2{cursor:crosshair}
+  #viewer.editing .textLayer{pointer-events:none}
+  .tedit{position:absolute;z-index:8;border:1px dashed #1a73e8;outline:0;resize:none;overflow:hidden;margin:0;box-sizing:border-box;white-space:pre-wrap;word-break:break-all}
+  .estyle{display:flex;gap:10px;padding:2px 4px;font-size:12px}
+  .ecol{display:flex;flex-direction:column;gap:5px;justify-content:flex-start;padding-top:4px}
+  .erow{display:flex;align-items:center;gap:5px;white-space:nowrap}
+  .erow span{width:34px;color:#555}
+  .erow input[type=color]{width:34px;height:20px;padding:0 1px;border:1px solid #aaa;background:#fff}
+  .erow select{height:20px;border:1px solid #aaa;background:#fff;font-size:12px}
+  .symwrap{position:relative;display:flex}
+  .symb .symg{font-size:22px;line-height:28px;height:28px;color:#e5262e;font-weight:400}
+  .sympop{position:absolute;top:64px;left:0;z-index:50;background:#fff;border:1px solid #999;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none;grid-template-columns:repeat(6,38px);gap:2px;padding:4px}
+  .sympop.on{display:grid}
+  .sympop button{height:32px;border:1px solid #e3e3e3;background:#fafafa;cursor:pointer;font-size:15px;padding:0}
+  .sympop button:hover{background:var(--hot);border-color:var(--hotline)}
+
+  .tedit-in{position:absolute;z-index:9;border:1.5px solid #1a7f37;background:#fff;padding:0 2px;margin:0;outline:0;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  #viewer.marking.tediting .textLayer span{cursor:text}
+  #viewer.marking.tediting .textLayer span:hover{outline:1px dashed #1a7f37;background:rgba(26,127,55,.08)}
+  .pg .annotationLayer{z-index:4}
+  #viewer.editing .pg .annotationLayer{pointer-events:none}
+  #printArea{display:none}
+  @media print{
+    @page{margin:0}
+    html,body{height:auto;overflow:visible;background:#fff;margin:0;padding:0}
+    /* ⚠ 인쇄할 그림 말고는 아무것도 찍지 않는다(알림 띠·창 같은 것이 빈 장을 하나 더 만들지 않게) */
+    body>*:not(#printArea){display:none!important}
+    #printArea{display:block}
+    /* ⚠ 그림이 용지보다 조금이라도 크면 빈 장이 하나 더 나온다 → 용지 안에 맞춰 넣는다(크기는 인쇄할 때 정함) */
+    #printArea img{display:block;width:100vw;height:calc(100vh - 2px);object-fit:contain;page-break-after:always;break-after:page;overflow:hidden}
+    #printArea img:last-child{page-break-after:auto;break-after:auto}
+  }
+  @media (max-width:760px){
+    #right{position:absolute;right:0;top:0;bottom:0;z-index:15;box-shadow:-4px 0 14px rgba(0,0,0,.2);width:min(300px,86vw)}
+    #left{position:absolute;left:0;top:0;bottom:0;z-index:15;box-shadow:4px 0 14px rgba(0,0,0,.2)}
+    #quick,#title{display:none}
+    #qbar .grow2{flex:1}
+  }
+</style>
+<!--ENGINE-->
+</head>
+<body>
+<div id="app">
+  <div id="qbar">
+    <div class="logo">PDF</div>
+    <button class="qb" data-cmd="open" title="열기 (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M2 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1H7.5a2 2 0 0 0-1.9 1.4L3 18V6z" fill="#e8a21a"/><path d="M5.6 10.4A2 2 0 0 1 7.5 9H22l-3.2 9.4a2 2 0 0 1-1.9 1.6H3z" fill="#f6c444"/></svg></button>
+    <button class="qb" data-cmd="save" title="저장 (Ctrl+S)" disabled><svg viewBox="0 0 24 24"><path d="M4 3h13l4 4v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="#6d5fc7"/><rect x="7" y="3" width="9" height="6" fill="#e7e3fb"/><rect x="6" y="13" width="12" height="8" fill="#fff"/></svg></button>
+    <button class="qb" data-cmd="print" title="인쇄 (Ctrl+P)" disabled><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="7" fill="#fff" stroke="#777"/><rect x="2" y="8" width="20" height="9" rx="2" fill="#8a8a8a"/><rect x="6" y="14" width="12" height="8" fill="#fff" stroke="#777"/></svg></button>
+    <div class="sep"></div>
+    <button class="qb" data-cmd="back" title="이전 보기 (Alt+←)" disabled><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#3b9a3b" stroke-width="2"/><path d="M13 7l-5 5 5 5M8 12h9" fill="none" stroke="#3b9a3b" stroke-width="2.2"/></svg></button>
+    <button class="qb" data-cmd="fwd" title="다음 보기 (Alt+→)" disabled><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#3b9a3b" stroke-width="2"/><path d="M11 7l5 5-5 5M16 12H7" fill="none" stroke="#3b9a3b" stroke-width="2.2"/></svg></button>
+    <div id="title">한일 PDF 리더</div>
+    <div id="maker" title="제작사">한일특장(주)</div>
+    <div class="grow2"></div>
+    <input id="quick" type="search" placeholder="🔍 이 문서에서 찾기 (Ctrl+F)">
+  </div>
+
+  <div id="tabs">
+    <button class="rt file" data-rt="file">파일(F)</button>
+    <button class="rt on" data-rt="home">홈(H)</button>
+    <button class="rt" data-rt="view">보기(V)</button>
+    <button class="rt" data-rt="edit">주석(C)</button>
+    <button class="rt" data-rt="prot">보호(P)</button>
+    <button class="rt" data-rt="form">양식(F)</button>
+    <button class="rt" data-rt="org">구성(O)</button>
+    <button class="rt" data-rt="conv">변환(V)</button>
+    <button class="rt" data-rt="review">리뷰(R)</button>
+    <button class="rt" data-rt="bm">책갈피</button>
+    <button class="rt" data-rt="help">도움말(H)</button>
+    <button class="rt fmt" data-rt="fmt" id="fmtTab" style="display:none"><small id="fmtTool">도구</small>형식</button>
+    <div class="grow"></div>
+    <button class="side" data-cmd="find" title="이 문서에서 찾기 (Ctrl+F)">🔎 찾기(F)…</button>
+    <button class="side" data-cmd="searchPane" title="여러 문서·폴더에서 검색 (Ctrl+Shift+F)">📂 검색(S)…</button>
+    <button class="side" data-cmd="ribbonMini" title="리본 접기/펴기 (Ctrl+F1)">⌃</button>
+  </div>
+
+  <div id="ribbon"></div>
+
+  <div id="doctabs"></div>
+
+  <div id="main">
+    <div id="left" class="pane">
+      <div class="phd"><span>탐색</span><button class="x" data-cmd="leftPane" title="닫기">×</button></div>
+      <div class="ltabs"><button data-lt="thumbs" class="on">페이지</button><button data-lt="outline">책갈피</button><button data-lt="comments">주석</button></div>
+      <div id="thumbs"><div class="empty">문서가 없습니다</div></div>
+      <div id="outline" style="display:none"><div class="empty">문서가 없습니다</div></div>
+      <div id="comments" style="display:none"></div>
+    </div>
+
+    <div id="center">
+      <div id="viewer" tabindex="0" class="hand"></div>
+      <div id="emptyMsg"><div class="start">
+        <div class="sthead"><span class="logo stlogo">PDF</span><div><b>한일 PDF 리더</b><small>무엇을 할까요?</small></div></div>
+        <div class="stbtns">
+          <button data-cmd="open" class="main"><i data-ic="open"></i><b>PDF 열기</b><small>Ctrl+O</small></button>
+          <button data-cmd="openPanel"><i data-ic="search"></i><b>내 PC 에서 찾기</b><small>C: · D: · 바탕 화면</small></button>
+          <button data-cmd="searchOpen"><i data-ic="compare"></i><b>여러 문서 검색</b><small>폴더 안 PDF 모두</small></button>
+          <button data-cmd="img2pdf"><i data-ic="img2pdf"></i><b>사진 → PDF</b><small>그림 파일 묶기</small></button>
+          <button data-cmd="combine"><i data-ic="combine"></i><b>파일 합치기</b><small>여러 PDF → 하나</small></button>
+          <button data-cmd="newDoc"><i data-ic="blank"></i><b>빈 문서</b><small>A4 새로 만들기</small></button>
+        </div>
+        <div class="strec"><div class="stcap">최근 파일</div><div id="stRecent"><div class="stnone">아직 연 파일이 없습니다</div></div></div>
+        <div class="sthint">💡 PDF 파일을 이 창에 <b>끌어다 놓아도</b> 열립니다 · 빈 곳을 두 번 눌러도 됩니다</div>
+      </div><div class="drop">여기에 놓으면 열립니다</div><div class="mk">한일 PDF 리더 · 제작 한일특장(주)</div></div>
+      <div id="findbar">
+        <input id="findIn" type="text" placeholder="찾을 글자" autocomplete="off">
+        <button class="qb" id="findPrev" title="이전 (Shift+Enter)">▲</button>
+        <button class="qb" id="findNext" title="다음 (Enter)">▼</button>
+        <span id="findCnt"></span>
+        <label><input type="checkbox" id="findCase">대/소문자</label>
+        <label><input type="checkbox" id="findWord">단어</label>
+        <button class="qb" id="findClose" title="닫기 (Esc)">×</button>
+      </div>
+    </div>
+
+    <div id="right">
+      <div id="pSearch" class="pane">
+        <div class="phd"><span>검색</span><button class="x" data-cmd="closeSearch" title="닫기">×</button></div>
+        <div class="sbody">
+          <div>무엇을 검색하시겠습니까?</div>
+          <div class="q"><input type="radio" name="sm" id="smSimple" checked><input type="text" id="sq" placeholder="예: 40396607-5" autocomplete="off"></div>
+          <div class="q"><input type="radio" name="sm" id="smAdv"><a id="advLink">고급 조건 지정</a></div>
+          <div id="opts">
+            <label><input type="checkbox" id="oCase">대/소문자 구분</label>
+            <label><input type="checkbox" id="oWord">단어 단위로만</label>
+            <label><input type="checkbox" id="oSpace" checked>띄어쓰기·줄바꿈 무시 <small style="color:#888">(표 안 번호가 끊겨도 찾음)</small></label>
+            <label><input type="checkbox" id="oAny">여러 낱말 중 하나라도(띄어 써서 여러 개)</label>
+            <label><input type="checkbox" id="oSub" checked>하위 폴더 포함</label>
+            <label><input type="checkbox" id="oFirst">문서마다 첫 번째만</label>
+          </div>
+          <div>어디에서 검색하시겠습니까?</div>
+          <select id="where">
+            <option value="">선택하십시오…</option>
+            <option value="cur">현재 문서</option>
+            <option value="open">열려 있는 모든 문서</option>
+            <option value="folder">폴더 선택…</option>
+            <option value="files">파일 선택…</option>
+          </select>
+          <div id="where2"></div>
+          <div class="sbtns"><button id="sGo">검색…</button><button id="sOpt">옵션(P)…</button></div>
+          <div id="prog"><i></i></div>
+          <div id="sstat">발견: 0 문서, 0 항목
+상태: 유휴</div>
+          <div id="results"></div>
+          <div class="sbtns"><button id="sCsv" disabled>목록 저장(엑셀)</button><button id="sClear" disabled>지우기</button></div>
+        </div>
+      </div>
+      <div id="pProps" class="pane">
+        <div class="phd"><span>속성</span><button class="x" data-cmd="closeProps" title="닫기">×</button></div>
+        <div class="pbody"><div class="empty" style="padding-top:60px">속성 없음</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="status">
+    <button class="qb" data-cmd="first" title="첫 페이지 (Home)">⏮</button>
+    <button class="qb" data-cmd="prev" title="이전 페이지 (←)">◀</button>
+    <input id="pgIn" type="text" value="" disabled> <span id="pgCnt">/ 0</span>
+    <button class="qb" data-cmd="next" title="다음 페이지 (→)">▶</button>
+    <button class="qb" data-cmd="last" title="마지막 페이지 (End)">⏭</button>
+    <div class="grow"></div>
+    <span id="stMaker" title="제작사">ⓒ 한일특장(주) · 한일 PDF 리더</span>
+    <div class="grow"></div>
+    <span id="dims"></span>
+    <button class="qb" data-cmd="zoomOut" title="축소 (Ctrl+-)">－</button>
+    <select id="zoomSel">
+      <option value="page">페이지 맞춤</option><option value="width">너비 맞춤</option>
+      <option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option>
+      <option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option><option value="custom" hidden>…</option>
+    </select>
+    <button class="qb" data-cmd="zoomIn" title="확대 (Ctrl++)">＋</button>
+  </div>
+</div>
+
+<div id="backstage"><div class="menu">
+  <button data-bs="open">열기</button>
+  <button data-cmd="save" data-need>저장(S)</button>
+  <button data-cmd="saveAs" data-need>다른 이름으로 저장</button>
+  <button data-cmd="saveOpt" data-need>최적화된 상태로 저장</button>
+  <hr>
+  <button data-cmd="newDoc">새 문서(N)</button>
+  <hr>
+  <button data-cmd="print" data-need>인쇄(P)</button>
+  <button data-bs="export">내보내기</button>
+  <hr>
+  <button data-cmd="props" data-need>문서 속성(D)</button>
+  <hr>
+  <button data-cmd="close" data-need>닫기(C)</button>
+  <button data-cmd="closeAll" data-need>모두 닫기</button>
+  <hr>
+  <button data-cmd="settings">환경 설정(N)</button>
+  <button data-cmd="about">정보 · 단축키</button>
+  <hr>
+  <button data-cmd="exit">끝내기(X)</button>
+  <div class="bsmaker">한일 PDF 리더<br>한일특장(주)</div>
+</div><div id="bsPanel"></div></div>
+
+<div id="splash"><div class="card">
+  <div class="top"><img id="splashIcon" alt=""><b>한일 PDF 리더</b><small id="splashVer"></small></div>
+  <div class="co">한일특장(주)</div>
+  <div class="co2">PDF 보기 · 찾기 · 주석 · 페이지 구성</div>
+  <div class="bar"><i></i></div>
+</div></div>
+<div id="toast"></div>
+<div id="modal"><div class="box"><div class="mh" id="mTitle"></div><div class="mb" id="mBody"></div><div class="mf" id="mFoot"></div></div></div>
+<div id="printArea"></div>
+<input type="file" id="fOpen" accept=".pdf,application/pdf" multiple>
+<input type="file" id="fFolder" webkitdirectory directory multiple>
+<input type="file" id="fFiles" accept=".pdf,application/pdf" multiple>
+<input type="file" id="fImg" accept="image/*" multiple>
+<!--APP-->
+</body>
+</html>
