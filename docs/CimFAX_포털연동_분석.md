@@ -298,7 +298,7 @@ GET  /api/fax?status=new     (포털 화면)
 - ✔ 태그 값 읽기는 대소문자를 가리지 않는다 (`ConvertUtil.getValue`)
 - ✔ 장비 찾기: UDP 255.255.255.255:**5076** 으로 `CimFAX/FaxGo where are you?(ID:장비ID)` 를 보내면, **5077** 로 `NAME:… ID: …)` 답이 온다
 
-### 10.2 로그인 (6.4 의 △ 확정)
+### 10.2 로그인 (6.4 의 △ 확정 — ✔ 현장 장비 로그인 성공, 2026-11-13)
 ```
 장비 → <SERVER_ID>…</SERVER_ID><SERVER_NAME>…</SERVER_NAME><VERIFY_STRING>임의값</VERIFY_STRING>   (접속하자마자)
 포털 → <ACTION>LOGIN</ACTION><USERNAME>계정</USERNAME><PASSWORD>md5hex(VERIFY_STRING + cal128MD5(비밀번호))</PASSWORD>
@@ -311,12 +311,14 @@ GET  /api/fax?status=new     (포털 화면)
 ### 10.3 보내기 (TCP 3002)
 ```
 포털 → (로그인)
-포털 → <ACTION>SENDFAX</ACTION><FILELEN>머리+TIFF 바이트</FILELEN><HEADERSIZE>1088</HEADERSIZE><BUFSIZE>1200</BUFSIZE>
-장비 → R            포털 → 1200 바이트 (머리 1088 바이트 다음 TIFF)
+포털 → <ACTION>SENDFAX</ACTION><FILELEN>머리+TIFF 바이트</FILELEN><HEADERSIZE>1024</HEADERSIZE><BUFSIZE>1200</BUFSIZE>
+장비 → R            포털 → 1200 바이트 (머리 1024 바이트 다음 TIFF)
 장비 → R            포털 → 다음 1200 바이트 …  (끝까지)
 장비 → <FEEDBACK>RECV_OK</FEEDBACK><TASKID>작업번호</TASKID><INTER_FORWARD>…</INTER_FORWARD>
 ```
-**작업 머리 1088 바이트** (`CFaxItem` → `mergeArrays`, 정수는 리틀엔디언 4바이트, 글자칸은 2바이트씩):
+**작업 머리** — ⚠ **현장 장비(192.168.1.156, 장비 ID 198B35C6)는 FaxGo 의 1088 바이트 머리를 `<ERROR>Header size is invalidate!</ERROR>` 로 거부했다 (2026-11-13).**
+FaxBox 처럼 **1024 바이트** (장비 C 구조체: `receiver` 가 WCHAR[32]=64 바이트) 로 보낸다. 404 바이트까지는 두 배치가 같고, 그 뒤 칸은 1024 배치에서 64 바이트씩 앞에 온다 (아래 표의 위치는 FaxGo 1088 배치 기준. 1024 배치는 sender 468, remark 596, dialRetryTime 912, faxQuality 916, disableSvrHeader 924, disableDialPrefix 932, resv 944). 포털은 1024 로 보내고, 장비가 머리 크기를 거부하면 1088 로 한 번 더 보낸다.
+칸 목록 (`CFaxItem` → `mergeArrays`, 정수는 리틀엔디언 4바이트, 글자칸은 2바이트씩):
 
 | 위치 | 크기 | 칸 | FaxGo 가 넣는 값 |
 |---|---|---|---|
@@ -356,7 +358,7 @@ GET  /api/fax?status=new     (포털 화면)
 `cimfax-check.js` 로 아래 순서대로 확인한다 (설치안내 3단계).
 1. 로그인 → 2. 시험 팩스 한 장 → 3. 받은 쪽 종이 확인 → 4. `--status` 로 상태 코드 확인
 - 확인할 것:
-  - 1088 바이트 머리를 장비가 받는지 (FaxBox 는 1024 바이트 머리를 쓰지만, FaxGo 가 1088 로 보내므로 장비가 둘 다 받을 것으로 본다)
+  - ✔ 로그인 성공 · ✗ 1088 머리 거부 → 1024 로 바꿈 (다시 시험 필요)
   - G3 TIFF 화질
   - 상태 코드표
 

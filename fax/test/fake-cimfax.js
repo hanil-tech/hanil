@@ -55,6 +55,8 @@ function start(opt) {
       if (!/<\/BUFSIZE>/.test(t)) return null;
       c.job = { len: +tag(t, 'FILELEN'), head: +tag(t, 'HEADERSIZE'), bs: +tag(t, 'BUFSIZE'), data: [], n: 0 };
       if (opt.refuse) { c.say('<FEEDBACK>FAILED</FEEDBACK>'); return { rest: Buffer.alloc(0) }; }
+      //  진짜 장비(현장 5060 계열)처럼: 머리 크기가 다르면 거부
+      if (!(opt.headerSizes || [1024]).includes(c.job.head)) { got.rejected = (got.rejected || 0) + 1; c.say('<ERROR>Header size is invalidate!</ERROR>'); c.job = null; return { rest: Buffer.alloc(0) }; }
       c.say('R');
       return { rest: Buffer.alloc(0) };
     }

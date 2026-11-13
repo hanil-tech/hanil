@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const PORT = { login: 3001, send: 3002, voice: 3003, recv: 3005, admin: 3006, cmd: 3007 };
-const HEADER_SIZE = 1088;
+const HEADER_SIZE = 1024;
 const BUF_SIZE = 1200;
 
 //  ── MD5 (FaxGo MD5Code: 시작값을 seed 로 비튼 MD5) ──
@@ -143,8 +143,11 @@ function shorts(str, n) {          //  FaxGo: UTF-8 바이트 하나를 short �
   for (let i = 0; i < n && i < src.length; i++) b.writeUInt16LE(src[i], i * 2);
   return b;
 }
-function buildHeader(o) {
-  const h = Buffer.alloc(HEADER_SIZE);
+//   1024: 장비·FaxBox 의 C 구조체 그대로 (FaxBox 는 0x400 바이트 머리를 보낸다 — Ghidra FUN_0044c6a0, 받은 팩스 머리 +0x194 수신자 · +0x1d4 발신자)
+//   1088: FaxGo 앱 배치 (receiver 를 int[32] 로 보냄). 현장 장비(5060 계열)는 1088 을 「Header size is invalidate」 로 거부했다.
+function buildHeader(o, size) {
+  size = size || HEADER_SIZE;
+  const h = Buffer.alloc(size);
   const i32 = (off, v) => h.writeInt32LE(v | 0, off);
   i32(24, 5);                                      //  status — FaxGo 가 새 작업에 넣는 값
   i32(28, o.priority === undefined ? 2 : o.priority);
@@ -153,17 +156,31 @@ function buildHeader(o) {
   i32(168, o.dialTotal === undefined ? 5 : o.dialTotal);
   systemTime(new Date()).copy(h, 176);
   if (o.planAt) systemTime(new Date(o.planAt)).copy(h, 192);
-  i32(976, o.retryMinutes || 0);
-  i32(980, o.quality === undefined ? 1 : o.quality);
-  h[988] = o.disableSvrHeader ? 1 : 0;
-  h[996] = o.disableDialPrefix ? 1 : 0;
+  //  ↓ 여기부터 배치가 갈린다: 장비(C 구조체)는 receiver 가 WCHAR[32]=64 바이트, FaxGo 는 int[32]=128 바이트
+  const d = size === 1088 ? 0 : -64;
+  i32(976 + d, o.retryMinutes || 0);
+  i32(980 + d, o.quality === undefined ? 1 : o.quality);
+  h[988 + d] = o.disableSvrHeader ? 1 : 0;
+  h[996 + d] = o.disableDialPrefix ? 1 : 0;
   return h;
 }
 
 //  ── 보내기 (FaxGo SendFaxNetwork.uploadFax) ──
 async function sendFax(dev, o) {
   const tiff = Buffer.isBuffer(o.tiff) ? o.tiff : await fsp.readFile(o.tiff);
-  const head = buildHeader(o);
+  const sizes = dev.headerSize ? [dev.headerSize] : [1024, 1088];
+  for (let i = 0; ; i++) {
+    try {
+      return await sendOnce(dev, o, tiff, sizes[i]);
+    } catch (e) {
+      //  머리 크기를 거부하면(전화를 걸기 전) 다른 배치로 한 번 더
+      if (i + 1 < sizes.length && /header\s*size/i.test(e.message)) continue;
+      throw e;
+    }
+  }
+}
+async function sendOnce(dev, o, tiff, size) {
+  const head = buildHeader(o, size);
   const all = Buffer.concat([head, tiff]);
   const c = await login(dev, PORT.send);
   try {
@@ -182,8 +199,8 @@ async function sendFax(dev, o) {
         continue;
       }
       const fb = tag(r, 'FEEDBACK');
-      if (fb === 'RECV_OK') return { taskId: Number(tag(r, 'TASKID')) || tag(r, 'TASKID'), bytes: all.length };
-      throw new Error('장비가 받지 않았습니다: ' + (fb || r.slice(0, 120)));
+      if (fb === 'RECV_OK') return { taskId: Number(tag(r, 'TASKID')) || tag(r, 'TASKID'), bytes: all.length, headerSize: size };
+      throw new Error('장비가 받지 않았습니다: ' + (fb || tag(r, 'ERROR') || r.slice(0, 120)));
     }
   } finally { c.close(); }
 }

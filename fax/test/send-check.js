@@ -53,7 +53,8 @@ async function login(port, user) {
   ok(dev.got.faxes.length === 2, '장비가 팩스 2건을 받음');
   const f = dev.got.faxes[0];
   const phone = f.header.subarray(96, 160).toString('utf16le').replace(/\0.*$/, '');
-  ok(f.headSize === 1088 && f.bufSize === 1200 && f.fileLen === f.header.length + f.tiff.length, 'SENDFAX: HEADERSIZE 1088 · BUFSIZE 1200 · FILELEN = 머리+TIFF');
+  ok(f.headSize === 1024 && f.bufSize === 1200 && f.fileLen === f.header.length + f.tiff.length, 'SENDFAX: HEADERSIZE 1024(장비 구조체) · BUFSIZE 1200 · FILELEN = 머리+TIFF');
+  ok(f.header.readInt32LE(916) === 1 && !dev.got.rejected, '머리 1024 배치: 화질(+916) · 장비가 거부하지 않음');
   ok(phone === '02-1234-5678' && f.header.readInt32LE(160) === 2 && f.header.readInt32LE(24) === 5 && f.header.readInt32LE(28) === 2, '머리: 번호 · 쪽수 2 · 상태 5 · 우선순위 2');
   ok(f.header.readUInt16LE(176) === new Date().getUTCFullYear(), '머리: 보낸 시각(UTC)');
   const t = cim.tiffPages(f.tiff);
@@ -75,6 +76,17 @@ async function login(port, user) {
   const other = await login(port, 'kim');
   j = await (await other('/api/fax/sent')).json();
   ok(j.items.length === 2, '관리자는 모두 봄');
+
+  //  4-2. 장비가 1088(FaxGo 배치)만 받는 경우 → 거부되면 1088 로 다시
+  const dev2 = startDevice({ portBase: 35001, headerSizes: [1088] });
+  const r2 = await cim.sendFax(Object.assign({}, device, { portBase: 35001 }), { phone: '0212345678', pages: 2, tiff: f.tiff });
+  ok(r2.headerSize === 1088 && dev2.got.rejected === 1 && dev2.got.faxes.length === 1 && dev2.got.faxes[0].header.readInt32LE(980) === 1, '머리 크기를 거부하면 다른 배치(1088)로 한 번 더 → 접수');
+  dev2.close();
+  const dev3 = startDevice({ portBase: 36001, headerSizes: [999] });
+  let e3 = '';
+  try { await cim.sendFax(Object.assign({}, device, { portBase: 36001 }), { phone: '0212345678', pages: 2, tiff: f.tiff }); } catch (e) { e3 = e.message; }
+  ok(/Header size is invalidate/.test(e3) && dev3.got.rejected === 2, '둘 다 거부하면 장비 오류 문구 그대로 실패');
+  dev3.close();
 
   //  5. 비밀번호가 틀리면 실패 + 다시 보내기
   fax.stop(); srv.closeAllConnections(); srv.close();

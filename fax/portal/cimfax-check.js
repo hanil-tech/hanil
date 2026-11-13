@@ -21,6 +21,10 @@ if (!a.host || !a.user) {
 const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pass || ''), ghostscript: a.gs, timeoutMs: 15000 };
 
 (async () => {
+  if (a.send) {
+    if (!/^[0-9,*#-]*\d{3,}[0-9,*#-]*$/.test(String(a.send))) throw new Error('받는 팩스 번호를 숫자로 넣어 주세요 (예: --send 0212345678) — 지금 값: ' + a.send);
+    if (!a.file || !fs.existsSync(a.file)) throw new Error('보낼 PDF 가 없습니다: ' + (a.file || '(--file 빠짐)'));
+  }
   console.log('▶ 장비 ' + dev.host + ' 에 로그인 …');
   const c = await cim.login(dev, cim.PORT.cmd);
   c.close();
@@ -41,7 +45,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     console.log('▶ ' + a.send + ' 로 보내는 중 …');
     const r = await cim.sendFax(dev, { phone: String(a.send), pages: t.pages, tiff: tif, onProgress: (p) => process.stdout.write('\r  ' + p + '%   ') });
     fs.unlinkSync(tif);
-    console.log('\n✅ 장비가 받았습니다 — 작업번호 ' + r.taskId + '   (FaxBox 의 보낸 팩스·대기열에서도 보여야 합니다)');
+    console.log('\n✅ 장비가 받았습니다 — 작업번호 ' + r.taskId + ' · 머리 ' + r.headerSize + ' 바이트   (FaxBox 의 보낸 팩스·대기열에서도 보여야 합니다)');
     console.log('   잠시 뒤:  node cimfax-check.js --host ' + a.host + ' --user ' + a.user + ' --pass … --status ' + r.taskId);
   }
 
