@@ -14,6 +14,8 @@
 | **C. CimFAX 서버와 직접 통신** | 포털 서버가 CimFAX 클라이언트처럼 접속해 팩스를 직접 내려받음 | 어려움 · 2~3주 + 현장 확인 | 실시간·완전 자동이 꼭 필요할 때 |
 
 **추천 순서:** A 로 먼저 운영을 시작한다 → 부족하면 C 를 개발한다.
+**보내기**는 C 방식(장비와 직접 통신)으로 만들었다. CimFAX 공식 앱 FaxGo 를 디컴파일해서 로그인 계산, 작업 머리, 전송 순서를 모두 확인했다 (10장). 구현은 `fax/portal/cimfax-client.js`.
+
 메일을 쓰기 어렵다면 B 도 좋다. FaxBox 에 **"자동 내보내기 → PDF → 공유 폴더"** 기능이 있다는 것을 디컴파일로 확인했기 때문에 (5.1.1), 포털은 폴더만 지켜보면 된다.
 C 는 이번 분석으로 통신 방식의 뼈대를 거의 다 알아냈지만, 실제 장비에서 통신 내용을 한 번 기록해 맞춰 봐야 한다 (6장).
 
@@ -284,6 +286,79 @@ GET  /api/fax?status=new     (포털 화면)
 3. [ ] 포털 개발 환경 확인 (언어, 저장소, 로그인 방식)
 4. [ ] 메일 수집기 + 받은 팩스 화면 개발 (방법 A)
 5. [ ] (필요하면) Wireshark 기록 1회 → 방법 C 프로토콜 확정 → 직접 수신 모듈 개발
+
+---
+
+## 10. 팩스 보내기 — FaxGo 앱 분석 (2026-11-13)
+
+포털에서 팩스를 보내려면 장비와 직접 통신해야 한다. FaxBox 의 `/send` 옵션은 FaxViewer 의 보내기 창을 띄울 뿐이라 자동화할 수 없다 (Ghidra `FUN_00417ba0`). 그래서 CimFAX 공식 안드로이드 앱 **FaxGo** (`download.cimfax.com/android/faxgo.apk`, SHA-256 `d67e5201…a7a698`) 를 androguard 로 디컴파일했다. 이 앱도 같은 사내망 프로토콜로 팩스를 보내고, Java 라서 FaxBox 보다 훨씬 정확하게 읽힌다.
+
+### 10.1 공통
+- ✔ 글자는 **UTF-16LE**, 끝 표시 없음. 응답은 최대 1024 바이트씩 읽는다 (`SocketBase`)
+- ✔ 태그 값 읽기는 대소문자를 가리지 않는다 (`ConvertUtil.getValue`)
+- ✔ 장비 찾기: UDP 255.255.255.255:**5076** 으로 `CimFAX/FaxGo where are you?(ID:장비ID)` 를 보내면, **5077** 로 `NAME:… ID: …)` 답이 온다
+
+### 10.2 로그인 (6.4 의 △ 확정)
+```
+장비 → <SERVER_ID>…</SERVER_ID><SERVER_NAME>…</SERVER_NAME><VERIFY_STRING>임의값</VERIFY_STRING>   (접속하자마자)
+포털 → <ACTION>LOGIN</ACTION><USERNAME>계정</USERNAME><PASSWORD>md5hex(VERIFY_STRING + cal128MD5(비밀번호))</PASSWORD>
+장비 → <LOGIN_STATE>OK</LOGIN_STATE><PERMISSION>…</PERMISSION><EXT_NUM>…</EXT_NUM>
+```
+- `md5hex` = 표준 MD5, 소문자 16진수 (`ConvertUtil.getMD5`, 바이트코드로 확인)
+- `cal128MD5(pw)` = `MD5Code(k).getMD5ofStr(pw)` 를 k = 0,1,2,3 으로 네 번 구해 이어 붙인 128자 (`ConvertUtil.cal128MD5`)
+- `MD5Code(k)` = 표준 MD5 와 같고 **시작값만** `A+11k, B+71k, C+37k, D+97k` 로 바뀐다 (`md5Init`). 회전은 부호 없는 시프트(`ushr-int`)로 표준과 같다. k=0 이면 표준 MD5 와 결과가 같은 것을 확인했다.
+
+### 10.3 보내기 (TCP 3002)
+```
+포털 → (로그인)
+포털 → <ACTION>SENDFAX</ACTION><FILELEN>머리+TIFF 바이트</FILELEN><HEADERSIZE>1088</HEADERSIZE><BUFSIZE>1200</BUFSIZE>
+장비 → R            포털 → 1200 바이트 (머리 1088 바이트 다음 TIFF)
+장비 → R            포털 → 다음 1200 바이트 …  (끝까지)
+장비 → <FEEDBACK>RECV_OK</FEEDBACK><TASKID>작업번호</TASKID><INTER_FORWARD>…</INTER_FORWARD>
+```
+**작업 머리 1088 바이트** (`CFaxItem` → `mergeArrays`, 정수는 리틀엔디언 4바이트, 글자칸은 2바이트씩):
+
+| 위치 | 크기 | 칸 | FaxGo 가 넣는 값 |
+|---|---|---|---|
+| 0 | 4×6 | remove, taskId, fileId, isDel, ID, serverId | 0 |
+| 24 | 4 | status | **5** |
+| 28 | 4 | priority | 2 (기본) |
+| 32 | 64 | cid | 비움 |
+| 96 | 64 | **phone** (받는 번호, 글자마다 2바이트) | `--` 는 `,,,,,,,,` (쉼) 로 |
+| 160 | 4 | **pageTotal** | 쪽수 |
+| 164·168·172 | 4×3 | pageSended, dialTotal(5), dialAlready | |
+| 176 | 16 | dateTime (SYSTEMTIME, UTC) | 지금 |
+| 192 | 16 | dateTimePlan | 예약이면 그 시각 |
+| 208 | 4 | remarkId | 0 |
+| 212·340·404·532·596·660 | 128·64·128·64·64·256 | issue, fileName, receiver, sender, reviewer, remark | 비움 |
+| 916 | 4×3 | sending % / state / baud | 0 |
+| 928·944·960 | 16×3 | dateTimeStop, timeLimitStart, timeLimitEnd | 비움 |
+| 976·980·984 | 4×3 | dialRetryTime, **faxQuality**(1), spendTime | |
+| 988·992·996·1000·1004 | 4×5 | disableSvrHeader, taskGroup, disableDialPrefix, lineNum, isPublicFax | 0 |
+| 1008 | 80 | resv | 0 |
+
+- **FaxGo 는 TIFF 를 암호화하지 않고 그대로 보낸다.** FaxBox 는 RC4 로 암호화하지만 (8장 아래 메모) 포털은 FaxGo 와 같이 한다.
+- **TIFF 형식**: CimFAX 클라이언트가 만든 `TransReport.tif` 와 같게 한다. 폭 **1728**, 204×196 dpi, 흑백, **CCITT G3 2D**, 여러 쪽. 포털은 Ghostscript `tiffg32d -r204x196` 로 만든다. FaxGo 도 1728 폭으로 그린다 (`convertPDF2TIF`).
+
+### 10.4 보낸 팩스 상태 (TCP 3007)
+```
+포털 → <ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>101,102</TASK_ID_LIST>   ('all in queue' 면 대기 중 전부)
+장비 → <FEEDBACK>OK</FEEDBACK><AMOUNT>n</AMOUNT>
+(n 번)  포털 → R    장비 → 1024 바이트 기록 (위 머리와 같은 배치: +4 작업번호, +24 상태, +164 보낸 쪽, +172 다이얼 횟수)
+```
+- △ **상태 코드 값의 뜻**(대기 / 보내는 중 / 성공 / 실패)은 아직 모른다. 포털은 코드 숫자, 보낸 쪽 수, 다이얼 횟수를 그대로 보여 준다. 현장 시험 팩스 몇 장으로 코드표를 채운다.
+
+### 10.5 FaxBox 쪽 메모 — RC4 암호화
+- FaxBox 는 받은 팩스와 올리는 팩스를 **RC4(40비트)** 로 암호화해서 주고받는다. 키는 `MD5( UTF-16LE( md5hex(ANSI(사용자 이름)) ) )` 로 만든다 (Ghidra `FUN_00407950`, `FUN_00407b40`, Windows `CryptDeriveKey(CALG_RC4)`). 받은 팩스는 수신자 이름이 로그인 사용자와 같을 때 이 키를 쓴다 (`FUN_00440070`).
+- 키가 사용자 이름에서 나오므로 보안 효과는 거의 없다. 사내망 밖으로 장비 포트(3001~3007)를 열지 않는다.
+
+### 10.6 현장 확인 (보내기)
+`cimfax-check.js` 로 아래 순서대로 확인한다 (설치안내 3단계).
+1. 로그인 → 2. 시험 팩스 한 장 → 3. 받은 쪽 종이 확인 → 4. `--status` 로 상태 코드 확인
+- 확인할 것:
+  - 1088 바이트 머리를 장비가 받는지 (FaxBox 는 1024 바이트 머리를 쓰지만, FaxGo 가 1088 로 보내므로 장비가 둘 다 받을 것으로 본다)
+  - G3 TIFF 화질
+  - 상태 코드표
 
 ---
 

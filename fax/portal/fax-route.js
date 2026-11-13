@@ -30,6 +30,21 @@
 //     GET    /api/fax/admin/status                폴더 상태·마지막 검사·오류 (관리자만)
 //     GET    /fax                                 받은 팩스 화면
 //
+//   📤 보내기 — device 를 넣으면 켜진다 (장비와 직접 통신: cimfax-client.js · PDF→팩스 TIFF 는 Ghostscript)
+//     device     { host: '192.168.0.50', user: 'CimFAX계정', password: '비밀번호',
+//                  ghostscript?: 'C:/Program Files/gs/gs10.04.0/bin/gswin64c.exe', dryRun?: true(시험: 장비로 안 보냄),
+//                  priority?: 2, quality?: 1, dialTotal?: 5, serverId?: '장비ID 확인', portBase?: 3001 }
+//                (또는 환경 변수 FAX_DEVICE_HOST · FAX_DEVICE_USER · FAX_DEVICE_PASSWORD)
+//     sendBy     누가 보내나: 'all'(기본) | 'admin' | (user) => true/false
+//     sentView   보낸 목록: 자기 것만(기본) | 'all' — 관리자는 언제나 전부
+//     maxSendMB  올리는 파일 크기 한도 (기본 20)
+//     POST   /api/fax/send?to=번호[,번호…]&name=받는곳&memo=메모&file=파일이름   몸통 = PDF(또는 팩스 TIFF) 그대로
+//     GET    /api/fax/send/config                 { enabled, canSend, maxMB, dryRun }
+//     GET    /api/fax/sent                        보낸 팩스 목록 (상태: queued·converting·sending·accepted·failed)
+//     GET    /api/fax/sent/:id/file               보낸 원본
+//     POST   /api/fax/sent/:id/retry              실패한 것 다시 보내기
+//     GET    /api/fax/device/check                장비 로그인 시험 (관리자만)
+//
 //   ⚠ 저장: fax-store/faxes.json (바꿔치기로 써서 쓰다가 꺼져도 반쪽 파일이 남지 않는다) + fax-store/files/<번호>.pdf
 //   ⚠ 포털 서버가 inbox 폴더를 읽을 수 있어야 한다 (공유 폴더면 포털을 돌리는 Windows 계정에 읽기·쓰기 권한).
 'use strict';
@@ -293,6 +308,9 @@ module.exports = function mountFax(app, ctx) {
     });
   });
 
+  const sendApi = {};
+  mountSend();
+
   app.get('/api/fax/:id', auth, (req, res) => {
     const f = ID.test(req.params.id) && byId(req.params.id);
     if (!f || !canView(req.faxUser, f)) return res.status(404).json({ ok: false, error: '없는 팩스입니다' });
@@ -354,6 +372,175 @@ module.exports = function mountFax(app, ctx) {
     res.json({ ok: true });
   });
 
+  //  ── 보내기 (ctx.device 가 있을 때만) ──
+  function mountSend() {
+    const dev = ctx.device || (process.env.FAX_DEVICE_HOST ? {
+      host: process.env.FAX_DEVICE_HOST, user: process.env.FAX_DEVICE_USER, password: process.env.FAX_DEVICE_PASSWORD,
+    } : null);
+    const cim = ctx.cimfax || require('./cimfax-client');
+    const SENT = path.join(DIR, 'sent');
+    fs.mkdirSync(SENT, { recursive: true });
+    db.sent = db.sent || [];
+    const canSend = (u) => (typeof ctx.sendBy === 'function' ? !!ctx.sendBy(u) : ctx.sendBy === 'admin' ? u.admin : true);
+    const MAX = (Number(ctx.maxSendMB) || 20) * 1048576;
+    const sview = (s) => { const { tif, src, ...rest } = s; return rest; };
+    const mine = (u) => db.sent.filter((s) => !s.hidden && (u.admin || ctx.sentView === 'all' || s.by_id === u.id));
+
+    app.get('/api/fax/send/config', auth, (req, res) => {
+      res.json({ ok: true, enabled: !!dev, canSend: !!dev && canSend(req.faxUser), maxMB: MAX / 1048576, dryRun: !!(dev && dev.dryRun) });
+    });
+
+    //  POST /api/fax/send?to=0212345678,0311112222&name=대한상사&memo=견적서   몸통 = PDF 또는 팩스 TIFF 파일 그대로
+    app.post('/api/fax/send', auth, (req, res) => {
+      const u = req.faxUser;
+      if (!dev) return res.status(503).json({ ok: false, error: '팩스 장비가 설정되지 않았습니다 (관리자에게 문의)' });
+      if (!canSend(u)) return res.status(403).json({ ok: false, error: '팩스를 보낼 권한이 없습니다' });
+      const nums = String(req.query.to || '').split(/[,\s;]+/).map((s) => s.replace(/[^0-9,*#-]/g, '')).filter((s) => /\d{3,}/.test(s));
+      if (!nums.length) return res.status(400).json({ ok: false, error: '받는 팩스 번호를 넣어 주세요' });
+      if (nums.length > 20) return res.status(400).json({ ok: false, error: '한 번에 20곳까지 보낼 수 있습니다' });
+      const chunks = [];
+      let size = 0, over = false;
+      req.on('data', (c) => { size += c.length; if (size > MAX) { over = true; req.destroy(); } else chunks.push(c); });
+      req.on('error', () => {});
+      req.on('end', async () => {
+        if (over) return;
+        const buf = Buffer.concat(chunks);
+        const sig = buf.toString('latin1', 0, 4);
+        if (sig !== '%PDF' && sig !== 'II*\0' && sig !== 'MM\0*') return res.status(400).json({ ok: false, error: 'PDF 파일(또는 팩스 TIFF)만 보낼 수 있습니다' });
+        const job = crypto.randomBytes(8).toString('hex');
+        const ext = sig === '%PDF' ? 'pdf' : 'tif';
+        const src = path.join(SENT, job + '.src.' + ext);
+        try { await fsp.writeFile(src, buf); } catch (e) { return res.status(500).json({ ok: false, error: '파일을 저장하지 못했습니다' }); }
+        const now = Date.now();
+        const name = String(req.query.name || '').trim().slice(0, 60), memo = String(req.query.memo || '').trim().slice(0, 500);
+        const fileName = String(req.query.file || '').trim().slice(0, 120);
+        const items = nums.map((to) => ({
+          id: crypto.randomBytes(8).toString('hex'), job, to, name, memo, file_name: fileName, ext, size: buf.length,
+          src, tif: path.join(SENT, job + '.tif'), pages: 0, state: 'queued', task_id: null, device: null, error: '', tries: 0,
+          by: u.name, by_id: u.id, created_at: now, history: [{ at: now, by: u.name, action: '보내기 요청' }],
+        }));
+        db.sent.push(...items);
+        save();
+        res.json({ ok: true, items: items.map(sview) });
+        kick();
+      });
+    });
+
+    app.get('/api/fax/sent', auth, (req, res) => {
+      const list = mine(req.faxUser).slice().sort((a, b) => b.created_at - a.created_at);
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const busy = list.filter((s) => ['queued', 'converting', 'sending'].includes(s.state)).length;
+      res.json({ ok: true, busy, items: list.slice(0, limit).map(sview), more: list.length > limit });
+    });
+
+    app.get('/api/fax/sent/:id/file', auth, (req, res) => {
+      const s = ID.test(req.params.id) && mine(req.faxUser).find((x) => x.id === req.params.id);
+      if (!s || !fs.existsSync(s.src)) return res.status(404).json({ ok: false, error: '없는 팩스입니다' });
+      res.setHeader('Content-Type', s.ext === 'pdf' ? 'application/pdf' : 'image/tiff');
+      res.setHeader('Content-Disposition', (s.ext === 'pdf' && !req.query.download ? 'inline' : 'attachment') + "; filename*=UTF-8''" + encodeURIComponent((s.file_name || '보낸팩스_' + s.to) .replace(/\.(pdf|tiff?)$/i, '') + '.' + s.ext));
+      fs.createReadStream(s.src).pipe(res);
+    });
+
+    app.post('/api/fax/sent/:id/retry', auth, (req, res) => {
+      const s = ID.test(req.params.id) && mine(req.faxUser).find((x) => x.id === req.params.id);
+      if (!s) return res.status(404).json({ ok: false, error: '없는 팩스입니다' });
+      if (s.state !== 'failed') return res.status(409).json({ ok: false, error: '실패한 팩스만 다시 보낼 수 있습니다' });
+      s.state = 'queued'; s.error = ''; s.tries = 0;
+      s.history.push({ at: Date.now(), by: req.faxUser.name, action: '다시 보내기' });
+      save();
+      res.json({ ok: true, item: sview(s) });
+      kick();
+    });
+
+    app.get('/api/fax/device/check', auth, admin, async (req, res) => {
+      if (!dev) return res.json({ ok: false, error: '장비 설정 없음' });
+      if (dev.dryRun) return res.json({ ok: true, dryRun: true });
+      try {
+        const c = await cim.login(dev, cim.PORT.cmd);
+        c.close();
+        res.json({ ok: true, device: c.info });
+      } catch (e) { res.json({ ok: false, error: e.message }); }
+    });
+
+    //  ── 보내는 일꾼: 한 번에 한 건씩 ──
+    let working = false;
+    async function kick() {
+      if (working || !dev) return;
+      working = true;
+      try {
+        for (;;) {
+          const s = db.sent.find((x) => x.state === 'queued' && !x.hidden);
+          if (!s) break;
+          await sendOne(s);
+        }
+      } finally { working = false; }
+    }
+    async function sendOne(s) {
+      const step = (state, action) => { s.state = state; if (action) s.history.push({ at: Date.now(), by: '', action }); save(); };
+      try {
+        if (!fs.existsSync(s.tif)) {
+          step('converting');
+          const r = await cim.toFaxTiff(s.src, s.tif + '.new', { ghostscript: dev.ghostscript });
+          await fsp.rename(s.tif + '.new', s.tif);
+          db.sent.filter((x) => x.job === s.job).forEach((x) => { x.pages = r.pages; });
+        } else if (!s.pages) {
+          s.pages = cim.tiffPages(await fsp.readFile(s.tif)).pages;
+        }
+        step('sending');
+        s.tries++;
+        if (dev.dryRun) {
+          s.task_id = 0;
+          step('accepted', '시험 모드 — 장비로 보내지 않음 (' + s.pages + '쪽)');
+        } else {
+          const r = await cim.sendFax(dev, { phone: s.to, pages: s.pages, tiff: s.tif, priority: dev.priority, quality: dev.quality, dialTotal: dev.dialTotal });
+          s.task_id = r.taskId;
+          s.accepted_at = Date.now();
+          step('accepted', '장비 접수 · 작업번호 ' + r.taskId);
+        }
+      } catch (e) {
+        s.error = e.message;
+        const network = /접속|연결|답하지/.test(e.message);
+        if (network && s.tries < 3) {
+          step('queued', '다시 시도 예정: ' + e.message);
+          await new Promise((ok) => setTimeout(ok, 20000));
+        } else {
+          step('failed', '실패: ' + e.message);
+          if (typeof ctx.notify === 'function') {
+            try { await ctx.notify(Object.assign({ kind: 'send_failed' }, sview(s)), { url: '/fax#sent' }); } catch (e2) { /* 알림 실패는 넘어감 */ }
+          }
+        }
+      }
+    }
+
+    //  ── 접수된 팩스 상태 묻기 (1분마다, 하루 동안) ──
+    async function poll() {
+      if (!dev || dev.dryRun) return;
+      const live = db.sent.filter((s) => s.state === 'accepted' && s.task_id && Date.now() - (s.accepted_at || 0) < DAY);
+      if (!live.length) return;
+      try {
+        const r = await cim.sendStatus(dev, live.map((s) => s.task_id).join(','));
+        if (!r.ok) return;
+        let changed = false;
+        r.items.forEach((it) => {
+          const s = live.find((x) => x.task_id === it.taskId);
+          if (!s) return;
+          const d = { status: it.status, pageSent: it.pageSent, pageTotal: it.pageTotal, dialDone: it.dialDone, dialTotal: it.dialTotal, at: Date.now() };
+          if (!s.device || s.device.status !== d.status || s.device.pageSent !== d.pageSent || s.device.dialDone !== d.dialDone) {
+            s.device = d; changed = true;
+          }
+        });
+        if (changed) save();
+      } catch (e) { state.lastSendError = e.message; }
+    }
+    const pt = setInterval(poll, (Number(ctx.statusSec) || 60) * 1000);
+    if (pt.unref) pt.unref();
+    //  켜질 때 보내던 중이던 것은 다시 줄 세운다
+    db.sent.forEach((s) => { if (s.state === 'converting' || s.state === 'sending') s.state = 'queued'; });
+    const kt = setTimeout(kick, 1000);
+    if (kt.unref) kt.unref();
+    sendApi.kick = kick; sendApi.poll = poll; sendApi.timer = pt;
+  }
+
   //  ── 화면 ──
   const PAGE = path.join(__dirname, 'fax-page.html');
   app.get('/fax', (req, res) => {
@@ -363,7 +550,7 @@ module.exports = function mountFax(app, ctx) {
   });
 
   //  시험·관리용
-  return { scan, state, db: () => db, stop: () => clearInterval(timer) };
+  return { scan, state, db: () => db, send: sendApi, stop: () => { clearInterval(timer); if (sendApi.timer) clearInterval(sendApi.timer); } };
 };
 
 module.exports.parseName = parseName;

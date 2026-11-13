@@ -28,7 +28,7 @@ function start(opts) {
     notify: async (f, x) => { notified.push({ id: f.id, url: x.url }); },
   }, opts.ctx || {}));
   return new Promise((ok) => {
-    const srv = app.listen(opts.port || Number(process.env.PORT) || 3997, () => ok({ srv, fax, notified, port: srv.address().port }));
+    const srv = app.listen(opts.port !== undefined ? opts.port : (Number(process.env.PORT) || 3997), () => ok({ srv, fax, notified, port: srv.address().port }));
   });
 }
 module.exports = start;

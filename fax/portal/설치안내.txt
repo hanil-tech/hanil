@@ -1,9 +1,10 @@
-📠 한일 포털 「받은 팩스」 — 설치 안내
+📠 한일 포털 「팩스」 — 설치 안내
 =========================================
 
-CimFAX 팩스 서버로 들어온 팩스를 포털에 자동으로 올리고, 포털의 /fax 화면에서 보고 처리하게 하는 포털 조각입니다.
+CimFAX 팩스 서버로 들어온 팩스를 포털에 자동으로 올리고(1·2단계), 포털에서 팩스를 보내게(3단계) 하는 포털 조각입니다.
 
-  CimFAX 장비 ──▶ 팩스 프로그램(FaxBox)이 받아서 PDF 로 자동 저장 ──▶ 공유 폴더 ──▶ 포털이 15초마다 가져감 ──▶ /fax
+  받기:  CimFAX 장비 ──▶ 팩스 프로그램(FaxBox)이 받아서 PDF 로 자동 저장 ──▶ 공유 폴더 ──▶ 포털이 15초마다 가져감 ──▶ /fax
+  보내기: /fax 「✉ 팩스 보내기」 ──▶ 포털이 PDF 를 팩스 그림으로 바꿈 ──▶ CimFAX 장비에 직접 넘김 ──▶ 전화선
 
 
 ■ 1단계 — 팩스 프로그램(FaxBox) 자동 내보내기 켜기  (팩스를 받는 PC 한 대)
@@ -67,10 +68,59 @@ CimFAX 팩스 서버로 들어온 팩스를 포털에 자동으로 올리고, �
   여러 폴더:                 inbox: ['\\\\FAXPC\\fax-export', 'D:/fax2']
 
 
+■ 3단계 — 포털에서 팩스 보내기 (선택)
+
+  포털이 CimFAX 장비에 직접 접속해서 보냅니다 (FaxBox 를 거치지 않음).
+  PDF 를 올리면 포털 서버가 팩스용 흑백 TIFF 로 바꿔 장비로 넘기고, 장비가 전화선으로 보냅니다.
+
+  ① 포털 서버에 Ghostscript 설치 (PDF → 팩스 그림 변환, 무료)
+       https://ghostscript.com/releases/gsdnld.html  →  「Ghostscript AGPL Release」 Windows 64bit 받아 설치
+       (기본 위치 C:\Program Files\gs\… 에 깔면 포털이 알아서 찾습니다)
+
+  ② 포털 폴더에 두 파일을 더 복사합니다.
+       cimfax-client.js     장비와 통신
+       cimfax-check.js      장비 점검 도구
+
+  ③ 먼저 장비와 말이 통하는지 확인 (포털 서버의 명령 프롬프트, 포털 폴더에서)
+
+       node cimfax-check.js --host 192.168.0.50 --user CimFAX계정 --pass 비밀번호
+
+     「✅ 로그인 성공」 이 나오면 됩니다.  (192.168.0.50 = CimFAX 장비 주소. FaxBox 로그인 화면에 보이는 주소)
+     ⚠ 포털 전용 CimFAX 계정을 하나 만들어 쓰는 것을 권합니다 (FaxBox → 서버 → 사용자 계정 → 추가, 「보내기」 권한).
+
+  ④ 시험 팩스 한 장 — 우리 회사 팩스 번호나 아는 번호로
+
+       node cimfax-check.js --host 192.168.0.50 --user CimFAX계정 --pass 비밀번호 --send 0212345678 --file 시험.pdf
+
+     「✅ 장비가 받았습니다 — 작업번호 N」 → 실제로 팩스가 나갔는지, 받은 쪽 종이가 깨끗한지 확인합니다.
+     FaxBox 의 「보낸 팩스」 목록에도 보여야 합니다.
+
+  ⑤ server.js 의 한 줄에 device 를 더합니다.
+
+       require('./fax-route')(app, {
+         inbox: '\\\\FAXPC\\fax-export',
+         device: { host: '192.168.0.50', user: 'CimFAX계정', password: '비밀번호' },
+       });
+
+     비밀번호를 server.js 에 적기 싫으면 환경 변수로:  FAX_DEVICE_HOST · FAX_DEVICE_USER · FAX_DEVICE_PASSWORD
+     처음 며칠은  device: { …, dryRun: true }  로 켜 두면 변환까지만 하고 장비로는 안 보냅니다(화면 연습용).
+
+  ⑥ 포털을 다시 켜면 /fax 화면 오른쪽 위에 「✉ 팩스 보내기」 버튼과 「보낸 팩스」 칸이 생깁니다.
+     · 받는 번호는 쉼표로 여러 곳(20곳까지) — 번호마다 따로 보냅니다
+     · 상태: 대기 → 변환 중 → 장비로 보내는 중 → 장비 접수(작업번호) — 실패하면 이유와 「다시 보내기」
+     · 접수된 뒤에는 1분마다 장비에 물어서 「보낸 쪽 n/m · 다이얼 횟수」 를 보여 줍니다
+
+  보내기 권한:   sendBy: 'admin'  (관리자만) 또는  sendBy: (u) => ['kim','lee'].includes(u.id)
+  보낸 목록:     기본은 자기가 보낸 것만 — 모두 보게 하려면  sentView: 'all'   (관리자는 언제나 전부)
+
+
 ■ 문제가 생기면
 
   · 팩스가 안 올라온다
       1) 공유 폴더에 PDF 가 생겼는지 → 안 생기면 FaxBox 쪽(켜져 있는지, 자동 내보내기 설정)
       2) /api/fax/admin/status 의 오류 → 권한·경로
+  · 보내기 「Ghostscript 가 없습니다」 → ① 설치, 또는 device 에  ghostscript: 'C:/Program Files/gs/gs10.04.0/bin/gswin64c.exe'
+  · 보내기 「CimFAX 계정 또는 비밀번호가 틀립니다」 → FaxBox 로 같은 계정 로그인이 되는지 확인
+  · 보내기 「…3002 접속 실패」 → 포털 서버에서 장비 주소로 ping, 방화벽(TCP 3001~3007)
   · 포털 화면에서 「브라우저에서 바로 볼 수 없습니다」 → FaxBox 내보내기 형식이 TIF 입니다. PDF 로 바꿔 주세요.
     (PDF 변환에 실패한 팩스는 FaxBox 가 …_PdfErr.tif 로 남깁니다 — 이것도 포털에 올라오고 내려받아 볼 수 있습니다)

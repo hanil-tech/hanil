@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>받은 팩스</title>
+<title>팩스</title>
 <style>
   :root {
     --bg: #f5f6f8; --card: #fff; --line: #e3e6ea; --text: #1d2329; --sub: #66707a;
@@ -16,8 +16,9 @@
   body { margin: 0; font: 15px/1.5 -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif; background: var(--bg); color: var(--text); }
   header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
-  .tabs { display: flex; gap: 4px; }
-  .tabs button { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 6px 12px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 14px; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: 0 0 auto; white-space: nowrap; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 6px 12px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 14px; }
   .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .tabs b { font-weight: 600; margin-left: 4px; }
   #q { flex: 1; min-width: 140px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); font: inherit; }
@@ -57,18 +58,36 @@
   }
   .back { display: none; }
   @media (max-width: 760px) { .back { display: inline-block; } }
+  .sendbtn { border: 0; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+  .pill.queued, .pill.converting, .pill.sending { color: var(--accent); }
+  .pill.accepted { color: var(--done); } .pill.failed { color: var(--new); }
+  .row .err { color: var(--new); font-size: 13px; }
+  .row .retry { margin-left: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 4px; padding: 0 8px; cursor: pointer; font: inherit; font-size: 12px; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); padding: 0; width: min(460px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, .4); }
+  dialog form { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+  dialog h2 { margin: 0; font-size: 18px; }
+  dialog label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--sub); }
+  dialog input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  dialog .hint { font-size: 12px; color: var(--sub); margin: 0; }
+  dialog .acts { display: flex; justify-content: flex-end; gap: 8px; }
+  dialog .acts button { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; }
+  dialog .acts button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  #s-err { color: var(--new); font-size: 14px; margin: 0; min-height: 1em; }
 </style>
 </head>
 <body>
 <header>
-  <h1>📠 받은 팩스</h1>
+  <h1>📠 팩스</h1>
   <div class="tabs" id="tabs">
     <button data-s="new">안 봄<b id="c-new">0</b></button>
     <button data-s="seen">확인<b id="c-seen">0</b></button>
     <button data-s="done">처리 완료<b id="c-done">0</b></button>
     <button data-s="all">전체<b id="c-all">0</b></button>
+    <button data-s="sent" id="tab-sent" hidden>보낸 팩스<b id="c-sent"></b></button>
   </div>
   <input id="q" type="search" placeholder="보낸 곳 · 담당자 · 메모 검색">
+  <button id="b-new" class="sendbtn" hidden>✉ 팩스 보내기</button>
 </header>
 <div id="err"></div>
 <main>
@@ -94,6 +113,22 @@
     </div>
   </section>
 </main>
+<dialog id="dlg">
+  <form id="s-form" method="dialog">
+    <h2>✉ 팩스 보내기</h2>
+    <label>받는 팩스 번호
+      <input id="s-to" required inputmode="tel" autocomplete="off" placeholder="0212345678  (여러 곳이면 쉼표로)">
+    </label>
+    <label>받는 곳 <input id="s-name" maxlength="60" placeholder="예: 대한상사 구매팀 (선택)"></label>
+    <label>보낼 파일 (PDF)
+      <input id="s-file" type="file" accept="application/pdf,.pdf,.tif,.tiff" required>
+    </label>
+    <p class="hint">한글·엑셀 문서는 「PDF 로 저장」 해서 올려 주세요. 흑백 팩스로 바뀌어 나갑니다.</p>
+    <label>메모 <input id="s-memo" maxlength="500" placeholder="예: 11월 견적서 (선택)"></label>
+    <p id="s-err"></p>
+    <div class="acts"><button type="button" id="s-cancel">닫기</button><button type="submit" class="go" id="s-go">보내기</button></div>
+  </form>
+</dialog>
 <script>
 'use strict';
 let status = 'new', items = [], sel = null, more = false, timer = null;
@@ -120,7 +155,55 @@ async function api(url, opt) {
 }
 function showErr(e) { const el = $('err'); el.textContent = e ? '⚠ ' + e.message : ''; el.style.display = e ? 'block' : 'none'; }
 
+//  ── 보낸 팩스 ──
+let sendCfg = { enabled: false }, sent = [];
+const SLABEL = { queued: '대기', converting: '변환 중', sending: '장비로 보내는 중', accepted: '장비 접수', failed: '실패' };
+function sentLine(s) {
+  if (s.state === 'failed') return '<span class="err">' + esc(s.error || '실패') + '</span><button class="retry" data-retry="' + s.id + '">다시 보내기</button>';
+  if (s.state !== 'accepted') return '';
+  if (s.task_id === 0) return '시험 모드 — 장비로는 안 보냄';
+  const d = s.device;
+  let t = '작업번호 ' + s.task_id;
+  if (d) t += ' · 보낸 쪽 ' + d.pageSent + '/' + (d.pageTotal || s.pages) + ' · 다이얼 ' + d.dialDone + '/' + d.dialTotal + ' · 장비 상태 ' + d.status;
+  return esc(t);
+}
+async function loadSent() {
+  try {
+    const j = await api('/api/fax/sent?limit=100');
+    sent = j.items;
+    $('c-sent').textContent = j.busy ? j.busy : '';
+    if (status !== 'sent') return;
+    const el = $('list');
+    el.innerHTML = sent.length ? sent.map((s) => `<div class="row" data-sent="${s.id}">
+      <div class="top"><span class="from">→ ${esc(s.name ? s.name + ' (' + s.to + ')' : s.to)}</span><span class="when">${when(s.created_at)}</span></div>
+      <div class="meta"><span class="pill ${s.state}">${SLABEL[s.state] || s.state}</span>
+        ${s.pages ? ' ' + s.pages + '쪽' : ''}${s.file_name ? ' · ' + esc(s.file_name) : ''}${s.memo ? ' · ' + esc(s.memo.slice(0, 40)) : ''} · ${esc(s.by)}</div>
+      <div class="meta">${sentLine(s)}</div></div>`).join('')
+      : '<div style="padding:32px;text-align:center;color:var(--sub)">보낸 팩스가 없습니다.</div>';
+    showErr(null);
+  } catch (e) { if (e.message !== 'login') showErr(e); }
+}
+function openSent(s) {
+  sel = null;
+  document.body.classList.add('reading');
+  $('empty').style.display = 'none';
+  $('detail').style.display = 'flex';
+  $('d-title').textContent = '보낸 팩스 → ' + (s.name || s.to) + ' · ' + when(s.created_at);
+  document.querySelector('.fields').style.display = 'none';
+  ['b-seen', 'b-done'].forEach((id) => { $(id).style.display = 'none'; });
+  const url = '/api/fax/sent/' + s.id + '/file';
+  $('b-down').href = url + '?download=1';
+  const pdf = s.ext === 'pdf';
+  $('frame').style.display = pdf ? 'block' : 'none';
+  $('tifnote').style.display = pdf ? 'none' : 'block';
+  $('b-print').style.display = pdf ? '' : 'none';
+  if (pdf) $('frame').src = url;
+  $('hist').innerHTML = (s.history || []).slice().reverse().map((h) => esc(when(h.at) + ' ' + (h.by ? h.by + ' — ' : '') + h.action)).join('<br>');
+}
+
 async function load(append) {
+  if (status === 'sent') return loadSent();
+  document.querySelector('.fields').style.display = '';
   const q = $('q').value.trim();
   const before = append && items.length ? '&before=' + items[items.length - 1].id : '';
   try {
@@ -130,7 +213,7 @@ async function load(append) {
     more = j.more;
     showErr(null);
     render();
-    document.title = (j.counts.new ? '(' + j.counts.new + ') ' : '') + '받은 팩스';
+    document.title = (j.counts.new ? '(' + j.counts.new + ') ' : '') + '팩스';
   } catch (e) { if (e.message !== 'login') showErr(e); }
 }
 function render() {
@@ -159,6 +242,8 @@ function open(f) {
   $('b-print').style.display = pdf ? '' : 'none';
   if (pdf) $('frame').src = url;
   $('b-seen').style.display = f.status === 'new' ? '' : 'none';
+  $('b-done').style.display = '';
+  document.querySelector('.fields').style.display = '';
   $('b-done').textContent = f.status === 'done' ? '처리 취소' : '처리 완료';
   $('hist').innerHTML = (f.history || []).slice().reverse().map((h) => esc(when(h.at) + ' ' + (h.by ? h.by + ' — ' : '') + h.action)).join('<br>');
   //  PDF 를 열면 서버가 「확인」으로 바꾼다 — 목록에도 바로 보이게
@@ -184,9 +269,14 @@ $('tabs').addEventListener('click', (e) => {
   document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
   load();
 });
-$('list').addEventListener('click', (e) => {
+$('list').addEventListener('click', async (e) => {
   if (e.target.id === 'more') return load(true);
+  if (e.target.dataset.retry) {
+    try { await api('/api/fax/sent/' + e.target.dataset.retry + '/retry', { method: 'POST' }); loadSent(); } catch (er) { showErr(er); }
+    return;
+  }
   const r = e.target.closest('.row'); if (!r) return;
+  if (r.dataset.sent) { const s = sent.find((x) => x.id === r.dataset.sent); if (s) openSent(s); return; }
   const f = items.find((x) => x.id === r.dataset.id); if (f) open(f);
 });
 $('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => load(), 300); });
@@ -197,15 +287,47 @@ $('back').onclick = () => { document.body.classList.remove('reading'); history.r
 $('f-assignee').addEventListener('change', (e) => update({ assignee: e.target.value }));
 $('f-memo').addEventListener('change', (e) => update({ memo: e.target.value }));
 
+//  ── 보내기 창 ──
+$('b-new').onclick = () => { $('s-err').textContent = ''; $('dlg').showModal(); $('s-to').focus(); };
+$('s-cancel').onclick = () => $('dlg').close();
+$('s-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = $('s-file').files[0];
+  if (!f) return;
+  if (f.size > sendCfg.maxMB * 1048576) { $('s-err').textContent = '파일이 너무 큽니다 (' + sendCfg.maxMB + 'MB 까지)'; return; }
+  const q = new URLSearchParams({ to: $('s-to').value, name: $('s-name').value, memo: $('s-memo').value, file: f.name });
+  $('s-go').disabled = true; $('s-go').textContent = '올리는 중…'; $('s-err').textContent = '';
+  try {
+    const r = await fetch('/api/fax/send?' + q, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: f });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.error || ('오류 ' + r.status));
+    $('dlg').close();
+    $('s-form').reset();
+    document.querySelector('#tabs button[data-s="sent"]').click();
+  } catch (er) { $('s-err').textContent = '⚠ ' + er.message; } finally { $('s-go').disabled = false; $('s-go').textContent = '보내기'; }
+});
+
 document.querySelector('#tabs button[data-s="new"]').classList.add('on');
 (async () => {
+  try {
+    sendCfg = await api('/api/fax/send/config');
+    if (sendCfg.enabled) $('tab-sent').hidden = false;
+    if (sendCfg.canSend) $('b-new').hidden = false;
+    if (sendCfg.dryRun) $('b-new').textContent = '✉ 팩스 보내기 (시험 모드)';
+  } catch (e) { /* 옛 포털 조각 — 보내기 없음 */ }
+  if (location.hash === '#sent' && sendCfg.enabled) { document.querySelector('#tabs button[data-s="sent"]').click(); return; }
   await load();
   const id = location.hash.slice(1);
   if (/^[0-9a-f]{16}$/.test(id)) {
     try { const j = await api('/api/fax/' + id); open(j.fax); } catch (e) { showErr(e); }
   }
 })();
-setInterval(() => { if (!document.hidden) load(); }, 30000);
+setInterval(() => {
+  if (document.hidden) return;
+  if (status === 'sent') loadSent(); else load();
+}, status === 'sent' ? 5000 : 30000);
+//  보내는 중인 것이 있으면 5초마다 새로
+setInterval(() => { if (!document.hidden && status === 'sent' && sent.some((s) => ['queued', 'converting', 'sending'].includes(s.state))) loadSent(); }, 5000);
 </script>
 </body>
 </html>
