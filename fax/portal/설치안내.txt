@@ -1,0 +1,76 @@
+📠 한일 포털 「받은 팩스」 — 설치 안내
+=========================================
+
+CimFAX 팩스 서버로 들어온 팩스를 포털에 자동으로 올리고, 포털의 /fax 화면에서 보고 처리하게 하는 포털 조각입니다.
+
+  CimFAX 장비 ──▶ 팩스 프로그램(FaxBox)이 받아서 PDF 로 자동 저장 ──▶ 공유 폴더 ──▶ 포털이 15초마다 가져감 ──▶ /fax
+
+
+■ 1단계 — 팩스 프로그램(FaxBox) 자동 내보내기 켜기  (팩스를 받는 PC 한 대)
+
+  ① 항상 켜 두는 PC 한 대에서 FaxBox 를 로그인해 둡니다. (Windows 시작 프로그램에 넣기)
+  ② 그 PC 에 공유 폴더를 하나 만듭니다.  예) D:\fax-export  → 공유 이름 fax-export
+     포털 서버를 돌리는 Windows 계정에 「읽기/쓰기」 권한을 줍니다.
+  ③ FaxBox → 설정 → 「Fax automatic export settings」(팩스 자동 내보내기)
+       · 자동 내보내기: 켬
+       · 폴더: D:\fax-export
+       · 형식: PDF    ← 꼭 PDF (TIF 로 두면 포털에서 바로 못 보고 내려받아야 합니다)
+       · 하위 폴더: 「보낸 곳별」 권장 (연락처에 거래처 이름이 있으면 그 이름으로 폴더가 생기고, 포털에 이름이 보입니다)
+  ④ 테스트 팩스를 한 장 받아 D:\fax-export 에 PDF 가 생기는지 확인합니다.
+     파일 이름은  20261112093015_From_0212345678_To_hanil.pdf  같은 모양입니다.
+
+
+■ 2단계 — 포털에 넣기
+
+  ① 이 압축 파일 안의 두 파일을 포털 폴더(server.js 가 있는 곳)에 복사합니다.
+       fax-route.js
+       fax-page.html
+
+  ② server.js 를 열어 세션(express-session)이 붙은 줄 아래, 다른 require('./...')(app) 들 사이에 한 줄을 넣습니다.
+
+       require('./fax-route')(app, { inbox: '\\\\FAXPC\\fax-export' });
+
+     (FAXPC 는 1단계 PC 의 이름. 포털과 같은 PC 라면  inbox: 'D:/fax-export'  처럼 써도 됩니다)
+
+  ③ 포털을 다시 켭니다. 끝입니다.
+     · 화면:  http://<포털 주소>/fax    — 메뉴에 이 주소로 링크를 달면 됩니다.
+     · 메뉴 빨간 숫자:  GET /api/fax/count  →  { new: 안 본 팩스 수 }
+     · 자료는 포털 폴더 옆 fax-store\ 에 쌓입니다(백업 대상에 넣어 주세요).
+         faxes.json       팩스 목록 · 상태 · 담당자 · 메모 · 기록
+         files\*.pdf      팩스 파일
+
+
+■ 잘 되는지 보기 (관리자)
+
+  브라우저로 포털에 관리자로 로그인한 뒤  http://<포털 주소>/api/fax/admin/status
+    inboxes[0].ok 가 true 면 폴더를 읽고 있습니다.
+    false 면 error 에 이유가 나옵니다 — 「폴더가 없습니다」 / 「읽을 권한이 없습니다」
+
+
+■ 더 쓰기 (모두 골라 쓰기)
+
+  담당자 자동 지정 — 거래처별, 받은 계정별
+     require('./fax-route')(app, {
+       inbox: '\\\\FAXPC\\fax-export',
+       route: { from: { '대한상사': 'lee', '0551234567': 'lee' }, to: { public: 'kim' } },
+     });
+
+  새 팩스 알림 — 포털 쪽지·NOPS 보내는 함수를 여기에 연결
+     require('./fax-route')(app, {
+       inbox: '…',
+       notify: async (fax, { url }) => { /* 예: sendNops(fax.assignee, '📠 팩스 ' + (fax.from_name || fax.from), url) */ },
+     });
+
+  관리자만 보게:            view: 'admin'
+  등록한 원본은 옮겨 두기:   after: 'move'     (공유 폴더 안 _포털등록\ 으로 옮김 — 폴더가 깔끔해짐)
+  처음 켤 때 옛날 팩스:      sinceDays: 30    (기본 30일치만 가져옴, 0 이면 전부)
+  여러 폴더:                 inbox: ['\\\\FAXPC\\fax-export', 'D:/fax2']
+
+
+■ 문제가 생기면
+
+  · 팩스가 안 올라온다
+      1) 공유 폴더에 PDF 가 생겼는지 → 안 생기면 FaxBox 쪽(켜져 있는지, 자동 내보내기 설정)
+      2) /api/fax/admin/status 의 오류 → 권한·경로
+  · 포털 화면에서 「브라우저에서 바로 볼 수 없습니다」 → FaxBox 내보내기 형식이 TIF 입니다. PDF 로 바꿔 주세요.
+    (PDF 변환에 실패한 팩스는 FaxBox 가 …_PdfErr.tif 로 남깁니다 — 이것도 포털에 올라오고 내려받아 볼 수 있습니다)

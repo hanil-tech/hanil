@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>받은 팩스</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --line: #e3e6ea; --text: #1d2329; --sub: #66707a;
+    --accent: #1f6feb; --new: #d1242f; --seen: #9a6700; --done: #1a7f37; --hover: #f0f4fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15181c; --card: #1d2126; --line: #30363d; --text: #e6e8eb; --sub: #9aa4ae; --hover: #252b33; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 6px 12px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 14px; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tabs b { font-weight: 600; margin-left: 4px; }
+  #q { flex: 1; min-width: 140px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); font: inherit; }
+  main { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; height: calc(100vh - 58px); }
+  #list { overflow-y: auto; border-right: 1px solid var(--line); background: var(--card); }
+  .row { padding: 10px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .row:hover { background: var(--hover); }
+  .row.sel { background: var(--hover); box-shadow: inset 3px 0 0 var(--accent); }
+  .row .top { display: flex; justify-content: space-between; gap: 8px; }
+  .row .from { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.new .from::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--new); margin-right: 6px; vertical-align: middle; }
+  .row .when { color: var(--sub); font-size: 13px; white-space: nowrap; }
+  .row .meta { color: var(--sub); font-size: 13px; }
+  .pill { font-size: 12px; padding: 1px 7px; border-radius: 10px; border: 1px solid currentColor; }
+  .pill.new { color: var(--new); } .pill.seen { color: var(--seen); } .pill.done { color: var(--done); }
+  #more { width: 100%; padding: 12px; border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; }
+  #view { display: flex; flex-direction: column; min-width: 0; }
+  #empty { margin: auto; color: var(--sub); text-align: center; padding: 24px; }
+  #detail { display: none; flex-direction: column; height: 100%; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar .title { font-weight: 600; margin-right: auto; }
+  .bar button, .bar a.btn { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 14px; text-decoration: none; }
+  .bar button.primary { background: var(--done); border-color: var(--done); color: #fff; }
+  .fields { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .fields input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  #frame { flex: 1; border: 0; width: 100%; background: #525659; }
+  #tifnote { display: none; margin: auto; text-align: center; color: var(--sub); padding: 24px; }
+  #hist { font-size: 12px; color: var(--sub); padding: 6px 16px; background: var(--card); border-top: 1px solid var(--line); max-height: 72px; overflow-y: auto; }
+  #err { color: var(--new); padding: 8px 16px; display: none; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    #list { border-right: 0; }
+    #view { display: none; }
+    body.reading #list, body.reading .tabs, body.reading #q { display: none; }
+    body.reading #view { display: flex; height: calc(100vh - 58px); }
+    .fields { grid-template-columns: 1fr; }
+  }
+  .back { display: none; }
+  @media (max-width: 760px) { .back { display: inline-block; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📠 받은 팩스</h1>
+  <div class="tabs" id="tabs">
+    <button data-s="new">안 봄<b id="c-new">0</b></button>
+    <button data-s="seen">확인<b id="c-seen">0</b></button>
+    <button data-s="done">처리 완료<b id="c-done">0</b></button>
+    <button data-s="all">전체<b id="c-all">0</b></button>
+  </div>
+  <input id="q" type="search" placeholder="보낸 곳 · 담당자 · 메모 검색">
+</header>
+<div id="err"></div>
+<main>
+  <section id="list"></section>
+  <section id="view">
+    <div id="empty">왼쪽에서 팩스를 고르세요.</div>
+    <div id="detail">
+      <div class="bar">
+        <button class="back" id="back">← 목록</button>
+        <span class="title" id="d-title"></span>
+        <button id="b-seen">확인</button>
+        <button id="b-done" class="primary">처리 완료</button>
+        <a class="btn" id="b-down" href="#">내려받기</a>
+        <button id="b-print">인쇄</button>
+      </div>
+      <div class="fields">
+        <input id="f-assignee" placeholder="담당자" maxlength="60">
+        <input id="f-memo" placeholder="메모 (예: 견적 회신 완료)" maxlength="2000">
+      </div>
+      <iframe id="frame" title="팩스 내용"></iframe>
+      <div id="tifnote">이 팩스는 TIF 그림 파일이라 브라우저에서 바로 볼 수 없습니다.<br>[내려받기] 를 눌러 열어 주세요.<br><small>팩스 프로그램의 자동 내보내기를 PDF 로 바꾸면 여기서 바로 보입니다.</small></div>
+      <div id="hist"></div>
+    </div>
+  </section>
+</main>
+<script>
+'use strict';
+let status = 'new', items = [], sel = null, more = false, timer = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = (n) => String(n).padStart(2, '0');
+function when(t) {
+  const d = new Date(t), now = new Date();
+  const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  if (d.toDateString() === now.toDateString()) return '오늘 ' + hm;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return '어제 ' + hm;
+  return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '. ' : '') + (d.getMonth() + 1) + '. ' + d.getDate() + '. ' + hm;
+}
+const who = (f) => f.from_name ? f.from_name + (f.from && f.from !== f.from_name ? ' (' + f.from + ')' : '') : (f.from || '보낸 곳 모름');
+const LABEL = { new: '안 봄', seen: '확인', done: '처리 완료' };
+
+async function api(url, opt) {
+  const r = await fetch(url, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opt));
+  if (r.status === 401) { location.href = '/?next=' + encodeURIComponent('/fax' + location.hash); throw new Error('login'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || ('오류 ' + r.status));
+  return j;
+}
+function showErr(e) { const el = $('err'); el.textContent = e ? '⚠ ' + e.message : ''; el.style.display = e ? 'block' : 'none'; }
+
+async function load(append) {
+  const q = $('q').value.trim();
+  const before = append && items.length ? '&before=' + items[items.length - 1].id : '';
+  try {
+    const j = await api('/api/fax?status=' + status + '&limit=50&q=' + encodeURIComponent(q) + before);
+    ['new', 'seen', 'done', 'all'].forEach((k) => { $('c-' + k).textContent = j.counts[k] || 0; });
+    items = append ? items.concat(j.items) : j.items;
+    more = j.more;
+    showErr(null);
+    render();
+    document.title = (j.counts.new ? '(' + j.counts.new + ') ' : '') + '받은 팩스';
+  } catch (e) { if (e.message !== 'login') showErr(e); }
+}
+function render() {
+  const el = $('list');
+  if (!items.length) { el.innerHTML = '<div id="empty" style="padding:32px;text-align:center;color:var(--sub)">' + ({ new: '새 팩스가 없습니다.', seen: '확인만 한 팩스가 없습니다.', done: '처리 완료한 팩스가 없습니다.', all: '받은 팩스가 없습니다.' }[status]) + '</div>'; return; }
+  el.innerHTML = items.map((f) => `<div class="row ${f.status}${sel && sel.id === f.id ? ' sel' : ''}" data-id="${f.id}">
+    <div class="top"><span class="from">${esc(who(f))}</span><span class="when">${when(f.received_at)}</span></div>
+    <div class="meta"><span class="pill ${f.status}">${LABEL[f.status]}</span>
+      ${f.to ? ' 받은 계정 ' + esc(f.to) : ''}${f.assignee ? ' · 담당 ' + esc(f.assignee) : ''}${f.memo ? ' · ' + esc(f.memo.slice(0, 40)) : ''}</div></div>`).join('')
+    + (more ? '<button id="more">더 보기</button>' : '');
+}
+function open(f) {
+  sel = f;
+  location.hash = f.id;
+  document.body.classList.add('reading');
+  $('empty').style.display = 'none';
+  $('detail').style.display = 'flex';
+  $('d-title').textContent = who(f) + ' · ' + when(f.received_at);
+  $('f-assignee').value = f.assignee || '';
+  $('f-memo').value = f.memo || '';
+  const url = '/api/fax/' + f.id + '/file';
+  $('b-down').href = url + '?download=1';
+  const pdf = f.ext === 'pdf';
+  $('frame').style.display = pdf ? 'block' : 'none';
+  $('tifnote').style.display = pdf ? 'none' : 'block';
+  $('b-print').style.display = pdf ? '' : 'none';
+  if (pdf) $('frame').src = url;
+  $('b-seen').style.display = f.status === 'new' ? '' : 'none';
+  $('b-done').textContent = f.status === 'done' ? '처리 취소' : '처리 완료';
+  $('hist').innerHTML = (f.history || []).slice().reverse().map((h) => esc(when(h.at) + ' ' + (h.by ? h.by + ' — ' : '') + h.action)).join('<br>');
+  //  PDF 를 열면 서버가 「확인」으로 바꾼다 — 목록에도 바로 보이게
+  if (pdf && f.status === 'new') setTimeout(refreshOne, 1500);
+  render();
+}
+async function refreshOne() {
+  if (!sel) return;
+  try { const j = await api('/api/fax/' + sel.id); Object.assign(sel, j.fax); open(sel); load(); } catch (e) { showErr(e); }
+}
+async function update(patch) {
+  try {
+    const j = await api('/api/fax/' + sel.id, { method: 'PUT', body: JSON.stringify(patch) });
+    Object.assign(sel, j.fax);
+    open(sel);
+    load();
+  } catch (e) { showErr(e); }
+}
+
+$('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  status = b.dataset.s;
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  load();
+});
+$('list').addEventListener('click', (e) => {
+  if (e.target.id === 'more') return load(true);
+  const r = e.target.closest('.row'); if (!r) return;
+  const f = items.find((x) => x.id === r.dataset.id); if (f) open(f);
+});
+$('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => load(), 300); });
+$('b-seen').onclick = () => update({ status: 'seen' });
+$('b-done').onclick = () => update({ status: sel.status === 'done' ? 'seen' : 'done' });
+$('b-print').onclick = () => { try { $('frame').contentWindow.print(); } catch (e) { window.open($('frame').src); } };
+$('back').onclick = () => { document.body.classList.remove('reading'); history.replaceState(null, '', '/fax'); };
+$('f-assignee').addEventListener('change', (e) => update({ assignee: e.target.value }));
+$('f-memo').addEventListener('change', (e) => update({ memo: e.target.value }));
+
+document.querySelector('#tabs button[data-s="new"]').classList.add('on');
+(async () => {
+  await load();
+  const id = location.hash.slice(1);
+  if (/^[0-9a-f]{16}$/.test(id)) {
+    try { const j = await api('/api/fax/' + id); open(j.fax); } catch (e) { showErr(e); }
+  }
+})();
+setInterval(() => { if (!document.hidden) load(); }, 30000);
+</script>
+</body>
+</html>

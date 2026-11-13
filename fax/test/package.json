@@ -1,0 +1,13 @@
+{
+  "name": "hanil-fax-check",
+  "private": true,
+  "description": "받은 팩스 조각 점검(가짜 포털 + 가짜 내보내기 폴더)",
+  "scripts": {
+    "test": "node api-check.js",
+    "portal": "node fake-portal.js"
+  },
+  "devDependencies": {
+    "express": "^4.21.2",
+    "express-session": "^1.18.1"
+  }
+}
