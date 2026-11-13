@@ -1,0 +1,85 @@
+📠 한일 팩스 — 설치 안내 (우분투 서버)
+==========================================
+
+CimFAX 장비와 직접 통신하는 독립 팩스 프로그램입니다. 포털과 따로 돌아갑니다.
+
+  받기:   장비에서 새 팩스를 30초마다 직접 가져와 PDF 로 보관 (FaxBox·공유 폴더 필요 없음)
+  보내기: 화면에서 PDF 를 올리면 팩스로 보냄
+  화면:   http://서버주소:3990/fax   — 직원 계정으로 로그인 (PC·폰)
+
+필요한 것: Node.js 18 이상(포털 서버에 이미 있음), Ghostscript(설치 스크립트가 깔아 줌)
+
+
+■ 설치 (5분)
+
+  1. 받아서 풀기
+       mkdir -p ~/hanil-fax && cd ~/hanil-fax
+       curl -L -o hanil-fax.zip <받는 주소>
+       unzip -o hanil-fax.zip
+
+  2. 설치 스크립트 실행 — 묻는 대로 넣으면 끝
+       bash install.sh
+
+       · CimFAX 장비 주소 (예: 192.168.1.156) · CimFAX 계정 · 비밀번호
+       · 관리자 계정 (이 프로그램 로그인용 — 아이디·이름·비밀번호)
+       · 마지막에 sudo 비밀번호 (부팅 때 자동으로 켜지게 서비스 등록)
+
+  3. 브라우저로  http://서버주소:3990/fax  → 관리자 계정으로 로그인
+
+
+■ 직원 계정
+
+       node hanil-fax.js adduser lee 이사원           직원 추가 (비밀번호를 물음)
+       node hanil-fax.js adduser park 박과장 --admin   관리자 추가
+       node hanil-fax.js passwd lee                    비밀번호 바꾸기
+       node hanil-fax.js deluser lee                   지우기 (바로 로그아웃됨)
+       node hanil-fax.js users                         목록
+
+  바꾼 것은 켜져 있는 프로그램에 바로 적용됩니다 (다시 켤 필요 없음).
+
+
+■ 화면
+
+  · 「안 봄」 — 장비로 들어온 새 팩스. 누르면 PDF 로 바로 보이고 「확인」 으로 바뀜
+  · 「확인」 「처리 완료」 — 담당자·메모를 적고 처리 완료로
+  · 「보낸 팩스」 — 보낸 것의 상태 (대기 → 변환 중 → 보내는 중 → 장비 접수 → 보낸 쪽 n/m)
+  · 「✉ 팩스 보내기」 — 번호(여러 곳은 쉼표) · 받는 곳 · PDF
+  · 관리자만: 「↻ 받기」 — 30초를 기다리지 않고 지금 장비에서 가져오기
+  · 한글·엑셀 문서는 「인쇄 → Microsoft Print to PDF」 로 PDF 를 만들어 올리면 됩니다
+
+
+■ 설정 (hanil-fax.json — 직접 고친 뒤  sudo systemctl restart hanil-fax)
+
+  "port": 3990                      화면 포트
+  "device": { "host", "user", "password" }   CimFAX 장비
+  "sendBy": "admin"                 보내기를 관리자만 (지우면 모두)
+  "sinceDays": 30                   처음 켤 때 이 날수보다 오래된 받은 팩스는 건너뜀 (0 이면 전부)
+  "route": { "from": { "0551234567": "lee" } }   보낸 번호별 담당자 자동 지정
+  "receiveSec": 30                  장비에 새 팩스를 묻는 간격(초)
+
+  ⚠ 이 파일에는 장비 비밀번호가 들어 있어 실행 계정만 읽을 수 있게(600) 저장됩니다.
+  자료: 같은 폴더의 fax-store\  (받은·보낸 팩스와 기록 — 백업 대상)
+
+
+■ 포털과 연결
+
+  포털 메뉴에 링크 하나만 달면 됩니다:  http://서버주소:3990/fax
+  (포털의 다른 기능과 부딪히지 않고, 포털 판 올리기에도 영향받지 않습니다)
+
+
+■ 관리
+
+  상태:      systemctl status hanil-fax
+  기록:      journalctl -u hanil-fax -f
+  다시 켜기: sudo systemctl restart hanil-fax
+  끄기:      sudo systemctl disable --now hanil-fax
+  장비 시험: node hanil-fax.js check
+
+
+■ 문제가 생기면
+
+  · 화면이 안 열림 → systemctl status hanil-fax / 방화벽(ufw)에서 3990 허용
+  · 받은 팩스가 안 들어옴 → node hanil-fax.js check (장비 로그인·목록 읽기)
+                          관리자 「↻ 받기」 를 눌러 화면 위 빨간 글씨 확인
+  · 보내기 「Ghostscript 가 없습니다」 → sudo apt install ghostscript
+  · 보내기 「CimFAX 계정 또는 비밀번호가 틀립니다」 → node hanil-fax.js setup

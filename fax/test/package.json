@@ -3,10 +3,11 @@
   "private": true,
   "description": "팩스 조각 점검(가짜 포털 + 가짜 내보내기 폴더 + 가짜 CimFAX 장비)",
   "scripts": {
-    "test": "node api-check.js && node send-check.js",
+    "test": "node api-check.js && node send-check.js && node app-check.js",
     "receive": "node api-check.js",
     "send": "node send-check.js",
-    "portal": "node fake-portal.js"
+    "portal": "node fake-portal.js",
+    "app": "node app-check.js"
   },
   "devDependencies": {
     "express": "^4.21.2",

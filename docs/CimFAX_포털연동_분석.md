@@ -364,6 +364,20 @@ FaxBox 처럼 **1024 바이트** (장비 C 구조체: `receiver` 가 WCHAR[32]=6
   - G3 TIFF 화질
   - 상태 코드표
 
+
+### 10.7 받은 팩스 — 장비에서 직접 (FaxGo `ReceiveFaxNetwork`, TCP 3007)
+```
+포털 → <ACTION>GET_NEW_FAX</ACTION><DATETIME>2001-01-01 00:00:00</DATETIME><TASK>마지막 작업번호</TASK><USER>계정</USER>
+장비 → <COUNT>남은 수</COUNT><TIME>UTC 시각</TIME><CID>보낸 번호</CID><FILE>8자리</FILE><TASK>작업번호</TASK><SENDER/><RECEIVER/><SVRID/><REMARK/><STATUS_ID/>
+        (한 번에 한 건 — 받은 TASK 를 다음 요청에 넣어 이어 간다, COUNT 0 이면 끝)
+포털 → <ACTION>DOWN_FILE</ACTION><FILE>$STG_DIR$FaxFiles/AB/CD/EF/GH.tif</FILE><BUFSIZE>1200</BUFSIZE>
+장비 → <FILE_LEN>바이트</FILE_LEN>      (그 뒤 포털이 R 을 보낼 때마다 최대 1200 바이트)
+```
+- FaxGo 는 받은 TIFF 를 **암호 풀기 없이** 그대로 쓴다 (`downloadFileCMDMethod`).
+- 받은 TIFF(CCITT G3/G4)는 다시 그리지 않고 압축 그대로 PDF 에 싣는다 (`cimfax-client.js` `tiffToPdf`). G3 는 `/EndOfLine true` 여야 그려진다 (Ghostscript 로 그려 확인).
+- 이 방식으로 **독립 프로그램 `fax/app/hanil-fax.js`** 를 만들었다. 포털·FaxBox·공유 폴더 없이 받기와 보내기를 모두 한다.
+- △ 현장 장비에서 `GET_NEW_FAX` 와 `DOWN_FILE` 은 아직 시험하지 않았다. `node hanil-fax.js check` 로 확인한다.
+
 ---
 
 ### 부록: 분석 근거 위치 (FaxBox.exe 5022E, SHA-256 `7e6492d2…3f641`)

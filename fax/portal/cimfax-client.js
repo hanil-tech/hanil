@@ -230,6 +230,121 @@ async function sendStatus(dev, list) {
   } finally { c.close(); }
 }
 
+//  ── 받은 팩스 (FaxGo ReceiveFaxNetwork — 장비 TCP 3007) ──
+//   <ACTION>GET_NEW_FAX</ACTION><DATETIME>2001-01-01 00:00:00</DATETIME><TASK>마지막 작업번호</TASK><USER>계정</USER>
+//   → <COUNT>남은 수</COUNT><TASK>…<TIME>UTC</TIME><CID>보낸번호</CID><FILE>8자리</FILE><SENDER>…<RECEIVER>…<SVRID>…<REMARK>…<STATUS_ID>…
+//   한 번에 한 건. 받은 TASK 를 다음 요청에 넣어 이어 간다. COUNT 가 0 이면 끝.
+async function listNewFaxes(dev, lastTask, max) {
+  const c = await login(dev, PORT.cmd);
+  const out = [];
+  try {
+    let task = Number(lastTask) || 0;
+    for (let i = 0; i < (max || 200); i++) {
+      await c.say('<ACTION>GET_NEW_FAX</ACTION><DATETIME>2001-01-01 00:00:00</DATETIME><TASK>' + task + '</TASK><USER>' + dev.user + '</USER>');
+      const r = await c.text(100);
+      const count = Number(tag(r, 'COUNT')) || 0;
+      if (count <= 0) break;
+      const t = Number(tag(r, 'TASK'));
+      if (!t || t <= task) break;                     //  같은 자리를 맴돌지 않게
+      task = t;
+      const time = tag(r, 'TIME');
+      const at = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(time) ? Date.parse(time.replace(' ', 'T') + 'Z') : NaN;
+      out.push({
+        taskId: t, receivedAt: isNaN(at) ? Date.now() : at, timeRaw: time, cid: tag(r, 'CID'), file: tag(r, 'FILE'),
+        sender: tag(r, 'SENDER'), receiver: tag(r, 'RECEIVER'), serverId: tag(r, 'SVRID'), remark: tag(r, 'REMARK'),
+        status: tag(r, 'STATUS_ID'), left: count,
+      });
+    }
+    return out;
+  } finally { c.close(); }
+}
+//  파일 받기: $STG_DIR$FaxFiles/AB/CD/EF/GH.tif — FILE_LEN 을 받고, R 을 보낼 때마다 최대 1200 바이트
+async function downloadFax(dev, file) {
+  if (!/^[0-9A-Za-z]{8}$/.test(file)) throw new Error('팩스 파일 이름이 이상합니다: ' + file);
+  const sep = dev.pathSep || '/';
+  const p = '$STG_DIR$FaxFiles' + sep + [file.slice(0, 2), file.slice(2, 4), file.slice(4, 6), file.slice(6, 8)].join(sep) + '.tif';
+  const c = await login(dev, PORT.cmd);
+  try {
+    await c.say('<ACTION>DOWN_FILE</ACTION><FILE>' + p + '</FILE><BUFSIZE>' + BUF_SIZE + '</BUFSIZE>');
+    const r = await c.text(100);
+    const len = Number(tag(r, 'FILE_LEN'));
+    if (!(len > 0)) throw new Error('장비가 파일을 주지 않았습니다: ' + r.slice(0, 120));
+    const parts = [];
+    let got = 0;
+    while (got < len) {
+      const want = Math.min(BUF_SIZE, len - got);
+      await c.say('R');
+      const b = await c.bytes(want);
+      parts.push(b); got += b.length;
+    }
+    return Buffer.concat(parts);
+  } finally { c.close(); }
+}
+
+//  ── 팩스 TIFF → PDF (CCITT 압축 그대로 싣기 — 다시 그리지 않아 빠르고 화질 그대로) ──
+function tiffToPdf(buf) {
+  const le = buf.toString('latin1', 0, 2) === 'II';
+  if (!le && buf.toString('latin1', 0, 2) !== 'MM') throw new Error('TIFF 가 아닙니다');
+  const u16 = (o) => (le ? buf.readUInt16LE(o) : buf.readUInt16BE(o)), u32 = (o) => (le ? buf.readUInt32LE(o) : buf.readUInt32BE(o));
+  const SZ = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8 };
+  const pages = [];
+  let off = u32(4);
+  while (off && off < buf.length && pages.length < 500) {
+    const n = u16(off), tags = {};
+    for (let i = 0; i < n; i++) {
+      const e = off + 2 + i * 12, id = u16(e), type = u16(e + 2), cnt = u32(e + 4);
+      const size = (SZ[type] || 1) * cnt, vo = size > 4 ? u32(e + 8) : e + 8;
+      const vals = [];
+      for (let k = 0; k < cnt && k < 4096; k++) {
+        if (type === 3) vals.push(u16(vo + k * 2));
+        else if (type === 4) vals.push(u32(vo + k * 4));
+        else if (type === 5) vals.push(u32(vo + k * 8) / (u32(vo + k * 8 + 4) || 1));
+        else vals.push(buf[vo + k]);
+      }
+      tags[id] = vals;
+    }
+    pages.push(tags);
+    off = u32(off + 2 + n * 12);
+  }
+  if (!pages.length) throw new Error('쪽이 없습니다');
+  const objs = [];
+  const add = (s) => { objs.push(s); return objs.length; };
+  const pageIds = [];
+  const catalog = add(null), pagesId = add(null);
+  for (const t of pages) {
+    const w = t[256][0], h = t[257][0], comp = (t[259] || [1])[0], photo = (t[262] || [0])[0];
+    if (comp !== 3 && comp !== 4) throw new Error('CCITT 팩스 TIFF 가 아닙니다 (압축 ' + comp + ')');
+    const offs = t[273], cnts = t[279];
+    if (!offs || !cnts || offs.length !== 1) throw new Error('여러 조각으로 나뉜 TIFF 는 아직 못 바꿉니다');
+    const data = buf.subarray(offs[0], offs[0] + cnts[0]);
+    const t4 = (t[292] || [0])[0];
+    const K = comp === 4 ? -1 : (t4 & 1 ? 1 : 0);
+    const xr = (t[282] || [204])[0] || 204, yr = (t[283] || [196])[0] || 196;
+    const pw = (w * 72) / xr, ph = (h * 72) / yr;
+    //  Ghostscript 로 그려 보며 맞춤: G3 는 EndOfLine true, WhiteIsZero(0) 는 그대로, BlackIsZero(1) 만 뒤집는다
+    const parms = `/K ${K} /Columns ${w} /Rows ${h}${comp === 3 ? ' /EndOfLine true' : ''}${t4 & 4 ? ' /EncodedByteAlign true' : ''}`;
+    const img = add({ head: `<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /CCITTFaxDecode /DecodeParms << ${parms} >>${photo === 1 ? ' /Decode [1 0]' : ''} /Length ${data.length} >>`, data });
+    const content = `q ${pw.toFixed(2)} 0 0 ${ph.toFixed(2)} 0 0 cm /Im0 Do Q`;
+    const cs = add({ head: `<< /Length ${content.length} >>`, data: Buffer.from(content) });
+    pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pw.toFixed(2)} ${ph.toFixed(2)}] /Resources << /XObject << /Im0 ${img} 0 R >> >> /Contents ${cs} 0 R >>`));
+  }
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objs[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((i) => i + ' 0 R').join(' ')}] /Count ${pageIds.length} >>`;
+  const chunks = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
+  let pos = chunks[0].length;
+  const xref = [];
+  objs.forEach((o, i) => {
+    xref.push(pos);
+    const parts = typeof o === 'string' ? [Buffer.from(`${i + 1} 0 obj\n${o}\nendobj\n`, 'latin1')]
+      : [Buffer.from(`${i + 1} 0 obj\n${o.head}\nstream\n`, 'latin1'), o.data, Buffer.from('\nendstream\nendobj\n', 'latin1')];
+    parts.forEach((p) => { chunks.push(p); pos += p.length; });
+  });
+  const xs = `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + xref.map((x) => String(x).padStart(10, '0') + ' 00000 n \n').join('') +
+    `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${pos}\n%%EOF\n`;
+  chunks.push(Buffer.from(xs, 'latin1'));
+  return { pdf: Buffer.concat(chunks), pages: pages.length };
+}
+
 //  ── PDF → 팩스 TIFF (Ghostscript) ──
 function tiffPages(buf) {
   const le = buf.toString('latin1', 0, 2) === 'II';
@@ -293,4 +408,4 @@ async function toFaxTiff(input, outFile, opt) {
   return { pages: t.pages, bytes: b.length };
 }
 
-module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, toFaxTiff, tiffPages, findGhostscript };
+module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };

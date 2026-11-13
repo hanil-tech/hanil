@@ -59,6 +59,9 @@
   }
   .back { display: none; }
   @media (max-width: 760px) { .back { display: inline-block; } }
+  .me { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--sub); white-space: nowrap; }
+  .me a { color: var(--accent); text-decoration: none; }
+  .mini { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
   .sendbtn { border: 0; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
   .pill.queued, .pill.converting, .pill.sending { color: var(--accent); }
   .pill.accepted { color: var(--done); } .pill.failed { color: var(--new); }
@@ -89,6 +92,7 @@
     <button data-s="sent" id="tab-sent" hidden>보낸 팩스<b id="c-sent"></b></button>
   </div>
   <input id="q" type="search" placeholder="보낸 곳 · 담당자 · 메모 검색">
+  <span id="me" class="me" hidden><button id="b-poll" class="mini" hidden title="장비에서 새 팩스를 지금 가져옵니다">↻ 받기</button><span id="me-name"></span><a href="/logout">로그아웃</a></span>
 </header>
 <div id="err"></div>
 <main>
@@ -320,6 +324,21 @@ document.querySelector('#tabs button[data-s="new"]').classList.add('on');
     //  숨기지 않고 이유를 보여 준다 — 무엇이 막았는지 알아야 고친다
     if (e.message !== 'login') showErr(new Error('팩스 보내기 설정을 읽지 못했습니다: ' + e.message));
   }
+  //  독립 프로그램(hanil-fax)이면 이름·로그아웃·받기 버튼
+  try {
+    const me = await api('/api/fax/me');
+    if (me.standalone) {
+      $('me').hidden = false; $('me-name').textContent = me.name + ' 님';
+      if (me.admin) {
+        $('b-poll').hidden = false;
+        $('b-poll').onclick = async () => {
+          $('b-poll').disabled = true; $('b-poll').textContent = '받는 중…';
+          try { const r = await api('/api/fax/admin/poll', { method: 'POST' }); if (r.device && r.device.lastError) showErr(new Error('장비에서 받기 실패: ' + r.device.lastError)); await load(); }
+          catch (e) { showErr(e); } finally { $('b-poll').disabled = false; $('b-poll').textContent = '↻ 받기'; }
+        };
+      }
+    }
+  } catch (e) { /* 포털 안 — 포털 머리줄이 있음 */ }
   if (location.hash === '#sent' && sendCfg.enabled) { document.querySelector('#tabs button[data-s="sent"]').click(); return; }
   await load();
   const id = location.hash.slice(1);

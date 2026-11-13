@@ -99,7 +99,7 @@ module.exports = function mountFax(app, ctx) {
   let inboxes = ctx.inbox || process.env.FAX_INBOX || [];
   if (typeof inboxes === 'string') inboxes = inboxes.split(';');
   inboxes = inboxes.map((s) => String(s).trim()).filter(Boolean);
-  if (!inboxes.length) console.warn('[fax] inbox 폴더가 없습니다 — require(\'./fax-route\')(app, { inbox: \'…\' })');
+  if (!inboxes.length && ctx.receive !== 'device') console.warn('[fax] inbox 폴더가 없습니다 — require(\'./fax-route\')(app, { inbox: \'…\' }) 또는 receive: \'device\'');
 
   const DIR = ctx.dir || process.env.FAX_DIR || path.join(__dirname, 'fax-store');
   const FILES = path.join(DIR, 'files');
@@ -254,6 +254,71 @@ module.exports = function mountFax(app, ctx) {
   if (timer.unref) timer.unref();
   setTimeout(scan, 500);
 
+  //  ── 장비에서 직접 받기 (receive: 'device') — FaxBox·공유 폴더 없이 ──
+  //   FaxGo 와 같은 GET_NEW_FAX(작업번호 이어 받기) → DOWN_FILE(TIFF) → PDF 로 바꿔 보관
+  const recvDev = ctx.receive === 'device' ? (ctx.device || null) : null;
+  const recvCim = ctx.cimfax || require('./cimfax-client');
+  state.device = { on: !!recvDev, lastPoll: 0, lastError: '', lastTask: db.recv_last_task || 0 };
+  async function pollDevice() {
+    if (!recvDev || recvDev.dryRun || state.devPolling) return;
+    state.devPolling = true;
+    const fresh = [];
+    try {
+      for (let round = 0; round < 20; round++) {
+        const list = await recvCim.listNewFaxes(recvDev, db.recv_last_task || 0, 50);
+        if (!list.length) break;
+        for (const it of list) {
+          const key = 'dev|' + (it.serverId || '') + '|' + it.taskId;
+          if (!db.seen[key]) {
+            if (SINCE && it.receivedAt < db.startedAt - SINCE) db.seen[key] = '-';           //  처음 켤 때 옛날 것은 건너뜀
+            else {
+              const tif = await recvCim.downloadFax(recvDev, it.file);
+              const id = crypto.randomBytes(8).toString('hex');
+              let ext = 'tif', pages = 0;
+              await fsp.writeFile(path.join(FILES, id + '.tif'), tif);
+              try {
+                const r = recvCim.tiffToPdf(tif);
+                await fsp.writeFile(path.join(FILES, id + '.pdf'), r.pdf);
+                ext = 'pdf'; pages = r.pages;
+              } catch (e) { pages = (() => { try { return recvCim.tiffPages(tif).pages; } catch (e2) { return 0; } })(); }
+              const f = {
+                id, sha256: crypto.createHash('sha256').update(tif).digest('hex'), ext, has_tif: true, size: tif.length, pages,
+                received_at: it.receivedAt, from: it.cid || '', from_name: '', to: it.receiver || '',
+                original: it.file, source: 'device#' + it.taskId, device_task: it.taskId,
+                status: 'new', assignee: '', memo: it.remark || '',
+                created_at: Date.now(), history: [{ at: Date.now(), by: '', action: '장비에서 받음 (작업 ' + it.taskId + ')' }],
+              };
+              f.assignee = routeOf(f);
+              if (f.assignee) f.history.push({ at: Date.now(), by: '', action: '담당 ' + f.assignee + ' (자동)' });
+              db.faxes.push(f);
+              db.seen[key] = id;
+              fresh.push(f);
+            }
+          }
+          db.recv_last_task = it.taskId;
+          state.device.lastTask = it.taskId;
+          save();
+        }
+        if (list[list.length - 1].left <= 1) break;
+      }
+      state.device.lastError = '';
+    } catch (e) {
+      state.device.lastError = e.message;
+      console.warn('[fax] 장비에서 받기 실패:', e.message);
+    } finally {
+      state.device.lastPoll = Date.now();
+      state.devPolling = false;
+    }
+    if (typeof ctx.notify === 'function') {
+      for (const f of fresh) {
+        try { await ctx.notify(view(f), { url: '/fax#' + f.id }); } catch (e) { console.warn('[fax] 알림 실패', e.message); }
+      }
+    }
+  }
+  const devTimer = recvDev ? setInterval(pollDevice, Math.max(10, Number(ctx.receiveSec) || 30) * 1000) : null;
+  if (devTimer && devTimer.unref) devTimer.unref();
+  if (recvDev) { const t0 = setTimeout(pollDevice, 1500); if (t0.unref) t0.unref(); }
+
   //  ── 공통 ──
   function view(f) {
     const { sha256, hidden, ...rest } = f;
@@ -304,12 +369,17 @@ module.exports = function mountFax(app, ctx) {
   app.get('/api/fax/admin/status', auth, admin, (req, res) => {
     res.json({
       ok: true, inboxes: inboxes.map((p) => Object.assign({ path: p }, state.inboxes[p] || { ok: null })),
-      lastScan: state.lastScan, lastError: state.lastError, total: db.faxes.length, pollSec: POLL / 1000, after: AFTER,
+      lastScan: state.lastScan, lastError: state.lastError, total: db.faxes.length, pollSec: POLL / 1000, after: AFTER, device: state.device,
     });
   });
 
   const sendApi = {};
   mountSend();
+
+  app.post('/api/fax/admin/poll', auth, admin, async (req, res) => {
+    await Promise.all([scan(), pollDevice()]);
+    res.json({ ok: true, device: state.device, total: db.faxes.length });
+  });
 
   app.get('/api/fax/:id', auth, (req, res) => {
     const f = ID.test(req.params.id) && byId(req.params.id);
@@ -320,7 +390,9 @@ module.exports = function mountFax(app, ctx) {
   app.get('/api/fax/:id/file', auth, (req, res) => {
     const f = ID.test(req.params.id) && byId(req.params.id);
     if (!f || !canView(req.faxUser, f)) return res.status(404).json({ ok: false, error: '없는 팩스입니다' });
-    const p = path.join(FILES, f.id + '.' + f.ext);
+    const useTif = req.query.orig && f.has_tif;
+    const ext = useTif ? 'tif' : f.ext;
+    const p = path.join(FILES, f.id + '.' + ext);
     if (!fs.existsSync(p)) return res.status(410).json({ ok: false, error: '파일이 지워졌습니다' });
     if (f.status === 'new') {
       f.status = 'seen';
@@ -329,9 +401,9 @@ module.exports = function mountFax(app, ctx) {
     }
     const d = new Date(f.received_at);
     const pad = (n) => String(n).padStart(2, '0');
-    const name = `팩스_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}_${(f.from_name || f.from || '발신미상').replace(/[\\/:*?"<>|]/g, '_')}.${f.ext}`;
-    const inline = f.ext === 'pdf' && !req.query.download;
-    res.setHeader('Content-Type', f.ext === 'pdf' ? 'application/pdf' : 'image/tiff');
+    const name = `팩스_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}_${(f.from_name || f.from || '발신미상').replace(/[\\/:*?"<>|]/g, '_')}.${ext}`;
+    const inline = ext === 'pdf' && !req.query.download;
+    res.setHeader('Content-Type', ext === 'pdf' ? 'application/pdf' : 'image/tiff');
     res.setHeader('Content-Disposition', (inline ? 'inline' : 'attachment') + "; filename*=UTF-8''" + encodeURIComponent(name));
     res.setHeader('Cache-Control', 'private, max-age=300');
     fs.createReadStream(p).pipe(res);
@@ -553,7 +625,7 @@ module.exports = function mountFax(app, ctx) {
   });
 
   //  시험·관리용
-  return { scan, state, db: () => db, send: sendApi, stop: () => { clearInterval(timer); if (sendApi.timer) clearInterval(sendApi.timer); } };
+  return { scan, pollDevice, state, db: () => db, send: sendApi, stop: () => { clearInterval(timer); if (devTimer) clearInterval(devTimer); if (sendApi.timer) clearInterval(sendApi.timer); } };
 };
 
 module.exports.parseName = parseName;

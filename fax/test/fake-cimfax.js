@@ -74,9 +74,37 @@ function start(opt) {
     return { rest: Buffer.alloc(0) };
   });
 
-  //  명령 (3007) — 보낸 팩스 상태
+  //  명령 (3007) — 보낸 팩스 상태 · 받은 팩스 목록 · 파일 내려받기
+  //  받은 팩스함: opt.inbox = [{ taskId, time:'2026-11-13 05:00:00'(UTC), cid, file:'8자리', receiver, tiff }]
+  const inbox = opt.inbox || [];
+  got.inbox = inbox; got.downloads = 0; got.newFaxCalls = 0;
   serve(base + 6, (c, buf) => {
     const t = buf.toString('utf16le');
+    if (c.down) {
+      if (t.trim() !== 'R') return { rest: Buffer.alloc(0) };
+      const d = c.down, piece = d.data.subarray(d.pos, d.pos + 1200);
+      d.pos += piece.length;
+      c.sock.write(piece);
+      if (d.pos >= d.data.length) { c.down = null; got.downloads++; }
+      return { rest: Buffer.alloc(0) };
+    }
+    if (/<ACTION>GET_NEW_FAX<\/ACTION>/.test(t) && /<\/USER>/.test(t)) {
+      got.newFaxCalls++;
+      const after = Number(tag(t, 'TASK')) || 0;
+      const rest = inbox.filter((f) => f.taskId > after).sort((a, b) => a.taskId - b.taskId);
+      if (!rest.length) { c.say('<COUNT>0</COUNT>'); return { rest: Buffer.alloc(0) }; }
+      const f = rest[0];
+      c.say(`<COUNT>${rest.length}</COUNT><TIME>${f.time}</TIME><CID>${f.cid || ''}</CID><FILE>${f.file}</FILE><TASK>${f.taskId}</TASK><SENDER></SENDER><RECEIVER>${f.receiver || 'public'}</RECEIVER><SVRID>${opt.serverId || '00ABCDEF'}</SVRID><REMARK></REMARK><STATUS_ID>0</STATUS_ID>`);
+      return { rest: Buffer.alloc(0) };
+    }
+    if (/<ACTION>DOWN_FILE<\/ACTION>/.test(t) && /<\/BUFSIZE>/.test(t)) {
+      const m = /FaxFiles[\\/](..)[\\/](..)[\\/](..)[\\/](..)\.tif/i.exec(tag(t, 'FILE'));
+      const f = m && inbox.find((x) => x.file === m.slice(1).join(''));
+      if (!f) { c.say('<FEEDBACK>FAILED</FEEDBACK>'); return { rest: Buffer.alloc(0) }; }
+      c.down = { data: f.tiff, pos: 0 };
+      c.say(`<FILE_LEN>${f.tiff.length}</FILE_LEN>`);
+      return { rest: Buffer.alloc(0) };
+    }
     if (c.queue) {
       if (t.trim() !== 'R') return { rest: Buffer.alloc(0) };
       const f = c.queue.shift();
