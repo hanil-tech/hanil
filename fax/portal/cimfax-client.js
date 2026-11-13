@@ -23,6 +23,7 @@ const { execFile } = require('child_process');
 const PORT = { login: 3001, send: 3002, voice: 3003, recv: 3005, admin: 3006, cmd: 3007 };
 const HEADER_SIZE = 1024;
 const BUF_SIZE = 1200;
+const VERSION = '2026-11-13b';   //  점검 도구가 찍는 판 — 머리 1024(FaxBox SENDFAX 와 같음) → 거부되면 1088
 
 //  ── MD5 (FaxGo MD5Code: 시작값을 seed 로 비튼 MD5) ──
 const K = new Uint32Array(64).map((_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) >>> 0);
@@ -171,6 +172,7 @@ async function sendFax(dev, o) {
   const sizes = dev.headerSize ? [dev.headerSize] : [1024, 1088];
   for (let i = 0; ; i++) {
     try {
+      if (o.onAttempt) o.onAttempt(sizes[i]);
       return await sendOnce(dev, o, tiff, sizes[i]);
     } catch (e) {
       //  머리 크기를 거부하면(전화를 걸기 전) 다른 배치로 한 번 더
@@ -291,4 +293,4 @@ async function toFaxTiff(input, outFile, opt) {
   return { pages: t.pages, bytes: b.length };
 }
 
-module.exports = { PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, toFaxTiff, tiffPages, findGhostscript };
+module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, toFaxTiff, tiffPages, findGhostscript };

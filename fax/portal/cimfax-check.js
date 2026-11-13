@@ -25,6 +25,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     if (!/^[0-9,*#-]*\d{3,}[0-9,*#-]*$/.test(String(a.send))) throw new Error('받는 팩스 번호를 숫자로 넣어 주세요 (예: --send 0212345678) — 지금 값: ' + a.send);
     if (!a.file || !fs.existsSync(a.file)) throw new Error('보낼 PDF 가 없습니다: ' + (a.file || '(--file 빠짐)'));
   }
+  console.log('cimfax-client 판 ' + (cim.VERSION || '옛 판(1088 만 보냄) — 새 zip 으로 바꿔 주세요'));
   console.log('▶ 장비 ' + dev.host + ' 에 로그인 …');
   const c = await cim.login(dev, cim.PORT.cmd);
   c.close();
@@ -43,7 +44,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     const t = await cim.toFaxTiff(a.file, tif, { ghostscript: a.gs });
     console.log('  ' + t.pages + '쪽 · ' + Math.round(t.bytes / 1024) + 'KB');
     console.log('▶ ' + a.send + ' 로 보내는 중 …');
-    const r = await cim.sendFax(dev, { phone: String(a.send), pages: t.pages, tiff: tif, onProgress: (p) => process.stdout.write('\r  ' + p + '%   ') });
+    const r = await cim.sendFax(dev, { phone: String(a.send), pages: t.pages, tiff: tif, onProgress: (p) => process.stdout.write('\r  ' + p + '%   '), onAttempt: (n) => console.log('  머리 ' + n + ' 바이트로 시도') });
     fs.unlinkSync(tif);
     console.log('\n✅ 장비가 받았습니다 — 작업번호 ' + r.taskId + ' · 머리 ' + r.headerSize + ' 바이트   (FaxBox 의 보낸 팩스·대기열에서도 보여야 합니다)');
     console.log('   잠시 뒤:  node cimfax-check.js --host ' + a.host + ' --user ' + a.user + ' --pass … --status ' + r.taskId);
