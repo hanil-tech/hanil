@@ -33,7 +33,7 @@ async function login(port, user) {
   const lee = await login(port, 'lee'), kim = await login(port, 'kim');
 
   //  1. 설정·권한
-  let j = await (await lee('/api/fax/send/config')).json();
+  let j = await (await lee('/api/fax/sendinfo')).json();
   ok(j.enabled && j.canSend && j.maxMB === 20, '보내기 켜짐');
   j = await (await kim('/api/fax/device/check')).json();
   ok(j.ok && j.device.serverName === 'HANIL-FAX' && j.device.ext === '801', '관리자 장비 점검: 로그인 성공 · 장비 이름 · 내선');
@@ -114,7 +114,7 @@ async function login(port, user) {
   const none = await startPortal({ inbox: path.join(tmp, 'in'), store: path.join(tmp, 'st4'), port: 0 });
   none.fax.stop();
   const n = await login(none.port, 'lee');
-  j = await (await n('/api/fax/send/config')).json();
+  j = await (await n('/api/fax/sendinfo')).json();
   r = await n('/api/fax/send?to=0212345678', { method: 'POST', body: pdf });
   ok(!j.enabled && r.status === 503, '장비 설정이 없으면 보내기 꺼짐');
   none.srv.close();

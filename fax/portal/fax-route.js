@@ -39,7 +39,7 @@
 //     sentView   보낸 목록: 자기 것만(기본) | 'all' — 관리자는 언제나 전부
 //     maxSendMB  올리는 파일 크기 한도 (기본 20)
 //     POST   /api/fax/send?to=번호[,번호…]&name=받는곳&memo=메모&file=파일이름   몸통 = PDF(또는 팩스 TIFF) 그대로
-//     GET    /api/fax/send/config                 { enabled, canSend, maxMB, dryRun }
+//     GET    /api/fax/sendinfo                    { enabled, canSend, admin, maxMB, dryRun }
 //     GET    /api/fax/sent                        보낸 팩스 목록 (상태: queued·converting·sending·accepted·failed)
 //     GET    /api/fax/sent/:id/file               보낸 원본
 //     POST   /api/fax/sent/:id/retry              실패한 것 다시 보내기
@@ -386,9 +386,12 @@ module.exports = function mountFax(app, ctx) {
     const sview = (s) => { const { tif, src, ...rest } = s; return rest; };
     const mine = (u) => db.sent.filter((s) => !s.hidden && (u.admin || ctx.sentView === 'all' || s.by_id === u.id));
 
-    app.get('/api/fax/send/config', auth, (req, res) => {
-      res.json({ ok: true, enabled: !!dev, canSend: !!dev && canSend(req.faxUser), maxMB: MAX / 1048576, dryRun: !!(dev && dev.dryRun) });
-    });
+    //  ⚠ 주소에 'config' 를 쓰지 않는다 — 포털의 스캔 차단(scanguard)이 스캐너로 보고 막을 수 있다 (2026-11-13 현장)
+    const sendInfo = (req, res) => {
+      res.json({ ok: true, enabled: !!dev, canSend: !!dev && canSend(req.faxUser), admin: !!req.faxUser.admin, maxMB: MAX / 1048576, dryRun: !!(dev && dev.dryRun) });
+    };
+    app.get('/api/fax/sendinfo', auth, sendInfo);
+    app.get('/api/fax/send/config', auth, sendInfo);   //  옛 주소
 
     //  POST /api/fax/send?to=0212345678,0311112222&name=대한상사&memo=견적서   몸통 = PDF 또는 팩스 TIFF 파일 그대로
     app.post('/api/fax/send', auth, (req, res) => {

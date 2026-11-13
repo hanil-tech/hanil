@@ -310,11 +310,15 @@ $('s-form').addEventListener('submit', async (e) => {
 document.querySelector('#tabs button[data-s="new"]').classList.add('on');
 (async () => {
   try {
-    sendCfg = await api('/api/fax/send/config');
+    sendCfg = await api('/api/fax/sendinfo');
     if (sendCfg.enabled) $('tab-sent').hidden = false;
     if (sendCfg.canSend) $('b-new').hidden = false;
     if (sendCfg.dryRun) $('b-new').textContent = '✉ 팩스 보내기 (시험 모드)';
-  } catch (e) { /* 옛 포털 조각 — 보내기 없음 */ }
+    if (sendCfg.enabled && !sendCfg.canSend) showErr(new Error('팩스 보내기는 관리자만 할 수 있게 설정되어 있습니다 (fax-config.json 의 sendBy)'));
+  } catch (e) {
+    //  숨기지 않고 이유를 보여 준다 — 무엇이 막았는지 알아야 고친다
+    if (e.message !== 'login') showErr(new Error('팩스 보내기 설정을 읽지 못했습니다: ' + e.message));
+  }
   if (location.hash === '#sent' && sendCfg.enabled) { document.querySelector('#tabs button[data-s="sent"]').click(); return; }
   await load();
   const id = location.hash.slice(1);
