@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>태양광 발전</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1d2330;--sub:#6b7385;--line:#e3e6ec;--sun:#f29d0c;--ok:#1b9e5a;--bad:#d93a3a;--bar:#f6b13b}
+@media (prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1e222a;--ink:#e8ebf1;--sub:#9aa3b5;--line:#2e333d;--bar:#d99620}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:22px;margin:0}.sub{color:var(--sub);font-size:13px}
+a.home{color:var(--sub);text-decoration:none;font-size:14px}
+button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer;white-space:nowrap}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.card .k{color:var(--sub);font-size:13px}.card .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.card .v small{font-size:14px;font-weight:400;color:var(--sub)}
+.card .s{font-size:12px;color:var(--sub)}
+.alert{background:#fde8e8;color:#8a1c1c;border-radius:10px;padding:10px 14px;margin:10px 0;font-weight:600}
+@media (prefers-color-scheme:dark){.alert{background:#4a1d1d;color:#ffd0d0}}
+.err{color:var(--bad);font-size:13px;margin-top:6px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
+section h2{font-size:16px;margin:0 0 8px}
+svg{width:100%;height:auto;display:block}svg text{fill:var(--sub);font-size:11px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
+th{color:var(--sub);font-weight:500;font-size:13px}.tw{overflow-x:auto}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+.tip{color:var(--sub);font-size:12px}
+</style></head><body><div class="wrap">
+<header><a class="home" href="/">← 포털</a><h1>☀️ 태양광 발전</h1><span class="sub" id="at">불러오는 중…</span><span style="flex:1"></span><button id="rf" hidden>지금 가져오기</button></header>
+<div id="alerts"></div>
+<div class="cards" id="cards"></div>
+<div class="err" id="err"></div>
+<section><h2>오늘 시간대별 발전 <span class="tip" id="todayTip"></span></h2><div id="today"></div></section>
+<section><h2>최근 30일 발전량 (kWh)</h2><div id="daily"></div></section>
+<section><h2>발전소</h2><div class="tw"><table id="plants"></table></div></section>
+<p class="tip">자료: 에너지어스 VPP · 포털이 <span id="every">10</span>분마다 가져옵니다. 발전시간 = 발전량 ÷ 설비용량.</p>
+</div>
+<script>
+const $=(s)=>document.querySelector(s);
+const f1=(v,d=1)=>v===null||v===undefined?'–':Number(v).toLocaleString('ko-KR',{maximumFractionDigits:d});
+const esc=(s)=>String(s??'').replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm=(t)=>{const d=new Date(t);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+async function j(u,o){const r=await fetch(u,Object.assign({credentials:'same-origin'},o||{}));if(r.status===401){location.href='/?next=/solar';throw new Error('login')}if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.status);return r.json()}
+function card(k,v,unit,s){return `<div class="card"><div class="k">${k}</div><div class="v">${v} <small>${unit}</small></div>${s?`<div class="s">${s}</div>`:''}</div>`}
+function render(L){
+  $('#every').textContent=L.everyMin||10;$('#rf').hidden=!L.admin;
+  $('#at').textContent=L.at?('기준 '+new Date(L.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})):'아직 가져온 자료가 없습니다';
+  $('#err').textContent=L.error?('⚠ 마지막 가져오기 실패: '+L.error+(L.errorAt?' ('+hm(L.errorAt)+')':'')):'';
+  $('#alerts').innerHTML=(L.alerts||[]).map(a=>`<div class="alert">⚠️ ${esc(a)}</div>`).join('');
+  const o=L.overview; if(!o){$('#cards').innerHTML='';return}
+  const p0=(L.plants||[])[0]||{};
+  $('#cards').innerHTML=
+    card('지금 발전',f1(o.nowKw),'kW',o.capacityKw?('용량 '+f1(o.capacityKw,0)+' kW의 '+f1(o.nowKw/o.capacityKw*100)+'%'):'')+
+    card('오늘',f1(o.todayKwh),'kWh',p0.todayHours!=null&&L.plants.length===1?('발전시간 '+f1(p0.todayHours)+' h'):'')+
+    card('어제',f1((L.plants||[]).reduce((s,p)=>s+(p.yesterdayKwh||0),0)),'kWh',p0.yesterdayHours!=null&&L.plants.length===1?('발전시간 '+f1(p0.yesterdayHours)+' h'):'')+
+    card('이번 달',f1(o.monthKwh,0),'kWh',o.monthAvgHours!=null?('하루 평균 발전시간 '+f1(o.monthAvgHours)+' h'):'')+
+    card('누적',f1(o.totalKwh/1000,2),'MWh','')+
+    card('발전소',`<span style="color:${o.normal===o.plants?'var(--ok)':'var(--bad)'}">${f1(o.normal,0)}</span>/${f1(o.plants,0)}`,'정상',[o.fault?'고장 '+o.fault:'',o.check?'점검 '+o.check:'',o.offline?'끊김 '+o.offline:''].filter(Boolean).join(' · '));
+  $('#plants').innerHTML='<tr><th>발전소</th><th>상태</th><th>지금 kW</th><th>오늘 kWh</th><th>어제 kWh</th><th>누적 MWh</th><th>용량 kW</th><th>역률</th></tr>'+
+    (L.plants||[]).map(p=>`<tr><td>${esc(p.name)}<div class="tip">${esc(p.addr)}</div></td><td><span class="dot" style="background:${p.problems.length?'var(--bad)':'var(--ok)'}"></span>${p.problems.length?esc(p.problems.join(', ')):'정상'}</td><td>${f1(p.nowKw)}</td><td>${f1(p.todayKwh)}</td><td>${f1(p.yesterdayKwh)}</td><td>${f1(p.totalKwh/1000,2)}</td><td>${f1(p.capacityKw,0)}</td><td>${f1(p.powerFactor,3)}</td></tr>`).join('');
+}
+function lineChart(rows){
+  const W=800,H=220,L=40,B=24,T=10,R=10;
+  if(!rows.length)return '<p class="tip">오늘 기록이 아직 없습니다 — 포털이 가져올 때마다 점이 하나씩 늘어납니다.</p>';
+  const d0=new Date(rows[0].t);d0.setHours(5,0,0,0);const t0=d0.getTime(),t1=t0+15*3600000; // 05~20시
+  const mx=Math.max(1,...rows.map(r=>r.kw||0))*1.15;
+  const x=t=>L+(Math.min(Math.max(t,t0),t1)-t0)/(t1-t0)*(W-L-R), y=v=>H-B-(v/mx)*(H-B-T);
+  let g='';for(let h=6;h<=20;h+=2){const xx=x(t0+(h-5)*3600000);g+=`<line x1="${xx}" x2="${xx}" y1="${T}" y2="${H-B}" stroke="var(--line)"/><text x="${xx}" y="${H-6}" text-anchor="middle">${h}시</text>`}
+  for(let i=0;i<=4;i++){const v=mx/4*i;g+=`<text x="${L-6}" y="${y(v)+4}" text-anchor="end">${Math.round(v)}</text>`}
+  const pts=rows.filter(r=>r.kw!=null).map(r=>`${x(r.t).toFixed(1)},${y(r.kw).toFixed(1)}`);
+  const area=pts.length?`<polygon fill="var(--sun)" opacity=".18" points="${pts[0].split(',')[0]},${H-B} ${pts.join(' ')} ${pts[pts.length-1].split(',')[0]},${H-B}"/>`:'';
+  const last=rows[rows.length-1];
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="오늘 발전 kW">${g}${area}<polyline fill="none" stroke="var(--sun)" stroke-width="2.5" points="${pts.join(' ')}"/><text x="${L}" y="${T+4}">kW</text>${last.kw!=null?`<circle cx="${x(last.t)}" cy="${y(last.kw)}" r="4" fill="var(--sun)"/>`:''}</svg>`;
+}
+function barChart(days){
+  const W=800,H=200,L=44,B=24,T=10,R=6,n=days.length;
+  const mx=Math.max(1,...days.map(d=>d.kwh||0))*1.1, bw=(W-L-R)/n;
+  let g='';for(let i=0;i<=4;i++){const v=mx/4*i,yy=H-B-(v/mx)*(H-B-T);g+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${L-6}" y="${yy+4}" text-anchor="end">${Math.round(v).toLocaleString()}</text>`}
+  days.forEach((d,i)=>{const xx=L+i*bw;if(d.kwh!=null){const h=(d.kwh/mx)*(H-B-T);g+=`<rect x="${xx+bw*.15}" y="${H-B-h}" width="${bw*.7}" height="${h}" rx="2" fill="var(--bar)"><title>${d.date} · ${f1(d.kwh)} kWh${d.hours!=null?' · '+f1(d.hours)+' h':''}</title></rect>`}
+    if(i%5===n%5||i===n-1)g+=`<text x="${xx+bw/2}" y="${H-6}" text-anchor="middle">${d.date.slice(5).replace('-','/')}</text>`});
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="최근 30일 발전량">${g}</svg>`;
+}
+async function load(){
+  try{
+    const [L,T,D]=await Promise.all([j('/api/solar/latest'),j('/api/solar/today'),j('/api/solar/daily?days=30')]);
+    render(L);$('#today').innerHTML=lineChart(T.rows);$('#todayTip').textContent=T.rows.length?('· '+T.rows.length+'번 기록'):'';
+    $('#daily').innerHTML=barChart(D.days);
+  }catch(e){if(e.message!=='login')$('#err').textContent='⚠ '+e.message}
+}
+$('#rf').onclick=async()=>{$('#rf').disabled=true;try{await j('/api/solar/refresh',{method:'POST'});await load()}catch(e){$('#err').textContent='⚠ '+e.message}$('#rf').disabled=false};
+load();setInterval(load,60000);
+</script></body></html>

@@ -1,0 +1,21 @@
+☀️ 태양광(에너지어스 VPP) → 포털 /solar   설치 (포털 서버, gaos 계정)
+
+0) ~/.vpp-pass 가 있어야 합니다 (vpp-check.js 로 로그인 성공한 그 파일)
+
+1) 파일 3개를 포털 폴더로
+   cd /data/portal
+   B=https://raw.githubusercontent.com/hanil-tech/hanil/claude/eager-albattani-o16mo1/solar
+   for f in solar-route.js solar-page.html vpp-client.js patch-portal-solar.js; do curl -fsSLO $B/$f || echo "실패 $f"; done
+
+2) server.js 에 한 줄 넣기 (faxbox 줄 바로 앞, 백업 자동)
+   node patch-portal-solar.js server.js --notify 관리자포털아이디      ← 이상 알림 받을 사람 (빼도 됨)
+   node --check server.js && echo OK
+
+3) 포털 다시 켜기 (systemd 가 바로 다시 켬)
+   kill $(pgrep -u gaos -f 'node server.js')
+
+4) 20초 뒤 https://work.hanil-steel.com/solar
+   저장: ~/solar/data (latest.json · daily.json · days/날짜.jsonl)
+   로그: journalctl -u hanil-portal -n 50 | grep 태양광
+
+되돌리기: node patch-portal-solar.js server.js --undo  →  포털 다시 켜기
