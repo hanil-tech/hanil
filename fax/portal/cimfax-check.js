@@ -11,6 +11,7 @@
 //        처음부터 전부(날짜 제한 없이) 다시 훑으려면 --from 0 (이미 받은 것은 .cimfax-index 로 건너뜀)
 //        --until 작업번호 : 그 번호까지만 (포털이 이미 받아 둔 것과 겹치지 않게 — 포털이 처음 받은 작업번호 - 1)
 //        장비 안의 팩스는 지우거나 바꾸지 않는다 (읽기만).
+//   비밀번호 대신 --pass-file ~/.cimfax-pass (첫 줄이 비밀번호, chmod 600) 도 된다 — 예약 작업용
 //   (PDF 변환에 Ghostscript 가 필요. 찾지 못하면 --gs "C:\Program Files\gs\gs10.04.0\bin\gswin64c.exe")
 'use strict';
 const os = require('os'), path = require('path'), fs = require('fs');
@@ -25,18 +26,24 @@ if (!a.host || !a.user) {
   console.log('쓰는 법: node cimfax-check.js --host 장비IP --user CimFAX계정 --pass 비밀번호 [--queue | --send 번호 --file 파일.pdf | --status 작업번호 | --inbox | --export 폴더 [--days 90]]');
   process.exit(1);
 }
-const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pass || ''), ghostscript: a.gs, timeoutMs: 15000 };
+//  비밀번호: --pass 값, 또는 --pass-file 파일(첫 줄), 또는 환경 변수 CIMFAX_PASS — 예약 작업(cron)에 비밀번호를 적지 않게
+let pw = a.pass === true ? '' : (a.pass || '');
+if (!pw && a['pass-file']) {
+  try { pw = fs.readFileSync(String(a['pass-file']), 'utf8').split(/\r?\n/)[0]; } catch (e) { console.error('❌ 비밀번호 파일을 읽지 못했습니다: ' + a['pass-file']); process.exit(1); }
+}
+if (!pw && process.env.CIMFAX_PASS) pw = process.env.CIMFAX_PASS;
+const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeoutMs: 15000 };
 
 (async () => {
   if (a.send) {
     if (!/^[0-9,*#-]*\d{3,}[0-9,*#-]*$/.test(String(a.send))) throw new Error('받는 팩스 번호를 숫자로 넣어 주세요 (예: --send 0212345678) — 지금 값: ' + a.send);
     if (!a.file || !fs.existsSync(a.file)) throw new Error('보낼 PDF 가 없습니다: ' + (a.file || '(--file 빠짐)'));
   }
-  console.log('cimfax-client 판 ' + (cim.VERSION || '옛 판(1088 만 보냄) — 새 zip 으로 바꿔 주세요'));
-  console.log('▶ 장비 ' + dev.host + ' 에 로그인 …');
+  if (!a.quiet) console.log('cimfax-client 판 ' + (cim.VERSION || '옛 판(1088 만 보냄) — 새 zip 으로 바꿔 주세요'));
+  if (!a.quiet) console.log('▶ 장비 ' + dev.host + ' 에 로그인 …');
   const c = await cim.login(dev, cim.PORT.cmd);
   c.close();
-  console.log('✅ 로그인 성공 — 장비 이름 ' + c.info.serverName + ' · 장비 ID ' + c.info.serverId + ' · 권한 ' + c.info.permission + ' · 내선 ' + (c.info.ext || '-'));
+  if (!a.quiet) console.log('✅ 로그인 성공 — 장비 이름 ' + c.info.serverName + ' · 장비 ID ' + c.info.serverId + ' · 권한 ' + c.info.permission + ' · 내선 ' + (c.info.ext || '-'));
 
   if (a.queue) {
     const r = await cim.sendStatus(dev, 'all in queue');
@@ -74,7 +81,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     let last = 0;
     if (mark && fs.existsSync(mark)) last = Number(fs.readFileSync(mark, 'utf8')) || 0;
     if (a.from !== undefined) last = Number(a.from) || 0;
-    if (last) console.log('▶ 작업번호 ' + last + ' 다음부터 (처음부터 다시 받으려면 --from 0)');
+    if (last && !a.quiet) console.log('▶ 작업번호 ' + last + ' 다음부터 (처음부터 다시 받으려면 --from 0)');
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = (ms) => { const d = new Date(ms); return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()); };
     const clean = (s) => String(s || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
@@ -82,7 +89,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     for (;;) {
       const list = await cim.listNewFaxes(dev, last, 500, (it) => {
         progress++;
-        if (progress % 50 === 0) process.stderr.write('  … ' + progress + '건 읽음 (작업 ' + it.taskId + ', ' + it.timeRaw.slice(0, 10) + ', 남은 ' + (it.left - 1) + '건)\n');
+        if (!a.quiet && progress % 50 === 0) process.stderr.write('  … ' + progress + '건 읽음 (작업 ' + it.taskId + ', ' + it.timeRaw.slice(0, 10) + ', 남은 ' + (it.left - 1) + '건)\n');
       });
       if (!list.length) break;
       for (const it of list) {
@@ -113,7 +120,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
           if (!pdfOk || !a['pdf-only']) fs.writeFileSync(path.join(outDir, base + '.tif'), tif);
           saved++;
           fs.appendFileSync(idx, it.taskId + '\t' + base + '\n');
-          console.log('  ✅ ' + label + (pages ? ' · ' + pages + '쪽' : '') + (pdfOk ? '' : ' · (PDF 변환 실패 — TIFF 로 저장)'));
+          console.log((a.quiet ? new Date().toLocaleString('ko-KR') + ' ' : '') + '  ✅ ' + label + (pages ? ' · ' + pages + '쪽' : '') + (pdfOk ? '' : ' · (PDF 변환 실패 — TIFF 로 저장)'));
         } catch (e) {
           failed++;
           console.log('  ❌ ' + label + ' — ' + e.message);
@@ -123,6 +130,7 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
       if (reachedUntil || list[list.length - 1].left <= 1) break;
     }
     if (!outDir) console.log(seen ? '장비에 저장된 받은 팩스 ' + seen + '건 (작업번호 ' + (a.from || 0) + ' 다음부터' + (a.until ? ' ' + a.until + ' 까지' : '') + ')' : '장비에 저장된 받은 팩스가 없습니다 (이 계정으로 볼 수 있는 것 기준)');
+    else if (a.quiet && !saved && !failed) { /* 새 것 없음 */ }
     else console.log('\n📁 ' + outDir + '\n   새로 저장 ' + saved + '건 · 건너뜀 ' + skipped + '건' + (failed ? ' · 실패 ' + failed + '건 (다시 돌리면 이어서 받습니다)' : '') + ' · 마지막 작업번호 ' + last);
   }
 })().catch((e) => { console.error('❌ ' + e.message); process.exit(1); });
