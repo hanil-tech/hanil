@@ -28,9 +28,14 @@ if (!m) { console.log("❌ server.js 에서 require('./faxbox') 줄을 못 찾�
 const indent = /^[ \t]*/.exec(m[0])[0];
 if (who && !/^[\w.@-]+$/.test(who)) { console.log('❌ --notify 아이디에 쓸 수 없는 글자가 있습니다'); process.exit(1); }
 const notify = who ? `, notify: (msg) => { try { if (typeof nopsPush === 'function') nopsPush(${JSON.stringify(who)}, msg); } catch (e) { /* 알림 실패는 넘어감 */ } }` : '';
-const line = `${indent}try { require('./solar-route')(app, { passFile: ${JSON.stringify(require('os').homedir() + '/.vpp-pass')}${notify} }); } catch (e) { console.warn('[태양광] 못 붙임:', e.message); } ${MARK}\n`;
+//  조각은 이 패치 파일과 같은 폴더(~/solar)에서 읽는다 — 포털 폴더 밖이라 포털을 업그레이드해도 지워지지 않는다
+const route = require('path').join(__dirname, 'solar-route.js');
+const line = `${indent}try { require(${JSON.stringify(route)})(app, { passFile: ${JSON.stringify(require('os').homedir() + '/.vpp-pass')}${notify} }); } catch (e) { console.warn('[태양광] 못 붙임:', e.message); } ${MARK}\n`;
 fs.writeFileSync(file + '.bak-solar-' + stamp, src);
 fs.writeFileSync(file, src.slice(0, m.index) + line + src.slice(m.index));
+//  넣은 뒤 문법 검사 — 틀리면 바로 원래대로 (사람 없이 자동으로 돌 때도 포털이 안 죽게)
+try { require('child_process').execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' }); }
+catch (e) { fs.writeFileSync(file, src); console.log('❌ 넣었더니 문법 오류 — 원래대로 돌려놓았습니다: ' + String(e.stderr || e.message).split('\n').slice(0, 3).join(' ')); process.exit(1); }
 const ln = src.slice(0, m.index).split('\n').length;
 console.log('✅ ' + ln + '번째 줄(faxbox) 앞에 넣었습니다 (백업: ' + file + '.bak-solar-' + stamp + ')');
-console.log('   다음: node --check ' + file + '  →  포털 다시 켜기');
+console.log('   문법 검사 통과 — 포털을 다시 켜면 적용됩니다');

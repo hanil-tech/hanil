@@ -102,11 +102,20 @@ function fakeVpp() {
   const run = (...a) => execFileSync(process.execPath, [path.join(__dirname, '..', 'patch-portal-solar.js'), sv, ...a], { encoding: 'utf8' });
   run('--notify', 'kim');
   let s = fs.readFileSync(sv, 'utf8');
-  ok(/  try \{ require\('\.\/solar-route'\)[^\n]*nopsPush\("kim"[^\n]*\n  require\('\.\/faxbox'\)/.test(s), 'faxbox 줄 바로 앞에 같은 들여쓰기로');
+  ok(/  try \{ require\("[^"]*\/solar-route\.js"\)[^\n]*nopsPush\("kim"[^\n]*\n  require\('\.\/faxbox'\)/.test(s), 'faxbox 줄 바로 앞에 같은 들여쓰기로 (조각은 포털 밖 절대경로)');
   execFileSync(process.execPath, ['--check', sv]); ok(true, 'node --check 통과');
   ok(/이미 들어/.test(run()), '두 번 넣지 않음');
   run('--undo');
   ok(!fs.readFileSync(sv, 'utf8').includes('solar-route'), '--undo 로 빠짐');
+  //  업그레이드로 server.js 가 새로 깔린 상황: 다시 넣어도 그대로 한 번만
+  fs.writeFileSync(sv, "const app = require('express')();\n  require('./faxbox')(app, { v: 2 });\n");
+  run(); run();
+  ok((fs.readFileSync(sv, 'utf8').match(/solar-route/g) || []).length === 1, '새 server.js 에 다시 한 번만 들어감');
+  //  넣으면 문법이 깨지는 모양이면 원래대로
+  const bad = "const app = require('express')();\nconst x =\n  require('./faxbox')(app);\n";
+  fs.writeFileSync(sv, bad);
+  let threw = false; try { run(); } catch (e) { threw = /원래대로/.test(String(e.stdout)); }
+  ok(threw && fs.readFileSync(sv, 'utf8') === bad, '문법이 깨지면 원래대로 돌려놓음');
 
   console.log('\n' + (fail ? '❌' : '✅') + ' ' + pass + '개 통과, ' + fail + '개 실패');
   vs.close(); ps.close(); fs.rmSync(dir, { recursive: true, force: true });

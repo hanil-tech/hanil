@@ -64,5 +64,7 @@ const lineStart = src.lastIndexOf('\n', at) + 1;
 const backup = file + '.bak-autoread-' + new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
 fs.writeFileSync(backup, src);
 fs.writeFileSync(file, src.slice(0, lineStart) + snippet + src.slice(lineStart));
+try { require('child_process').execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' }); }
+catch (e) { fs.writeFileSync(file, src); console.log('❌ 넣었더니 문법 오류 — 원래대로 돌려놓았습니다'); process.exit(1); }
 console.log('✅ 넣었습니다 (백업: ' + backup + ')');
 console.log('   다음: node --check ' + file + '  →  포털 다시 켜기');
