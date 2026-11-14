@@ -593,6 +593,7 @@ module.exports = function mountFax(app, ctx) {
           s.task_id = 0;
           step('accepted', '시험 모드 — 장비로 보내지 않음 (' + s.pages + '쪽)');
         } else {
+          s.send_started = Date.now();
           const r = await cim.sendFax(dev, { phone: s.to, pages: s.pages, tiff: s.tif, priority: dev.priority, quality: dev.quality, dialTotal: dev.dialTotal });
           s.task_id = r.taskId;
           s.accepted_at = Date.now();
@@ -601,6 +602,19 @@ module.exports = function mountFax(app, ctx) {
       } catch (e) {
         if (s.state === 'canceled') return;
         s.error = e.message;
+        //  ⚠ 팩스를 장비에 넘긴 뒤의 오류는 다시 보내지 않는다 — 장비 기록에서 찾아 작업번호를 붙이거나 「확인 필요」 로
+        if (e.afterUpload) {
+          try {
+            const hit = await cim.findRecentSend(dev, s.to, s.pages, s.send_started || Date.now() - 600000);
+            if (hit) {
+              s.task_id = hit.taskId; s.accepted_at = Date.now(); s.error = '';
+              step('accepted', '장비 답은 못 받았지만 장비 기록에 있음 · 작업번호 ' + hit.taskId + ' (다시 보내지 않음)');
+              return;
+            }
+          } catch (e2) { /* 기록 조회 실패 — 아래 확인 필요로 */ }
+          step('failed', '확인 필요: 장비에 넘겼지만 답을 못 받았습니다 — 상대가 받았는지 확인 후 필요하면 「다시 보내기」 (' + e.message + ')');
+          return;
+        }
         const network = /접속|연결|답하지/.test(e.message);
         if (network && s.tries < 3) {
           step('queued', '다시 시도 예정: ' + e.message);

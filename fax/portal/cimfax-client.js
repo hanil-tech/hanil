@@ -202,10 +202,12 @@ async function sendOnce(dev, o, tiff, size) {
   const head = buildHeader(o, size);
   const all = Buffer.concat([head, tiff]);
   const c = await login(dev, PORT.send);
+  let sent = 0;
   try {
     await c.say('<ACTION>SENDFAX</ACTION><FILELEN>' + all.length + '</FILELEN><HEADERSIZE>' + head.length + '</HEADERSIZE><BUFSIZE>' + BUF_SIZE + '</BUFSIZE>');
-    let sent = 0;
     for (;;) {
+      //  ⚠ 다 보낸 뒤 장비가 RECV_OK 를 주기까지 오래 걸릴 수 있다(47쪽 팩스에서 15초 넘김 → 다시 보내 두 번 나감, 2026-11-14)
+      if (sent >= all.length) c.timeout = dev.finalTimeoutMs || 120000;
       const r = (await c.text(10)).trim();
       if (!r) continue;
       if (/^R+$/.test(r)) {
@@ -221,7 +223,19 @@ async function sendOnce(dev, o, tiff, size) {
       if (fb === 'RECV_OK') return { taskId: Number(tag(r, 'TASKID')) || tag(r, 'TASKID'), bytes: all.length, headerSize: size };
       throw new Error('장비가 받지 않았습니다: ' + (fb || tag(r, 'ERROR') || r.slice(0, 120)));
     }
+  } catch (e) {
+    //  한 조각이라도 넘긴 뒤의 오류는 「장비가 받았을 수도 있음」 — 부르는 쪽이 절대 자동으로 다시 보내면 안 된다
+    if (sent > 0 && !/^장비가 받지 않았습니다/.test(e.message)) { e.afterUpload = true; e.message = '장비 답을 못 받음 (보낸 뒤): ' + e.message; }
+    throw e;
   } finally { c.close(); }
+}
+
+//  보낸 뒤 답을 못 받았을 때: 장비의 보낸 기록에서 같은 번호·같은 쪽수의 최근 작업을 찾는다 (다시 보내지 않기 위해)
+async function findRecentSend(dev, phone, pages, sinceMs) {
+  const norm = (x) => String(x || '').replace(/[^0-9]/g, '');
+  const h = await sendHistory(dev, { from: sinceMs - 120000, to: Date.now() + 60000 });
+  const hit = h.items.filter((x) => norm(x.phone) === norm(phone) && (!pages || x.pageTotal === pages)).sort((a, b) => b.taskId - a.taskId)[0];
+  return hit || null;
 }
 
 //  ── 보낸 팩스 상태 (FaxGo FaxQueueNetwork — 장비 TCP 3007) ──
@@ -490,4 +504,4 @@ async function toFaxTiff(input, outFile, opt) {
   return { pages: t.pages, bytes: b.length };
 }
 
-module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, sendHistory, statusText, STATUS_TEXT, parseRecord, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };
+module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, findRecentSend, sendStatus, sendHistory, statusText, STATUS_TEXT, parseRecord, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };

@@ -68,7 +68,7 @@ function start(opt) {
       const all = Buffer.concat(j.data);
       const taskId = nextTask++;
       got.faxes.push({ user: c.user(), taskId, header: all.subarray(0, j.head), tiff: all.subarray(j.head), headSize: j.head, bufSize: j.bs, fileLen: j.len });
-      setTimeout(() => c.say(`<FEEDBACK>RECV_OK</FEEDBACK><TASKID>${taskId}</TASKID><INTER_FORWARD>0</INTER_FORWARD>`), 5);
+      if (!opt.silentAfterUpload) setTimeout(() => c.say(`<FEEDBACK>RECV_OK</FEEDBACK><TASKID>${taskId}</TASKID><INTER_FORWARD>0</INTER_FORWARD>`), opt.recvOkDelay || 5);
     }
     void want;
     return { rest: Buffer.alloc(0) };
@@ -124,7 +124,7 @@ function start(opt) {
       const b = Buffer.alloc(1024);
       b.writeInt32LE(f.taskId, 4);
       b.writeInt32LE(opt.status === undefined ? 0 : opt.status, 24);
-      b.write('0212345678', 96, 'utf16le');
+      b.write(f.header.subarray(96, 160).toString('utf16le').replace(/\0.*$/, ''), 96, 'utf16le');
       b.writeInt32LE(f.header.readInt32LE(160), 160);
       b.writeInt32LE(f.header.readInt32LE(160), 164);
       b.writeInt32LE(5, 168);

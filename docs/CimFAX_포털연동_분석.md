@@ -342,6 +342,8 @@ FaxBox 처럼 **1024 바이트** (장비 C 구조체: `receiver` 가 WCHAR[32]=6
 - **FaxGo 는 TIFF 를 암호화하지 않고 그대로 보낸다.** FaxBox 는 RC4 로 암호화하지만 (8장 아래 메모) 포털은 FaxGo 와 같이 한다.
 - **TIFF 형식**: CimFAX 클라이언트가 만든 `TransReport.tif` 와 같게 한다. 폭 **1728**, 204×196 dpi, 흑백, **CCITT G3 2D**, 여러 쪽. 포털은 Ghostscript `tiffg32d -r204x196` 로 만든다. FaxGo 도 1728 폭으로 그린다 (`convertPDF2TIF`).
 
+- ⚠ **중복 보내기 주의 (2026-11-14 현장):** 다 올린 뒤 장비의 `RECV_OK` 가 늦게 오면(47쪽에서 15초 넘김) 실패로 보고 다시 보내 같은 팩스가 여러 번 나갔다(작업 3499~3504). 고침: 마지막 답은 2분까지 기다리고, 한 조각이라도 넘긴 뒤의 오류는 `afterUpload` 로 표시해 **절대 자동으로 다시 보내지 않으며**, 장비 보낸 기록(`findRecentSend`)에서 같은 번호·쪽수를 찾아 작업번호를 붙인다.
+
 ### 10.4 보낸 팩스 상태 (TCP 3007)
 ```
 포털 → <ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>101,102</TASK_ID_LIST>   ('all in queue' 면 대기 중 전부)

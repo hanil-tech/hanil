@@ -124,6 +124,28 @@ async function login(port, user) {
     off.srv.closeAllConnections(); off.srv.close();
   }
 
+  //  4-5. 중복 보내기 방지 — 장비가 다 받고도 답(RECV_OK)이 늦거나 없을 때 (현장: 47쪽 팩스가 두 번 나감)
+  {
+    const slow = startDevice({ portBase: 40001, recvOkDelay: 2500 });
+    const r1 = await cim.sendFax(Object.assign({}, device, { portBase: 40001, timeoutMs: 1000, finalTimeoutMs: 6000 }), { phone: '05044348159', pages: 2, tiff: f.tiff });
+    ok(r1.taskId === 101 && slow.got.faxes.length === 1, '답이 2.5초 늦어도(평소 기다림 1초) 마지막 답은 길게 기다려 한 번에 접수');
+    slow.close();
+
+    const mute = startDevice({ portBase: 41001, silentAfterUpload: true });
+    let err = null;
+    try { await cim.sendFax(Object.assign({}, device, { portBase: 41001, timeoutMs: 1000, finalTimeoutMs: 1500 }), { phone: '05044348159', pages: 2, tiff: f.tiff }); } catch (e) { err = e; }
+    ok(err && err.afterUpload === true, '보낸 뒤 답이 없으면 「보낸 뒤 오류」 로 표시 (다시 보내면 안 됨)');
+    const p2 = await startPortal({ inbox: path.join(tmp, 'in'), store: path.join(tmp, 'st6'), port: 0, ctx: { device: Object.assign({}, device, { portBase: 41001, timeoutMs: 1000, finalTimeoutMs: 1500 }) } });
+    p2.fax.stop();
+    const q = await login(p2.port, 'lee');
+    await q('/api/fax/send?to=' + encodeURIComponent('050-4434-8159'), { method: 'POST', body: pdf });
+    const fin = await wait(async () => { const x = await (await q('/api/fax/sent')).json(); return ['accepted', 'failed'].includes(x.items[0].state) && x.items[0]; }, 30000);
+    await new Promise((z) => setTimeout(z, 1500));
+    ok(fin && fin.state === 'accepted' && fin.task_id === 102 && mute.got.faxes.length === 2, '포털: 답이 없어도 다시 보내지 않고 장비 기록에서 작업번호(102)를 찾아 붙임 · 장비에 한 번만 들어감');
+    ok(fin && fin.history.some((h) => /다시 보내지 않음/.test(h.action)), '기록에 「다시 보내지 않음」 남김');
+    p2.srv.closeAllConnections(); p2.srv.close(); mute.close();
+  }
+
   //  5. 비밀번호가 틀리면 실패 + 다시 보내기
   fax.stop(); srv.closeAllConnections(); srv.close();
   const bad = await startPortal({ inbox: path.join(tmp, 'in'), store: path.join(tmp, 'st2'), port: 0, ctx: { device: Object.assign({}, device, { password: 'wrong' }) } });
