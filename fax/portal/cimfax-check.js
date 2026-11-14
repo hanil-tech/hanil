@@ -9,6 +9,7 @@
 //        장비에 저장된 받은 팩스를 폴더에 PDF(+원본 TIFF)로 저장. 이름은 FaxBox 내보내기와 같은 모양:
 //        20261113093015_From_0212345678_To_admin.pdf   — 다시 돌리면 이어서 새 것만 받는다.
 //        처음부터 전부(날짜 제한 없이) 다시 훑으려면 --from 0 (이미 받은 것은 .cimfax-index 로 건너뜀)
+//        --until 작업번호 : 그 번호까지만 (포털이 이미 받아 둔 것과 겹치지 않게 — 포털이 처음 받은 작업번호 - 1)
 //        장비 안의 팩스는 지우거나 바꾸지 않는다 (읽기만).
 //   (PDF 변환에 Ghostscript 가 필요. 찾지 못하면 --gs "C:\Program Files\gs\gs10.04.0\bin\gswin64c.exe")
 'use strict';
@@ -77,16 +78,19 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = (ms) => { const d = new Date(ms); return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()); };
     const clean = (s) => String(s || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
-    let seen = 0, saved = 0, skipped = 0, failed = 0;
+    let seen = 0, saved = 0, skipped = 0, failed = 0, reachedUntil = false;
     for (;;) {
       const list = await cim.listNewFaxes(dev, last, 50);
       if (!list.length) break;
       for (const it of list) {
+        if (a.until && it.taskId > Number(a.until)) { reachedUntil = true; break; }
         seen++;
         last = it.taskId;
+        //  발신번호가 없는 회선이면 장비가 번호가 아닌 값을 준다 → '모름'
+        if (it.cid && !/^[0-9+\-() ,*#]+$/.test(it.cid)) { it.cidRaw = it.cid; it.cid = ''; }
         const when = new Date(it.receivedAt);
         const label = '작업 ' + it.taskId + ' · ' + when.getFullYear() + '-' + pad(when.getMonth() + 1) + '-' + pad(when.getDate()) + ' ' + pad(when.getHours()) + ':' + pad(when.getMinutes()) +
-          ' · 보낸 번호 ' + (it.cid || '모름') + ' · 받은 계정 ' + (it.receiver || '-');
+          ' · 보낸 번호 ' + (it.cid || '모름' + (it.cidRaw ? '(' + it.cidRaw + ')' : '')) + ' · 받은 계정 ' + (it.receiver || '-');
         if (!outDir) { console.log('  ' + label + ' · 파일 ' + it.file + ' · 남은 ' + (it.left - 1)); continue; }
         if (since && it.receivedAt < since) { skipped++; continue; }
         //  FaxBox 내보내기와 같은 이름 (포털 팩스 기능이 이 폴더를 그대로 읽을 수 있게). 같은 이름이 이미 다른 팩스면 끝에 작업번호
@@ -110,9 +114,9 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
         }
         if (!failed) fs.writeFileSync(mark, String(last));   //  실패가 있으면 다음에 그 자리부터 다시
       }
-      if (list[list.length - 1].left <= 1) break;
+      if (reachedUntil || list[list.length - 1].left <= 1) break;
     }
-    if (!outDir) console.log(seen ? '장비에 저장된 받은 팩스 ' + seen + '건 (작업번호 ' + (a.from || 0) + ' 다음부터)' : '장비에 저장된 받은 팩스가 없습니다 (이 계정으로 볼 수 있는 것 기준)');
+    if (!outDir) console.log(seen ? '장비에 저장된 받은 팩스 ' + seen + '건 (작업번호 ' + (a.from || 0) + ' 다음부터' + (a.until ? ' ' + a.until + ' 까지' : '') + ')' : '장비에 저장된 받은 팩스가 없습니다 (이 계정으로 볼 수 있는 것 기준)');
     else console.log('\n📁 ' + outDir + '\n   새로 저장 ' + saved + '건 · 건너뜀 ' + skipped + '건' + (failed ? ' · 실패 ' + failed + '건 (다시 돌리면 이어서 받습니다)' : '') + ' · 마지막 작업번호 ' + last);
   }
 })().catch((e) => { console.error('❌ ' + e.message); process.exit(1); });
