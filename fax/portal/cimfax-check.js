@@ -51,7 +51,7 @@ const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeo
   if (a.queue) {
     const r = await cim.sendStatus(dev, 'all in queue');
     console.log(r.ok ? '보낼 대기열 ' + r.items.length + '건' : '대기열 조회 실패: ' + r.raw);
-    r.items.forEach((x) => console.log('  작업 ' + x.taskId + ' → ' + x.phone + ' · 상태 ' + x.status + ' · ' + x.pageSent + '/' + x.pageTotal + '쪽 · 다이얼 ' + x.dialDone + '/' + x.dialTotal));
+    r.items.forEach((x) => console.log('  작업 ' + x.taskId + ' → ' + x.phone + ' · ' + cim.statusText(x.status) + ' · ' + x.pageSent + '/' + x.pageTotal + '쪽 · 다이얼 ' + x.dialDone + '/' + x.dialTotal));
   }
 
   if (a.send) {
@@ -71,7 +71,7 @@ const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeo
     const r = await cim.sendStatus(dev, String(a.status));
     if (!r.ok) console.log('상태 조회 실패: ' + r.raw);
     else if (!r.items.length) console.log('작업 ' + a.status + ' 을(를) 찾지 못했습니다 (이미 끝나 기록으로 넘어갔을 수 있음)');
-    r.items.forEach((x) => console.log('작업 ' + x.taskId + ' → ' + x.phone + ' · 상태코드 ' + x.status + ' · 보낸 쪽 ' + x.pageSent + '/' + x.pageTotal + ' · 다이얼 ' + x.dialDone + '/' + x.dialTotal));
+    r.items.forEach((x) => console.log('작업 ' + x.taskId + ' → ' + x.phone + ' · ' + cim.statusText(x.status) + ' · 보낸 쪽 ' + x.pageSent + '/' + x.pageTotal + ' · 다이얼 ' + x.dialDone + '/' + x.dialTotal));
   }
 
   if (a.cancel) {
@@ -93,7 +93,7 @@ const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeo
     const r = await cim.sendHistory(dev, { from: Date.now() - days * 86400000, type: a.type === true ? '' : a.type, user: a.qyuser === true ? '' : a.qyuser });
     if (!r.ok) console.log('보낸 기록 조회 실패 — 장비 답: ' + r.raw);
     else {
-      r.items.forEach((x) => console.log('  작업 ' + x.taskId + ' · ' + (x.at ? fmt(x.at) : '-') + ' → ' + x.phone + ' · 상태 ' + x.status + ' · ' + x.pageSent + '/' + x.pageTotal + '쪽 · 다이얼 ' + x.dialDone + '/' + x.dialTotal + (x.sender ? ' · 보낸 계정 ' + x.sender : '') + (x.remark ? ' · 비고 ' + x.remark : '')));
+      r.items.forEach((x) => console.log('  작업 ' + x.taskId + ' · ' + (x.at ? fmt(x.at) : '-') + ' → ' + x.phone + ' · ' + cim.statusText(x.status) + ' · ' + x.pageSent + '/' + x.pageTotal + '쪽 · 다이얼 ' + x.dialDone + '/' + x.dialTotal + (x.sender ? ' · 보낸 계정 ' + x.sender : '') + (x.remark ? ' · 비고 ' + x.remark : '')));
       console.log('장비의 보낸 기록 ' + r.items.length + '건 (최근 ' + days + '일' + (a.type && a.type !== true ? ', 종류 ' + a.type : '') + ')');
     }
   }

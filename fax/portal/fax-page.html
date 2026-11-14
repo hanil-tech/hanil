@@ -163,7 +163,7 @@ function showErr(e) { const el = $('err'); el.textContent = e ? '⚠ ' + e.messa
 //  ── 보낸 팩스 ──
 let sendCfg = { enabled: false }, sent = [];
 const SLABEL = { queued: '대기', converting: '변환 중', sending: '장비로 보내는 중', accepted: '장비 접수', failed: '실패', canceled: '취소됨' };
-const done = (s) => s.device && s.device.pageTotal > 0 && s.device.pageSent >= s.device.pageTotal;
+const done = (s) => s.device && (s.device.status === 2 || (s.device.pageTotal > 0 && s.device.pageSent >= s.device.pageTotal));
 const cancelBtn = (s) => '<button class="retry" data-cancel="' + s.id + '">보내기 취소</button>';
 function sentLine(s) {
   if (s.state === 'failed') return '<span class="err">' + esc(s.error || '실패') + '</span><button class="retry" data-retry="' + s.id + '">다시 보내기</button>';
@@ -173,7 +173,8 @@ function sentLine(s) {
   if (s.task_id === 0) return '시험 모드 — 장비로는 안 보냄';
   const d = s.device;
   let t = '작업번호 ' + s.task_id;
-  if (d) t += ' · 보낸 쪽 ' + d.pageSent + '/' + (d.pageTotal || s.pages) + ' · 다이얼 ' + d.dialDone + '/' + d.dialTotal + ' · 장비 상태 ' + d.status;
+  const ST = { 2: '보냄 완료', 5: '대기·보내는 중' };
+  if (d) t += ' · ' + (ST[d.status] || '장비 상태 ' + d.status) + ' · 보낸 쪽 ' + d.pageSent + '/' + (d.pageTotal || s.pages) + ' · 다이얼 ' + d.dialDone + '/' + d.dialTotal;
   return esc(t) + (done(s) ? ' · 다 보냄' : ' ' + cancelBtn(s));
 }
 async function loadSent() {

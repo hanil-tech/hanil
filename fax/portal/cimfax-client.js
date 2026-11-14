@@ -251,6 +251,9 @@ async function sendStatus(dev, list) {
 //   <ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>query history</TASK_ID_LIST><QY_USER>계정</QY_USER>
 //   <QY_DTBGN>UTC 시작</QY_DTBGN><QY_DTEND>UTC 끝</QY_DTEND><QY_TYPE>send | recv</QY_TYPE>   (FaxBox 0x456a83·0x456a9b 에서 확인)
 //   → <FEEDBACK>OK</FEEDBACK><AMOUNT>n</AMOUNT> (없으면 <ERROR>FAX ITEM NOT FOUND</ERROR>) → R 마다 1024 바이트 기록
+//  장비 상태 코드 — 현장 장비 보낸 기록으로 확인 (2026-11-14): 2 = 보냄 완료(FaxBox 「성공」), 5 = 대기·보내는 중
+const STATUS_TEXT = { 2: '보냄 완료', 5: '대기·보내는 중' };
+const statusText = (n) => STATUS_TEXT[n] || ('상태 ' + n);
 const utcStr = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 function parseRecord(b) {
   const s16 = (o, e) => b.subarray(o, e).toString('utf16le').replace(/\0[\s\S]*$/, '');
@@ -487,4 +490,4 @@ async function toFaxTiff(input, outFile, opt) {
   return { pages: t.pages, bytes: b.length };
 }
 
-module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, sendHistory, parseRecord, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };
+module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, sendHistory, statusText, STATUS_TEXT, parseRecord, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };
