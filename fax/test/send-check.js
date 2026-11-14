@@ -88,6 +88,42 @@ async function login(port, user) {
   ok(/Header size is invalidate/.test(e3) && dev3.got.rejected === 2, '둘 다 거부하면 장비 오류 문구 그대로 실패');
   dev3.close();
 
+  //  4-3. 보내기 취소 — 장비 접수 뒤: 장비에 멈춤(SEND_FAX_PAUSE → PAUSE_OK)
+  {
+    const lst = await (await lee('/api/fax/sent')).json();
+    const acc = lst.items.find((x) => x.task_id === 102);
+    r = await lee('/api/fax/sent/' + acc.id + '/cancel', { method: 'POST' });
+    j = await r.json();
+    ok(j.ok && j.item.state === 'canceled' && (dev.got.paused || []).includes(102), '보내기 취소 → 장비 작업 102 멈춤(PAUSE_OK) · 「취소됨」');
+    dev.got.faxes.find((x) => x.taskId === 101).done = true;
+    const acc1 = lst.items.find((x) => x.task_id === 101);
+    r = await lee('/api/fax/sent/' + acc1.id + '/cancel', { method: 'POST' });
+    ok(r.status === 409 && /이미 다 보냈/.test((await r.json()).error), '이미 다 보낸 팩스는 장비가 거절 → 이유 표시');
+    const pr = await cim.pauseSend(device, 102);
+    ok(pr.ok, '점검 도구용 pauseSend 도 PAUSE_OK');
+    const rr = await cim.retrySend(device, 102, 3);
+    ok(rr.ok && (dev.got.retried || []).includes(102), '다시 보내기(SEND_FAX_RETRY)');
+  }
+
+  //  4-4. 장비로 넘기기 전 취소 — 장비가 꺼져 있어 대기 중일 때
+  {
+    const off = await startPortal({ inbox: path.join(tmp, 'in'), store: path.join(tmp, 'st5'), port: 0, ctx: { device: Object.assign({}, device, { portBase: 39901, timeoutMs: 1000 }) } });
+    off.fax.stop();
+    const o = await login(off.port, 'lee');
+    j = await (await o('/api/fax/send?to=0212345678', { method: 'POST', body: pdf })).json();
+    const qid = j.items[0].id;
+    const queued = await wait(async () => { const x = await (await o('/api/fax/sent')).json(); return x.items[0].state === 'queued' && x.items[0].tries >= 1 && x.items[0]; }, 30000);
+    r = await o('/api/fax/sent/' + qid + '/cancel', { method: 'POST' });
+    j = await r.json();
+    ok(queued && j.ok && j.item.state === 'canceled' && !j.item.task_id, '장비로 넘기기 전 취소 → 바로 「취소됨」');
+    await new Promise((q) => setTimeout(q, 300));
+    j = await (await o('/api/fax/sent')).json();
+    ok(j.items[0].state === 'canceled', '취소한 것은 일꾼이 다시 보내지 않음');
+    r = await o('/api/fax/sent/' + qid + '/retry', { method: 'POST' });
+    ok(r.status === 200, '넘기기 전 취소한 것은 「다시 보내기」 가능');
+    off.srv.closeAllConnections(); off.srv.close();
+  }
+
   //  5. 비밀번호가 틀리면 실패 + 다시 보내기
   fax.stop(); srv.closeAllConnections(); srv.close();
   const bad = await startPortal({ inbox: path.join(tmp, 'in'), store: path.join(tmp, 'st2'), port: 0, ctx: { device: Object.assign({}, device, { password: 'wrong' }) } });

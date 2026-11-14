@@ -4,6 +4,8 @@
 //   2) 대기열 보기:         node cimfax-check.js --host … --user … --pass … --queue
 //   3) 시험 팩스 한 장:     node cimfax-check.js --host … --user … --pass … --send 0212345678 --file 시험.pdf
 //   4) 보낸 것 상태:        node cimfax-check.js --host … --user … --pass … --status 101
+//   4-1) 보내기 취소(멈춤):  node cimfax-check.js --host … --user … --pass … --cancel 3501        (대기·다시 거는 중인 것)
+//   4-2) 다시 보내기:        node cimfax-check.js --host … --user … --pass … --resume 3501
 //   5) 받은 팩스 목록:      node cimfax-check.js --host … --user … --pass … --inbox            (장비에 저장된 것, 오래된 것부터)
 //   6) 받은 팩스 내보내기:  node cimfax-check.js --host … --user … --pass … --export 폴더 [--days 90] [--pdf-only]
 //        장비에 저장된 받은 팩스를 폴더에 PDF(+원본 TIFF)로 저장. 이름은 FaxBox 내보내기와 같은 모양:
@@ -23,7 +25,7 @@ for (let i = 2; i < process.argv.length; i++) {
   if (k.startsWith('--')) { const v = process.argv[i + 1]; if (!v || v.startsWith('--')) a[k.slice(2)] = true; else { a[k.slice(2)] = v; i++; } }
 }
 if (!a.host || !a.user) {
-  console.log('쓰는 법: node cimfax-check.js --host 장비IP --user CimFAX계정 --pass 비밀번호 [--queue | --send 번호 --file 파일.pdf | --status 작업번호 | --inbox | --export 폴더 [--days 90]]');
+  console.log('쓰는 법: node cimfax-check.js --host 장비IP --user CimFAX계정 --pass 비밀번호 [--queue | --send 번호 --file 파일.pdf | --status 작업번호 | --cancel 작업번호 | --resume 작업번호 | --inbox | --export 폴더 [--days 90]]');
   process.exit(1);
 }
 //  비밀번호: --pass 값, 또는 --pass-file 파일(첫 줄), 또는 환경 변수 CIMFAX_PASS — 예약 작업(cron)에 비밀번호를 적지 않게
@@ -69,6 +71,18 @@ const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeo
     if (!r.ok) console.log('상태 조회 실패: ' + r.raw);
     else if (!r.items.length) console.log('작업 ' + a.status + ' 을(를) 찾지 못했습니다 (이미 끝나 기록으로 넘어갔을 수 있음)');
     r.items.forEach((x) => console.log('작업 ' + x.taskId + ' → ' + x.phone + ' · 상태코드 ' + x.status + ' · 보낸 쪽 ' + x.pageSent + '/' + x.pageTotal + ' · 다이얼 ' + x.dialDone + '/' + x.dialTotal));
+  }
+
+  if (a.cancel) {
+    const id = Number(a.cancel);
+    if (!id) throw new Error('--cancel 뒤에 작업번호를 넣어 주세요');
+    const r = await cim.pauseSend(dev, id);
+    console.log(r.ok ? '✅ 작업 ' + id + ' 보내기를 멈췄습니다 (다시 보내려면 --resume ' + id + ')' : '❌ 멈추지 못했습니다 — 장비 답: ' + r.feedback + '  (이미 다 보냈거나 없는 작업일 수 있음)');
+  }
+  if (a.resume) {
+    const id = Number(a.resume);
+    const r = await cim.retrySend(dev, id, a.retries);
+    console.log(r.ok ? '✅ 작업 ' + id + ' 을(를) 다시 보내기 대기열에 넣었습니다' : '❌ 다시 보내기 실패 — 장비 답: ' + r.feedback);
   }
 
   //  ── 장비에 저장된 받은 팩스 ──

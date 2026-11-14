@@ -247,6 +247,33 @@ async function sendStatus(dev, list) {
   } finally { c.close(); }
 }
 
+//  ── 보내기 취소·다시·지우기 (FaxGo SendFaxNetwork.stopSendFax · retrySendFax · SocketClient.removeFaxCompletely — TCP 3007) ──
+async function cmdOnce(dev, msg) {
+  const c = await login(dev, PORT.cmd);
+  try {
+    await c.say(msg);
+    return await c.textUntil(/<\/FEEDBACK>|<\/ERROR>/i, 500);
+  } finally { c.close(); }
+}
+//  멈춤(취소): 대기 중이거나 다시 거는 중인 팩스를 멈춘다 — 장비 답 PAUSE_OK
+async function pauseSend(dev, taskId) {
+  const r = await cmdOnce(dev, '<ACTION>SEND_FAX_PAUSE</ACTION><TASKID>' + Number(taskId) + '</TASKID>');
+  const fb = tag(r, 'FEEDBACK');
+  return { ok: /^PAUSE_OK$/i.test(fb), feedback: fb || tag(r, 'ERROR') || r.slice(0, 120) };
+}
+//  다시 보내기: 멈춘 팩스를 다시 대기열에 (RETRY_CNY = 다시 걸 횟수)
+async function retrySend(dev, taskId, retries) {
+  const r = await cmdOnce(dev, '<ACTION>SEND_FAX_RETRY</ACTION><TASKID>' + Number(taskId) + '</TASKID><RETRY_CNY>' + (Number(retries) || 3) + '</RETRY_CNY>');
+  const fb = tag(r, 'FEEDBACK');
+  return { ok: !!fb && !/FAIL|ERR/i.test(fb), feedback: fb || tag(r, 'ERROR') || r.slice(0, 120) };
+}
+//  완전히 지우기 (되돌릴 수 없음)
+async function deleteTask(dev, taskId) {
+  const r = await cmdOnce(dev, '<ACTION>DELETE_FAX</ACTION><TASKID>' + Number(taskId) + '</TASKID><DELETE>true</DELETE><REMOVE>true</REMOVE>');
+  const fb = tag(r, 'FEEDBACK');
+  return { ok: /^OK$/i.test(fb), feedback: fb || tag(r, 'ERROR') || r.slice(0, 120) };
+}
+
 //  ── 받은 팩스 (FaxGo ReceiveFaxNetwork — 장비 TCP 3007) ──
 //   <ACTION>GET_NEW_FAX</ACTION><DATETIME>2001-01-01 00:00:00</DATETIME><TASK>마지막 작업번호</TASK><USER>계정</USER>
 //   → <COUNT>남은 수</COUNT><TASK>…<TIME>UTC</TIME><CID>보낸번호</CID><FILE>8자리</FILE><SENDER>…<RECEIVER>…<SVRID>…<REMARK>…<STATUS_ID>…
@@ -426,4 +453,4 @@ async function toFaxTiff(input, outFile, opt) {
   return { pages: t.pages, bytes: b.length };
 }
 
-module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };
+module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };

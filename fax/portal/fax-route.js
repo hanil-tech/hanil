@@ -43,6 +43,7 @@
 //     GET    /api/fax/sent                        보낸 팩스 목록 (상태: queued·converting·sending·accepted·failed)
 //     GET    /api/fax/sent/:id/file               보낸 원본
 //     POST   /api/fax/sent/:id/retry              실패한 것 다시 보내기
+//     POST   /api/fax/sent/:id/cancel             보내기 취소 (장비에 넘기기 전: 바로 · 장비 접수 뒤: 장비에 멈춤)
 //     GET    /api/fax/device/check                장비 로그인 시험 (관리자만)
 //
 //   ⚠ 저장: fax-store/faxes.json (바꿔치기로 써서 쓰다가 꺼져도 반쪽 파일이 남지 않는다) + fax-store/files/<번호>.pdf
@@ -522,12 +523,33 @@ module.exports = function mountFax(app, ctx) {
     app.post('/api/fax/sent/:id/retry', auth, (req, res) => {
       const s = ID.test(req.params.id) && mine(req.faxUser).find((x) => x.id === req.params.id);
       if (!s) return res.status(404).json({ ok: false, error: '없는 팩스입니다' });
-      if (s.state !== 'failed') return res.status(409).json({ ok: false, error: '실패한 팩스만 다시 보낼 수 있습니다' });
+      if (s.state !== 'failed' && !(s.state === 'canceled' && !s.task_id)) return res.status(409).json({ ok: false, error: '실패했거나 장비로 넘기기 전에 취소한 팩스만 다시 보낼 수 있습니다' });
       s.state = 'queued'; s.error = ''; s.tries = 0;
       s.history.push({ at: Date.now(), by: req.faxUser.name, action: '다시 보내기' });
       save();
       res.json({ ok: true, item: sview(s) });
       kick();
+    });
+
+    //  보내기 취소 — 장비로 넘기기 전이면 여기서 끝, 장비가 받았으면 장비에 멈춤(SEND_FAX_PAUSE)
+    app.post('/api/fax/sent/:id/cancel', auth, async (req, res) => {
+      const s = ID.test(req.params.id) && mine(req.faxUser).find((x) => x.id === req.params.id);
+      if (!s) return res.status(404).json({ ok: false, error: '없는 팩스입니다' });
+      if (s.by_id !== req.faxUser.id && !req.faxUser.admin) return res.status(403).json({ ok: false, error: '보낸 사람이나 관리자만 취소할 수 있습니다' });
+      const by = req.faxUser.name;
+      if (s.state === 'queued' || s.state === 'converting' || s.state === 'failed') {
+        s.state = 'canceled'; s.history.push({ at: Date.now(), by, action: '보내기 취소 (장비로 넘기기 전)' }); save();
+        return res.json({ ok: true, item: sview(s) });
+      }
+      if (s.state === 'sending') return res.status(409).json({ ok: false, error: '지금 장비로 넘기는 중입니다 — 몇 초 뒤 다시 눌러 주세요' });
+      if (s.state !== 'accepted' || !s.task_id) return res.status(409).json({ ok: false, error: '취소할 수 없는 상태입니다' });
+      if (dev.dryRun) { s.state = 'canceled'; s.history.push({ at: Date.now(), by, action: '보내기 취소 (시험 모드)' }); save(); return res.json({ ok: true, item: sview(s) }); }
+      try {
+        const r = await cim.pauseSend(dev, s.task_id);
+        if (!r.ok) return res.status(409).json({ ok: false, error: '장비가 멈추지 않았습니다 (' + r.feedback + ') — 이미 다 보냈을 수 있습니다' });
+        s.state = 'canceled'; s.history.push({ at: Date.now(), by, action: '보내기 취소 — 장비 작업 ' + s.task_id + ' 멈춤' }); save();
+        res.json({ ok: true, item: sview(s) });
+      } catch (e) { res.status(502).json({ ok: false, error: '장비에 연결하지 못했습니다: ' + e.message }); }
     });
 
     app.get('/api/fax/device/check', auth, admin, async (req, res) => {
@@ -564,6 +586,7 @@ module.exports = function mountFax(app, ctx) {
         } else if (!s.pages) {
           s.pages = cim.tiffPages(await fsp.readFile(s.tif)).pages;
         }
+        if (s.state === 'canceled') return;              //  변환하는 사이에 취소됨
         step('sending');
         s.tries++;
         if (dev.dryRun) {
@@ -576,6 +599,7 @@ module.exports = function mountFax(app, ctx) {
           step('accepted', '장비 접수 · 작업번호 ' + r.taskId);
         }
       } catch (e) {
+        if (s.state === 'canceled') return;
         s.error = e.message;
         const network = /접속|연결|답하지/.test(e.message);
         if (network && s.tries < 3) {

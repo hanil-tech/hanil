@@ -88,6 +88,19 @@ function start(opt) {
       if (d.pos >= d.data.length) { c.down = null; got.downloads++; }
       return { rest: Buffer.alloc(0) };
     }
+    if (/<ACTION>SEND_FAX_PAUSE<\/ACTION>/.test(t) && /<\/TASKID>/.test(t)) {
+      const id = Number(tag(t, 'TASKID'));
+      got.paused = got.paused || [];
+      const f = got.faxes.find((x) => x.taskId === id);
+      if (f && !f.done) { got.paused.push(id); c.say('<FEEDBACK>PAUSE_OK</FEEDBACK>'); } else c.say('<FEEDBACK>FAILED</FEEDBACK>');
+      return { rest: Buffer.alloc(0) };
+    }
+    if (/<ACTION>SEND_FAX_RETRY<\/ACTION>/.test(t) && /<\/RETRY_CNY>/.test(t)) {
+      got.retried = got.retried || [];
+      got.retried.push(Number(tag(t, 'TASKID')));
+      c.say('<FEEDBACK>RETRY_OK</FEEDBACK>');
+      return { rest: Buffer.alloc(0) };
+    }
     if (/<ACTION>GET_NEW_FAX<\/ACTION>/.test(t) && /<\/USER>/.test(t)) {
       got.newFaxCalls++;
       const after = Number(tag(t, 'TASK')) || 0;

@@ -64,7 +64,7 @@
   .mini { border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
   .sendbtn { border: 0; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
   .pill.queued, .pill.converting, .pill.sending { color: var(--accent); }
-  .pill.accepted { color: var(--done); } .pill.failed { color: var(--new); }
+  .pill.accepted { color: var(--done); } .pill.failed { color: var(--new); } .pill.canceled { color: var(--sub); }
   .row .err { color: var(--new); font-size: 13px; }
   .row .retry { margin-left: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 4px; padding: 0 8px; cursor: pointer; font: inherit; font-size: 12px; }
   dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); padding: 0; width: min(460px, calc(100vw - 32px)); }
@@ -162,15 +162,19 @@ function showErr(e) { const el = $('err'); el.textContent = e ? '⚠ ' + e.messa
 
 //  ── 보낸 팩스 ──
 let sendCfg = { enabled: false }, sent = [];
-const SLABEL = { queued: '대기', converting: '변환 중', sending: '장비로 보내는 중', accepted: '장비 접수', failed: '실패' };
+const SLABEL = { queued: '대기', converting: '변환 중', sending: '장비로 보내는 중', accepted: '장비 접수', failed: '실패', canceled: '취소됨' };
+const done = (s) => s.device && s.device.pageTotal > 0 && s.device.pageSent >= s.device.pageTotal;
+const cancelBtn = (s) => '<button class="retry" data-cancel="' + s.id + '">보내기 취소</button>';
 function sentLine(s) {
   if (s.state === 'failed') return '<span class="err">' + esc(s.error || '실패') + '</span><button class="retry" data-retry="' + s.id + '">다시 보내기</button>';
+  if (s.state === 'canceled') return s.task_id ? '작업번호 ' + s.task_id + ' · 장비에서 멈춤' : '장비로 넘기기 전에 취소 <button class="retry" data-retry="' + s.id + '">다시 보내기</button>';
+  if (s.state === 'queued' || s.state === 'converting') return cancelBtn(s);
   if (s.state !== 'accepted') return '';
   if (s.task_id === 0) return '시험 모드 — 장비로는 안 보냄';
   const d = s.device;
   let t = '작업번호 ' + s.task_id;
   if (d) t += ' · 보낸 쪽 ' + d.pageSent + '/' + (d.pageTotal || s.pages) + ' · 다이얼 ' + d.dialDone + '/' + d.dialTotal + ' · 장비 상태 ' + d.status;
-  return esc(t);
+  return esc(t) + (done(s) ? ' · 다 보냄' : ' ' + cancelBtn(s));
 }
 async function loadSent() {
   try {
@@ -276,6 +280,12 @@ $('tabs').addEventListener('click', (e) => {
 });
 $('list').addEventListener('click', async (e) => {
   if (e.target.id === 'more') return load(true);
+  if (e.target.dataset.cancel) {
+    if (!confirm('이 팩스 보내기를 취소할까요?\n(장비가 아직 다 보내지 않았을 때만 멈춥니다)')) return;
+    e.target.disabled = true;
+    try { await api('/api/fax/sent/' + e.target.dataset.cancel + '/cancel', { method: 'POST' }); loadSent(); } catch (er) { showErr(er); e.target.disabled = false; }
+    return;
+  }
   if (e.target.dataset.retry) {
     try { await api('/api/fax/sent/' + e.target.dataset.retry + '/retry', { method: 'POST' }); loadSent(); } catch (er) { showErr(er); }
     return;
