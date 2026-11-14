@@ -6,7 +6,7 @@
 //   4) 보낸 것 상태:        node cimfax-check.js --host … --user … --pass … --status 101
 //   4-1) 보내기 취소(멈춤):  node cimfax-check.js --host … --user … --pass … --cancel 3501        (대기·다시 거는 중인 것)
 //   4-2) 다시 보내기:        node cimfax-check.js --host … --user … --pass … --resume 3501
-//   4-3) 장비의 보낸 기록:   node cimfax-check.js --host … --user … --pass … --history [--days 7] [--type 값] [--qyuser 계정]
+//   4-3) 장비의 보낸 기록:   node cimfax-check.js --host … --user … --pass … --history [--days 7] [--type send|recv] [--qyuser 계정]
 //   5) 받은 팩스 목록:      node cimfax-check.js --host … --user … --pass … --inbox            (장비에 저장된 것, 오래된 것부터)
 //   6) 받은 팩스 내보내기:  node cimfax-check.js --host … --user … --pass … --export 폴더 [--days 90] [--pdf-only]
 //        장비에 저장된 받은 팩스를 폴더에 PDF(+원본 TIFF)로 저장. 이름은 FaxBox 내보내기와 같은 모양:

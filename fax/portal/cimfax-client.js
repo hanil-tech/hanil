@@ -249,7 +249,7 @@ async function sendStatus(dev, list) {
 
 //  ── 보낸 기록 (FaxGo FaxHistoryNetwork — TCP 3007) ──
 //   <ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>query history</TASK_ID_LIST><QY_USER>계정</QY_USER>
-//   <QY_DTBGN>UTC 시작</QY_DTBGN><QY_DTEND>UTC 끝</QY_DTEND><QY_TYPE>종류</QY_TYPE>
+//   <QY_DTBGN>UTC 시작</QY_DTBGN><QY_DTEND>UTC 끝</QY_DTEND><QY_TYPE>send | recv</QY_TYPE>   (FaxBox 0x456a83·0x456a9b 에서 확인)
 //   → <FEEDBACK>OK</FEEDBACK><AMOUNT>n</AMOUNT> (없으면 <ERROR>FAX ITEM NOT FOUND</ERROR>) → R 마다 1024 바이트 기록
 const utcStr = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 function parseRecord(b) {
@@ -268,7 +268,7 @@ async function sendHistory(dev, o) {
   try {
     const from = o.from || Date.now() - 7 * 86400000, to = o.to || Date.now();
     await c.say('<ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>query history</TASK_ID_LIST><QY_USER>' + (o.user === undefined ? dev.user : o.user) +
-      '</QY_USER><QY_DTBGN>' + utcStr(from) + '</QY_DTBGN><QY_DTEND>' + utcStr(to) + '</QY_DTEND><QY_TYPE>' + (o.type === undefined ? '' : o.type) + '</QY_TYPE>');
+      '</QY_USER><QY_DTBGN>' + utcStr(from) + '</QY_DTBGN><QY_DTEND>' + utcStr(to) + '</QY_DTEND><QY_TYPE>' + (o.type || 'send') + '</QY_TYPE>');
     const r = await c.textUntil(/<\/AMOUNT>|<\/ERROR>|<\/FEEDBACK>.*<\/AMOUNT>/i, 500);
     if (/FAX ITEM NOT FOUND/i.test(tag(r, 'ERROR'))) return { ok: true, items: [], raw: r };
     if (tag(r, 'FEEDBACK') !== 'OK') return { ok: false, items: [], raw: r.slice(0, 200) };
