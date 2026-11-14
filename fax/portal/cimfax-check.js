@@ -91,9 +91,12 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
         last = it.taskId;
         //  발신번호가 없는 회선이면 장비가 번호가 아닌 값을 준다 → '모름'
         if (it.cid && !/^[0-9+\-() ,*#]+$/.test(it.cid)) { it.cidRaw = it.cid; it.cid = ''; }
+        //  보낸 곳 = 상대 팩스기가 알려 준 팩스 ID(SENDER, FaxBox 의 「발신자 이름」) — 발신번호가 없으면 이것을 쓴다
+        const tsi = String(it.sender || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+        if (!it.cid && tsi) it.cid = tsi;
         const when = new Date(it.receivedAt);
         const label = '작업 ' + it.taskId + ' · ' + when.getFullYear() + '-' + pad(when.getMonth() + 1) + '-' + pad(when.getDate()) + ' ' + pad(when.getHours()) + ':' + pad(when.getMinutes()) +
-          ' · 보낸 번호 ' + (it.cid || '모름' + (it.cidRaw ? '(' + it.cidRaw + ')' : '')) + ' · 받은 계정 ' + (it.receiver || '-');
+          ' · 보낸 곳 ' + (it.cid || '모름') + ' · 받은 계정 ' + (it.receiver || '-') + (it.remark ? ' · 비고 ' + it.remark : '');
         if (!outDir) { console.log('  ' + label + ' · 파일 ' + it.file + ' · 남은 ' + (it.left - 1)); continue; }
         if (since && it.receivedAt < since) { skipped++; continue; }
         //  FaxBox 내보내기와 같은 이름 (포털 팩스 기능이 이 폴더를 그대로 읽을 수 있게). 같은 이름이 이미 다른 팩스면 끝에 작업번호

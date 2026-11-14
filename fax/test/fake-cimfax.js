@@ -94,7 +94,7 @@ function start(opt) {
       const rest = inbox.filter((f) => f.taskId > after).sort((a, b) => a.taskId - b.taskId);
       if (!rest.length) { c.say('<COUNT>0</COUNT>'); return { rest: Buffer.alloc(0) }; }
       const f = rest[0];
-      c.say(`<COUNT>${rest.length}</COUNT><TIME>${f.time}</TIME><CID>${f.cid || ''}</CID><FILE>${f.file}</FILE><TASK>${f.taskId}</TASK><SENDER></SENDER><RECEIVER>${f.receiver || 'public'}</RECEIVER><SVRID>${opt.serverId || '00ABCDEF'}</SVRID><REMARK></REMARK><STATUS_ID>0</STATUS_ID>`);
+      c.say(`<COUNT>${rest.length}</COUNT><TIME>${f.time}</TIME><CID>${f.cid || ''}</CID><FILE>${f.file}</FILE><TASK>${f.taskId}</TASK><SENDER>${f.sender || ''}</SENDER><RECEIVER>${f.receiver || 'public'}</RECEIVER><SVRID>${opt.serverId || '00ABCDEF'}</SVRID><REMARK>${f.remark || ''}</REMARK><STATUS_ID>0</STATUS_ID>`);
       return { rest: Buffer.alloc(0) };
     }
     if (/<ACTION>DOWN_FILE<\/ACTION>/.test(t) && /<\/BUFSIZE>/.test(t)) {

@@ -377,6 +377,7 @@ FaxBox 처럼 **1024 바이트** (장비 C 구조체: `receiver` 가 WCHAR[32]=6
 - 받은 TIFF(CCITT G3/G4)는 다시 그리지 않고 압축 그대로 PDF 에 싣는다 (`cimfax-client.js` `tiffToPdf`). G3 는 `/EndOfLine true` 여야 그려진다 (Ghostscript 로 그려 확인).
 - 이 방식으로 **독립 프로그램 `fax/app/hanil-fax.js`** 를 만들었다. 포털·FaxBox·공유 폴더 없이 받기와 보내기를 모두 한다.
 - △ 현장 장비에서 `GET_NEW_FAX` 와 `DOWN_FILE` 은 아직 시험하지 않았다. `node hanil-fax.js check` 로 확인한다.
+- ✔ **현장 확인 (2026-11-14):** 장비에 받은 팩스 1,856건(작업 0~3497) 목록 읽기 성공. 발신번호(`CID`)는 모두 `1>?>9=?53` (FaxBox 「발신자 번호」 칸도 같음 — 회선에 발신번호 표시가 없음). 실제 보낸 곳은 상대 팩스기의 팩스 ID 인 **`SENDER`** (FaxBox 「발신자 이름」 칸)에 번호로 들어 있다. `REMARK` 는 FaxBox 「비고」(예: `lee 인쇄 완료`).
 - **장비에 저장된 지난 팩스 꺼내기:** `cimfax-check.js --inbox` (목록) · `--export 폴더 [--days N] [--from 0] [--pdf-only]` (PDF 로 저장). 작업번호 0 다음부터 차례로 훑으므로 장비에 남아 있는 받은 팩스를 모두 꺼낼 수 있다. 읽기만 하고 장비의 팩스는 지우지 않는다. 파일 이름은 FaxBox 내보내기와 같다 (`YYYYMMDDhhmmss_From_번호_To_계정.pdf`).
 
 ---

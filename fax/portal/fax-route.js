@@ -283,7 +283,10 @@ module.exports = function mountFax(app, ctx) {
               } catch (e) { pages = (() => { try { return recvCim.tiffPages(tif).pages; } catch (e2) { return 0; } })(); }
               const f = {
                 id, sha256: crypto.createHash('sha256').update(tif).digest('hex'), ext, has_tif: true, size: tif.length, pages,
-                received_at: it.receivedAt, from: /^[0-9+\-() ,*#]+$/.test(it.cid || '') ? it.cid : '', from_name: '', to: it.receiver || '',
+                received_at: it.receivedAt,
+                //  발신번호(CID)가 번호 모양이면 그것, 아니면 상대 팩스기의 팩스 ID(SENDER — FaxBox 「발신자 이름」)
+                from: /^[0-9+\-() ,*#]+$/.test(it.cid || '') ? it.cid : String(it.sender || '').replace(/[\u0000-\u001f\u007f]/g, '').trim(),
+                from_name: '', to: it.receiver || '',
                 original: it.file, source: 'device#' + it.taskId, device_task: it.taskId,
                 status: 'new', assignee: '', memo: it.remark || '',
                 created_at: Date.now(), history: [{ at: Date.now(), by: '', action: '장비에서 받음 (작업 ' + it.taskId + ')' }],
