@@ -23,7 +23,7 @@ const { execFile } = require('child_process');
 const PORT = { login: 3001, send: 3002, voice: 3003, recv: 3005, admin: 3006, cmd: 3007 };
 const HEADER_SIZE = 1024;
 const BUF_SIZE = 1200;
-const VERSION = '2026-11-13b';   //  점검 도구가 찍는 판 — 머리 1024(FaxBox SENDFAX 와 같음) → 거부되면 1088
+const VERSION = '2026-11-14';   //  점검 도구가 찍는 판 — 머리 1024(FaxBox SENDFAX 와 같음) → 거부되면 1088
 
 //  ── MD5 (FaxGo MD5Code: 시작값을 seed 로 비튼 MD5) ──
 const K = new Uint32Array(64).map((_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) >>> 0);
@@ -88,6 +88,23 @@ class Conn {
     const s = this.buf.subarray(0, n).toString('utf16le');
     this.buf = this.buf.subarray(n);
     return s.replace(/\0+/g, '');
+  }
+  //  끝 표시(정규식)가 보일 때까지 모아서 바로 돌려준다 — 넉넉히 기다리지 않아 빠르다. 못 보면 graceMs 뒤 있는 만큼
+  async textUntil(re, graceMs) {
+    const until = Date.now() + this.timeout;
+    let acc = '';
+    for (;;) {
+      const n = this.buf.length & ~1;
+      if (n) { acc += this.buf.subarray(0, n).toString('utf16le').replace(/\0+/g, ''); this.buf = this.buf.subarray(n); }
+      if (re.test(acc)) return acc;
+      if (this.closed) { if (acc) return acc; throw this.err || new Error('장비가 연결을 끊었습니다'); }
+      const left = until - Date.now();
+      if (left <= 0) { if (acc) return acc; throw new Error('장비가 답하지 않습니다 (' + this.timeout / 1000 + '초)'); }
+      const wait = acc ? Math.min(left, graceMs || 300) : left;
+      const before = this.buf.length;
+      await new Promise((ok) => { const t = setTimeout(ok, wait); this.waiters.push(() => { clearTimeout(t); ok(); }); });
+      if (acc && this.buf.length === before) return acc;   //  더 안 오면 있는 만큼
+    }
   }
   async bytes(n) {
     const until = Date.now() + this.timeout;
@@ -234,14 +251,14 @@ async function sendStatus(dev, list) {
 //   <ACTION>GET_NEW_FAX</ACTION><DATETIME>2001-01-01 00:00:00</DATETIME><TASK>마지막 작업번호</TASK><USER>계정</USER>
 //   → <COUNT>남은 수</COUNT><TASK>…<TIME>UTC</TIME><CID>보낸번호</CID><FILE>8자리</FILE><SENDER>…<RECEIVER>…<SVRID>…<REMARK>…<STATUS_ID>…
 //   한 번에 한 건. 받은 TASK 를 다음 요청에 넣어 이어 간다. COUNT 가 0 이면 끝.
-async function listNewFaxes(dev, lastTask, max) {
+async function listNewFaxes(dev, lastTask, max, onItem) {
   const c = await login(dev, PORT.cmd);
   const out = [];
   try {
     let task = Number(lastTask) || 0;
     for (let i = 0; i < (max || 200); i++) {
       await c.say('<ACTION>GET_NEW_FAX</ACTION><DATETIME>2001-01-01 00:00:00</DATETIME><TASK>' + task + '</TASK><USER>' + dev.user + '</USER>');
-      const r = await c.text(100);
+      const r = await c.textUntil(/<\/STATUS_ID>|<COUNT>\s*0\s*<\/COUNT>/i, 300);
       const count = Number(tag(r, 'COUNT')) || 0;
       if (count <= 0) break;
       const t = Number(tag(r, 'TASK'));
@@ -254,6 +271,7 @@ async function listNewFaxes(dev, lastTask, max) {
         sender: tag(r, 'SENDER'), receiver: tag(r, 'RECEIVER'), serverId: tag(r, 'SVRID'), remark: tag(r, 'REMARK'),
         status: tag(r, 'STATUS_ID'), left: count,
       });
+      if (onItem) onItem(out[out.length - 1]);
     }
     return out;
   } finally { c.close(); }

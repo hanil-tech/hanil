@@ -78,9 +78,12 @@ const dev = { host: a.host, user: a.user, password: a.pass === true ? '' : (a.pa
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = (ms) => { const d = new Date(ms); return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()); };
     const clean = (s) => String(s || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
-    let seen = 0, saved = 0, skipped = 0, failed = 0, reachedUntil = false;
+    let seen = 0, saved = 0, skipped = 0, failed = 0, reachedUntil = false, progress = 0;
     for (;;) {
-      const list = await cim.listNewFaxes(dev, last, 50);
+      const list = await cim.listNewFaxes(dev, last, 500, (it) => {
+        progress++;
+        if (progress % 50 === 0) process.stderr.write('  … ' + progress + '건 읽음 (작업 ' + it.taskId + ', ' + it.timeRaw.slice(0, 10) + ', 남은 ' + (it.left - 1) + '건)\n');
+      });
       if (!list.length) break;
       for (const it of list) {
         if (a.until && it.taskId > Number(a.until)) { reachedUntil = true; break; }
