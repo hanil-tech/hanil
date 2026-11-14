@@ -132,6 +132,12 @@ function start(opt) {
       c.sock.write(b);
       return { rest: Buffer.alloc(0) };
     }
+    if (/query history/.test(t)) {
+      if (!/<\/QY_TYPE>/.test(t)) return null;
+      c.queue = got.faxes.slice();
+      c.say(c.queue.length ? `<FEEDBACK>OK</FEEDBACK><AMOUNT>${c.queue.length}</AMOUNT>` : '<ERROR>FAX ITEM NOT FOUND</ERROR>');
+      return { rest: Buffer.alloc(0) };
+    }
     if (!/<\/TASK_ID_LIST>/.test(t)) return null;
     const ids = tag(t, 'TASK_ID_LIST').split(',').map(Number);
     c.queue = got.faxes.filter((f) => ids.includes(f.taskId));

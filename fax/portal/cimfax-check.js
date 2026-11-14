@@ -6,6 +6,7 @@
 //   4) 보낸 것 상태:        node cimfax-check.js --host … --user … --pass … --status 101
 //   4-1) 보내기 취소(멈춤):  node cimfax-check.js --host … --user … --pass … --cancel 3501        (대기·다시 거는 중인 것)
 //   4-2) 다시 보내기:        node cimfax-check.js --host … --user … --pass … --resume 3501
+//   4-3) 장비의 보낸 기록:   node cimfax-check.js --host … --user … --pass … --history [--days 7] [--type 값] [--qyuser 계정]
 //   5) 받은 팩스 목록:      node cimfax-check.js --host … --user … --pass … --inbox            (장비에 저장된 것, 오래된 것부터)
 //   6) 받은 팩스 내보내기:  node cimfax-check.js --host … --user … --pass … --export 폴더 [--days 90] [--pdf-only]
 //        장비에 저장된 받은 팩스를 폴더에 PDF(+원본 TIFF)로 저장. 이름은 FaxBox 내보내기와 같은 모양:
@@ -83,6 +84,18 @@ const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeo
     const id = Number(a.resume);
     const r = await cim.retrySend(dev, id, a.retries);
     console.log(r.ok ? '✅ 작업 ' + id + ' 을(를) 다시 보내기 대기열에 넣었습니다' : '❌ 다시 보내기 실패 — 장비 답: ' + r.feedback);
+  }
+
+  if (a.history) {
+    const days = Number(a.days) || 7;
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmt = (ms) => { const d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+    const r = await cim.sendHistory(dev, { from: Date.now() - days * 86400000, type: a.type === true ? '' : a.type, user: a.qyuser === true ? '' : a.qyuser });
+    if (!r.ok) console.log('보낸 기록 조회 실패 — 장비 답: ' + r.raw);
+    else {
+      r.items.forEach((x) => console.log('  작업 ' + x.taskId + ' · ' + (x.at ? fmt(x.at) : '-') + ' → ' + x.phone + ' · 상태 ' + x.status + ' · ' + x.pageSent + '/' + x.pageTotal + '쪽 · 다이얼 ' + x.dialDone + '/' + x.dialTotal + (x.sender ? ' · 보낸 계정 ' + x.sender : '') + (x.remark ? ' · 비고 ' + x.remark : '')));
+      console.log('장비의 보낸 기록 ' + r.items.length + '건 (최근 ' + days + '일' + (a.type && a.type !== true ? ', 종류 ' + a.type : '') + ')');
+    }
   }
 
   //  ── 장비에 저장된 받은 팩스 ──

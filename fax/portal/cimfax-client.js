@@ -247,6 +247,40 @@ async function sendStatus(dev, list) {
   } finally { c.close(); }
 }
 
+//  ── 보낸 기록 (FaxGo FaxHistoryNetwork — TCP 3007) ──
+//   <ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>query history</TASK_ID_LIST><QY_USER>계정</QY_USER>
+//   <QY_DTBGN>UTC 시작</QY_DTBGN><QY_DTEND>UTC 끝</QY_DTEND><QY_TYPE>종류</QY_TYPE>
+//   → <FEEDBACK>OK</FEEDBACK><AMOUNT>n</AMOUNT> (없으면 <ERROR>FAX ITEM NOT FOUND</ERROR>) → R 마다 1024 바이트 기록
+const utcStr = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+function parseRecord(b) {
+  const s16 = (o, e) => b.subarray(o, e).toString('utf16le').replace(/\0[\s\S]*$/, '');
+  const t = (o) => { const y = b.readUInt16LE(o); return y ? Date.UTC(y, b.readUInt16LE(o + 2) - 1, b.readUInt16LE(o + 6), b.readUInt16LE(o + 8), b.readUInt16LE(o + 10), b.readUInt16LE(o + 12)) : 0; };
+  return {
+    taskId: b.readInt32LE(4), serverId: b.readUInt32LE(20).toString(16).toUpperCase(), status: b.readInt32LE(24), priority: b.readInt32LE(28),
+    cid: s16(32, 96), phone: s16(96, 160), pageTotal: b.readInt32LE(160), pageSent: b.readInt32LE(164),
+    dialTotal: b.readInt32LE(168), dialDone: b.readInt32LE(172), at: t(176),
+    receiver: s16(404, 468), sender: s16(468, 532), remark: s16(596, 852), spendTime: b.readInt32LE(920),
+  };
+}
+async function sendHistory(dev, o) {
+  o = o || {};
+  const c = await login(dev, PORT.cmd);
+  try {
+    const from = o.from || Date.now() - 7 * 86400000, to = o.to || Date.now();
+    await c.say('<ACTION>GET_SEND_FAX_STATUS</ACTION><TASK_ID_LIST>query history</TASK_ID_LIST><QY_USER>' + (o.user === undefined ? dev.user : o.user) +
+      '</QY_USER><QY_DTBGN>' + utcStr(from) + '</QY_DTBGN><QY_DTEND>' + utcStr(to) + '</QY_DTEND><QY_TYPE>' + (o.type === undefined ? '' : o.type) + '</QY_TYPE>');
+    const r = await c.textUntil(/<\/AMOUNT>|<\/ERROR>|<\/FEEDBACK>.*<\/AMOUNT>/i, 500);
+    if (/FAX ITEM NOT FOUND/i.test(tag(r, 'ERROR'))) return { ok: true, items: [], raw: r };
+    if (tag(r, 'FEEDBACK') !== 'OK') return { ok: false, items: [], raw: r.slice(0, 200) };
+    const n = Number(tag(r, 'AMOUNT')) || 0, items = [];
+    for (let i = 0; i < n && i < (o.max || 500); i++) {
+      await c.say('R');
+      items.push(parseRecord(await c.bytes(1024)));
+    }
+    return { ok: true, items, raw: r };
+  } finally { c.close(); }
+}
+
 //  ── 보내기 취소·다시·지우기 (FaxGo SendFaxNetwork.stopSendFax · retrySendFax · SocketClient.removeFaxCompletely — TCP 3007) ──
 async function cmdOnce(dev, msg) {
   const c = await login(dev, PORT.cmd);
@@ -453,4 +487,4 @@ async function toFaxTiff(input, outFile, opt) {
   return { pages: t.pages, bytes: b.length };
 }
 
-module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };
+module.exports = { VERSION, PORT, HEADER_SIZE, BUF_SIZE, md5Seeded, cal128MD5, loginHash, tag, connect, login, buildHeader, sendFax, sendStatus, sendHistory, parseRecord, pauseSend, retrySend, deleteTask, listNewFaxes, downloadFax, tiffToPdf, toFaxTiff, tiffPages, findGhostscript };
