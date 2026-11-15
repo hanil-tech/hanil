@@ -2,9 +2,12 @@
 #  📠 장비 → ~/fax-archive (PDF) → NAS 받는 폴더(연도별 폴더)  — 포털 faxbox 가 NAS 를 읽어 간다
 #   예약 작업(2분마다):
 #   */2 * * * * /usr/bin/flock -n /tmp/cimfax-export.lock /bin/bash /home/gaos/fax-setup/fax-sync.sh >> /home/gaos/fax-export.log 2>&1
-#   설정은 아래 네 줄만 고친다 (또는 같은 이름의 환경 변수)
+#   ⚠ FaxBox(PC) 와 같은 계정을 쓰면 안 된다 — 장비가 계정마다 「어디까지 확인했는지」 를 기억해서,
+#     같은 계정으로 먼저 물어보면 FaxBox 가 새 팩스를 못 받는다 (2026-11-15 확인). 포털 전용 계정을 CIMFAX_USER · CIMFAX_PASS_FILE 로.
+#   설정은 아래 다섯 줄만 고친다 (또는 같은 이름의 환경 변수)
 HOST="${CIMFAX_HOST:-192.168.1.156}"
 USER_ID="${CIMFAX_USER:-admin}"
+PASS_FILE="${CIMFAX_PASS_FILE:-$HOME/.cimfax-pass}"   # 포털 전용 계정을 쓰면 그 비밀번호 파일
 NAS_DIR="${FAX_NAS_DIR:-/mnt/nas/80_받은팩스/admin}"
 ARCHIVE="${FAX_ARCHIVE:-$HOME/fax-archive}"
 
@@ -13,7 +16,7 @@ NODE="$(command -v node || echo /usr/bin/node)"
 cd "$HERE" || exit 1
 
 #  1) 장비에서 새 팩스를 PDF 로 꺼낸다 (이어 받기 — 새 것이 없으면 조용히 끝남)
-"$NODE" cimfax-check.js --host "$HOST" --user "$USER_ID" --pass-file "$HOME/.cimfax-pass" --export "$ARCHIVE" --pdf-only --quiet
+"$NODE" cimfax-check.js --host "$HOST" --user "$USER_ID" --pass-file "$PASS_FILE" --export "$ARCHIVE" --pdf-only --quiet
 
 #  2) NAS 가 붙어 있을 때만 넣는다 (부팅 직후 아직이면 다음 차례에)
 ls "$NAS_DIR" >/dev/null 2>&1 || exit 0

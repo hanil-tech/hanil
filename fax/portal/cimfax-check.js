@@ -35,7 +35,7 @@ if (!pw && a['pass-file']) {
   try { pw = fs.readFileSync(String(a['pass-file']), 'utf8').split(/\r?\n/)[0]; } catch (e) { console.error('❌ 비밀번호 파일을 읽지 못했습니다: ' + a['pass-file']); process.exit(1); }
 }
 if (!pw && process.env.CIMFAX_PASS) pw = process.env.CIMFAX_PASS;
-const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeoutMs: 15000 };
+const dev = { host: a.host, user: a.user, password: pw, ghostscript: a.gs, timeoutMs: 15000, portBase: a['port-base'] ? Number(a['port-base']) : undefined };
 
 (async () => {
   if (a.send) {
