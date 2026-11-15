@@ -38,10 +38,15 @@ import android.os.Message;
 import android.print.PrintAttributes;
 import android.print.PrintManager;
 import android.provider.MediaStore;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
@@ -128,12 +133,13 @@ public class MainActivity extends AppCompatActivity {
     Dialog popup;
     long backAt;
 
-    //  📱 아래 탭 — {그림, 이름, 주소}. 주소가 null 이면 폰용 전체 메뉴를 연다
+    //  📱 아래 탭 — {그림, 이름, 주소}. "__find" 는 화면에서 글자 찾기, 주소가 null 이면 폰용 전체 메뉴를 연다
     static final String[][] TABS = {
             {"🏠", "홈", "/m"},
             {"✅", "결재", "/appr"},
             {"💬", "메신저", "/chat"},
             {"🔔", "할 일", "/mywork"},
+            {"🔍", "검색", "__find"},
             {"☰", "메뉴", null},
     };
     LinearLayout tabs;
@@ -141,6 +147,11 @@ public class MainActivity extends AppCompatActivity {
     final TextView[] tabLabel = new TextView[TABS.length];
     final TextView[] tabBadge = new TextView[TABS.length];
     String mobileJs = "";
+
+    //  🔍 화면에서 글자 찾기(브라우저 기본 찾기) — 지금 보는 자료 안에서 바로 찾는다
+    View findBar;
+    EditText findInput;
+    TextView findCount;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -155,6 +166,7 @@ public class MainActivity extends AppCompatActivity {
         tabs = findViewById(R.id.tabs);
         mobileJs = readAsset("mobile.js");
         buildTabs();
+        buildFindBar();
         fitBars();
 
         fileLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -190,6 +202,10 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                if (findBar != null && findBar.getVisibility() == View.VISIBLE) {
+                    hideFind();        //  찾기 줄이 떠 있으면 먼저 닫는다
+                    return;
+                }
                 if (web.canGoBack()) {
                     web.goBack();
                     return;
@@ -1013,6 +1029,102 @@ public class MainActivity extends AppCompatActivity {
         selectTab("/m");
     }
 
+    // ── 🔍 화면에서 글자 찾기 ───────────────────────────────────
+    //   브라우저 기본 찾기(WebView.findAllAsync)로, 지금 보는 자료 안에서 글자를 찾아 노랗게 표시한다.
+    //   ▲▼ 로 다음/이전, ✕ 로 닫기. 포털 화면을 건드리지 않으니 어느 화면에서나 된다.
+    void buildFindBar() {
+        LinearLayout root = findViewById(R.id.root);
+        LinearLayout bar2 = new LinearLayout(this);
+        bar2.setOrientation(LinearLayout.HORIZONTAL);
+        bar2.setGravity(Gravity.CENTER_VERTICAL);
+        bar2.setBackgroundColor(Color.parseColor("#1b2a4a"));
+        bar2.setPadding(dp(10), dp(6), dp(6), dp(6));
+        bar2.setVisibility(View.GONE);
+
+        findInput = new EditText(this);
+        findInput.setHint("이 화면에서 찾기…");
+        findInput.setHintTextColor(Color.parseColor("#9fb0cc"));
+        findInput.setTextColor(Color.WHITE);
+        findInput.setTextSize(16);
+        findInput.setSingleLine(true);
+        findInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        findInput.setBackgroundColor(Color.TRANSPARENT);
+        bar2.addView(findInput, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        findCount = new TextView(this);
+        findCount.setTextColor(Color.parseColor("#c7d2e6"));
+        findCount.setTextSize(14);
+        findCount.setPadding(dp(8), 0, dp(8), 0);
+        bar2.addView(findCount);
+
+        Button up = findBtn("▲"), dn = findBtn("▼"), cl = findBtn("✕");
+        bar2.addView(up);
+        bar2.addView(dn);
+        bar2.addView(cl);
+        up.setOnClickListener(v -> web.findNext(false));
+        dn.setOnClickListener(v -> web.findNext(true));
+        cl.setOnClickListener(v -> hideFind());
+
+        findInput.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            public void afterTextChanged(Editable s) {
+                String t = s.toString();
+                if (t.isEmpty()) {
+                    web.clearMatches();
+                    findCount.setText("");
+                } else {
+                    web.findAllAsync(t);
+                }
+            }
+        });
+        findInput.setOnEditorActionListener((v, id, ev) -> {
+            web.findNext(true);
+            return true;
+        });
+        web.setFindListener((active, count, done) -> {
+            if (!done) return;
+            findCount.setText(count == 0 ? "없음" : (active + 1) + " / " + count);
+        });
+
+        findBar = bar2;
+        root.addView(bar2, 0);     //  맨 위에
+    }
+
+    Button findBtn(String t) {
+        Button b = new Button(this);
+        b.setText(t);
+        b.setTextColor(Color.WHITE);
+        b.setBackgroundColor(Color.parseColor("#2b3d63"));
+        b.setTextSize(15);
+        b.setPadding(dp(10), dp(4), dp(10), dp(4));
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(4);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    void showFind() {
+        if (findBar == null) return;
+        if (popup != null) popup.dismiss();
+        findBar.setVisibility(View.VISIBLE);
+        findInput.requestFocus();
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(findInput, InputMethodManager.SHOW_IMPLICIT);
+    }
+
+    void hideFind() {
+        if (findBar == null) return;
+        findBar.setVisibility(View.GONE);
+        web.clearMatches();
+        findInput.setText("");
+        findCount.setText("");
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(findInput.getWindowToken(), 0);
+    }
+
     void onTab(int i) {
         if (base == null) {           //  아직 못 붙었다 — 다시 붙어 본다
             start();
@@ -1020,6 +1132,10 @@ public class MainActivity extends AppCompatActivity {
         }
         if (popup != null) popup.dismiss();
         String path = TABS[i][2];
+        if ("__find".equals(path)) {     //  🔍 화면에서 글자 찾기
+            showFind();
+            return;
+        }
         if (path == null) {
             web.evaluateJavascript("window.__hanilMenu?window.__hanilMenu():(location.href='/m')", null);
             return;
