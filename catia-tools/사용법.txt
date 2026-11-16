@@ -1,0 +1,38 @@
+한일특장 CATIA -> STP 변환기 v2 (CATIA 가 깔린 PC 에서 돕니다)
+
+※ CATIA 형식은 다쏘 전용이라 CATIA(또는 유료 변환 프로그램)만 제대로 읽습니다.
+   그래서 이 변환기는 「CATIA 가 깔린 설계 PC」 에서 CATIA 를 시켜 STP 로 저장합니다.
+
+■ 들어 있는 것
+   CATIA_to_STP.CATScript   변환 매크로(손으로도, 자동으로도)
+   run_convert.bat          CATIA 를 화면 없이 띄워 폴더 전체를 바꿈
+   register_task.bat        매일 밤 9시에 저절로 돌게 등록
+
+■ 바꾸는 것
+   .CATPart / .CATProduct  ->  이름.CATPart.stp / 이름.CATProduct.stp   (3D)
+   .CATDrawing             ->  이름.CATDrawing.dxf                      (2D)
+   하위 폴더 구조를 그대로 따라 만들고, 이미 바꾼 것은 건너뜁니다(새로 바뀐 것만).
+
+■ 1) 손으로 쓰기 (가장 쉬움)
+   CATIA -> 도구 -> 매크로 -> 매크로(Alt+F8) -> CATIA_to_STP.CATScript -> 실행 -> 폴더 고르기
+   -> 그 폴더 안에 「STP」 폴더가 생기고 결과가 들어갑니다.
+
+■ 2) 자동으로 쓰기 (밤마다 NAS 도면 폴더 전체)
+   ① 세 파일을 C:\HanilCATIA 에 둡니다(한글 없는 폴더).
+   ② run_convert.bat 을 메모장으로 열어 맨 위 두 줄을 고칩니다.
+        set "HANIL_STP_SRC=\\NAS\도면\CATIA"   <- CATIA 원본 폴더
+        set "HANIL_STP_OUT=\\NAS\도면\STP"     <- STP 를 저장할 폴더
+   ③ run_convert.bat 을 더블클릭해 한 번 시험합니다(검은 창에 CATIA 위치가 나오고, 끝나면 변환기록.txt).
+   ④ 잘 되면 register_task.bat 을 더블클릭 -> 매일 21:00 에 저절로 돕니다.
+   ※ 자동 변환은 CATIA 라이선스를 하나 씁니다 - 설계자가 퇴근한 밤에 돌게 해 두었습니다.
+
+■ 포털과 잇기
+   결과 폴더(예: \\NAS\도면\STP)의 .stp/.dxf 는 포털 도면 보기(v1.3.0)로 바로 열립니다.
+   포털의 NAS 자료함·문서고에서 이 폴더를 보이게 하면, 설계자가 CATIA 로 저장만 해도
+   다음 날 아침에는 포털·폰에서 3D 로 돌려 볼 수 있습니다.
+
+■ 안 될 때
+   · 「CATIA(CNEXT.exe)를 찾지 못했습니다」 -> run_convert.bat 의 CNEXT= 에 위치를 적기
+       (CATIA 바로가기 -> 속성 -> 대상 에 나오는 CNEXT.exe 경로와 -env 뒤의 이름을 그대로)
+   · 실패한 파일과 까닭은 결과 폴더의 변환기록.txt 에 있습니다.
+   · STP 형식(AP214/AP242 등)은 CATIA 「도구 -> 옵션 -> 일반 -> 호환성 -> STEP」 설정을 따릅니다.

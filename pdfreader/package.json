@@ -1,0 +1,20 @@
+{
+  "name": "hanil-pdf-reader",
+  "version": "1.6.6",
+  "updateNotes": "탐색기 미리 보기 점검(도움말 → 미리 보기 점검)을 넣었습니다.",
+  "description": "한일 PDF 리더 — 설치 없이 브라우저에서 PDF 보기 + 여러 문서·폴더 검색",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@kfonts/nanum-gothic": "0.2.0",
+    "@pdf-lib/fontkit": "1.1.1",
+    "node-forge": "1.3.1",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "4.10.38"
+  },
+  "private": true,
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}
