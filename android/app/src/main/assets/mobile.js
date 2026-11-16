@@ -791,3 +791,73 @@
     setInterval(badges, 60000);
   }
 })();
+
+/*  📷 카메라 확대(줌) — 멀리 있는 QR·바코드(3단 파레트처럼 높이 쌓인 것)를 확대해 찍게.
+ *   포털 스캔 화면이 카메라를 켜면(getUserMedia), 오른쪽에 ＋ / － 확대 단추와 「2.0×」 표시를 띄운다.
+ *   기기 카메라의 하드웨어 줌(track zoom)을 써서 **찍는 그림 자체가 확대** → QR 판독기가 그대로 읽는다.
+ *   ⚠ 줌을 못 하는 기기면 조용히 아무것도 안 띄운다. 스캔이 끝나면 단추도 사라진다. */
+(function () {
+  if (window.__hanilZoom) return;
+  window.__hanilZoom = 1;
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return;
+  var orig = md.getUserMedia.bind(md);
+  md.getUserMedia = function (c) {
+    var p = orig(c);
+    try {
+      if (c && c.video) p.then(function (st) { try { attach(st); } catch (e) {} return st; });
+    } catch (e) {}
+    return p;
+  };
+
+  var track = null, cap = null, box = null, label = null;
+
+  function attach(stream) {
+    var t = (stream.getVideoTracks && stream.getVideoTracks()[0]) || null;
+    if (!t || !t.getCapabilities) return;
+    var cp = t.getCapabilities();
+    if (!cp || !('zoom' in cp) || !cp.zoom) return;   // 하드웨어 줌을 못 하는 기기 → 넘어감
+    track = t; cap = cp.zoom;
+    show();
+    try { t.addEventListener('ended', hide); } catch (e) {}
+    try { stream.addEventListener('inactive', hide); } catch (e) {}
+  }
+
+  function now() {
+    try { var s = track.getSettings && track.getSettings(); if (s && s.zoom) return s.zoom; } catch (e) {}
+    return cap.min || 1;
+  }
+  function setZoom(z) {
+    z = Math.max(cap.min || 1, Math.min(cap.max || 1, z));
+    try { track.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) {}
+    draw(z);
+  }
+  function draw(z) { if (label) label.textContent = (Math.round(z * 10) / 10) + '×'; }
+
+  function btn(t) {
+    var b = document.createElement('button');
+    b.textContent = t;
+    b.style.cssText = 'pointer-events:auto;border:0;border-radius:50%;width:62px;height:62px;font-size:30px;'
+      + 'line-height:62px;padding:0;background:rgba(27,42,74,.92);color:#fff;box-shadow:0 3px 12px rgba(0,0,0,.45)';
+    return b;
+  }
+
+  function show() {
+    if (box) { box.style.display = 'flex'; draw(now()); return; }
+    box = document.createElement('div');
+    box.id = '__hzoom';
+    box.style.cssText = 'position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:2147483646;'
+      + 'display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none';
+    var plus = btn('＋'), minus = btn('－');
+    label = document.createElement('div');
+    label.style.cssText = 'pointer-events:none;background:rgba(27,42,74,.92);color:#fff;padding:7px 0;width:62px;'
+      + 'text-align:center;border-radius:16px;font-size:17px;font-weight:800';
+    box.appendChild(plus); box.appendChild(label); box.appendChild(minus);
+    document.body.appendChild(box);
+    var step = cap.step || ((cap.max - cap.min) / 10) || 0.5;
+    plus.onclick = function () { setZoom(now() + step * 2); };
+    minus.onclick = function () { setZoom(now() - step * 2); };
+    draw(now());
+  }
+  function hide() { if (box) box.style.display = 'none'; track = null; }
+})();
