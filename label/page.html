@@ -102,6 +102,9 @@ body.pick #detail{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1f
 #prDlg .bt button{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:14px;font-size:19px;font-weight:700;cursor:pointer}
 #prDlg .bt .ok{background:var(--acc);border-color:var(--acc);color:#fff}
 #pin{margin-left:4px;color:var(--acc)}
+#prRow select{font-size:17px}
+#prRow .act label{color:var(--acc)}
+#prRow .act select{border-color:var(--acc);box-shadow:0 0 0 3px rgba(41,84,165,.12)}
 #kind button{flex:1;border:2px solid var(--line);background:#fff;color:var(--ink);border-radius:14px;padding:14px 10px;font-size:21px;font-weight:800;cursor:pointer}
 #kind button:hover{border-color:var(--acc)}
 #kind button.on{border-color:var(--acc);background:var(--acc);color:#fff;box-shadow:0 4px 14px rgba(41,84,165,.25)}
@@ -214,11 +217,14 @@ body.lang #hero,body.lang #sbox,body.lang #tip,body.lang #msg,body.lang #results
         <button type="button" id="kA4" onclick="setKind('a4',true)"><span>📄 <span data-t="kindA4"></span></span><small class="kpr" id="kprA4"></small></button>
         <button type="button" id="kLB" onclick="setKind('label',true)"><span>🏷 <span data-t="kindLabel"></span></span><small class="kpr" id="kprLB"></small></button>
       </div>
-      <button type="button" id="prSetBtn" style="display:none" onclick="prSetOpen()">🖨 <span data-t="prSet"></span></button>
       <div class="fl">
         <div><label><span data-t="paper"></span><span id="pin" title=""></span></label><select id="paper"></select></div>
         <div><label data-t="form"></label><select id="form"></select></div>
-        <div id="prBox" style="display:none"><label data-t="printer"></label><select id="printer"></select></div>
+      </div>
+      <!-- 🖨 사용자 「A4 프린터·라벨 프린터 두 가지 메뉴에서 내가 프린터를 지정할 수 있게」 — 이 PC 전체(품번·양식과 상관없이) -->
+      <div class="fl" id="prRow" style="display:none">
+        <div id="pbA4"><label>📄 <span data-t="prA4l"></span></label><select id="selA4"></select></div>
+        <div id="pbLB"><label>🏷 <span data-t="prLBl"></span></label><select id="selLB"></select></div>
       </div>
       <button id="go" onclick="issue()">🏷 <span data-t="issue"></span></button>
       <button id="back" onclick="backToList()">← <span data-t="back"></span></button>
@@ -259,7 +265,7 @@ var L={
  ko:{brand:'한일 라벨',sub:'품번·품명을 찾거나, 옆에 둔 라벨을 리더기로 찍으세요',ph:'품번 · 품명 검색, 또는 라벨 QR 스캔',find:'찾기',
   tip:'라벨 샘플을 찍으면 그 라벨이 바로 열립니다 — 수량만 넣고 발행하세요',ready:'준비됨',wait:'준비 중…',waitlong:'라벨 화면을 기다리는 중',
   detail:'상세 화면',logout:'로그아웃',home:'처음으로',lang:'언어',searching:'찾는 중…',found:'{n}개 찾았습니다',many:'200개까지 보여 줍니다 — 더 자세히 적어 주세요',
-  none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',printer:'프린터',kindA4:'A4 용지',kindLabel:'라벨 프린터',prSet:'프린터 지정',prSetTip:'이 키오스크에서 A4 용지로 뽑을 때와 라벨 프린터로 뽑을 때 쓸 프린터를 정합니다. 정하면 인쇄 창 없이 그 프린터로 바로 나갑니다.',prSave:'저장',prCancel:'닫기',prNone:'이 PC 에서 프린터를 찾지 못했습니다',prSetDone:'프린터를 지정했습니다',shSaved:'이 양식은 이제 이 라벨지로 뽑습니다',shPin:'지정됨',prDialog:'인쇄 창에서 고르기',prDefault:'기본 프린터로 바로',prSaved:'이 양식은 이제 이 프린터로 나갑니다',prFallback:'정한 프린터로 못 보냈습니다 — 인쇄 창으로',
+  none:'찾은 품목이 없습니다',more:'외 {n}개 더 — Enter 를 누르면 모두 봅니다',qty:'수량 (라벨 한 장에)',cnt:'장수',paper:'라벨지',form:'양식',printer:'프린터',kindA4:'A4 용지',kindLabel:'라벨 프린터',prA4l:'A4 프린터',prLBl:'라벨 프린터',prSet:'프린터 지정',prSetTip:'이 키오스크에서 A4 용지로 뽑을 때와 라벨 프린터로 뽑을 때 쓸 프린터를 정합니다. 정하면 인쇄 창 없이 그 프린터로 바로 나갑니다.',prSave:'저장',prCancel:'닫기',prNone:'이 PC 에서 프린터를 찾지 못했습니다',prSetDone:'프린터를 지정했습니다',shSaved:'이 양식은 이제 이 라벨지로 뽑습니다',shPin:'지정됨',prDialog:'인쇄 창에서 고르기',prDefault:'기본 프린터로 바로',prSaved:'이 양식은 이제 이 프린터로 나갑니다',prFallback:'정한 프린터로 못 보냈습니다 — 인쇄 창으로',
   issue:'라벨 발행',making:'만드는 중…',back:'다른 품번 찾기 (Esc)',noimg:'사진이 없습니다',fromqr:'라벨 샘플에서 불러왔습니다',fromqr2:'수량을 확인하고 발행하세요',
   readqr:'라벨을 읽었습니다',needqty:'수량을 넣어 주세요',notready:'라벨 화면이 아직 준비되지 않았습니다 — 잠시 뒤 다시 눌러 주세요',
   qtyS:'수량',cntS:'장수',lotS:'로트',printed:'발행했습니다',bundle:'파레트 라벨입니다 — 여러 품번을 묶는 라벨은 「상세 화면」에서 뽑아 주세요',palItems:'품번 {n}개를 한 파레트로',palPart:'품번',palName:'품명',palNone:'이 파레트에 담긴 품번이 없습니다',palNoBundle:'라벨 화면에 파레트 묶기가 없습니다 — 「상세 화면」에서 뽑아 주세요',pv:'미리보기',pvWait:'미리보기 그리는 중…',pvQty:'수량을 모두 넣으면 미리보기가 나옵니다',pvNone:'미리보기는 포털 업데이트 뒤에 보입니다',pvFail:'미리보기를 못 그렸습니다',pvNote:'번호·로트는 발행할 때 매겨집니다',
@@ -267,7 +273,7 @@ var L={
  en:{brand:'HANIL Label',sub:'Search a part no. or name, or scan a sample label',ph:'Part no. · name, or scan label QR',find:'Search',
   tip:'Scan a sample label to open it — just enter the quantity and print',ready:'Ready',wait:'Loading…',waitlong:'Waiting for the label screen',
   detail:'Advanced',logout:'Log out',home:'Home',lang:'Language',searching:'Searching…',found:'{n} found',many:'Showing the first 200 — type more to narrow',
-  none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',printer:'Printer',kindA4:'A4 paper',kindLabel:'Label printer',prSet:'Set printers',prSetTip:'Choose which printer this kiosk uses for A4 paper and for the label printer. Labels then print straight to it.',prSave:'Save',prCancel:'Close',prNone:'No printers found on this PC',prSetDone:'Printers saved',shSaved:'This format now uses this label paper',shPin:'set',prDialog:'Choose in print dialog',prDefault:'Default printer',prSaved:'This format now prints to this printer',prFallback:'Could not send to the set printer — using the print dialog',
+  none:'No items found',more:'{n} more — press Enter to see all',qty:'Quantity (per label)',cnt:'Labels',paper:'Label paper',form:'Format',printer:'Printer',kindA4:'A4 paper',kindLabel:'Label printer',prA4l:'A4 printer',prLBl:'Label printer',prSet:'Set printers',prSetTip:'Choose which printer this kiosk uses for A4 paper and for the label printer. Labels then print straight to it.',prSave:'Save',prCancel:'Close',prNone:'No printers found on this PC',prSetDone:'Printers saved',shSaved:'This format now uses this label paper',shPin:'set',prDialog:'Choose in print dialog',prDefault:'Default printer',prSaved:'This format now prints to this printer',prFallback:'Could not send to the set printer — using the print dialog',
   issue:'Print label',making:'Printing…',back:'Search another (Esc)',noimg:'No photo',fromqr:'Opened from a sample label',fromqr2:'check the quantity and print',
   readqr:'Label scanned',needqty:'Enter the quantity',notready:'The label screen is not ready yet — try again in a moment',
   qtyS:'Qty',cntS:'Labels',lotS:'LOT',printed:'Printed',bundle:'This is a pallet label — print multi-part labels in "Advanced"',palItems:'{n} parts on one pallet',palPart:'Part',palName:'Name',palNone:'This pallet has no parts',palNoBundle:'Pallet bundling is not available — print it in "Advanced"',pv:'Preview',pvWait:'Drawing preview…',pvQty:'Enter every quantity to see the preview',pvNone:'Preview needs a portal update',pvFail:'Could not draw the preview',pvNote:'Numbers and LOT are assigned when printed',
@@ -275,7 +281,7 @@ var L={
  vi:{brand:'Nhãn HANIL',sub:'Tìm mã hàng hoặc tên hàng, hoặc quét nhãn mẫu',ph:'Mã hàng · tên hàng, hoặc quét QR nhãn',find:'Tìm',
   tip:'Quét nhãn mẫu để mở ngay — chỉ cần nhập số lượng và in',ready:'Sẵn sàng',wait:'Đang tải…',waitlong:'Đang chờ màn hình nhãn',
   detail:'Chi tiết',logout:'Đăng xuất',home:'Trang đầu',lang:'Ngôn ngữ',searching:'Đang tìm…',found:'Tìm thấy {n}',many:'Chỉ hiện 200 mục đầu — hãy gõ thêm',
-  none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',printer:'Máy in',kindA4:'Giấy A4',kindLabel:'Máy in nhãn',prSet:'Chọn máy in',prSetTip:'Chọn máy in cho giấy A4 và cho máy in nhãn trên kiosk này.',prSave:'Lưu',prCancel:'Đóng',prNone:'Không tìm thấy máy in',prSetDone:'Đã lưu máy in',shSaved:'Mẫu này sẽ dùng giấy nhãn này',shPin:'đã chọn',prDialog:'Chọn trong hộp thoại in',prDefault:'Máy in mặc định',prSaved:'Mẫu này sẽ in ra máy in này',prFallback:'Không gửi được tới máy in đã chọn — mở hộp thoại in',
+  none:'Không tìm thấy hàng',more:'Còn {n} mục — nhấn Enter để xem tất cả',qty:'Số lượng (mỗi nhãn)',cnt:'Số nhãn',paper:'Giấy nhãn',form:'Mẫu nhãn',printer:'Máy in',kindA4:'Giấy A4',kindLabel:'Máy in nhãn',prA4l:'Máy in A4',prLBl:'Máy in nhãn',prSet:'Chọn máy in',prSetTip:'Chọn máy in cho giấy A4 và cho máy in nhãn trên kiosk này.',prSave:'Lưu',prCancel:'Đóng',prNone:'Không tìm thấy máy in',prSetDone:'Đã lưu máy in',shSaved:'Mẫu này sẽ dùng giấy nhãn này',shPin:'đã chọn',prDialog:'Chọn trong hộp thoại in',prDefault:'Máy in mặc định',prSaved:'Mẫu này sẽ in ra máy in này',prFallback:'Không gửi được tới máy in đã chọn — mở hộp thoại in',
   issue:'In nhãn',making:'Đang in…',back:'Tìm mã khác (Esc)',noimg:'Không có ảnh',fromqr:'Đã mở từ nhãn mẫu',fromqr2:'kiểm tra số lượng rồi in',
   readqr:'Đã quét nhãn',needqty:'Hãy nhập số lượng',notready:'Màn hình nhãn chưa sẵn sàng — vui lòng thử lại sau',
   qtyS:'SL',cntS:'Nhãn',lotS:'LOT',printed:'Đã in',bundle:'Đây là nhãn pallet — hãy in ở mục "Chi tiết"',palItems:'{n} mã hàng trên một pallet',palPart:'Mã',palName:'Tên',palNone:'Pallet này không có mã hàng',palNoBundle:'Không gộp pallet được — hãy in ở mục "Chi tiết"',pv:'Xem trước',pvWait:'Đang vẽ xem trước…',pvQty:'Nhập đủ số lượng để xem trước',pvNone:'Cần cập nhật portal để xem trước',pvFail:'Không vẽ được xem trước',pvNote:'Số và LOT được cấp khi in',
@@ -990,11 +996,7 @@ async function prLoad(){
   try{ PRN=await window.hanilPrinters(); }catch(e){ PRN=null; }
   if(!PRN) return;
   PRN.map=PRN.map||{}; PRN.printers=PRN.printers||[];
-  var sel=$('printer');
-  sel.innerHTML='<option value="">'+esc(PRN.mode==='silent' ? t('prDefault')+(PRN.default?(' ('+PRN.default+')'):'') : t('prDialog'))+'</option>'
-    +PRN.printers.map(function(n){ return '<option value="'+esc(n)+'">🖨 '+esc(n)+(n===PRN.default?' ★':'')+'</option>'; }).join('');
-  $('prBox').style.display='';
-  $('prSetBtn').style.display='';
+  $('prRow').style.display='';
   prSync();
 }
 //  ── 🖨 프린터 지정 창 ── 사용자 「키오스크에서 A4 는 1번 프린터, 라벨은 2번 프린터 이런 식으로」
@@ -1027,27 +1029,19 @@ async function prSetSave(){
   }catch(e){ toast('⚠ '+(e&&e.message||e), 'bad'); }
 }
 //  A4·라벨 단추 아래에 지금 그 종류로 뽑으면 갈 프린터 이름
-function kprShow(){
-  if(!PRN) return;
-  var f=$('form').value, m=PRN.map||{};
-  $('kprA4').textContent=(f && m[f+'|a4']) || m['@a4'] || '';
-  $('kprLB').textContent=(f && m[f+'|label']) || m['@label'] || '';
-}
+function kprShow(){ $('kprA4').textContent=''; $('kprLB').textContent=''; }   //  v2.13.0 — 아래 두 칸이 늘 보이니 단추에는 안 적는다
 //  🖨 프린터 찾는 순서: 이 양식+이 종류(A4/라벨) → 이 종류에 마지막으로 정한 프린터 → (예전 판) 이 양식
 //   ⭐ 「라벨 프린터」에 ZEBRA 를 한 번 정하면 다른 양식도 라벨로 뽑을 때 ZEBRA 로 간다
+//  v2.13.0 — 프린터는 «A4 프린터» 하나, «라벨 프린터» 하나(이 PC 전체). 양식별로 정하던 예전 것은 쓰지 않는다.
 function printerFor(form){
   if(!PRN || !PRN.map) return '';
-  var m=PRN.map;
-  return (form && m[form+'|'+KIND]) || m['@'+KIND] || (form && m[form]) || '';
+  return PRN.map['@'+KIND] || '';
 }
 function prSync(){
   if(!PRN) return;
-  var v=printerFor($('form').value), sel=$('printer');
-  //  ⚠ 정해 둔 프린터가 이 PC 에서 없어졌으면(이름 바뀜·빠짐) 목록에 «없음» 으로라도 보인다
-  if(v && ![].some.call(sel.options, function(o){ return o.value===v; })){
-    var o=document.createElement('option'); o.value=v; o.textContent='⚠ '+v; sel.appendChild(o);
-  }
-  sel.value=v;
+  //  ⚠ 정해 둔 프린터가 이 PC 에서 없어졌으면(이름 바뀜·빠짐) 목록에 «⚠» 로라도 보인다(prOpts)
+  prOpts($('selA4'), PRN.map['@a4']||''); prOpts($('selLB'), PRN.map['@label']||'');
+  $('pbA4').className=(KIND==='a4'?'act':''); $('pbLB').className=(KIND==='label'?'act':'');
   kprShow();
 }
 $('form').addEventListener('change', prSync);
@@ -1113,17 +1107,17 @@ $('form').addEventListener('change', function(){
   if(des && [].some.call($('paper').options, function(o){ return o.value===des && sheetKind(o)===KIND; })) $('paper').value=des;
   pinShow();
 });
-$('printer').addEventListener('change', async function(){
-  var f=$('form').value, v=this.value; if(!PRN || !f) return;
-  var k=f+'|'+KIND;
-  if(v) PRN.map[k]=v; else delete PRN.map[k];
-  delete PRN.map[f];                                   //  예전 판(종류 없는) 지정은 이제 안 쓴다
-  try{
-    await window.hanilSetPrinter(k, v);
-    await window.hanilSetPrinter(f, '');
-    if(v){ PRN.map['@'+KIND]=v; await window.hanilSetPrinter('@'+KIND, v); }
-    if(v) toast('🖨 '+t(KIND==='a4'?'kindA4':'kindLabel')+' · '+($('form').selectedOptions[0]||{}).textContent+' → '+v+' — '+t('prSaved'), 'ok');
-  }catch(e){ toast('⚠ '+(e&&e.message||e), 'bad'); }
+//  고르면 바로 저장 — 이 PC 에서 A4 는 이 프린터, 라벨은 이 프린터
+[['selA4','a4'],['selLB','label']].forEach(function(x){
+  $(x[0]).addEventListener('change', async function(){
+    if(!PRN) return;
+    var k=x[1], v=this.value;
+    if(v) PRN.map['@'+k]=v; else delete PRN.map['@'+k];
+    try{
+      await window.hanilSetPrinter('@'+k, v);
+      toast('🖨 '+t(k==='a4'?'prA4l':'prLBl')+' → '+(v||t('prDialog')), 'ok');
+    }catch(e){ toast('⚠ '+(e&&e.message||e), 'bad'); }
+  });
 });
 //  라벨 HTML 을 이 창 문서 안(#printArea)에 옮겨 놓고, 프로그램에 «이 프린터로» 를 부탁한다.
 //   (PrintAsync 는 창의 문서를 찍는다 — 인쇄 때만 라벨 말고 다른 것은 모두 숨긴다)
