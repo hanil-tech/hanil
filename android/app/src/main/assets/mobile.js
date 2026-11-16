@@ -815,8 +815,14 @@
   function attach(stream) {
     var t = (stream.getVideoTracks && stream.getVideoTracks()[0]) || null;
     if (!t || !t.getCapabilities) return;
-    var cp = t.getCapabilities();
-    if (!cp || !('zoom' in cp) || !cp.zoom) return;   // 하드웨어 줌을 못 하는 기기 → 넘어감
+    var cp = t.getCapabilities() || {};
+    //  📸 자동초점 — 이어지는 초점(continuous)으로 멀고 가까운 QR 이 또렷하게(줌과 상관없이 늘 적용)
+    try {
+      if (cp.focusMode && cp.focusMode.indexOf && cp.focusMode.indexOf('continuous') >= 0) {
+        t.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+      }
+    } catch (e) {}
+    if (!('zoom' in cp) || !cp.zoom) return;   // 줌을 못 하는 기기 → 줌 단추만 안 띄운다(초점은 이미 적용)
     track = t; cap = cp.zoom;
     show();
     try { t.addEventListener('ended', hide); } catch (e) {}
