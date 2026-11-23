@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>팩스함 — 한일 포털</title>
+<style>
+  :root { --navy:#1b2a4a; --blue:#2954A5; --line:#e3e8f0; --ink:#1b1f27; --dim:#6b7684; --bg:#f4f6fa; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"Malgun Gothic","맑은 고딕",sans-serif; }
+  header { background:var(--navy); color:#fff; padding:12px 16px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:5; }
+  header b { font-size:18px; flex:1; }
+  header .cnt { font-size:13px; color:#c7d2e6; }
+  .warn { background:#fff4e5; border-bottom:1px solid #f0d9ad; color:#8a5a00; padding:10px 16px; font-size:14px; }
+  .warn b { color:#a24a00; }
+  .warn ul { margin:6px 0 0; padding-left:18px; }
+  .down { background:#fde8e8; border-bottom:1px solid #f3c0c0; color:#9a2a2a; padding:9px 16px; font-size:13.5px; }
+  .filters { background:#fff; border-bottom:1px solid var(--line); padding:10px 12px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; position:sticky; top:48px; z-index:4; }
+  .filters input, .filters select { border:1.5px solid var(--line); border-radius:9px; padding:8px 10px; font-size:14px; outline:0; }
+  .filters input[type=search] { flex:1; min-width:150px; }
+  .filters label { font-size:13px; color:var(--dim); display:flex; align-items:center; gap:4px; }
+  .filters button { border:0; background:var(--blue); color:#fff; border-radius:9px; padding:9px 14px; font-size:14px; cursor:pointer; }
+  .list { padding:8px 10px 80px; }
+  .row { background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:8px; display:flex; gap:10px; cursor:pointer; }
+  .row:hover { border-color:#c3d0e8; }
+  .row.new { box-shadow:inset 4px 0 0 var(--blue); }
+  .row.new .snd { font-weight:800; }
+  .th { width:54px; height:70px; border-radius:7px; background:#eef1f6 center/cover no-repeat; flex:none; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:#b4bdcc; font-size:22px; }
+  .meta { flex:1; min-width:0; }
+  .meta .snd { font-size:16px; }
+  .meta .sub { color:var(--dim); font-size:13px; margin-top:2px; }
+  .chips { margin-top:5px; display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { font-size:12px; padding:2px 8px; border-radius:11px; background:#eef3fb; color:var(--blue); }
+  .chip.gray { background:#eef1f6; color:#6b7684; }
+  .chip.red { background:#fde8e8; color:#c0392b; }
+  .chip.green { background:#e7f6ec; color:#1e7e45; }
+  .st { font-size:12px; padding:2px 8px; border-radius:11px; }
+  .st-new{background:#e7effd;color:#2954A5;} .st-seen{background:#eef1f6;color:#6b7684;}
+  .st-done{background:#e7f6ec;color:#1e7e45;} .st-archived{background:#f0e9f6;color:#7a4da0;}
+  .empty { text-align:center; color:var(--dim); padding:50px 20px; }
+  /* 상세 서랍 */
+  .back { position:fixed; inset:0; background:rgba(10,18,35,.45); z-index:10; display:none; }
+  .back.on { display:block; }
+  .drawer { position:fixed; top:0; right:0; bottom:0; width:min(560px,100%); background:#fff; z-index:11; transform:translateX(100%); transition:transform .18s; display:flex; flex-direction:column; }
+  .drawer.on { transform:none; }
+  .drawer .dh { background:var(--navy); color:#fff; padding:12px 14px; display:flex; align-items:center; gap:8px; }
+  .drawer .dh b { flex:1; font-size:16px; }
+  .drawer .dh button { border:0; background:#2b3d63; color:#fff; border-radius:8px; padding:8px 12px; font-size:14px; }
+  .drawer .body { flex:1; overflow:auto; padding:14px; }
+  .pv { width:100%; height:300px; border:1px solid var(--line); border-radius:10px; }
+  .fld { margin-top:12px; }
+  .fld label { display:block; font-size:12.5px; color:var(--dim); margin-bottom:4px; }
+  .fld input, .fld select, .fld textarea { width:100%; border:1.5px solid var(--line); border-radius:9px; padding:9px 10px; font-size:15px; outline:0; }
+  .frow { display:flex; gap:8px; } .frow > * { flex:1; }
+  .save { margin-top:14px; width:100%; border:0; background:var(--blue); color:#fff; border-radius:11px; padding:12px; font-size:16px; }
+  .link a { color:var(--blue); }
+</style>
+</head>
+<body>
+<header>
+  <b>📠 팩스함</b>
+  <span class="cnt" id="cnt"></span>
+  <button onclick="load()" style="border:0;background:#2b3d63;color:#fff;border-radius:8px;padding:8px 12px;font-size:14px;">새로고침</button>
+</header>
+<div id="warn"></div>
+<div class="filters">
+  <input type="search" id="q" placeholder="🔍 메모·내용·파일명 검색" onkeydown="if(event.key==='Enter')load()">
+  <input id="sender" placeholder="보낸번호" size="10" onkeydown="if(event.key==='Enter')load()">
+  <select id="status" onchange="load()">
+    <option value="">상태 전체</option><option value="new">새 팩스</option><option value="seen">확인</option><option value="done">처리완료</option><option value="archived">보관</option>
+  </select>
+  <label><input type="checkbox" id="unmatched" onchange="load()"> 미매칭만</label>
+  <input type="date" id="from" onchange="load()" title="시작일">
+  <input type="date" id="to" onchange="load()" title="끝일">
+  <button onclick="load()">검색</button>
+</div>
+<div class="list" id="list"><div class="empty">불러오는 중…</div></div>
+
+<div class="back" id="back" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="dh"><b id="dTitle">팩스</b>
+    <button onclick="openPdf()">📄 PDF 열기</button>
+    <button onclick="closeDrawer()">✕</button></div>
+  <div class="body" id="dbody"></div>
+</div>
+
+<script>
+var ST = { new:'새 팩스', seen:'확인', done:'처리완료', archived:'보관' };
+var CAT = { '':'(분류 없음)', order:'발주서', quote:'견적요청', invoice:'세금계산서·청구서', notice:'안내문', spam:'광고(스팸)', etc:'기타' };
+var cur = null;
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmt(t){ if(!t) return ''; var d=new Date(t); if(isNaN(d)) return esc(t); var z=function(n){return String(n).padStart(2,'0');}; return (d.getMonth()+1)+'/'+d.getDate()+' '+z(d.getHours())+':'+z(d.getMinutes()); }
+
+async function load(){
+  var p = new URLSearchParams();
+  ['q','sender','status','from','to'].forEach(function(k){ var v=document.getElementById(k).value; if(v) p.set(k,v); });
+  if(document.getElementById('unmatched').checked) p.set('unmatched','1');
+  p.set('size','50');
+  var r, d;
+  try { r = await fetch('/api/fax?'+p.toString(), {credentials:'same-origin'}); d = await r.json(); }
+  catch(e){ document.getElementById('list').innerHTML='<div class="empty">불러오지 못했습니다.</div>'; return; }
+  if(!r.ok){ document.getElementById('list').innerHTML='<div class="empty">'+esc(d.error||'오류')+'</div>'; return; }
+  document.getElementById('cnt').textContent = (d.total||0)+'건';
+  drawWarn(d.warn);
+  var L = document.getElementById('list');
+  if(!d.items || !d.items.length){ L.innerHTML='<div class="empty">팩스가 없습니다.</div>'; return; }
+  L.innerHTML = d.items.map(rowHtml).join('');
+}
+function rowHtml(it){
+  var th = it.has_thumb ? '<div class="th" style="background-image:url(/api/fax/'+it.id+'/thumb)"></div>' : '<div class="th">📄</div>';
+  var partner = it.partner_id!=null ? '<span class="chip">거래처 #'+it.partner_id+(it.match_type==='suggest'?' (후보)':'')+'</span>'
+                                    : '<span class="chip red">미매칭</span>';
+  var cat = it.category ? '<span class="chip gray">'+esc(CAT[it.category]||it.category)+'</span>' : '';
+  var asg = it.assignee_id!=null ? '<span class="chip gray">담당 #'+it.assignee_id+'</span>' : '';
+  return '<div class="row '+(it.status==='new'?'new':'')+'" onclick="openFax('+it.id+')">'
+    + th
+    + '<div class="meta"><div class="snd">'+esc(it.sender_raw||it.sender_digits||'(번호 없음)')+'</div>'
+    + '<div class="sub">'+fmt(it.received_at)+' · '+(it.pages!=null?it.pages+'쪽':'')+' · '+esc(it.mailbox||'')+'</div>'
+    + '<div class="chips"><span class="st st-'+it.status+'">'+esc(ST[it.status]||it.status)+'</span>'+partner+cat+asg+'</div></div></div>';
+}
+function drawWarn(w){
+  var el = document.getElementById('warn'); if(!w){ el.innerHTML=''; return; }
+  var h='';
+  if(w.agents_down && w.agents_down.length) h += '<div class="down">⚠ 수집 에이전트가 15분 넘게 보고하지 않습니다 — 팩스 PC·FaxBox 를 확인하세요.</div>';
+  if(w.missing_count){
+    h += '<div class="warn"><b>⚠ 미저장 '+w.missing_count+'건</b> — FaxBox 에서 수동 내보내기 하세요.<ul>'
+      + (w.missing||[]).slice(0,8).map(function(m){ return '<li>'+esc(m.sender||'')+' · '+fmt(m.received_at)+' · '+(m.pages!=null?m.pages+'쪽':'')+'</li>'; }).join('')
+      + (w.missing_count>8?'<li>…외 '+(w.missing_count-8)+'건</li>':'') + '</ul></div>';
+  }
+  el.innerHTML = h;
+}
+
+async function openFax(id){
+  var r = await fetch('/api/fax/'+id, {credentials:'same-origin'}); var d = await r.json();
+  if(!r.ok){ alert(d.error||'오류'); return; }
+  cur = d.item; cur._links = d.links||[];
+  document.getElementById('dTitle').textContent = (cur.sender_raw||cur.sender_digits||'팩스')+' · '+fmt(cur.received_at);
+  var b = document.getElementById('dbody');
+  b.innerHTML =
+    '<iframe class="pv" src="/api/fax/'+id+'/file"></iframe>'
+    + fld('거래처(번호)', '<div class="frow"><input id="e_partner" type="number" value="'+(cur.partner_id!=null?cur.partner_id:'')+'" placeholder="거래처 번호">'
+        + '<span style="flex:0 0 auto;align-self:center;color:#6b7684;font-size:12px">'+(cur.match_type?('('+cur.match_type+')'):'')+'</span></div>')
+    + fld('분류', sel('e_cat', CAT, cur.category||''))
+    + fld('담당자(번호)', '<input id="e_asg" type="number" value="'+(cur.assignee_id!=null?cur.assignee_id:'')+'" placeholder="담당자 번호">')
+    + fld('상태', sel('e_status', ST, cur.status))
+    + fld('메모', '<textarea id="e_memo" rows="3">'+esc(cur.memo||'')+'</textarea>')
+    + '<button class="save" onclick="save('+id+')">저장</button>'
+    + fld('전표 연결', '<div class="frow"><input id="e_voucher" type="number" placeholder="전표 번호"><button onclick="addLink('+id+')" style="flex:0 0 auto;border:0;background:#2b3d63;color:#fff;border-radius:9px;padding:0 14px">연결</button></div>'
+        + '<div class="link" id="linklist">'+ (cur._links.length? '연결된 전표: '+cur._links.join(', ') : '<span style="color:#6b7684;font-size:13px">없음</span>') +'</div>');
+  document.getElementById('back').classList.add('on');
+  document.getElementById('drawer').classList.add('on');
+  if(cur.status==='new') patch(id,{status:'seen'}); // 열면 '확인'으로
+}
+function fld(label, inner){ return '<div class="fld"><label>'+label+'</label>'+inner+'</div>'; }
+function sel(id, map, v){ return '<select id="'+id+'">'+Object.keys(map).map(function(k){ return '<option value="'+k+'"'+(k===v?' selected':'')+'>'+esc(map[k])+'</option>'; }).join('')+'</select>'; }
+function val(id){ var e=document.getElementById(id); return e?e.value:''; }
+
+async function save(id){
+  var body = {
+    partner_id: val('e_partner')===''?null:+val('e_partner'),
+    category: val('e_cat')||null,
+    assignee_id: val('e_asg')===''?null:+val('e_asg'),
+    status: val('e_status'),
+    memo: val('e_memo'),
+  };
+  await patch(id, body);
+  closeDrawer(); load();
+}
+async function patch(id, body){
+  try { await fetch('/api/fax/'+id, {method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); } catch(e){}
+}
+async function addLink(id){
+  var v = val('e_voucher'); if(!v) return;
+  await fetch('/api/fax/'+id+'/links', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({voucher_id:+v})});
+  openFax(id);
+}
+function openPdf(){ if(cur) window.open('/api/fax/'+cur.id+'/file','_blank'); }
+function closeDrawer(){ document.getElementById('back').classList.remove('on'); document.getElementById('drawer').classList.remove('on'); }
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

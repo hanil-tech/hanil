@@ -1,0 +1,7 @@
+<Project>
+  <!-- turbofan 폴더는 저장소 루트의 설정(TimeGuard 용, C# 12 고정 등)을 쓰지 않는다. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

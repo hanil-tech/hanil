@@ -1,0 +1,7 @@
+{
+  "name": "hanil-cal-check",
+  "private": true,
+  "description": "바탕화면 달력 점검(가짜 포털 + 관문 + 화면)",
+  "scripts": { "test": "node check.js" },
+  "devDependencies": { "express": "^4.21.2", "express-session": "^1.18.1" }
+}

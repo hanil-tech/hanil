@@ -1,0 +1,27 @@
+--- a/appdist.js	2026-09-23 12:08:51.000000000 +0000
++++ b/appdist.js	2026-10-11 06:16:19.250386421 +0000
+@@ -54,7 +54,11 @@
+       if (!i.ok) return res.status(404).send('앱 파일이 아직 올라와 있지 않습니다.');
+       //  ⚠ 안드로이드가 받기 전에 형식을 보므로 mime 을 정확히 준다
+       res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+-      res.setHeader('Content-Disposition', 'attachment; filename="' + a.file + '"');
++      //  🏷 2026-10-11 — 사용자 「apk 파일이 버전이 안 나와 — 파일 이름에 버전 표시」
++      //   ⚠ 서버에 두는 이름(hanil-staff.apk)은 그대로 두고, **받는 사람에게 주는 이름**에만 판을 붙인다
++      //     (hanil-staff-v1.1.112.apk). 판 정보(json)가 없으면 예전 이름 그대로.
++      const dlName = i.version ? a.file.replace(/\.apk$/, '-v' + String(i.version).replace(/[^0-9A-Za-z._-]/g, '') + '.apk') : a.file;
++      res.setHeader('Content-Disposition', 'attachment; filename="' + dlName + '"');
+       res.setHeader('Content-Length', String(i.size));
+       res.setHeader('Cache-Control', 'no-cache');
+       try { logAct(req, '📱 앱 내려받기', a.label + (i.version ? (' v' + i.version) : '')); } catch (e) { /* */ }
+--- a/tools/appdist-check.js	2026-09-28 02:22:35.000000000 +0000
++++ b/tools/appdist-check.js	2026-10-11 06:16:35.519293591 +0000
+@@ -30,7 +30,8 @@
+   const r = await fetch(B + '/app/staff.apk');
+   chk(r.status === 200 && r.headers.get('content-type') === 'application/vnd.android.package-archive',
+     '⚠ 안드로이드가 알아보는 형식으로 내려준다');
+-  chk(/attachment; filename="hanil-staff\.apk"/.test(r.headers.get('content-disposition') || ''), '파일 이름이 붙는다');
++  //  🏷 2026-10-11 — 받는 이름에 판이 붙는다(hanil-staff-v9.9.apk) · 서버에 두는 이름은 그대로
++  chk(/attachment; filename="hanil-staff-v9\.9\.apk"/.test(r.headers.get('content-disposition') || ''), '파일 이름에 판 번호가 붙는다');
+   const v2 = await (await fetch(B + '/api/app/version?app=staff')).json();
+   chk(v2.app.version === '9.9' && v2.app.code === 99, '옆에 둔 판 정보(json)를 읽는다');
+   if (!had) fs.unlinkSync(tmp);
