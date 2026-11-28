@@ -4,3 +4,10 @@ dist/
 *.user
 *.suo
 .vs/
+__pycache__/
+.pytest_cache/
+unfold/build/
+unfold/smoke/
+_build.py
+_edition.py
+unfold/packaging/version_info.txt

@@ -1,0 +1,84 @@
+# -*- mode: python -*-
+# Windows 실행 파일 만들기:  pyinstaller packaging/HanilUnfold.spec   (unfold 폴더에서)
+import glob
+import os
+import sysconfig
+
+from PyInstaller.utils.hooks import collect_submodules
+
+SITE = sysconfig.get_paths()["purelib"]
+HERE = os.path.abspath(SPECPATH)
+ROOT = os.path.dirname(HERE)
+# 전개 전용판: write_build_info.py --edition unfold 가 hanil_unfold/_edition.py 를 만들어 둔다
+LITE = os.path.exists(os.path.join(ROOT, "hanil_unfold", "_edition.py"))
+APP = "HanilUnfoldLite" if LITE else "HanilUnfold"
+print(f"판: {'전개 전용' if LITE else '전체'} → {APP}.exe")
+
+def _imports(path):
+    """DLL 이 불러 쓰는 다른 DLL 이름들 (소문자)."""
+    import pefile
+    pe = pefile.PE(path, fast_load=True)
+    pe.parse_data_directories(directories=[
+        pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"],
+        pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT"]])
+    names = set()
+    for attr in ("DIRECTORY_ENTRY_IMPORT", "DIRECTORY_ENTRY_DELAY_IMPORT"):
+        for entry in getattr(pe, attr, []):
+            names.add(entry.dll.decode().lower())
+    pe.close()
+    return names
+
+
+# OCP 가 쓰는 DLL 은 site-packages 와 같은 폴더 구조로 옮긴다 (OCP/__init__.py 가 그 경로를 찾는다).
+ocp_libs = glob.glob(os.path.join(SITE, "cadquery_ocp.libs", "*.dll"))
+binaries = [(dll, "cadquery_ocp.libs") for dll in ocp_libs]
+
+# VTK 는 DLL 이 270MB 가 넘는다. OCP 가 실제로 부르는 것만 따라가며 골라 담는다.
+vtk_dir = os.path.join(SITE, "vtk.libs")
+vtk_all = {os.path.basename(p).lower(): p for p in glob.glob(os.path.join(vtk_dir, "*.dll"))}
+todo = list(ocp_libs) + glob.glob(os.path.join(SITE, "OCP", "OCP*.pyd"))
+picked = {}
+while todo:
+    for name in _imports(todo.pop()):
+        if name in vtk_all and name not in picked:
+            picked[name] = vtk_all[name]
+            todo.append(vtk_all[name])
+if not picked and vtk_all:
+    # 이름으로 못 찾으면 용량이 크더라도 전부 담는다 (실행이 우선).
+    picked = vtk_all
+binaries += [(dll, "vtk.libs") for dll in picked.values()]
+print(f"VTK DLL {len(picked)}개 / 전체 {len(vtk_all)}개를 담습니다")
+
+a = Analysis(
+    [os.path.join(HERE, "launcher.py")],
+    pathex=[ROOT],
+    binaries=binaries,
+    datas=[(os.path.join(ROOT, "hanil_unfold", "icon.ico"), "hanil_unfold"),
+           (os.path.join(ROOT, "hanil_unfold", "logo.png"), "hanil_unfold"),
+           (os.path.join(ROOT, "hanil_unfold", "logo_white.png"), "hanil_unfold"),
+           # OCP 는 시작할 때 vtk.libs 폴더를 DLL 경로에 넣는데, 폴더가 없으면 오류가 난다.
+           (os.path.join(HERE, "vtk.libs.txt"), "vtk.libs")],
+    # scipy 는 안에 넣어 둔 array_api_compat 를 실행 중에 불러와 PyInstaller 가 놓친다.
+    hiddenimports=(collect_submodules("OCP") + collect_submodules("scipy._external")
+                   + collect_submodules("scipy.sparse") + collect_submodules("scipy.spatial")
+                   + collect_submodules("scipy.ndimage") + collect_submodules("scipy.fft")
+                   + ([] if LITE else collect_submodules("anthropic"))     # AI BOM 은 전체판만
+                   + ["ezdxf", "numpy", "numpy.fft", "numpy.linalg", "openpyxl", "PIL"]),
+    runtime_hooks=[os.path.join(HERE, "rthook_dlls.py")],
+    excludes=["tkinter", "matplotlib", "vtk", "vtkmodules", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore",
+              "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtMultimedia"],
+    noarchive=False,
+)
+pyz = PYZ(a.pure)
+exe = EXE(
+    pyz, a.scripts, [],
+    exclude_binaries=True,
+    name=APP,
+    icon=os.path.join(ROOT, "hanil_unfold", "icon.ico"),
+    # 파일 속성 → 자세히 의 버전 (write_build_info.py 가 만든다, 없으면 생략)
+    version=(os.path.join(HERE, "version_info.txt")
+             if os.path.exists(os.path.join(HERE, "version_info.txt")) else None),
+    console=False,
+    upx=False,
+)
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name=APP)
