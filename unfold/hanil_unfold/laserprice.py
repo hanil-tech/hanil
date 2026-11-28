@@ -164,7 +164,7 @@ def table_rows(rows):
              " · ".join(r.notes)] for r in rows]
 
 
-def save_xlsx(rows, tot, rates, path, name=""):
+def save_xlsx(rows, tot, rates, path, name="", seams=None, weld_costs=None, weld_tot=None, weld_rates=None):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     wb = Workbook()
@@ -213,5 +213,39 @@ def save_xlsx(rows, tot, rates, path, name=""):
     wr.cell(k + 1, 2, "예" if rates["material"].get("include", True) else "아니오")
     wr.column_dimensions["A"].width = 30
     wr.column_dimensions["B"].width = 16
+    if seams is not None:
+        from . import weldcalc as wc
+        wt = wb.create_sheet("용접")
+        wt["A1"] = f"용접 견적 — {name}"
+        wt["A1"].font = Font(bold=True, size=13)
+        wr_ = dict(wc.DEFAULTS)
+        wr_.update(weld_rates or {})
+        wt["A2"] = (f"임률 {wr_['rate']:,.0f} 원/h · 아크 타임 비율 {wr_['arc_ratio']:g} · 단속률 {wr_['intermittent']:g} · "
+                    f"소모품 {wr_['consumable_per_m']:,.0f} 원/m · 사상 {wr_['grind_sec_per_m']:g} 초/m · 가접 {wr_['tack_sec']:g} 초 · "
+                    f"준비 {wr_['setup_min']:g} 분/로트")
+        head = ["부품 A", "부품 B", "종류", "길이 mm", "면", "t", "아크 초", "전체 초", "원", "비고"]
+        for j, h in enumerate(head, 1):
+            c = wt.cell(4, j, h)
+            c.font, c.fill, c.alignment = hf, hfill, Alignment(horizontal="center")
+        r = 5
+        for c_ in (weld_costs or []):
+            sm = c_.seam
+            for j, v in enumerate([sm.name_a, sm.name_b, sm.kind, round(sm.length), sm.sides, sm.thickness, round(c_.arc_sec),
+                                   round(c_.total_sec), round(c_.won), sm.note], 1):
+                wt.cell(r, j, v)
+            r += 1
+        wtot = weld_tot or {}
+        wt.cell(r, 1, "합계").font = Font(bold=True)
+        wt.cell(r, 4, round(wtot.get("length_m", 0) * 1000))
+        wt.cell(r, 7, round(wtot.get("arc_sec", 0)))
+        wt.cell(r, 8, round(wtot.get("sec", 0)))
+        wt.cell(r, 9, round(wtot.get("won", 0))).font = Font(bold=True)
+        wt.cell(r + 1, 1, "준비 (분/로트 ÷ 로트)")
+        wt.cell(r + 1, 9, round(wtot.get("setup", 0)))
+        for col, wd in zip("ABCDEFGHIJ", (28, 28, 8, 10, 5, 6, 9, 9, 11, 34)):
+            wt.column_dimensions[col].width = wd
+        # 첫 시트 위에 세트 견적
+        ws.cell(3, 1, "세트 견적").font = Font(bold=True)
+        ws.cell(3, 2, f"부품 {tot['unit_sum']:,.0f} + 용접 {wtot.get('won', 0):,.0f} = {tot['unit_sum'] + wtot.get('won', 0):,.0f} 원")
     wb.save(path)
     return path

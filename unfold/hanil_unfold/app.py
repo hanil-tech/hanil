@@ -849,8 +849,8 @@ class MainWindow(QMainWindow):
         self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
-        self.act_laser = QAction("레이저·절곡 단가", self, shortcut="Ctrl+L", triggered=self.show_laser_price)
-        self.act_laser.setToolTip("부품마다 레이저 절단 시간 · 절곡 수로 개당 단가 (재료 포함 · 제외), 엑셀")
+        self.act_laser = QAction("레이저·절곡·용접 견적", self, shortcut="Ctrl+L", triggered=self.show_laser_price)
+        self.act_laser.setToolTip("부품마다 레이저 절단 · 절곡 단가 (재료 포함 · 제외) + 조립품 용접선을 찾아 용접 견적, 엑셀")
         self.act_quote = QAction("견적", self, shortcut="Ctrl+E", triggered=self.show_quote)
         self.act_quote.setToolTip("도면(3D)으로 공정수·재료비·가공비·부자재를 계산해 견적서 초안 (엑셀·PDF)")
         self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
@@ -1378,10 +1378,10 @@ class MainWindow(QMainWindow):
         ItemsDialog(self.history, self, quote_item, self.model.path if self.model else "").exec()
 
     def show_laser_price(self):
-        """레이저 · 절곡 단가 창. [전체 계산] 을 안 했으면 먼저 한다."""
+        """레이저 · 절곡 · 용접 견적 창. [전체 계산] 을 안 했으면 먼저 한다."""
         from .laser_dialog import LaserPriceDialog
         if self.model is None:
-            QMessageBox.information(self, "레이저 · 절곡 단가", "먼저 3D 도면을 여세요.")
+            QMessageBox.information(self, "레이저 · 절곡 · 용접 견적", "먼저 3D 도면을 여세요.")
             return
         if not self.assy_parts_result:
             self.calc_all()
@@ -1392,7 +1392,7 @@ class MainWindow(QMainWindow):
                                    os.path.splitext(os.path.basename(self.model.path))[0], self)
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
-            QMessageBox.warning(self, "레이저 · 절곡 단가", str(e))
+            QMessageBox.warning(self, "레이저 · 절곡 · 용접 견적", str(e))
             return
         dlg.exec()
 
