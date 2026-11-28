@@ -849,6 +849,8 @@ class MainWindow(QMainWindow):
         self.act_assy = QAction("조립도 PDF", self, triggered=self.save_assembly_pdf)
         self.act_nest = QAction("철판 배치", self, shortcut="Ctrl+N", triggered=self.show_nesting)
         self.act_bom = QAction("BOM", self, shortcut="Ctrl+B", triggered=self.save_bom)
+        self.act_laser = QAction("레이저·절곡 단가", self, shortcut="Ctrl+L", triggered=self.show_laser_price)
+        self.act_laser.setToolTip("부품마다 레이저 절단 시간 · 절곡 수로 개당 단가 (재료 포함 · 제외), 엑셀")
         self.act_quote = QAction("견적", self, shortcut="Ctrl+E", triggered=self.show_quote)
         self.act_quote.setToolTip("도면(3D)으로 공정수·재료비·가공비·부자재를 계산해 견적서 초안 (엑셀·PDF)")
         self.act_die = QAction("금형 검토", self, shortcut="Ctrl+K", triggered=self.show_die)
@@ -965,11 +967,11 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QMenuBar, QTabWidget
         groups = {
             "파일": [self.act_open, self.act_part_pkg, self.act_package, self.act_batch, self.act_zip],
-            "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_sim, self.act_assy],
+            "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_laser, self.act_sim, self.act_assy],
             "네스팅": [self.act_nest],
             "BOM": [self.act_bom, self.act_ai_bom],
             "금형": [self.act_part_pkg, self.act_sim, self.act_die, self.act_process, self.act_die_cost],
-            "견적": [self.act_items, self.act_part_pkg, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
+            "견적": [self.act_laser, self.act_items, self.act_part_pkg, self.act_package, self.act_quote, self.act_prod, self.act_costsheet,
                    self.act_die_cost, self.act_doc_log],
             "품질": [self.act_sim, self.act_quality, self.act_inspect],
             "기록": [self.act_history, self.act_doc_log, self.act_items, self.act_calib],
@@ -978,7 +980,7 @@ class MainWindow(QMainWindow):
         if edition.unfold_only():                    # 전개 전용판: 전개에 쓰는 것만
             groups = {
                 "파일": [self.act_open, self.act_batch, self.act_zip],
-                "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_assy],
+                "전개": [self.act_save, self.act_pdf, self.act_xlsx, self.act_laser, self.act_assy],
                 "기록": [self.act_history],
                 "설정·도움말": [self.act_help, self.act_dwg_conv, self.act_update, self.act_about],
             }
@@ -1374,6 +1376,25 @@ class MainWindow(QMainWindow):
                 self.open_file(path)
             self.show_quote(item_id=rid)
         ItemsDialog(self.history, self, quote_item, self.model.path if self.model else "").exec()
+
+    def show_laser_price(self):
+        """레이저 · 절곡 단가 창. [전체 계산] 을 안 했으면 먼저 한다."""
+        from .laser_dialog import LaserPriceDialog
+        if self.model is None:
+            QMessageBox.information(self, "레이저 · 절곡 단가", "먼저 3D 도면을 여세요.")
+            return
+        if not self.assy_parts_result:
+            self.calc_all()
+            if not self.assy_parts_result:
+                return
+        try:
+            dlg = LaserPriceDialog(self.model, self.assy_parts_result, self.bend_panel.settings(), self.excluded,
+                                   os.path.splitext(os.path.basename(self.model.path))[0], self)
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            QMessageBox.warning(self, "레이저 · 절곡 단가", str(e))
+            return
+        dlg.exec()
 
     def show_quote(self, package=False, tab=None, item_id=None):
         """견적 창. 아직 [전체 계산] 을 안 했으면 먼저 한다. package: 전체 분석 단추를 앞에 (수량 넣고 누름)."""
